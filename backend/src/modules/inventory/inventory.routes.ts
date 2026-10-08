@@ -13,6 +13,7 @@ import { converterItemDeCompra } from "../../shared/unidades/conversao.js";
 import { cancelamentoDeveCancelarBase, podeReaproveitarBase, reaberturaDeveSoltarBase } from "./base-oficial.js";
 import { classificarItemDaConferencia, ordenarConferencia, resumirConferencia } from "./conferencia.js";
 import { correcoesDaRevisao, modoDeEdicao } from "./edicao-inventario.js";
+import { escolherCusto, temCustoDoSistema, validarCustoInformado, type CandidatosDoCusto, type CustoDoItem } from "./custo-inventario.js";
 import { LIMITE_DE_CONFERENCIA, pendenciasParaAprovar, validarRevisao } from "./revisao-conferencia.js";
 import { derivarCiclos, duracaoEmDias, fechouForaDoMes } from "./stock-cycle.service.js";
 import { semanaDaData, statusDaRotina } from "./agenda-rotina.js";
@@ -1499,13 +1500,15 @@ async function createInventorySnapshotFromOperationalInventory(id: string, user:
   const effectiveCountDate = inventory.effectiveCountDate ?? inventory.date;
   await assertPeriodWritableForDate(effectiveCountDate, "Geracao de base oficial de estoque");
 
-  const items = await prisma.$queryRaw<Array<OperationalInventoryItemRow & { averageCost: Prisma.Decimal | null }>>`
-    SELECT item.*, stock."averageCost"
+  const items = await prisma.$queryRaw<Array<OperationalInventoryItemRow>>`
+    SELECT item.*
     FROM "OperationalInventoryItem" item
-    LEFT JOIN "InventoryStock" stock ON stock."productId" = item."productId"
     WHERE item."inventoryId" = ${id}
     ORDER BY item."sectorName", item."location", item."categoryName", item."productName"
   `;
+  // Mesmo custo da conferencia (custo-inventario.ts), nao o medio do saldo.
+  const custos = await custosDoInventario(id);
+  const custoDe = (itemId: string) => custos.get(itemId)?.custo?.valor ?? null;
   if (items.some((item) => item.status === "PENDENTE")) {
     throw new Error("Inventario FINAL_CMV precisa estar totalmente contado ou zerado para gerar snapshot de CMV.");
   }
@@ -1516,8 +1519,7 @@ async function createInventorySnapshotFromOperationalInventory(id: string, user:
   const totalItems = items.length;
   const totalValue = items.reduce((sum, item) => {
     const quantity = item.countedQuantity == null ? 0 : Number(item.countedQuantity);
-    const unitCost = item.averageCost == null ? 0 : Number(item.averageCost);
-    return sum + quantity * unitCost;
+    return sum + quantity * (custoDe(item.id) ?? 0);
   }, 0);
 
   const conflicting = await prisma.$queryRaw<Array<{ id: string; originalFileName: string | null }>>`
@@ -1550,7 +1552,7 @@ async function createInventorySnapshotFromOperationalInventory(id: string, user:
 
   for (const item of items) {
     const countedQuantity = item.countedQuantity == null ? 0 : Number(item.countedQuantity);
-    const unitCost = item.averageCost == null ? null : Number(item.averageCost);
+    const unitCost = custoDe(item.id);
     await prisma.$executeRaw`
       INSERT INTO "InventorySnapshotItem" (
         "id", "snapshotId", "productId", "productCode", "productName", "sectorName", "categoryName",
@@ -4402,6 +4404,97 @@ inventoryRouter.get("/posicao", async (request, response) => {
 //
 // Datas comparadas como dia (TZ=UTC): compra no dia da contagem anterior ja
 // estava nela; compra no dia desta contagem entra nesta.
+// Candidatos de custo de cada item (regra em custo-inventario.ts). A mesma
+// consulta serve a conferencia e a base do CMV gerada na aprovacao, para a
+// tela mostrar exatamente o valor que vai para o CMV.
+async function custosDoInventario(inventoryId: string): Promise<Map<string, { candidatos: CandidatosDoCusto; custo: CustoDoItem | null }>> {
+  const rows = await prisma.$queryRaw<Array<{
+    itemId: string;
+    periodo: Prisma.Decimal | null;
+    ultimaCompra: Prisma.Decimal | null;
+    ultimaCompraData: Date | null;
+    base: Prisma.Decimal | null;
+    baseAno: number | null;
+    baseMes: number | null;
+    informado: Prisma.Decimal | null;
+    informadoPor: string | null;
+    informadoEm: Date | null;
+  }>>`
+    WITH atual AS (
+      SELECT "id", COALESCE("effectiveCountDate", "date")::date AS dia
+      FROM "OperationalInventory" WHERE "id" = ${inventoryId}
+    ),
+    alvo AS (
+      SELECT * FROM "OperationalInventoryItem" WHERE "inventoryId" = ${inventoryId}
+    ),
+    anterior AS (
+      SELECT DISTINCT ON (i."productId") i."productId", COALESCE(o."effectiveCountDate", o."date")::date AS dia
+      FROM "OperationalInventoryItem" i
+      JOIN "OperationalInventory" o ON o."id" = i."inventoryId"
+      CROSS JOIN atual
+      WHERE o."status" IN ('APROVADO', 'FECHADO') AND o."id" <> atual."id"
+        AND i."countedQuantity" IS NOT NULL
+        AND i."productId" IN (SELECT "productId" FROM alvo WHERE "productId" IS NOT NULL)
+        AND COALESCE(o."effectiveCountDate", o."date")::date < atual.dia
+      ORDER BY i."productId", COALESCE(o."effectiveCountDate", o."date")::date DESC, o."approvedAt" DESC NULLS LAST
+    ),
+    periodo AS (
+      SELECT pi."productId",
+             SUM(pi."totalPrice") / NULLIF(SUM(COALESCE(pi."convertedQuantity", pi."quantity")), 0) AS custo
+      FROM "PurchaseItem" pi
+      JOIN "Purchase" p ON p."id" = pi."purchaseId"
+      JOIN anterior a ON a."productId" = pi."productId"
+      CROSS JOIN atual
+      WHERE p."status" = 'ACTIVE' AND p."workflowStatus" = 'confirmed'
+        AND COALESCE(p."receivedAt", p."purchaseDate")::date > a.dia
+        AND COALESCE(p."receivedAt", p."purchaseDate")::date <= atual.dia
+      GROUP BY pi."productId"
+    )
+    SELECT alvo."id" AS "itemId", periodo.custo AS periodo,
+           ultima.custo AS "ultimaCompra", ultima.dia AS "ultimaCompraData",
+           base."unitCost" AS base, base.ano AS "baseAno", base.mes AS "baseMes",
+           alvo."manualUnitCost" AS informado, quem."name" AS "informadoPor", alvo."manualUnitCostAt" AS "informadoEm"
+    FROM alvo
+    CROSS JOIN atual
+    LEFT JOIN periodo ON periodo."productId" = alvo."productId"
+    LEFT JOIN "User" quem ON quem."id" = alvo."manualUnitCostByUserId"
+    -- Ultima compra em qualquer data ate o dia da contagem (periodos anteriores).
+    LEFT JOIN LATERAL (
+      SELECT pi."totalPrice" / NULLIF(COALESCE(pi."convertedQuantity", pi."quantity"), 0) AS custo,
+             COALESCE(p."receivedAt", p."purchaseDate") AS dia
+      FROM "PurchaseItem" pi
+      JOIN "Purchase" p ON p."id" = pi."purchaseId"
+      WHERE pi."productId" = alvo."productId"
+        AND p."status" = 'ACTIVE' AND p."workflowStatus" = 'confirmed'
+        AND pi."totalPrice" > 0 AND COALESCE(pi."convertedQuantity", pi."quantity") > 0
+        AND COALESCE(p."receivedAt", p."purchaseDate")::date <= atual.dia
+      ORDER BY COALESCE(p."receivedAt", p."purchaseDate") DESC, p."createdAt" DESC
+      LIMIT 1
+    ) ultima ON true
+    -- Produto sem compra no sistema (vinho, destilado que entrou antes do ERP):
+    -- o custo da ultima base oficial em que ele teve custo.
+    LEFT JOIN LATERAL (
+      SELECT si."unitCost", s."competenceYear" AS ano, s."competenceMonth" AS mes
+      FROM "InventorySnapshotItem" si
+      JOIN "InventorySnapshot" s ON s."id" = si."snapshotId"
+      WHERE si."productId" = alvo."productId" AND si."unitCost" > 0
+        AND s."status" <> 'CANCELLED' AND s."countDate"::date < atual.dia
+      ORDER BY s."countDate" DESC, si."unitCost" DESC
+      LIMIT 1
+    ) base ON true
+  `;
+  const numero = (valor: Prisma.Decimal | null) => (valor == null ? null : Number(valor));
+  return new Map(rows.map((row) => {
+    const candidatos: CandidatosDoCusto = {
+      periodo: numero(row.periodo),
+      ultimaCompra: { valor: numero(row.ultimaCompra), data: row.ultimaCompraData },
+      base: { valor: numero(row.base), ano: row.baseAno == null ? null : Number(row.baseAno), mes: row.baseMes == null ? null : Number(row.baseMes) },
+      informado: { valor: numero(row.informado), por: row.informadoPor, em: row.informadoEm }
+    };
+    return [row.itemId, { candidatos, custo: escolherCusto(candidatos) }];
+  }));
+}
+
 // A conferencia calculada serve a rota e a aprovacao, que so passa com os
 // alertas que pesam conferidos (revisao-conferencia.ts).
 async function calcularConferencia(inventoryId: string) {
@@ -4509,13 +4602,13 @@ async function calcularConferencia(inventoryId: string) {
     ) base ON true
   `;
 
+  const custos = await custosDoInventario(inventoryId);
   const numero = (valor: Prisma.Decimal | number | null) => (valor == null ? null : Number(valor));
   const itens = rows.map((row) => {
     const compras = numero(row.compras) ?? 0;
-    // Custo das compras do periodo; sem compra, o da base oficial da contagem
-    // anterior (o que o CMV usou). Nunca o medio do saldo: ele herda erro de
-    // unidade e dava R$ 39 mil a 1.800 saches de palito.
-    const custoUnitario = numero(row.custoCompras) ?? numero(row.custoBase);
+    // O mesmo custo que a aprovacao grava na base do CMV (custo-inventario.ts).
+    const custo = custos.get(row.itemId)?.custo ?? null;
+    const custoUnitario = custo?.valor ?? null;
     const resultado = classificarItemDaConferencia({
       nomeProduto: row.productName,
       unidade: row.unit,
@@ -4545,6 +4638,8 @@ async function calcularConferencia(inventoryId: string) {
       anteriorCodigo: row.anteriorCodigo,
       compras,
       custoUnitario,
+      custoFonte: custo?.fonte ?? null,
+      custoDetalhe: custo?.detalhe ?? null,
       conferido: row.motivo
         ? { motivo: row.motivo, observacao: row.observacaoDaConferencia, em: row.conferidoEm, por: row.conferidoPor }
         : null,
@@ -4665,6 +4760,47 @@ async function assertCanConfer(inventoryId: string, user: SessionUser) {
   }
   return inventory;
 }
+
+// Custo informado a mao: a ultima alternativa, so para item em que o sistema
+// nao achou custo nenhum (nem compra no periodo, nem compra anterior, nem base
+// de meses anteriores). Sem ele o item entraria a R$ 0 no CMV.
+inventoryRouter.patch("/operational/:id/items/:itemId/custo", async (request, response) => {
+  const user = await requireMenuPermission(request, response);
+  if (!user) return;
+  try {
+    await assertCanEditOperationalInventory(request.params.id, user, true);
+    const validacao = validarCustoInformado(request.body.custo);
+    if (!validacao.ok) {
+      response.status(400).json({ message: validacao.erro });
+      return;
+    }
+    const custos = await custosDoInventario(request.params.id);
+    const atual = custos.get(request.params.itemId);
+    if (!atual) {
+      response.status(404).json({ message: "Item nao encontrado neste inventario." });
+      return;
+    }
+    if (validacao.valor != null && temCustoDoSistema(atual.candidatos)) {
+      response.status(400).json({ message: "O sistema ja encontrou custo para este item; o custo informado so vale quando nao ha nenhum." });
+      return;
+    }
+    const [item] = await prisma.$queryRaw<Array<{ productName: string; manualUnitCost: Prisma.Decimal | null }>>`
+      UPDATE "OperationalInventoryItem"
+      SET "manualUnitCost" = ${validacao.valor}, "manualUnitCostByUserId" = ${validacao.valor == null ? null : user.id},
+          "manualUnitCostAt" = ${validacao.valor == null ? null : new Date()}, "updatedAt" = CURRENT_TIMESTAMP
+      WHERE "id" = ${request.params.itemId} AND "inventoryId" = ${request.params.id}
+      RETURNING "productName", "manualUnitCost"
+    `;
+    await auditLog({
+      userId: user.id, action: "SET_OPERATIONAL_INVENTORY_ITEM_COST", entity: "OperationalInventory", entityId: request.params.id,
+      previousValue: { itemId: request.params.itemId, custo: atual.candidatos.informado?.valor ?? null },
+      newValue: { itemId: request.params.itemId, produto: item?.productName ?? null, custo: validacao.valor }
+    });
+    response.json({ ok: true });
+  } catch (error) {
+    response.status(400).json({ message: error instanceof Error ? error.message : "Erro ao informar o custo." });
+  }
+});
 
 // Marca um alerta como conferido (ou desfaz).
 inventoryRouter.patch("/operational/:id/items/:itemId/conferido", async (request, response) => {
@@ -4981,7 +5117,13 @@ inventoryRouter.patch("/operational/:id/approve", async (request, response) => {
     // Os alertas que pesam precisam ter sido vistos: aprovar transforma estas
     // quantidades na base do CMV.
     if (inventory.status === "EM_REVISAO") {
-      const pendentes = pendenciasDaConferencia(await calcularConferencia(request.params.id));
+      const conferenciaParaAprovar = await calcularConferencia(request.params.id);
+      const pendentes = pendenciasDaConferencia(conferenciaParaAprovar);
+      const semCusto = conferenciaParaAprovar.filter((item) => (item.contado ?? 0) > 0 && item.custoUnitario == null);
+      if (semCusto.length) {
+        const nomes = semCusto.slice(0, 3).map((item) => item.productName).join(", ");
+        throw new Error(`${semCusto.length} item(ns) contado(s) sem custo no sistema (${nomes}${semCusto.length > 3 ? "..." : ""}). Informe o custo na conferencia: sem ele o item entra a R$ 0 no CMV.`);
+      }
       if (pendentes.length) {
         throw new Error(`Faltam conferir ${pendentes.length} item(ns) da conferencia (alertas a partir de R$ ${LIMITE_DE_CONFERENCIA} ou sem custo). Marque cada um ou aplique a recontagem antes de aprovar.`);
       }
