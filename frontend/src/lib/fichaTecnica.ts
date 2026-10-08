@@ -156,6 +156,35 @@ export function custoPrevisto(item: IngredientePrevisto): number | null {
   return qtd * fator * (1 + perdaFracao) * item.unitCost;
 }
 
+/**
+ * Quantidade equivalente ao trocar a unidade da linha: 170 G → 0,17 KG. Sem isto o número ficava
+ * igual e a unidade mudava por baixo (170 KG de alcatra). Só converte quando há fator conhecido;
+ * senão devolve null e a quantidade fica como a pessoa digitou.
+ */
+export function converterAoTrocarUnidade(
+  item: Pick<IngredientePrevisto, "quantity" | "unit" | "conversions">,
+  novaUnidade: string
+): { quantity: string; aviso: string } | null {
+  const quantidade = lerNumero(item.quantity);
+  if (!Number.isFinite(quantidade) || quantidade <= 0) return null;
+
+  const de = normalizarUnidade(item.unit);
+  const para = normalizarUnidade(novaUnidade);
+  if (!de || !para || de === para) return null;
+
+  const fator = fatorConversao(de, para, item.conversions);
+  if (fator == null) return null;
+
+  // A quantidade é gravada com 4 casas; arredondar aqui evita 0,1700000000000002 na tela.
+  const convertida = Math.round(quantidade * fator * 10_000) / 10_000;
+  if (convertida <= 0) return null;
+
+  return {
+    quantity: String(convertida),
+    aviso: `Quantidade convertida: ${formatarQuantidade(quantidade)} ${de} = ${formatarQuantidade(convertida)} ${para}.`
+  };
+}
+
 /** Por que o custo do ingrediente não foi calculado; null quando foi. */
 export function motivoSemCusto(item: IngredientePrevisto): string | null {
   if (!item.unitCost) return "O produto ainda não tem custo médio no estoque.";
@@ -339,6 +368,8 @@ export type ItemDaFicha = IngredientePrevisto & {
   notes: string;
   /** Texto "1 UN = 5 KG (lido do nome do produto)" quando a conversão veio do nome. */
   embalagemInferida?: string | null;
+  /** "Quantidade convertida: 170 G = 0,17 KG." logo depois de trocar a unidade; some ao editar a quantidade. */
+  avisoDeConversao?: string | null;
 };
 
 export type ErroDoItem = { campo: "quantity" | "wasteFactor"; mensagem: string };
