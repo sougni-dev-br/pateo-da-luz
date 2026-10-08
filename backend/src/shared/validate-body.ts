@@ -1,5 +1,9 @@
 import type { z } from "zod";
 
+// Entrada `unknown`: schemas com preprocess/transform (entrada != saida) tambem servem,
+// e T e sempre o tipo JA validado.
+type AnySchema<T> = z.ZodType<T, z.ZodTypeDef, unknown>;
+
 /**
  * Primeira falha de validacao em texto legivel: "campo: motivo".
  *
@@ -23,7 +27,7 @@ type ResponseLike = {
  * Valida o corpo e, em caso de falha, ja responde 400 com a mensagem legivel.
  * Devolve null quando invalido — a rota so precisa fazer `if (!data) return;`.
  */
-export function parseBody<T>(schema: z.ZodType<T>, body: unknown, response: ResponseLike): T | null {
+export function parseBody<T>(schema: AnySchema<T>, body: unknown, response: ResponseLike): T | null {
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
     response.status(400).json({ message: firstValidationMessage(parsed.error) });

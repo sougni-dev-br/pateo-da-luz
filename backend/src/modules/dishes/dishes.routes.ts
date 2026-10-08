@@ -22,6 +22,29 @@ type ItemComProduto = {
   };
 };
 
+/**
+ * Texto vazio e null viram "ausente"; string aparada e numero passam; qualquer outra coisa
+ * (true, [], {}) vira NaN e e recusada. z.coerce sozinho transformava "  " em 0 e true em 1.
+ */
+const numeroOuAusente = (valor: unknown): unknown => {
+  if (valor == null) return null;
+  if (typeof valor === "number") return valor;
+  if (typeof valor === "string") return valor.trim() === "" ? null : valor.trim();
+  return Number.NaN;
+};
+
+const precoOpcional = z.preprocess(
+  numeroOuAusente,
+  z.coerce.number({ invalid_type_error: "preco de venda invalido" }).min(0, "preco de venda nao pode ser negativo").max(99_999_999, "preco de venda alto demais").nullable()
+);
+
+const rendimento = z.preprocess(
+  (valor) => numeroOuAusente(valor) ?? 1,
+  z.coerce.number({ invalid_type_error: "rendimento invalido" }).gt(0, "rendimento deve ser maior que zero").max(99_999, "rendimento alto demais")
+);
+
+const textoOpcional = z.string().trim().nullish().transform((valor) => valor || null);
+
 const dishItemsSchema = z.array(
   z.object({
     productId: z.string().trim().min(1, "produto obrigatorio"),
@@ -31,6 +54,28 @@ const dishItemsSchema = z.array(
     notes: z.string().trim().nullable().optional()
   })
 );
+
+const dishBodySchema = z.object({
+  name: z.string({ required_error: "Nome do prato é obrigatório." }).trim().min(1, "Nome do prato é obrigatório."),
+  code: textoOpcional,
+  categoryId: textoOpcional,
+  salePriceDefault: precoOpcional,
+  yieldQty: rendimento,
+  yieldUnit: z.string().trim().nullish().transform((valor) => valor || "UN"),
+  notes: textoOpcional,
+  isActive: z.boolean().optional(),
+  items: dishItemsSchema.optional()
+});
+
+const ehCodigoDuplicado = (error: unknown) =>
+  error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+
+const ehRegistroInexistente = (error: unknown) =>
+  error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025";
+
+/** Chave estrangeira: categoria ou produto apagado depois que a tela carregou. */
+const ehReferenciaInvalida = (error: unknown) =>
+  error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2003";
 
 /**
  * Number(item.quantity) virava NaN em silencio e productId inexistente so
@@ -69,6 +114,21 @@ function toCostItem(item: ItemComProduto): CostItemInput {
   };
 }
 
+type ItemValidado = z.infer<typeof dishItemsSchema>[number];
+
+function itemParaGravar(dishId: string, item: ItemValidado, index: number) {
+  return {
+    id: crypto.randomUUID(),
+    dishId,
+    productId: item.productId,
+    quantity: item.quantity,
+    unit: item.unit,
+    wasteFactor: item.wasteFactor ?? 0,
+    notes: item.notes || null,
+    sortOrder: index
+  };
+}
+
 dishesRouter.use(async (request, response, next) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
   if (!user) return;
@@ -81,9 +141,10 @@ dishesRouter.use(async (request, response, next) => {
 
 dishesRouter.get("/categories", async (_request, response) => {
   const rows = await prisma.dishCategory.findMany({
-    orderBy: [{ sortOrder: "asc" }, { name: "asc" }]
+    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+    include: { _count: { select: { dishes: { where: { isActive: true } } } } }
   });
-  response.json(rows);
+  response.json(rows.map(({ _count, ...category }) => ({ ...category, dishesCount: _count.dishes })));
 });
 
 dishesRouter.post("/categories", async (request, response) => {
@@ -164,6 +225,7 @@ dishesRouter.get("/", async (request, response) => {
     },
     include: {
       category: { select: { id: true, name: true } },
+      listings: { where: { isActive: true }, select: { price: true } },
       items: {
         include: {
           product: {
@@ -193,6 +255,7 @@ dishesRouter.get("/", async (request, response) => {
     const cost = custo.totalCost;
     const margemBruta = custo.margemBruta;
     const cmvPercentual = custo.cmvPercentual;
+    const precosNosCanais = dish.listings.map((listing) => Number(listing.price));
 
     return {
       id: dish.id,
@@ -205,6 +268,9 @@ dishesRouter.get("/", async (request, response) => {
       notes: dish.notes,
       isActive: dish.isActive,
       itemsCount: dish.items.length,
+      listingsCount: precosNosCanais.length,
+      listingPriceMin: precosNosCanais.length ? Math.min(...precosNosCanais) : null,
+      listingPriceMax: precosNosCanais.length ? Math.max(...precosNosCanais) : null,
       calculatedCost: cost,
       custoPorcao: custo.costPerServing,
       margemBruta,
@@ -223,6 +289,10 @@ dishesRouter.get("/:id", async (request, response) => {
     where: { id: request.params.id },
     include: {
       category: true,
+      listings: {
+        include: { deliveryStore: { select: { nickname: true, platform: true } } },
+        orderBy: [{ isActive: "desc" }, { price: "asc" }]
+      },
       items: {
         include: {
           product: {
@@ -299,122 +369,134 @@ dishesRouter.get("/:id", async (request, response) => {
     cmvPercentual: custo.cmvPercentual,
     custoIncompleto: custo.hasUnresolvedUnit || custo.hasMissingCost,
     items,
+    // Onde o prato e vendido e por quanto (hoje so o cardapio da 99). O preco de
+    // venda padrao da ficha nao substitui isto: varia por loja.
+    listings: dish.listings.map((listing) => ({
+      id: listing.id,
+      channel: listing.channel,
+      storeName: listing.deliveryStore?.nickname ?? null,
+      externalName: listing.externalName,
+      price: Number(listing.price),
+      isActive: listing.isActive,
+      lastSeenAt: listing.lastSeenAt
+    })),
     createdAt: dish.createdAt,
     updatedAt: dish.updatedAt
   });
 });
 
+/**
+ * Erro de negocio conhecido (codigo repetido, prato inexistente) vira resposta
+ * legivel; o resto continua sendo 500 para nao esconder falha de verdade.
+ */
+function responderErroDeGravacao(error: unknown, codigo: string | null, response: { status: (code: number) => { json: (body: unknown) => void } }) {
+  if (ehCodigoDuplicado(error)) {
+    response.status(409).json({ message: `Já existe um prato com o código "${codigo ?? ""}".` });
+    return true;
+  }
+  if (ehRegistroInexistente(error)) {
+    response.status(404).json({ message: "Prato não encontrado." });
+    return true;
+  }
+  if (ehReferenciaInvalida(error)) {
+    response.status(400).json({ message: "A categoria ou um dos produtos da ficha não existe mais. Recarregue a tela e tente de novo." });
+    return true;
+  }
+  return false;
+}
+
 dishesRouter.post("/", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
 
-  const name = String(request.body.name ?? "").trim();
-  if (!name) {
-    response.status(400).json({ message: "Nome do prato é obrigatório." });
+  // Tudo e validado antes de gravar: antes, o prato era criado e so depois os
+  // ingredientes eram conferidos, deixando um prato vazio quando algum falhava.
+  const body = parseBody(dishBodySchema, request.body, response);
+  if (!body) return;
+
+  const items = body.items ?? [];
+  const invalido = await primeiroProdutoInvalido(items);
+  if (invalido) {
+    response.status(400).json({ message: invalido });
     return;
   }
 
   const id = crypto.randomUUID();
-  const dish = await prisma.dish.create({
-    data: {
-      id,
-      name,
-      code: String(request.body.code ?? "").trim() || null,
-      categoryId: String(request.body.categoryId ?? "").trim() || null,
-      salePriceDefault: request.body.salePriceDefault != null ? Number(request.body.salePriceDefault) : null,
-      yieldQty: Number(request.body.yieldQty ?? 1),
-      yieldUnit: String(request.body.yieldUnit ?? "UN").trim() || "UN",
-      notes: String(request.body.notes ?? "").trim() || null
-    }
-  });
+  try {
+    const dish = await prisma.$transaction(async (tx) => {
+      const created = await tx.dish.create({
+        data: {
+          id,
+          name: body.name,
+          code: body.code,
+          categoryId: body.categoryId,
+          salePriceDefault: body.salePriceDefault,
+          yieldQty: body.yieldQty,
+          yieldUnit: body.yieldUnit,
+          notes: body.notes
+        }
+      });
 
-  if (Array.isArray(request.body.items) && request.body.items.length > 0) {
-    const items = parseBody(dishItemsSchema, request.body.items, response);
-    if (!items) return;
-
-    const invalido = await primeiroProdutoInvalido(items);
-    if (invalido) {
-      response.status(400).json({ message: invalido });
-      return;
-    }
-
-    await prisma.dishItem.createMany({
-      data: items.map((item, index) => ({
-        id: crypto.randomUUID(),
-        dishId: id,
-        productId: item.productId,
-        quantity: item.quantity,
-        unit: item.unit,
-        wasteFactor: item.wasteFactor ?? 0,
-        notes: item.notes || null,
-        sortOrder: index
-      }))
+      if (items.length > 0) {
+        await tx.dishItem.createMany({ data: items.map((item, index) => itemParaGravar(id, item, index)) });
+      }
+      return created;
     });
-  }
 
-  await auditLog({ userId: user.id, action: "CREATE", entity: "Dish", entityId: dish.id, newValue: dish });
-  response.json({ id: dish.id });
+    await auditLog({ userId: user.id, action: "CREATE", entity: "Dish", entityId: dish.id, newValue: dish });
+    response.json({ id: dish.id });
+  } catch (error) {
+    if (!responderErroDeGravacao(error, body.code, response)) throw error;
+  }
 });
 
 dishesRouter.put("/:id", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
 
-  const name = String(request.body.name ?? "").trim();
-  if (!name) {
-    response.status(400).json({ message: "Nome do prato é obrigatório." });
+  const body = parseBody(dishBodySchema, request.body, response);
+  if (!body) return;
+
+  const invalido = body.items ? await primeiroProdutoInvalido(body.items) : null;
+  if (invalido) {
+    response.status(400).json({ message: invalido });
     return;
   }
 
-  const dish = await prisma.dish.update({
-    where: { id: request.params.id },
-    data: {
-      name,
-      code: String(request.body.code ?? "").trim() || null,
-      categoryId: String(request.body.categoryId ?? "").trim() || null,
-      salePriceDefault: request.body.salePriceDefault != null ? Number(request.body.salePriceDefault) : null,
-      yieldQty: Number(request.body.yieldQty ?? 1),
-      yieldUnit: String(request.body.yieldUnit ?? "UN").trim() || "UN",
-      notes: String(request.body.notes ?? "").trim() || null,
-      isActive: request.body.isActive !== false
-    }
-  });
-
-  if (Array.isArray(request.body.items)) {
-    const items = parseBody(dishItemsSchema, request.body.items, response);
-    if (!items) return;
-
-    const invalido = await primeiroProdutoInvalido(items);
-    if (invalido) {
-      response.status(400).json({ message: invalido });
-      return;
-    }
-
-    // Em transacao: o delete seguido de create sem transacao deixava a ficha
-    // permanentemente sem ingredientes se o create falhasse no meio.
-    await prisma.$transaction([
-      prisma.dishItem.deleteMany({ where: { dishId: request.params.id } }),
-      ...(items.length > 0
+  const id = request.params.id;
+  try {
+    // Prato e ingredientes na mesma transacao: o delete seguido de create sem
+    // transacao deixava a ficha permanentemente sem ingredientes se o create
+    // falhasse no meio.
+    const [dish] = await prisma.$transaction([
+      prisma.dish.update({
+        where: { id },
+        data: {
+          name: body.name,
+          code: body.code,
+          categoryId: body.categoryId,
+          salePriceDefault: body.salePriceDefault,
+          yieldQty: body.yieldQty,
+          yieldUnit: body.yieldUnit,
+          notes: body.notes,
+          isActive: body.isActive !== false
+        }
+      }),
+      ...(body.items
         ? [
-            prisma.dishItem.createMany({
-              data: items.map((item, index) => ({
-                id: crypto.randomUUID(),
-                dishId: request.params.id,
-                productId: item.productId,
-                quantity: item.quantity,
-                unit: item.unit,
-                wasteFactor: item.wasteFactor ?? 0,
-                notes: item.notes || null,
-                sortOrder: index
-              }))
-            })
+            prisma.dishItem.deleteMany({ where: { dishId: id } }),
+            ...(body.items.length > 0
+              ? [prisma.dishItem.createMany({ data: body.items.map((item, index) => itemParaGravar(id, item, index)) })]
+              : [])
           ]
         : [])
     ]);
-  }
 
-  await auditLog({ userId: user.id, action: "UPDATE", entity: "Dish", entityId: dish.id, newValue: dish });
-  response.json({ id: dish.id });
+    await auditLog({ userId: user.id, action: "UPDATE", entity: "Dish", entityId: dish.id, newValue: dish });
+    response.json({ id: dish.id });
+  } catch (error) {
+    if (!responderErroDeGravacao(error, body.code, response)) throw error;
+  }
 });
 
 // Product search with average cost (for ingredient picker)
@@ -459,11 +541,30 @@ dishesRouter.delete("/:id", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
 
-  await prisma.dish.update({
-    where: { id: request.params.id },
-    data: { isActive: false }
-  });
+  try {
+    await prisma.dish.update({ where: { id: request.params.id }, data: { isActive: false } });
+  } catch (error) {
+    if (responderErroDeGravacao(error, null, response)) return;
+    throw error;
+  }
 
   await auditLog({ userId: user.id, action: "DELETE", entity: "Dish", entityId: request.params.id });
+  response.json({ ok: true });
+});
+
+// Inativar nao era reversivel pela tela: o prato so aparecia com "mostrar inativos"
+// e nao havia como voltar.
+dishesRouter.post("/:id/reactivate", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  if (!user) return;
+
+  try {
+    await prisma.dish.update({ where: { id: request.params.id }, data: { isActive: true } });
+  } catch (error) {
+    if (responderErroDeGravacao(error, null, response)) return;
+    throw error;
+  }
+
+  await auditLog({ userId: user.id, action: "REACTIVATE", entity: "Dish", entityId: request.params.id });
   response.json({ ok: true });
 });

@@ -100,7 +100,7 @@ const Extras = lazy(() => import("./pages/Extras").then((module) => ({ default: 
 const FichasCadastrais = lazy(() => import("./pages/rh/fichas/FichasCadastrais").then((module) => ({ default: module.FichasCadastrais })));
 const Requisitions = lazy(() => import("./pages/Requisitions").then((module) => ({ default: module.Requisitions })));
 const Users = lazy(() => import("./pages/Users").then((module) => ({ default: module.Users })));
-const Dishes = lazy(() => import("./pages/Dishes").then((module) => ({ default: module.Dishes })));
+const FichasTecnicas = lazy(() => import("./pages/cardapio/fichas/FichasTecnicas").then((module) => ({ default: module.FichasTecnicas })));
 const PainelEventos = lazy(() => import("./pages/operacao/eventos/PainelEventos").then((module) => ({ default: module.PainelEventos })));
 const Plaquinhas = lazy(() => import("./pages/cardapio/plaquinhas/Plaquinhas").then((module) => ({ default: module.Plaquinhas })));
 const DRE = lazy(() => import("./pages/DRE").then((module) => ({ default: module.DRE })));
@@ -746,7 +746,7 @@ export function App() {
               <Route path="/estoque/planejamento-compra" element={<PurchasePlanning />} />
               <Route path="/inventory/counts/:agendaId" element={<Navigate to="/estoque/contagens" replace />} />
               <Route path="/estoque/requisicoes" element={<Requisitions user={user} />} />
-              <Route path="/cardapio/fichas-tecnicas" element={<Dishes />} />
+              <Route path="/cardapio/fichas-tecnicas" element={<FichasTecnicas />} />
               <Route path="/cardapio/plaquinhas" element={<Plaquinhas />} />
               <Route path="/operacao/eventos" element={<PainelEventos />} />
               <Route path="/financeiro/dre" element={<DRE />} />

@@ -16,6 +16,7 @@
 import type { AppUser } from "../api/client";
 import { API_BASE_URL } from "../api/client";
 import { isLocal } from "../utils/env";
+import { mockFichas } from "./mockFichas";
 
 export const MOCK_USER: AppUser = {
   id: "mock-user",
@@ -214,8 +215,12 @@ function pathFrom(url: string): string {
   }
 }
 
-function mockResponseFor(url: string): unknown {
+function mockResponseFor(url: string, method = "GET"): unknown {
   const path = pathFrom(url);
+
+  // Fichas técnicas: lista, detalhe, categorias e busca de produto com dados de exemplo.
+  const fichas = mockFichas(url, method);
+  if (fichas !== undefined) return fichas;
 
   if (path.endsWith("/auth/me") || path.endsWith("/me")) return MOCK_USER;
   if (path.endsWith("/health")) return { status: "ok" };
@@ -819,7 +824,7 @@ export function installMockFetch(): void {
   window.fetch = async (input, init) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : (input as Request).url;
     if (!isApiUrl(url)) return originalFetch(input, init);
-    const body = mockResponseFor(url);
+    const body = mockResponseFor(url, init?.method ?? (input instanceof Request ? input.method : "GET"));
     return new Response(JSON.stringify(body), {
       status: 200,
       headers: { "Content-Type": "application/json" }
