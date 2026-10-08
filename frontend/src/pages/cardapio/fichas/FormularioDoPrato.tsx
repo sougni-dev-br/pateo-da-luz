@@ -4,6 +4,7 @@ import { saveDish, saveDishProductConversion, type DishCategory, type DishMenu, 
 import { Button, FormField, FormGrid, IconButton, Money, Select, StatusBadge, TextField, Textarea } from "../../../design-system";
 import {
   faixaDeCmv,
+  converterAoTrocarUnidade,
   fracaoParaPercentual,
   montarPayloadDaFicha,
   normalizarUnidade,
@@ -174,7 +175,17 @@ export function FormularioDoPrato({ modo, base, categorias, menuPadrao, onCancel
   }
 
   function alterarItem(tempId: string, campo: "quantity" | "unit" | "wasteFactor", valor: string) {
-    setItens((anterior) => anterior.map((item) => (item.tempId === tempId ? { ...item, [campo]: valor } : item)));
+    setItens((anterior) => anterior.map((item) => {
+      if (item.tempId !== tempId) return item;
+      if (campo === "unit") {
+        // Trocar a unidade traz a quantidade junto (170 G → 0,17 KG) quando há conversão conhecida.
+        const convertida = converterAoTrocarUnidade(item, valor);
+        return convertida
+          ? { ...item, unit: valor, quantity: convertida.quantity, avisoDeConversao: convertida.aviso }
+          : { ...item, unit: valor, avisoDeConversao: null };
+      }
+      return campo === "quantity" ? { ...item, quantity: valor, avisoDeConversao: null } : { ...item, [campo]: valor };
+    }));
   }
 
   /** "1 UN = 1.200 g": grava no produto e atualiza todas as linhas desse produto na ficha. */

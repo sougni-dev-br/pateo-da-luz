@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { DishListItem } from "../../api/client";
 import {
   contarPorSituacao,
+  converterAoTrocarUnidade,
   custoPrevisto,
   faixaDeCmv,
   fatorConversao,
@@ -342,5 +343,35 @@ describe("formulário da ficha", () => {
     expect(resumo.incompleto).toBe(true);
     expect(resumo.margemBruta).toBeNull();
     expect(resumo.cmvPercentual).toBeNull();
+  });
+});
+
+describe("converter a quantidade ao trocar a unidade", () => {
+  it("g → kg e kg → g pela conversão física", () => {
+    expect(converterAoTrocarUnidade(ingrediente({ quantity: "170" }), "KG")?.quantity).toBe("0.17");
+    expect(converterAoTrocarUnidade(ingrediente({ quantity: "0,5", unit: "KG" }), "G")?.quantity).toBe("500");
+  });
+
+  it("explica a conversão feita", () => {
+    expect(converterAoTrocarUnidade(ingrediente({ quantity: "170" }), "KG")?.aviso).toContain("170 G = 0,17 KG");
+  });
+
+  it("usa a conversão do produto (UN ⇄ G)", () => {
+    const conversoes = [{ fromUnit: "UN", toUnit: "G", factor: 1200, inferida: false }] as IngredientePrevisto["conversions"];
+    const base = { productUnit: "UN", conversions: conversoes };
+    expect(converterAoTrocarUnidade(ingrediente({ ...base, quantity: "0,5", unit: "UN" }), "G")?.quantity).toBe("600");
+    expect(converterAoTrocarUnidade(ingrediente({ ...base, quantity: "600", unit: "G" }), "UN")?.quantity).toBe("0.5");
+  });
+
+  it("sem conversão conhecida, vazio, zero, lixo ou mesma unidade: não mexe", () => {
+    expect(converterAoTrocarUnidade(ingrediente({ productUnit: "UN", unit: "UN" }), "G")).toBeNull();
+    expect(converterAoTrocarUnidade(ingrediente({ quantity: "" }), "KG")).toBeNull();
+    expect(converterAoTrocarUnidade(ingrediente({ quantity: "0" }), "KG")).toBeNull();
+    expect(converterAoTrocarUnidade(ingrediente({ quantity: "abc" }), "KG")).toBeNull();
+    expect(converterAoTrocarUnidade(ingrediente(), "gr")).toBeNull();
+  });
+
+  it("não deixa a quantidade virar zero por arredondamento", () => {
+    expect(converterAoTrocarUnidade(ingrediente({ quantity: "0,01" }), "KG")).toBeNull();
   });
 });
