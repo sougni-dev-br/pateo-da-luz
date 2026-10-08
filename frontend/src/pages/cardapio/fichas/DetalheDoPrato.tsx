@@ -44,7 +44,7 @@ function ReguaDoCmv({ cmv }: { cmv: number }) {
         <span className="ft-regua-marca" style={{ left: `${posicao}%` }} />
       </div>
       <p className="ft-regua-legenda">
-        CMV {faixa?.rotulo}: até {CMV_BOM}% é bom, até {CMV_ALTO}% pede atenção, acima disso é alto.
+        Bom até {CMV_BOM}% · atenção até {CMV_ALTO}% · alto acima disso
       </p>
     </div>
   );
@@ -108,13 +108,26 @@ function Aviso({ prato, canEdit, onEditar }: Pick<Props, "prato" | "canEdit" | "
   return null;
 }
 
+function resumoDasListagens(listagens: DishListing[]): string {
+  const ativas = listagens.filter((listagem) => listagem.isActive);
+  const base = ativas.length > 0 ? ativas : listagens;
+  const lojas = new Set(base.map((listagem) => listagem.storeName ?? "sem loja")).size;
+  const precos = base.map((listagem) => listagem.price);
+  const moeda = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  const faixa = Math.min(...precos) === Math.max(...precos) ? moeda(precos[0]) : `${moeda(Math.min(...precos))} a ${moeda(Math.max(...precos))}`;
+  return `${lojas} loja${lojas === 1 ? "" : "s"} · ${faixa}`;
+}
+
 function ListagensDoPrato({ prato }: { prato: DishDetail }) {
   if (prato.listings.length === 0) return null;
   const temCusto = prato.items.length > 0 && !prato.custoIncompleto;
 
   return (
-    <section className="ft-secao" aria-labelledby="ft-onde-vende">
-      <h3 id="ft-onde-vende" className="ft-secao-titulo">Onde é vendido</h3>
+    <details className="ft-recolhivel">
+      <summary>
+        <span className="ft-recolhivel-titulo">Onde é vendido</span>
+        <span className="ft-recolhivel-resumo">{resumoDasListagens(prato.listings)}</span>
+      </summary>
       <div className="ft-tabela-rolagem">
         <table className="ft-tabela">
           <thead>
@@ -150,7 +163,7 @@ function ListagensDoPrato({ prato }: { prato: DishDetail }) {
         É o preço de tabela do cardápio. Na 99 o desconto é bancado em boa parte pela loja, então o líquido
         que entra fica bem abaixo disso e o CMV sobre o que a loja recebe é maior.
       </p>
-    </section>
+    </details>
   );
 }
 
@@ -255,30 +268,32 @@ export function DetalheDoPrato({ prato, canEdit, onEditar, onCopiar, onAlternarA
 
       <Aviso prato={prato} canEdit={canEdit} onEditar={onEditar} />
 
-      <div className="ft-metricas">
-        <Metrica rotulo="Custo por porção" ajuda={prato.yieldQty !== 1 ? `receita inteira: R$ ${prato.calculatedCost.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : undefined}>
-          {semFicha ? "—" : <Money value={prato.custoPorcao} />}
-        </Metrica>
-        <Metrica rotulo="Preço de venda" ajuda={prato.salePriceDefault == null ? "não definido" : undefined}>
-          <Money value={prato.salePriceDefault} />
-        </Metrica>
-        <Metrica
-          rotulo="Margem bruta"
-          destaque={semFicha || prato.margemBruta == null || prato.custoIncompleto ? undefined : margemNegativa ? "danger" : "success"}
-          ajuda={prato.custoIncompleto && prato.margemBruta != null ? "no máximo — custo parcial" : undefined}
-        >
-          {semFicha ? "—" : <Money value={prato.margemBruta} />}
-        </Metrica>
-        <Metrica
-          rotulo="CMV"
-          destaque={mostraCmv ? (prato.custoIncompleto ? "warning" : faixa?.tom) : undefined}
-          ajuda={mostraCmv ? (prato.custoIncompleto ? "no mínimo — custo parcial" : faixa?.rotulo) : undefined}
-        >
-          {mostraCmv ? <Percent value={prato.cmvPercentual} /> : "—"}
-        </Metrica>
-      </div>
+      <section className="ft-resumo-ficha" aria-label="Resumo do prato">
+        <div className={`ft-hero ft-hero--${mostraCmv ? (prato.custoIncompleto ? "warning" : faixa?.tom ?? "neutro") : "neutro"}`}>
+          <span className="ft-metrica-rotulo">CMV</span>
+          <strong className="ft-hero-valor">{mostraCmv ? <Percent value={prato.cmvPercentual} /> : "—"}</strong>
+          <span className="ft-hero-faixa">
+            {semFicha ? "sem ficha" : !mostraCmv ? "falta o preço" : prato.custoIncompleto ? "no mínimo — custo parcial" : `CMV ${faixa?.rotulo}`}
+          </span>
+          {mostraCmv && !prato.custoIncompleto && prato.cmvPercentual != null && <ReguaDoCmv cmv={prato.cmvPercentual} />}
+        </div>
 
-      {mostraCmv && !prato.custoIncompleto && prato.cmvPercentual != null && <ReguaDoCmv cmv={prato.cmvPercentual} />}
+        <div className="ft-trio">
+          <Metrica rotulo="Custo por porção" ajuda={prato.yieldQty !== 1 ? `receita inteira: R$ ${prato.calculatedCost.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : undefined}>
+            {semFicha ? "—" : <Money value={prato.custoPorcao} />}
+          </Metrica>
+          <Metrica rotulo="Preço de venda" ajuda={prato.salePriceDefault == null ? "não definido" : undefined}>
+            <Money value={prato.salePriceDefault} />
+          </Metrica>
+          <Metrica
+            rotulo="Margem bruta"
+            destaque={semFicha || prato.margemBruta == null || prato.custoIncompleto ? undefined : margemNegativa ? "danger" : "success"}
+            ajuda={prato.custoIncompleto && prato.margemBruta != null ? "no máximo — custo parcial" : undefined}
+          >
+            {semFicha ? "—" : <Money value={prato.margemBruta} />}
+          </Metrica>
+        </div>
+      </section>
 
       <Ingredientes prato={prato} />
       <ListagensDoPrato prato={prato} />
