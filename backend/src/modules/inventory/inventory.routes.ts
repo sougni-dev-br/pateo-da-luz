@@ -11,6 +11,8 @@ import { userHasPermission } from "../security/menu-permissions.js";
 import { parseDecimalInput } from "../../shared/utils/parse-decimal.js";
 import { converterItemDeCompra } from "../../shared/unidades/conversao.js";
 import { cancelamentoDeveCancelarBase, podeReaproveitarBase, reaberturaDeveSoltarBase } from "./base-oficial.js";
+import { classificarItemDaConferencia, ordenarConferencia, resumirConferencia } from "./conferencia.js";
+import { correcoesDaRevisao, modoDeEdicao } from "./edicao-inventario.js";
 import { derivarCiclos, duracaoEmDias, fechouForaDoMes } from "./stock-cycle.service.js";
 import { semanaDaData, statusDaRotina } from "./agenda-rotina.js";
 
@@ -582,6 +584,8 @@ type OperationalInventoryRow = {
   pendingItems?: number | bigint;
   divergentItems?: number | bigint;
   zeroItems?: number | bigint;
+  /** Valor da base oficial gerada pelo inventario (InventorySnapshot), quando viva. */
+  snapshotTotalValue?: Prisma.Decimal | null;
 };
 
 type OperationalInventoryItemRow = {
@@ -740,7 +744,8 @@ function normalizeOperationalInventory(row: OperationalInventoryRow) {
     countedItems: Number(row.countedItems ?? 0),
     pendingItems: Number(row.pendingItems ?? 0),
     divergentItems: Number(row.divergentItems ?? 0),
-    zeroItems: Number(row.zeroItems ?? 0)
+    zeroItems: Number(row.zeroItems ?? 0),
+    snapshotTotalValue: row.snapshotTotalValue == null ? null : Number(row.snapshotTotalValue)
   };
 }
 
@@ -1298,10 +1303,12 @@ async function getOperationalInventorySummary(id: string) {
       COUNT(item."id") FILTER (WHERE item."status" IN ('CONTADO', 'ZERO', 'DIVERGENTE')) AS "countedItems",
       COUNT(item."id") FILTER (WHERE item."status" = 'PENDENTE') AS "pendingItems",
       COUNT(item."id") FILTER (WHERE item."status" = 'DIVERGENTE') AS "divergentItems",
-      COUNT(item."id") FILTER (WHERE item."status" = 'ZERO') AS "zeroItems"
+      COUNT(item."id") FILTER (WHERE item."status" = 'ZERO') AS "zeroItems",
+      MAX(snap."totalValue") FILTER (WHERE snap."status" <> 'CANCELLED') AS "snapshotTotalValue"
     FROM "OperationalInventory" i
     LEFT JOIN "User" u ON u."id" = i."responsibleUserId"
     LEFT JOIN "OperationalInventoryItem" item ON item."inventoryId" = i."id"
+    LEFT JOIN "InventorySnapshot" snap ON snap."id" = i."inventorySnapshotId"
     WHERE i."id" = ${id}
     GROUP BY i."id", u."name"
     LIMIT 1
@@ -1315,9 +1322,12 @@ async function getOperationalInventoryOrThrow(id: string) {
   return inventory;
 }
 
-async function assertCanEditOperationalInventory(id: string, user: SessionUser) {
+// `permitirRevisao`: so a gravacao de quantidades aceita inventario em revisao
+// (para quem aprova). Marcar em massa como zero e reenviar seguem so no rascunho.
+async function assertCanEditOperationalInventory(id: string, user: SessionUser, permitirRevisao = false) {
   const inventory = await getOperationalInventoryOrThrow(id);
-  if (!editableOperationalInventoryStatuses.has(inventory.status)) {
+  const modo = modoDeEdicao(inventory.status, permitirRevisao && await isInventoryManager(user));
+  if (!modo || (modo === "revisao" && !permitirRevisao)) {
     await auditLog({
       userId: user.id,
       action: "BLOCK_OPERATIONAL_INVENTORY_EDIT",
@@ -1325,9 +1335,11 @@ async function assertCanEditOperationalInventory(id: string, user: SessionUser) 
       entityId: id,
       newValue: { status: inventory.status }
     });
-    throw new Error("Este inventario nao pode ser editado no status atual.");
+    throw new Error(inventory.status === "EM_REVISAO"
+      ? "Inventario em revisao: so quem aprova pode corrigir as quantidades."
+      : "Este inventario nao pode ser editado no status atual.");
   }
-  return inventory;
+  return { ...inventory, modoDeEdicao: modo };
 }
 
 // Reconcilia o estoque com o inventario aprovado (F-05).
@@ -3274,10 +3286,12 @@ inventoryRouter.get("/operational", async (request, response) => {
       COUNT(item."id") FILTER (WHERE item."status" IN ('CONTADO', 'ZERO', 'DIVERGENTE')) AS "countedItems",
       COUNT(item."id") FILTER (WHERE item."status" = 'PENDENTE') AS "pendingItems",
       COUNT(item."id") FILTER (WHERE item."status" = 'DIVERGENTE') AS "divergentItems",
-      COUNT(item."id") FILTER (WHERE item."status" = 'ZERO') AS "zeroItems"
+      COUNT(item."id") FILTER (WHERE item."status" = 'ZERO') AS "zeroItems",
+      MAX(snap."totalValue") FILTER (WHERE snap."status" <> 'CANCELLED') AS "snapshotTotalValue"
     FROM "OperationalInventory" i
     LEFT JOIN "User" u ON u."id" = i."responsibleUserId"
     LEFT JOIN "OperationalInventoryItem" item ON item."inventoryId" = i."id"
+    LEFT JOIN "InventorySnapshot" snap ON snap."id" = i."inventorySnapshotId"
     WHERE (${includeCanceled} = true OR i."status" <> 'CANCELADO')
     GROUP BY i."id", u."name"
     ORDER BY i."date" DESC, i."createdAt" DESC
@@ -4146,18 +4160,349 @@ inventoryRouter.get("/operational/:id", async (request, response) => {
   response.json({ ...inventory, items: items.map(normalizeOperationalInventoryItem) });
 });
 
+// Posicao do estoque: a ultima contagem aprovada de cada produto controlado,
+// valorizada pelo custo da base oficial daquele inventario, mais as compras
+// recebidas desde entao. So o custo da base: e o que o CMV usa, e o custo
+// medio do saldo herda os erros de unidade (o SACO AMOSTRA C800 valia
+// R$ 67 mil por ele, contra R$ 41,8 mil do inventario inteiro). Substitui a lista que mostrava InventoryStock, cujo
+// saldo so soma compras e nunca baixa. Consumo nao e registrado no sistema,
+// entao "contado + compras desde entao" e um teto, nao o estoque de hoje.
+inventoryRouter.get("/posicao", async (request, response) => {
+  const user = await requireMenuPermission(request, response);
+  if (!user) return;
+
+  const rows = await prisma.$queryRaw<Array<{
+    productId: string;
+    productCode: string | null;
+    productName: string;
+    unit: string | null;
+    sectorName: string | null;
+    categoryName: string | null;
+    quantidade: Prisma.Decimal | null;
+    contadoEm: Date | null;
+    inventarioCodigo: string | null;
+    custoUnitario: Prisma.Decimal | null;
+    comprasDesde: Prisma.Decimal | null;
+    valorComprasDesde: Prisma.Decimal | null;
+  }>>`
+    WITH ultima AS (
+      SELECT DISTINCT ON (i."productId")
+             i."productId", i."countedQuantity" AS quantidade, i."unit",
+             COALESCE(o."effectiveCountDate", o."date")::date AS dia,
+             o."code", o."inventorySnapshotId"
+      FROM "OperationalInventoryItem" i
+      JOIN "OperationalInventory" o ON o."id" = i."inventoryId"
+      WHERE o."status" IN ('APROVADO', 'FECHADO')
+        AND i."productId" IS NOT NULL
+        AND i."countedQuantity" IS NOT NULL
+      ORDER BY i."productId", COALESCE(o."effectiveCountDate", o."date") DESC, o."approvedAt" DESC NULLS LAST, i."id"
+    ),
+    custo_base AS (
+      -- Custo zero na base e "sem custo" (187 itens a R$ 0,00 em set/2026):
+      -- mostra-lo como R$ 0,00 esconderia o buraco que o recorte existe para achar.
+      SELECT u."productId", MAX(NULLIF(si."unitCost", 0)) AS custo
+      FROM ultima u
+      JOIN "InventorySnapshotItem" si ON si."snapshotId" = u."inventorySnapshotId" AND si."productId" = u."productId"
+      GROUP BY u."productId"
+    ),
+    -- Itens da nota, como na conferencia: a movimentacao perde o vinculo
+    -- quando a nota e editada.
+    compras AS (
+      SELECT pi."productId", SUM(COALESCE(pi."convertedQuantity", pi."quantity")) AS quantidade, SUM(pi."totalPrice") AS valor
+      FROM "PurchaseItem" pi
+      JOIN "Purchase" p ON p."id" = pi."purchaseId"
+      JOIN ultima u ON u."productId" = pi."productId"
+      WHERE p."status" = 'ACTIVE'
+        AND p."workflowStatus" = 'confirmed'
+        AND COALESCE(p."receivedAt", p."purchaseDate")::date > u.dia
+      GROUP BY pi."productId"
+    )
+    SELECT p."id" AS "productId", p."externalCode" AS "productCode", p."name" AS "productName",
+           COALESCE(u."unit", p."stockUnit", p."unit") AS "unit",
+           sec."name" AS "sectorName", cat."name" AS "categoryName",
+           u.quantidade, u.dia AS "contadoEm", u."code" AS "inventarioCodigo",
+           cb.custo AS "custoUnitario",
+           c.quantidade AS "comprasDesde", c.valor AS "valorComprasDesde"
+    FROM "Product" p
+    LEFT JOIN ultima u ON u."productId" = p."id"
+    LEFT JOIN custo_base cb ON cb."productId" = p."id"
+    LEFT JOIN compras c ON c."productId" = p."id"
+    LEFT JOIN "InventorySector" sec ON sec."id" = p."inventorySectorId"
+    LEFT JOIN "Category" cat ON cat."id" = p."categoryId"
+    WHERE p."isActive" = true AND p."controlsStock" = true
+    ORDER BY sec."name" NULLS LAST, p."name"
+  `;
+
+  const numero = (valor: Prisma.Decimal | null) => (valor == null ? null : Number(valor));
+  response.json({
+    itens: rows.map((row) => {
+      const quantidade = numero(row.quantidade);
+      const custoUnitario = numero(row.custoUnitario);
+      return {
+        productId: row.productId,
+        productCode: row.productCode,
+        productName: row.productName,
+        unit: row.unit,
+        sectorName: row.sectorName,
+        categoryName: row.categoryName,
+        quantidade,
+        contadoEm: row.contadoEm,
+        inventarioCodigo: row.inventarioCodigo,
+        custoUnitario,
+        valor: quantidade != null && custoUnitario != null ? Math.round(quantidade * custoUnitario * 100) / 100 : null,
+        comprasDesde: numero(row.comprasDesde) ?? 0,
+        valorComprasDesde: numero(row.valorComprasDesde) ?? 0
+      };
+    })
+  });
+});
+
+// Conferencia do inventario: cada item contra a ultima contagem aprovada do
+// produto mais as compras recebidas desde entao. Nao usa o `expectedQuantity`,
+// que vem do saldo do sistema e esse saldo nunca baixa. Regras em conferencia.ts.
+//
+// Datas comparadas como dia (TZ=UTC): compra no dia da contagem anterior ja
+// estava nela; compra no dia desta contagem entra nesta.
+inventoryRouter.get("/operational/:id/conferencia", async (request, response) => {
+  const user = await requireMenuPermission(request, response);
+  if (!user) return;
+
+  const inventory = await getOperationalInventorySummary(request.params.id);
+  if (!inventory) {
+    response.status(404).json({ message: "Inventario operacional nao encontrado." });
+    return;
+  }
+
+  const rows = await prisma.$queryRaw<Array<{
+    itemId: string;
+    productId: string | null;
+    productCode: string | null;
+    productName: string;
+    sectorName: string | null;
+    unit: string | null;
+    contado: Prisma.Decimal | null;
+    contadoPor: string | null;
+    contadoEm: Date | null;
+    anterior: Prisma.Decimal | null;
+    anteriorData: Date | null;
+    anteriorCodigo: string | null;
+    compras: Prisma.Decimal | null;
+    custoCompras: Prisma.Decimal | null;
+    custoBase: Prisma.Decimal | null;
+    mediana: number | null;
+    menor: Prisma.Decimal | null;
+    maior: Prisma.Decimal | null;
+    observacoes: bigint | null;
+  }>>`
+    WITH atual AS (
+      SELECT "id", COALESCE("effectiveCountDate", "date")::date AS dia
+      FROM "OperationalInventory"
+      WHERE "id" = ${request.params.id}
+    ),
+    alvo AS (
+      SELECT i.*
+      FROM "OperationalInventoryItem" i
+      WHERE i."inventoryId" = ${request.params.id}
+    ),
+    oficiais AS (
+      SELECT i."id", i."productId", i."countedQuantity", o."code", o."inventorySnapshotId",
+             COALESCE(o."effectiveCountDate", o."date")::date AS dia, o."approvedAt"
+      FROM "OperationalInventoryItem" i
+      JOIN "OperationalInventory" o ON o."id" = i."inventoryId"
+      CROSS JOIN atual
+      WHERE o."status" IN ('APROVADO', 'FECHADO')
+        AND o."id" <> atual."id"
+        AND i."countedQuantity" IS NOT NULL
+        AND i."productId" IN (SELECT "productId" FROM alvo WHERE "productId" IS NOT NULL)
+        AND COALESCE(o."effectiveCountDate", o."date")::date < atual.dia
+    ),
+    anterior AS (
+      SELECT DISTINCT ON ("productId") "productId", "countedQuantity", "code", dia, "inventorySnapshotId"
+      FROM oficiais
+      ORDER BY "productId", dia DESC, "approvedAt" DESC NULLS LAST, "id"
+    ),
+    historico AS (
+      SELECT "productId",
+             PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY "countedQuantity") AS mediana,
+             MIN("countedQuantity") AS menor,
+             MAX("countedQuantity") AS maior,
+             COUNT(*) AS observacoes
+      FROM oficiais
+      WHERE "countedQuantity" > 0
+      GROUP BY "productId"
+    ),
+    -- Compras pelos itens da nota, nao pelas movimentacoes de estoque: editar
+    -- a nota recria o item e a entrada original fica apontando para o item
+    -- apagado (241 entradas orfas em 142 produtos em 07/10/2026; a capsula
+    -- corrigida de 6 para 600 sumia). A quantidade convertida, quando ha, ja
+    -- esta na unidade de estoque.
+    compras AS (
+      SELECT pi."productId", SUM(COALESCE(pi."convertedQuantity", pi."quantity")) AS quantidade,
+             SUM(pi."totalPrice") / NULLIF(SUM(COALESCE(pi."convertedQuantity", pi."quantity")), 0) AS custo
+      FROM "PurchaseItem" pi
+      JOIN "Purchase" p ON p."id" = pi."purchaseId"
+      JOIN anterior a ON a."productId" = pi."productId"
+      CROSS JOIN atual
+      WHERE p."status" = 'ACTIVE'
+        AND p."workflowStatus" = 'confirmed'
+        AND COALESCE(p."receivedAt", p."purchaseDate")::date > a.dia
+        AND COALESCE(p."receivedAt", p."purchaseDate")::date <= atual.dia
+      GROUP BY pi."productId"
+    )
+    SELECT alvo."id" AS "itemId", alvo."productId", alvo."productCode", alvo."productName",
+           alvo."sectorName", alvo."unit", alvo."countedQuantity" AS contado,
+           quem."name" AS "contadoPor", alvo."countedAt" AS "contadoEm",
+           anterior."countedQuantity" AS anterior, anterior.dia AS "anteriorData", anterior."code" AS "anteriorCodigo",
+           compras.quantidade AS compras, compras.custo AS "custoCompras", base."unitCost" AS "custoBase",
+           historico.mediana, historico.menor, historico.maior, historico.observacoes
+    FROM alvo
+    LEFT JOIN anterior ON anterior."productId" = alvo."productId"
+    LEFT JOIN compras ON compras."productId" = alvo."productId"
+    LEFT JOIN historico ON historico."productId" = alvo."productId"
+    LEFT JOIN "User" quem ON quem."id" = alvo."countedByUserId"
+    LEFT JOIN LATERAL (
+      SELECT si."unitCost"
+      FROM "InventorySnapshotItem" si
+      WHERE si."snapshotId" = anterior."inventorySnapshotId" AND si."productId" = alvo."productId" AND si."unitCost" > 0
+      ORDER BY si."unitCost" DESC
+      LIMIT 1
+    ) base ON true
+  `;
+
+  const numero = (valor: Prisma.Decimal | number | null) => (valor == null ? null : Number(valor));
+  const itens = rows.map((row) => {
+    const compras = numero(row.compras) ?? 0;
+    // Custo das compras do periodo; sem compra, o da base oficial da contagem
+    // anterior (o que o CMV usou). Nunca o medio do saldo: ele herda erro de
+    // unidade e dava R$ 39 mil a 1.800 saches de palito.
+    const custoUnitario = numero(row.custoCompras) ?? numero(row.custoBase);
+    const resultado = classificarItemDaConferencia({
+      nomeProduto: row.productName,
+      unidade: row.unit,
+      contado: numero(row.contado),
+      anterior: numero(row.anterior),
+      compras,
+      custoUnitario,
+      historico: {
+        mediana: numero(row.mediana),
+        menor: numero(row.menor),
+        maior: numero(row.maior),
+        observacoes: Number(row.observacoes ?? 0)
+      }
+    });
+    return {
+      itemId: row.itemId,
+      productId: row.productId,
+      productCode: row.productCode,
+      productName: row.productName,
+      sectorName: row.sectorName,
+      unit: row.unit,
+      contado: numero(row.contado),
+      contadoPor: row.contadoPor,
+      contadoEm: row.contadoEm,
+      anterior: numero(row.anterior),
+      anteriorData: row.anteriorData,
+      anteriorCodigo: row.anteriorCodigo,
+      compras,
+      custoUnitario,
+      ...resultado
+    };
+  });
+
+  const ordenados = ordenarConferencia(itens);
+  response.json({
+    inventoryId: inventory.id,
+    code: inventory.code,
+    resumo: resumirConferencia(ordenados),
+    itens: ordenados
+  });
+});
+
+// Notas de compra que a conferencia somou para um item: quem revisa precisa ver
+// de quem, quando e em que unidade entrou (55 dos 123 alertas de set/2026 tinham
+// mais de uma nota). Mesmo periodo e mesmas regras da conferencia.
+inventoryRouter.get("/operational/:id/conferencia/:itemId/compras", async (request, response) => {
+  const user = await requireMenuPermission(request, response);
+  if (!user) return;
+  const notas = await prisma.$queryRaw<Array<{
+    purchaseId: string;
+    numero: string | null;
+    notaFiscal: string | null;
+    fornecedor: string | null;
+    data: Date;
+    quantidade: Prisma.Decimal;
+    unidade: string | null;
+    quantidadeConvertida: Prisma.Decimal | null;
+    unidadeConvertida: string | null;
+    valor: Prisma.Decimal | null;
+  }>>`
+    WITH atual AS (
+      SELECT i."productId", COALESCE(o."effectiveCountDate", o."date")::date AS dia, o."id" AS "inventoryId"
+      FROM "OperationalInventoryItem" i
+      JOIN "OperationalInventory" o ON o."id" = i."inventoryId"
+      WHERE i."id" = ${request.params.itemId} AND o."id" = ${request.params.id}
+    ),
+    anterior AS (
+      SELECT MAX(COALESCE(o."effectiveCountDate", o."date")::date) AS dia
+      FROM "OperationalInventoryItem" i
+      JOIN "OperationalInventory" o ON o."id" = i."inventoryId"
+      CROSS JOIN atual
+      WHERE i."productId" = atual."productId" AND o."status" IN ('APROVADO', 'FECHADO') AND o."id" <> atual."inventoryId"
+        AND i."countedQuantity" IS NOT NULL AND COALESCE(o."effectiveCountDate", o."date")::date < atual.dia
+    )
+    SELECT p."id" AS "purchaseId", p."purchaseNumber" AS numero, p."invoiceNumber" AS "notaFiscal", s."name" AS fornecedor,
+           COALESCE(p."receivedAt", p."purchaseDate")::date AS data,
+           pi."quantity" AS quantidade, pi."unit" AS unidade, pi."convertedQuantity" AS "quantidadeConvertida",
+           pi."convertedUnit" AS "unidadeConvertida", pi."totalPrice" AS valor
+    FROM "PurchaseItem" pi
+    JOIN "Purchase" p ON p."id" = pi."purchaseId"
+    LEFT JOIN "Supplier" s ON s."id" = p."supplierId"
+    CROSS JOIN atual
+    CROSS JOIN anterior
+    WHERE pi."productId" = atual."productId"
+      AND p."status" = 'ACTIVE' AND p."workflowStatus" = 'confirmed'
+      AND anterior.dia IS NOT NULL
+      AND COALESCE(p."receivedAt", p."purchaseDate")::date > anterior.dia
+      AND COALESCE(p."receivedAt", p."purchaseDate")::date <= atual.dia
+    ORDER BY data, p."purchaseNumber"
+  `;
+  const numero = (valor: Prisma.Decimal | null) => (valor == null ? null : Number(valor));
+  response.json(notas.map((nota) => ({
+    ...nota,
+    quantidade: Number(nota.quantidade),
+    quantidadeConvertida: numero(nota.quantidadeConvertida),
+    valor: numero(nota.valor)
+  })));
+});
+
 inventoryRouter.patch("/operational/:id/items", async (request, response) => {
   const user = await requireMenuPermission(request, response);
   if (!user) return;
   try {
-    await assertCanEditOperationalInventory(request.params.id, user);
+    const inventory = await assertCanEditOperationalInventory(request.params.id, user, true);
     const items = Array.isArray(request.body.items) ? request.body.items : [];
     const invalidItemIds = invalidQuantityItemIds(items);
     if (invalidItemIds.length) {
       response.status(400).json({ message: INVALID_QUANTITY_MESSAGE, invalidItemIds });
       return;
     }
+    // Em revisao, guarda o valor de antes de cada item para a auditoria.
+    const antesDaCorrecao = inventory.modoDeEdicao === "revisao"
+      ? new Map((await prisma.$queryRaw<Array<{ id: string; productName: string; countedQuantity: Prisma.Decimal | null }>>`
+          SELECT "id", "productName", "countedQuantity" FROM "OperationalInventoryItem" WHERE "inventoryId" = ${request.params.id}
+        `).map((row) => [row.id, { produto: row.productName, quantidade: row.countedQuantity == null ? null : Number(row.countedQuantity) }]))
+      : null;
     await applyOperationalInventoryItems(request.params.id, items, user.id);
+    if (antesDaCorrecao) {
+      const correcoes = correcoesDaRevisao(antesDaCorrecao, items.flatMap((item: Record<string, unknown>) => {
+        const parsed = parseQuantityInput(item.countedQuantity);
+        const id = asText(item.id);
+        return id && parsed.ok && parsed.value != null ? [{ id, quantidade: Number(parsed.value) }] : [];
+      }));
+      if (correcoes.length) {
+        await auditLog({ userId: user.id, action: "CORRECT_OPERATIONAL_INVENTORY_IN_REVIEW", entity: "OperationalInventory", entityId: request.params.id, newValue: { correcoes } });
+      }
+    }
     await auditLog({ userId: user.id, action: "SAVE_OPERATIONAL_INVENTORY_DRAFT", entity: "OperationalInventory", entityId: request.params.id, newValue: { items: items.length, ...rawQuantitySnapshot(items) } });
     response.json(await getOperationalInventorySummary(request.params.id));
   } catch (error) {
