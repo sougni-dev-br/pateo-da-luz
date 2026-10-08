@@ -1,4 +1,4 @@
-import { AlertTriangle, Copy, Pencil, Power, RotateCcw, X } from "lucide-react";
+import { AlertTriangle, Copy, Pencil, Power, Printer, RotateCcw, X } from "lucide-react";
 import type { ReactNode } from "react";
 import type { DishDetail, DishIngredient, DishListing } from "../../../api/client";
 import { Alert, Button, IconButton, Money, Percent, StatusBadge } from "../../../design-system";
@@ -13,6 +13,8 @@ import {
   situacaoDaFicha
 } from "../../../lib/fichaTecnica";
 import { formatPercent } from "../../../utils/format";
+import { ROTULO_DO_CARDAPIO, caminhoDaCategoria } from "../../../lib/categoriasDasFichas";
+import { HistoricoDaFicha } from "./HistoricoDaFicha";
 
 type Props = {
   prato: DishDetail;
@@ -20,6 +22,7 @@ type Props = {
   onEditar: () => void;
   onCopiar: () => void;
   onAlternarAtivo: () => void;
+  onImprimir: () => void;
   onFechar: () => void;
 };
 
@@ -234,7 +237,7 @@ function Ingredientes({ prato }: { prato: DishDetail }) {
   );
 }
 
-export function DetalheDoPrato({ prato, canEdit, onEditar, onCopiar, onAlternarAtivo, onFechar }: Props) {
+export function DetalheDoPrato({ prato, canEdit, onEditar, onCopiar, onAlternarAtivo, onImprimir, onFechar }: Props) {
   const semFicha = prato.items.length === 0;
   const faixa = faixaDeCmv(prato.cmvPercentual);
   const mostraCmv = !semFicha && prato.cmvPercentual != null;
@@ -246,7 +249,8 @@ export function DetalheDoPrato({ prato, canEdit, onEditar, onCopiar, onAlternarA
         <div className="ft-detalhe-titulos">
           <h2 id="ft-detalhe-titulo" className="ft-detalhe-nome" tabIndex={-1}>{prato.name}</h2>
           <p className="ft-detalhe-meta">
-            {prato.category && <span>{prato.category.name}</span>}
+            <span className={`ft-etiqueta-cardapio${prato.menu === "DELIVERY" ? " ft-etiqueta-cardapio--delivery" : ""}`}>{ROTULO_DO_CARDAPIO[prato.menu]}</span>
+            <span>{caminhoDaCategoria(prato.category)}</span>
             {prato.code && <span>Código {prato.code}</span>}
             <span>Rende {formatarQuantidade(prato.yieldQty)} {prato.yieldUnit}</span>
             <span>Atualizado em {dataHora(prato.updatedAt)}</span>
@@ -262,6 +266,7 @@ export function DetalheDoPrato({ prato, canEdit, onEditar, onCopiar, onAlternarA
               ? <Button variant="danger" size="sm" leadingIcon={<Power size={15} aria-hidden />} onClick={onAlternarAtivo}>Inativar</Button>
               : <Button variant="secondary" size="sm" leadingIcon={<RotateCcw size={15} aria-hidden />} onClick={onAlternarAtivo}>Reativar</Button>}
           </>)}
+          <Button variant="secondary" size="sm" leadingIcon={<Printer size={15} aria-hidden />} onClick={onImprimir}>Imprimir ficha</Button>
           <IconButton className="ft-fechar" icon={<X size={16} aria-hidden />} label="Fechar a ficha" size="sm" onClick={onFechar} />
         </div>
       </header>
@@ -297,6 +302,7 @@ export function DetalheDoPrato({ prato, canEdit, onEditar, onCopiar, onAlternarA
 
       <Ingredientes prato={prato} />
       <ListagensDoPrato prato={prato} />
+      <HistoricoDaFicha pratoId={prato.id} versao={prato.updatedAt} />
 
       {prato.notes && (
         <section className="ft-secao" aria-labelledby="ft-obs">

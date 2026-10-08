@@ -1,6 +1,6 @@
 import { X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { saveDish, saveDishProductConversion, type DishCategory, type DishDetail, type DishProductSearchResult } from "../../../api/client";
+import { saveDish, saveDishProductConversion, type DishCategory, type DishMenu, type DishDetail, type DishProductSearchResult } from "../../../api/client";
 import { Button, FormField, FormGrid, IconButton, Money, Select, StatusBadge, TextField, Textarea } from "../../../design-system";
 import {
   faixaDeCmv,
@@ -16,6 +16,7 @@ import {
   type ItemDaFicha
 } from "../../../lib/fichaTecnica";
 import { formatPercent } from "../../../utils/format";
+import { DESCRICAO_DO_CARDAPIO, ROTULO_DO_CARDAPIO, opcoesDeCategoria } from "../../../lib/categoriasDasFichas";
 import { BuscaDeIngrediente } from "./BuscaDeIngrediente";
 import { LinhaDeIngrediente } from "./LinhaDeIngrediente";
 
@@ -26,6 +27,8 @@ type Props = {
   /** Prato aberto: base da edição ou da cópia. Nulo no prato novo. */
   base: DishDetail | null;
   categorias: DishCategory[];
+  /** Cardápio de um prato novo: o que está selecionado na tela. */
+  menuPadrao: DishMenu;
   onCancelar: () => void;
   onSalvo: (id: string, modo: ModoDoFormulario) => void;
   onAlterado: (alterado: boolean) => void;
@@ -37,15 +40,15 @@ const CMV_ABSURDO = 100;
 const UNIDADES_DE_RENDIMENTO = ["UN", "PORÇÃO", "KG", "L", "G", "ML"];
 const MAXIMO_DE_ATALHOS_DE_PRECO = 4;
 
-const CAMPOS_VAZIOS: CamposDaFicha = {
-  name: "", code: "", categoryId: "", salePriceDefault: "", yieldQty: "1", yieldUnit: "UN", notes: ""
-};
+const camposVazios = (menu: DishMenu): CamposDaFicha => ({
+  name: "", code: "", menu, categoryId: "", salePriceDefault: "", yieldQty: "1", yieldUnit: "UN", notes: ""
+});
 
 let sequenciaDeLinhas = 0;
 const novoIdDeLinha = () => `novo-${Date.now()}-${++sequenciaDeLinhas}`;
 
-function montarInicial(modo: ModoDoFormulario, base: DishDetail | null): { campos: CamposDaFicha; itens: ItemDaFicha[] } {
-  if (!base || modo === "novo") return { campos: CAMPOS_VAZIOS, itens: [] };
+function montarInicial(modo: ModoDoFormulario, base: DishDetail | null, menuPadrao: DishMenu): { campos: CamposDaFicha; itens: ItemDaFicha[] } {
+  if (!base || modo === "novo") return { campos: camposVazios(menuPadrao), itens: [] };
 
   const copia = modo === "copia";
   return {
@@ -53,6 +56,7 @@ function montarInicial(modo: ModoDoFormulario, base: DishDetail | null): { campo
       name: copia ? `Cópia de ${base.name}` : base.name,
       // O código é único: a cópia nasce sem ele para não repetir o do original.
       code: copia ? "" : base.code ?? "",
+      menu: base.menu,
       categoryId: base.category?.id ?? "",
       salePriceDefault: base.salePriceDefault != null ? String(base.salePriceDefault) : "",
       yieldQty: String(base.yieldQty),
@@ -81,8 +85,8 @@ const titulos: Record<ModoDoFormulario, string> = {
   copia: "Copiar ficha"
 };
 
-export function FormularioDoPrato({ modo, base, categorias, onCancelar, onSalvo, onAlterado, notificar }: Props) {
-  const inicial = useMemo(() => montarInicial(modo, base), [modo, base]);
+export function FormularioDoPrato({ modo, base, categorias, menuPadrao, onCancelar, onSalvo, onAlterado, notificar }: Props) {
+  const inicial = useMemo(() => montarInicial(modo, base, menuPadrao), [modo, base, menuPadrao]);
   const instantaneoInicial = useRef(JSON.stringify(inicial));
   const [campos, setCampos] = useState<CamposDaFicha>(inicial.campos);
   const [itens, setItens] = useState<ItemDaFicha[]>(inicial.itens);
@@ -133,9 +137,16 @@ export function FormularioDoPrato({ modo, base, categorias, onCancelar, onSalvo,
       .slice(0, MAXIMO_DE_ATALHOS_DE_PRECO);
   }, [modo, base]);
 
-  const opcoesDeCategoria = categorias
-    .filter((categoria) => categoria.isActive || categoria.id === campos.categoryId)
-    .map((categoria) => ({ value: categoria.id, label: categoria.isActive ? categoria.name : `${categoria.name} (inativa)` }));
+  // Só as categorias do cardápio do prato, agrupadas em principal › subcategorias.
+  const opcoesDaCategoria = opcoesDeCategoria(categorias, campos.menu, campos.categoryId);
+
+  function trocarCardapio(novo: DishMenu) {
+    setCampos((anterior) => {
+      // A categoria só vale no cardápio dela: trocar de cardápio tira a que ficou do lado de lá.
+      const daCategoria = categorias.find((categoria) => categoria.id === anterior.categoryId);
+      return { ...anterior, menu: novo, categoryId: daCategoria && daCategoria.menu !== novo ? "" : anterior.categoryId };
+    });
+  }
 
   function alterarCampo(campo: keyof CamposDaFicha, valor: string) {
     setCampos((anterior) => ({ ...anterior, [campo]: valor }));
@@ -266,11 +277,30 @@ export function FormularioDoPrato({ modo, base, categorias, onCancelar, onSalvo,
           <FormField label="Código" hint="Opcional. Não pode repetir entre pratos.">
             <TextField value={campos.code} onChange={(evento) => alterarCampo("code", evento.target.value)} placeholder="Ex.: PRAT-001" maxLength={40} />
           </FormField>
-          <FormField label="Categoria">
+          <div className="ft-campo-cheio">
+            <FormField label="Cardápio" hint="Salão e delivery são cardápios separados, cada um com as suas categorias e preços.">
+              <div className="ft-segmentos" role="radiogroup" aria-label="Cardápio do prato">
+                {(["CARDAPIO", "DELIVERY"] as const).map((valor) => (
+                  <button
+                    key={valor}
+                    type="button"
+                    role="radio"
+                    aria-checked={campos.menu === valor}
+                    className="ft-segmento"
+                    onClick={() => trocarCardapio(valor)}
+                    title={DESCRICAO_DO_CARDAPIO[valor]}
+                  >
+                    {ROTULO_DO_CARDAPIO[valor]}
+                  </button>
+                ))}
+              </div>
+            </FormField>
+          </div>
+          <FormField label="Categoria" hint={opcoesDaCategoria.length === 0 ? "Este cardápio ainda não tem categorias. Crie na aba Categorias." : undefined}>
             <Select
               value={campos.categoryId}
               onChange={(evento) => alterarCampo("categoryId", evento.target.value)}
-              options={opcoesDeCategoria}
+              options={opcoesDaCategoria}
               placeholder="Sem categoria"
             />
           </FormField>

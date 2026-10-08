@@ -1,0 +1,61 @@
+/* Ficha técnica impressa (A4 em pé). Só aparece no papel; fora dele o portal fica escondido. */
+.fp-raiz { position: fixed; left: -10000px; top: 0; visibility: hidden; }
+
+@media print {
+  body.imprimindo-folhas-fichas > *:not(.fp-raiz) { display: none !important; }
+  body.imprimindo-folhas-fichas { margin: 0 !important; background: #fff !important; }
+  body.imprimindo-folhas-fichas .fp-raiz { position: static; left: auto; visibility: visible; }
+}
+
+.fp-folha {
+  --fp-linha: 7.6mm;
+  box-sizing: border-box; width: 190mm; min-height: 280mm; padding: 0; color: #000; background: #fff;
+  font-family: Arial, Helvetica, sans-serif; font-size: 9pt; break-after: page; page-break-after: always;
+  display: flex; flex-direction: column;
+}
+.fp-folha:last-child { break-after: auto; page-break-after: auto; }
+.fp-folha * { box-sizing: border-box; }
+
+.fp-topo { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 1mm; }
+.fp-marca { margin: 0; font-size: 8pt; letter-spacing: 0.18em; text-transform: uppercase; color: #444; }
+.fp-titulo { margin: 0; font-size: 15pt; letter-spacing: 0.02em; text-transform: uppercase; }
+.fp-pagina { margin: 0; font-size: 8pt; color: #555; }
+
+.fp-secao {
+  margin: 2.4mm 0 0.8mm; padding-bottom: 0.6mm; border-bottom: 1.2pt solid #000; font-size: 9pt; text-transform: uppercase;
+}
+.fp-secao small { margin-left: 2mm; font-size: 6.8pt; font-weight: normal; text-transform: none; color: #555; }
+
+.fp-linha-celulas { display: grid; grid-template-columns: repeat(12, 1fr); }
+.fp-celula {
+  display: flex; flex-direction: column; min-height: 9mm; margin: -0.3pt; padding: 0.5mm 1.6mm 0.6mm; border: 0.6pt solid #777; break-inside: avoid;
+}
+.fp-rotulo { font-size: 6.2pt; text-transform: uppercase; letter-spacing: 0.03em; color: #555; }
+.fp-valor { margin-top: auto; font-size: 10pt; font-weight: bold; min-height: 4mm; }
+.fp-marcas { font-weight: normal; white-space: pre; font-size: 9pt; }
+
+.fp-tabela { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.fp-tabela th, .fp-tabela td {
+  height: var(--fp-linha); padding: 0 1.4mm; border: 0.6pt solid #777; text-align: left; vertical-align: middle; overflow: hidden;
+  font-size: 9pt; white-space: nowrap; text-overflow: ellipsis;
+}
+.fp-tabela th { height: 6mm; background: #eee; font-size: 6.8pt; text-transform: uppercase; letter-spacing: 0.03em; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.fp-tabela .fp-n { width: 7mm; text-align: center; color: #666; font-size: 7.5pt; }
+.fp-tabela .fp-cod { width: 21mm; }
+.fp-tabela .fp-qtd { width: 23mm; text-align: right; }
+.fp-tabela .fp-un { width: 19mm; text-align: center; }
+.fp-tabela .fp-perda { width: 17mm; text-align: right; }
+.fp-tabela .fp-obs { width: 37mm; }
+
+/* Área pautada: linhas finas na altura de uma linha de escrita, para quem preenche à mão. */
+.fp-pautado {
+  --fp-pauta: 6; flex: 1 1 auto; min-height: calc(var(--fp-pauta) * 6.2mm); padding: 0.4mm 1.6mm; border: 0.6pt solid #777;
+  background-image: repeating-linear-gradient(to bottom, transparent 0, transparent 5.6mm, #aaa 5.6mm, #aaa 6.2mm);
+  background-size: 100% 6.2mm; line-height: 6.2mm; font-size: 9pt; -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+.fp-pautado p { margin: 0; white-space: pre-wrap; }
+.fp-pautado--curto { flex: 0 0 auto; }
+
+.fp-assinaturas { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6mm; margin-top: 5mm; }
+.fp-assinaturas > div { border-top: 0.6pt solid #000; padding-top: 0.6mm; text-align: center; }
+.fp-assinaturas span { font-size: 6.8pt; text-transform: uppercase; color: #555; }
