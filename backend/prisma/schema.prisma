@@ -1144,6 +1144,9 @@ model PurchaseItem {
   convertedUnitPrice Decimal? @db.Decimal(12, 4)
   conversionFactorUsed Decimal? @db.Decimal(12, 6)
   conversionMissing Boolean @default(false)
+  /// Linha conferida na revisao de embalagens (avulso confirmado ou embalagem aplicada).
+  packagingReviewedAt       DateTime?
+  packagingReviewedByUserId String?
   rawCategory    String?
   rawSubcategory String?
   cardStatementItems CreditCardStatementItem[]

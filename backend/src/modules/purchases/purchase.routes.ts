@@ -15,11 +15,13 @@ import {
   paymentMethodAllowsInstallments
 } from "../../shared/utils/payment-methods.js";
 import { createPayablesFinancialPdf, type PayablesFinancialPdfRow } from "./payables-financial-pdf.js";
-import { auditLog, getSessionUser, requestIp, requireAdmin, requireRole, type SessionUser } from "../security/security-utils.js";
+import { auditLog, getSessionUser, requestIp, requireAdmin, requireMenuPermission, requireRole, type SessionUser } from "../security/security-utils.js";
 import { userHasPermission } from "../security/menu-permissions.js";
 import { composicaoParaTela } from "../payroll/salario-combinado-folha.js";
 import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
-import { recordPurchaseInventoryEntry } from "../inventory/inventory.routes.js";
+import { gravarConversaoDoItemDeCompra, recordPurchaseInventoryEntry } from "../inventory/inventory.routes.js";
+import { detectarEmbalagem, normalizarUnidade } from "../../shared/unidades/conversao.js";
+import { fatorSugeridoPeloPreco, linhasSuspeitas, pareceEmbalagem, precoDeReferencia, validarEmbalagem } from "./revisao-embalagem.js";
 import { removeCardStatementItemsForPurchase, syncCardStatementItemForPurchase, syncCardStatementItemsForPurchase } from "../cards/cards.service.js";
 import { addPurchaseToCycle, findOrCreateOpenCycle, updatePurchaseInCycle } from "../suppliers/supplier-billing-cycle.service.js";
 import { REIMBURSEMENT_PAYMENT_TYPE, REIMBURSEMENT_SOURCE, ReimbursementError, ehCategoriaFuncionario } from "../reimbursements/reimbursement-rules.js";
@@ -1979,6 +1981,162 @@ purchaseRouter.post("/", async (request, response) => {
   }
 });
 
+// ─── Revisao de embalagens ──────────────────────────────────────────────────
+// Linhas de compra em que o "UN" da nota e na verdade um pacote/caixa: o preco
+// por unidade destoa 10x ou mais da compra mais barata do mesmo produto. Quem
+// revisa escolhe, linha a linha, a embalagem (PCT com 50 UN...) ou confirma que
+// era avulso. O total da nota nunca muda: a conversao so redistribui a mesma
+// despesa por outra quantidade.
+purchaseRouter.get("/embalagens/revisao", async (request, response) => {
+  const user = await requireMenuPermission(request, response);
+  if (!user) return;
+  try {
+    const linhas = await prisma.$queryRaw<Array<{
+      itemId: string; productId: string; produto: string; unidadeDeContagem: string | null;
+      data: Date; fornecedor: string | null; notaFiscal: string | null; purchaseId: string;
+      quantidade: Prisma.Decimal; unidade: string | null; total: Prisma.Decimal;
+      precoUnitario: Prisma.Decimal | null; fator: Prisma.Decimal | null; revisada: boolean;
+    }>>`
+      SELECT pi."id" AS "itemId", pr."id" AS "productId", pr."name" AS produto,
+             COALESCE(pr."stockUnit", pr."unit") AS "unidadeDeContagem",
+             COALESCE(p."receivedAt", p."purchaseDate") AS data, s."name" AS fornecedor,
+             p."invoiceNumber" AS "notaFiscal", p."id" AS "purchaseId",
+             pi."quantity" AS quantidade, pi."unit" AS unidade, pi."totalPrice" AS total,
+             COALESCE(pi."convertedUnitPrice", pi."totalPrice" / NULLIF(pi."quantity", 0)) AS "precoUnitario",
+             pi."conversionFactorUsed" AS fator,
+             (pi."packagingReviewedAt" IS NOT NULL) AS revisada
+      FROM "PurchaseItem" pi
+      JOIN "Purchase" p ON p."id" = pi."purchaseId"
+      JOIN "Product" pr ON pr."id" = pi."productId"
+      LEFT JOIN "Supplier" s ON s."id" = p."supplierId"
+      WHERE p."status" = 'ACTIVE' AND pr."isActive" = true AND pr."controlsStock" = true
+        AND pi."totalPrice" > 0 AND pi."quantity" > 0
+    `;
+    const conversoes = await prisma.$queryRaw<Array<{ productId: string; fromUnit: string; toUnit: string; factor: Prisma.Decimal }>>`
+      SELECT "productId", "fromUnit", "toUnit", "factor" FROM "ProductUnitConversion" WHERE "isActive" = true
+    `;
+    const porProduto = new Map<string, typeof linhas>();
+    for (const linha of linhas) {
+      const lista = porProduto.get(linha.productId) ?? [];
+      lista.push(linha);
+      porProduto.set(linha.productId, lista);
+    }
+    const produtos = [...porProduto.values()].flatMap((lista) => {
+      const comPreco = lista.map((l) => ({ ...l, id: l.itemId, precoUnitario: Number(l.precoUnitario ?? 0), revisada: l.revisada }));
+      const suspeitas = linhasSuspeitas(comPreco);
+      if (!suspeitas.length) return [];
+      const referencia = precoDeReferencia(comPreco);
+      const primeiro = lista[0];
+      return [{
+        productId: primeiro.productId,
+        produto: primeiro.produto,
+        unidadeDeContagem: normalizarUnidade(primeiro.unidadeDeContagem) || "UN",
+        precoDeReferencia: referencia,
+        embalagens: conversoes
+          .filter((c) => c.productId === primeiro.productId)
+          .map((c) => ({ unidade: c.fromUnit, para: c.toUnit, fator: Number(c.factor) })),
+        sugestaoDoNome: detectarEmbalagem(primeiro.produto).slice(0, 2),
+        // Valor que a confusao colocaria a mais no estoque: o que a linha
+        // suspeita pagou, menos o que valeria pelo preco de referencia.
+        excesso: suspeitas.reduce((soma, l) => soma + Number(l.total) - Number(l.quantidade) * (referencia ?? 0), 0),
+        linhas: comPreco
+          .sort((a, b) => b.data.getTime() - a.data.getTime())
+          .map((l) => ({
+            itemId: l.itemId,
+            purchaseId: l.purchaseId,
+            data: l.data,
+            fornecedor: l.fornecedor,
+            notaFiscal: l.notaFiscal,
+            quantidade: Number(l.quantidade),
+            unidade: l.unidade,
+            total: Number(l.total),
+            precoUnitario: l.precoUnitario,
+            fator: l.fator == null ? null : Number(l.fator),
+            revisada: l.revisada,
+            suspeita: !l.revisada && pareceEmbalagem(l.precoUnitario, referencia),
+            fatorSugerido: pareceEmbalagem(l.precoUnitario, referencia) ? fatorSugeridoPeloPreco(l.precoUnitario, referencia) : null
+          }))
+      }];
+    }).sort((a, b) => b.excesso - a.excesso);
+    response.json({ produtos });
+  } catch (error) {
+    response.status(500).json({ message: error instanceof Error ? error.message : "Erro ao montar a revisao de embalagens." });
+  }
+});
+
+purchaseRouter.post("/embalagens/aplicar", async (request, response) => {
+  const user = await requireMenuPermission(request, response);
+  if (!user) return;
+  const pedidos = Array.isArray(request.body?.itens) ? request.body.itens as Array<Record<string, unknown>> : [];
+  if (!pedidos.length) {
+    response.status(400).json({ message: "Nenhuma linha para aplicar." });
+    return;
+  }
+  try {
+    const resultado: Array<{ itemId: string; quantidade: number | null; unidade: string | null }> = [];
+    for (const pedido of pedidos) {
+      const itemId = String(pedido.itemId ?? "");
+      const [linha] = await prisma.$queryRaw<Array<{
+        id: string; productId: string | null; quantity: Prisma.Decimal; unit: string | null; totalPrice: Prisma.Decimal;
+        data: Date; unidadeDeContagem: string | null; produto: string | null;
+      }>>`
+        SELECT pi."id", pi."productId", pi."quantity", pi."unit", pi."totalPrice",
+               COALESCE(p."receivedAt", p."purchaseDate") AS data,
+               COALESCE(pr."stockUnit", pr."unit") AS "unidadeDeContagem", pr."name" AS produto
+        FROM "PurchaseItem" pi
+        JOIN "Purchase" p ON p."id" = pi."purchaseId"
+        LEFT JOIN "Product" pr ON pr."id" = pi."productId"
+        WHERE pi."id" = ${itemId} AND p."status" = 'ACTIVE'
+      `;
+      if (!linha || !linha.productId) throw new Error("Linha de compra nao encontrada (ou compra cancelada).");
+      const contagem = normalizarUnidade(linha.unidadeDeContagem) || "UN";
+      const escolha = validarEmbalagem(pedido, contagem);
+      if (!escolha.ok) throw new Error(`${linha.produto ?? "Produto"}: ${escolha.erro}`);
+      // Muda a quantidade na unidade de contagem do mes da compra (o total nao).
+      await assertPeriodWritableForDate(linha.data, "Revisao de embalagem da compra");
+
+      if (escolha.avulso) {
+        await prisma.$executeRaw`
+          UPDATE "PurchaseItem" SET "packagingReviewedAt" = CURRENT_TIMESTAMP, "packagingReviewedByUserId" = ${user.id}
+          WHERE "id" = ${itemId}
+        `;
+      } else {
+        await prisma.$executeRaw`
+          INSERT INTO "ProductUnitConversion" ("id", "productId", "fromUnit", "toUnit", "factor", "isActive", "notes", "updatedAt")
+          VALUES (${crypto.randomUUID()}, ${linha.productId}, ${escolha.unidade}, ${contagem}, ${escolha.fator}, true, 'Cadastrado na revisao de embalagens.', CURRENT_TIMESTAMP)
+          ON CONFLICT ("productId", "fromUnit", "toUnit") DO UPDATE
+          SET "factor" = EXCLUDED."factor", "isActive" = true, "updatedAt" = CURRENT_TIMESTAMP
+        `;
+        await prisma.$executeRaw`
+          UPDATE "PurchaseItem"
+          SET "unit" = ${escolha.unidade},
+              "unitMeasureId" = (SELECT "id" FROM "UnitMeasure" WHERE "code" = ${escolha.unidade} LIMIT 1),
+              "packagingReviewedAt" = CURRENT_TIMESTAMP, "packagingReviewedByUserId" = ${user.id}
+          WHERE "id" = ${itemId}
+        `;
+      }
+      const gravado = await gravarConversaoDoItemDeCompra({
+        productId: linha.productId,
+        purchaseItemId: itemId,
+        quantity: Number(linha.quantity),
+        unit: escolha.avulso ? linha.unit : escolha.unidade,
+        totalCost: Number(linha.totalPrice)
+      });
+      await auditLog({
+        userId: user.id, action: "REVIEW_PURCHASE_ITEM_PACKAGING", entity: "PurchaseItem", entityId: itemId,
+        previousValue: { unidade: linha.unit, quantidade: Number(linha.quantity) },
+        newValue: escolha.avulso
+          ? { avulso: true }
+          : { unidade: escolha.unidade, fator: escolha.fator, quantidadeNaContagem: gravado?.conversao.convertedQuantity ?? null }
+      });
+      resultado.push({ itemId, quantidade: gravado?.conversao.convertedQuantity ?? null, unidade: gravado?.conversao.convertedUnit ?? null });
+    }
+    response.json({ aplicados: resultado });
+  } catch (error) {
+    response.status(400).json({ message: error instanceof Error ? error.message : "Erro ao aplicar a embalagem." });
+  }
+});
+
 purchaseRouter.put("/:id", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
@@ -2242,6 +2400,10 @@ purchaseRouter.put("/:id", async (request, response) => {
   }
 
   const previousItems = Array.isArray(previousRecord.items) ? previousRecord.items : [];
+  // A edicao recria os itens; a conversao para a unidade de contagem e
+  // recalculada depois da transacao (antes ela sumia e a nota editada voltava
+  // a quantidade bruta).
+  const itensRecriados: Array<{ id: string; productId: string; quantity: number; unit: string | null; totalPrice: number }> = [];
   await prisma.$transaction(async (tx) => {
     await tx.purchase.update({
       where: { id: request.params.id },
@@ -2292,6 +2454,7 @@ purchaseRouter.put("/:id", async (request, response) => {
           rawSubcategory: item.rawSubcategory
         }
       });
+      itensRecriados.push({ id: created.id, productId: item.productId, quantity: item.quantity, unit: item.unit, totalPrice: item.totalPrice });
       await tx.auditLog.create({
         data: {
           id: crypto.randomUUID(),
@@ -2441,6 +2604,17 @@ purchaseRouter.put("/:id", async (request, response) => {
       }
     });
   });
+
+  for (const item of itensRecriados) {
+    if (!item.productId) continue;
+    await gravarConversaoDoItemDeCompra({
+      productId: item.productId,
+      purchaseItemId: item.id,
+      quantity: Number(item.quantity),
+      unit: item.unit,
+      totalCost: Number(item.totalPrice)
+    });
+  }
 
   response.json(await getPurchaseDetail(request.params.id));
   } catch (error) {
