@@ -233,6 +233,37 @@ describe("leitura", () => {
     ]);
   });
 
+  test("estoque em UN com peso no nome: a ficha aceita gramas e calcula o custo certo", async () => {
+    const farinha = { ...produto, id: "p2", name: "FARINHA TRIGO 5KG", unit: "UN", stockUnit: null, inventoryStock: { averageCost: 25, currentQuantity: 3 } };
+    db.dish.findUnique.mockResolvedValue({
+      ...prato, listings: [],
+      items: [{ id: "i2", productId: "p2", product: farinha, quantity: 500, unit: "G", wasteFactor: 0, notes: null, sortOrder: 0 }]
+    });
+    const r = await request(app).get("/dishes/d1");
+    // 500 g de uma embalagem de 5 kg a R$ 25 = 0,1 UN = R$ 2,50
+    expect(r.body.items[0].itemCost).toBeCloseTo(2.5);
+    expect(r.body.items[0].issue).toBeNull();
+    expect(r.body.items[0].embalagemInferida).toBe("1 UN = 5 KG (lido do nome do produto)");
+    expect(r.body.items[0].conversions.filter((c: { inferida?: boolean }) => c.inferida)).toHaveLength(2);
+    expect(r.body.custoIncompleto).toBe(false);
+  });
+
+  test("a busca de produto já devolve a conversão inferida para a tela prever o custo", async () => {
+    db.product.findMany.mockResolvedValue([{ id: "p2", externalCode: "381", name: "FARINHA TRIGO 5KG", unit: "UN", stockUnit: null, inventoryStock: { averageCost: 25 }, conversions: [] }]);
+    const r = await request(app).get("/dishes/products/search?search=farinha");
+    expect(r.body[0]).toMatchObject({ unit: "UN", embalagemInferida: "1 UN = 5 KG (lido do nome do produto)" });
+    expect(r.body[0].conversions).toEqual(expect.arrayContaining([expect.objectContaining({ fromUnit: "G", toUnit: "UN", inferida: true })]));
+  });
+
+  test("sem peso no nome e sem cadastro, continua sem conversão (nada é chutado)", async () => {
+    const cebola = { ...produto, id: "p3", name: "CEBOLA", unit: "UN", stockUnit: null };
+    db.dish.findUnique.mockResolvedValue({ ...prato, listings: [], items: [{ id: "i3", productId: "p3", product: cebola, quantity: 100, unit: "G", wasteFactor: 0, notes: null, sortOrder: 0 }] });
+    const r = await request(app).get("/dishes/d1");
+    expect(r.body.items[0].itemCost).toBeNull();
+    expect(r.body.custoIncompleto).toBe(true);
+    expect(r.body.items[0].embalagemInferida).toBeNull();
+  });
+
   test("categorias trazem quantos pratos ativos cada uma tem", async () => {
     db.dishCategory.findMany.mockResolvedValue([{ id: "c1", name: "A la carte", sortOrder: 0, isActive: true, notes: null, _count: { dishes: 12 } }]);
     const r = await request(app).get("/dishes/categories");

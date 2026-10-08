@@ -9,6 +9,7 @@ import {
   normalizarUnidade,
   resumoDaFicha,
   temErros,
+  unidadePadrao,
   validarFicha,
   type CamposDaFicha,
   type ErrosDaFicha,
@@ -68,6 +69,7 @@ function montarInicial(modo: ModoDoFormulario, base: DishDetail | null): { campo
       unitCost: item.unitCost ?? 0,
       productUnit: item.productUnit,
       conversions: item.conversions ?? [],
+      embalagemInferida: item.embalagemInferida ?? null,
       notes: item.notes ?? ""
     }))
   };
@@ -148,11 +150,12 @@ export function FormularioDoPrato({ modo, base, categorias, onCancelar, onSalvo,
         productId: produto.id,
         productName: produto.name,
         quantity: "",
-        unit: normalizarUnidade(produto.unit) || "UN",
+        unit: unidadePadrao(produto.unit, produto.conversions ?? []),
         wasteFactor: "0",
         unitCost: produto.averageCost,
         productUnit: produto.unit,
         conversions: produto.conversions ?? [],
+        embalagemInferida: produto.embalagemInferida ?? null,
         notes: ""
       }
     ]);

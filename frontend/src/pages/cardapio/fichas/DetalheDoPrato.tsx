@@ -8,6 +8,7 @@ import {
   CMV_BOM,
   faixaDeCmv,
   formatarQuantidade,
+  normalizarUnidade,
   rotuloDoCanal,
   situacaoDaFicha
 } from "../../../lib/fichaTecnica";
@@ -184,6 +185,7 @@ function Ingredientes({ prato }: { prato: DishDetail }) {
                     ) : item.unitCost != null ? (
                       <span className="ft-ingrediente-sub">
                         {item.productCode ? `${item.productCode} · ` : ""}Estoque: <Money value={item.unitCost} />{item.productUnit ? ` / ${item.productUnit}` : ""}
+                        {item.embalagemInferida && normalizarUnidade(item.unit) !== normalizarUnidade(item.productUnit) && ` · ${item.embalagemInferida}`}
                       </span>
                     ) : null}
                   </th>
