@@ -4592,6 +4592,8 @@ export type SupplierCycle = {
   hasDivergence: boolean;
   createdAt: string;
   updatedAt: string;
+  /** Só na criação: notas que o ciclo novo trouxe de outro ciclo aberto. */
+  notasTrazidas?: Array<{ invoiceNumber: string | null; amount: number }>;
 };
 
 export type SupplierCycleItem = {

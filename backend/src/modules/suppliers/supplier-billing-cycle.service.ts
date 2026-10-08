@@ -157,3 +157,62 @@ export async function removePurchaseFromCycleIfAllowed(
   `;
   return { blocked: false };
 }
+
+/**
+ * Passa a compra de um ciclo para outro, recalculando total e status dos dois.
+ * O item chega ao destino sem conferência; se a origem ficar toda conferida, vira CHECKED.
+ * Deve ser chamado dentro de uma transação.
+ */
+export async function moverCompraEntreCiclos(
+  tx: Prisma.TransactionClient,
+  opts: { purchaseId: string; origemId: string; destinoId: string; userId: string }
+): Promise<{ amount: number; invoiceNumber: string | null } | null> {
+  const [item] = await tx.$queryRaw<Array<{ id: string; amount: string; purchaseDate: Date; invoiceNumber: string | null }>>`
+    SELECT "id", "amount"::text AS "amount", "purchaseDate", "invoiceNumber"
+    FROM "SupplierBillingCycleItem"
+    WHERE "purchaseId" = ${opts.purchaseId} AND "cycleId" = ${opts.origemId}
+    LIMIT 1
+  `;
+  if (!item) return null;
+  const amount = Number(item.amount);
+
+  await tx.$executeRaw`DELETE FROM "SupplierBillingCycleItem" WHERE "id" = ${item.id}`;
+  await tx.$executeRaw`
+    UPDATE "SupplierBillingCycle"
+    SET "totalAmount" = GREATEST(0, "totalAmount" - ${new Prisma.Decimal(amount)}),
+        "updatedAt"   = CURRENT_TIMESTAMP
+    WHERE "id" = ${opts.origemId}
+  `;
+  const origemConferida = await cicloTodoConferido(tx, opts.origemId);
+  await tx.$executeRaw`
+    UPDATE "SupplierBillingCycle"
+    SET "status"          = ${origemConferida ? "CHECKED" : "OPEN"},
+        "checkedByUserId" = ${origemConferida ? opts.userId : null},
+        "checkedAt"       = ${origemConferida ? new Date() : null},
+        "updatedAt"       = CURRENT_TIMESTAMP
+    WHERE "id" = ${opts.origemId}
+  `;
+
+  await addPurchaseToCycle(tx, {
+    cycleId: opts.destinoId,
+    purchaseId: opts.purchaseId,
+    amount,
+    purchaseDate: new Date(item.purchaseDate),
+    invoiceNumber: item.invoiceNumber
+  });
+  const destinoConferido = await cicloTodoConferido(tx, opts.destinoId);
+  await tx.$executeRaw`
+    UPDATE "SupplierBillingCycle" SET "status" = ${destinoConferido ? "CHECKED" : "OPEN"}, "updatedAt" = CURRENT_TIMESTAMP
+    WHERE "id" = ${opts.destinoId}
+  `;
+  return { amount, invoiceNumber: item.invoiceNumber };
+}
+
+async function cicloTodoConferido(tx: Prisma.TransactionClient, cycleId: string): Promise<boolean> {
+  const [contagem] = await tx.$queryRaw<Array<{ total: number; checkedCount: number }>>`
+    SELECT COUNT(*)::int AS "total",
+           COUNT(*) FILTER (WHERE "checked" = true)::int AS "checkedCount"
+    FROM "SupplierBillingCycleItem" WHERE "cycleId" = ${cycleId}
+  `;
+  return contagem.total > 0 && contagem.checkedCount === contagem.total;
+}
