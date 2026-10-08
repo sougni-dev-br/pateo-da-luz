@@ -1,4 +1,4 @@
-﻿import { AlertTriangle, ArrowDown, ArrowLeft, CalendarDays, CheckCircle2, ClipboardCheck, Download, FilterX, Layers, Loader2, MessageSquare, Play, RefreshCw, Search, Send, ShoppingCart, Save, SlidersHorizontal, Trash2, X } from "lucide-react";
+﻿import { AlertTriangle, ArrowDown, ArrowLeft, CalendarDays, CheckCircle2, ClipboardCheck, Download, FilterX, Layers, Loader2, MessageSquare, Play, Printer, RefreshCw, Search, Send, ShoppingCart, Save, SlidersHorizontal, Trash2, X } from "lucide-react";
 import { Fragment, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useRevealScroll } from "../lib/useRevealScroll";
 import { hasPermission } from "../lib/permissions";
@@ -27,6 +27,8 @@ import {
   getOperationalInventories,
   getOperationalInventory,
   getStockCountSession,
+  getReferenciaDaContagem,
+  getStockCountSessionPdfBlob,
   getStockCountSessionPlausibility,
   getStockCountSessions,
   getBuyerSupportReport,
@@ -147,6 +149,10 @@ import {
   weekdays
 } from "./inventory/shared";
 import type { CountSessionColumn, QuantityPlausibility } from "./inventory/shared";
+import type { ReferenciaDaContagem as ReferenciaDoItem } from "../api/client";
+import { ReferenciaDaContagem } from "./inventory/ReferenciaDaContagem";
+import { imprimirBlobPdf } from "../utils/imprimirPdf";
+import { lerContagem, totalDaContagem } from "./inventory/referencia-contagem";
 
 // Aviso de plausibilidade da contagem: uma linha fina na largura do cartao,
 // sem botao. Antes abria uma caixa com "Conferi, esta certo" dentro da coluna
@@ -323,6 +329,10 @@ export function Inventory({
   const [operationalDirty, setOperationalDirty] = useState<Record<string, true>>({});
   // Faixa esperada por item. Guarda de plausibilidade: avisa, nunca bloqueia.
   const [countSessionPlausibility, setCountSessionPlausibility] = useState<Record<string, QuantityPlausibility>>({});
+  // Anterior + compras = disponivel, e o custo: a conta da conferencia na hora de contar.
+  const [countSessionReferencia, setCountSessionReferencia] = useState<Record<string, ReferenciaDoItem>>({});
+  // Resposta atrasada da contagem aberta antes nao pode cair na de agora.
+  const contagemAbertaRef = useRef<string | null>(null);
   const [mobileCountFiltersOpen, setMobileCountFiltersOpen] = useState(false);
   const [mobileCountMoreActionsOpen, setMobileCountMoreActionsOpen] = useState(false);
   const [mobileQuickCountMode, setMobileQuickCountMode] = useState(false);
@@ -562,6 +572,11 @@ export function Inventory({
     }).length ?? 0;
     return { total, counted, pending: Math.max(total - counted, 0), percent: total ? Math.round((counted / total) * 100) : 0 };
   }, [countSessionDetail, countSessionLines]);
+  const countSessionValor = useMemo(() => totalDaContagem(
+    countSessionDetail?.items.map((item) => item.id) ?? [],
+    countSessionReferencia,
+    Object.fromEntries(Object.entries(countSessionLines).map(([id, line]) => [id, line.countedQuantity]))
+  ), [countSessionDetail, countSessionReferencia, countSessionLines]);
   const productsForCount = useMemo(() => {
     if (!selectedAgenda || selectedAgenda.sectorName === "INVENTARIO GERAL" || selectedAgenda.categoryName === "Todas as categorias") return products;
     return products.filter((product) => product.inventorySector?.name === selectedAgenda.sectorName);
@@ -706,6 +721,30 @@ export function Inventory({
     }
   }
 
+  // A folha sai do servidor: o que foi digitado e ainda nao salvo precisa ir
+  // antes, senao o papel sai com quadro em branco onde a tela ja tem numero.
+  async function printCountSession(session: StockCountSession | StockCountSessionDetail) {
+    try {
+      const abertaNaTela = countSessionDetail?.id === session.id;
+      const pendentesDeSalvar = abertaNaTela ? countSessionPayload() : [];
+      const podeSalvar = Boolean(countSessionDetail && editableCountSessionStatuses.has(countSessionDetail.status) && canEditCountSession);
+      const salvou = pendentesDeSalvar.length > 0 && podeSalvar;
+      if (salvou) {
+        const invalid = invalidCountSessionItems();
+        if (invalid.length) {
+          setNotice({ tone: "error", message: mensagemDeQuantidade(invalid.map((item) => ({ nome: item.productNameSnapshot, valor: countSessionLines[item.id]?.countedQuantity ?? "" }))) });
+          return;
+        }
+        await saveStockCountSessionItems(session.id, pendentesDeSalvar);
+        await refreshCountSessions(session.id);
+      }
+      imprimirBlobPdf(await getStockCountSessionPdfBlob(session.id));
+      setNotice({ tone: "success", message: salvou ? "Contagem salva e enviada para impressão." : "Contagem enviada para impressão." });
+    } catch (error) {
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Nao foi possivel imprimir a contagem." });
+    }
+  }
+
   async function refreshCountSessions(id?: string) {
     const rows = await getStockCountSessions(showCanceledStockData);
     setCountSessions(rows);
@@ -811,10 +850,16 @@ export function Inventory({
     setCountSessionStatusFilter("TODOS");
     setCountSessionDirty({});
     setCountSessionPlausibility({});
+    contagemAbertaRef.current = id;
+    const aindaAberta = () => contagemAbertaRef.current === id;
     // Em paralelo e sem bloquear a abertura: se falhar, a contagem segue sem a guarda.
     void getStockCountSessionPlausibility(id)
-      .then((rows) => setCountSessionPlausibility(Object.fromEntries(rows.map((row) => [row.itemId, row]))))
-      .catch(() => setCountSessionPlausibility({}));
+      .then((rows) => { if (aindaAberta()) setCountSessionPlausibility(Object.fromEntries(rows.map((row) => [row.itemId, row]))); })
+      .catch(() => { if (aindaAberta()) setCountSessionPlausibility({}); });
+    setCountSessionReferencia({});
+    void getReferenciaDaContagem(id)
+      .then((rows) => { if (aindaAberta()) setCountSessionReferencia(Object.fromEntries(rows.map((row) => [row.itemId, row]))); })
+      .catch(() => { if (aindaAberta()) setCountSessionReferencia({}); });
     setCountSessionLines(Object.fromEntries(detail.items.map((item) => [
       item.id,
       { countedQuantity: item.countedQuantity == null ? "" : String(item.countedQuantity), notes: item.notes ?? "" }
@@ -892,11 +937,19 @@ export function Inventory({
         countSessionLines[item.id]?.countedQuantity ?? ""
       ).some((warning) => warning !== "CONFERIR_UNIDADE")
     );
-    if (atipicos.length) {
-      const nomes = atipicos.slice(0, 5).map((item) => item.productNameSnapshot).join(", ");
-      const resto = atipicos.length > 5 ? ` e mais ${atipicos.length - 5}` : "";
+    // Mais do que havia (anterior + compras) e zerar o que acabou de entrar
+    // tambem passam pelo resumo: sao os dois avisos da referencia na linha.
+    const foraDaReferencia = (itemId: string) => {
+      const { situacao } = lerContagem(countSessionReferencia[itemId], countSessionLines[itemId]?.countedQuantity ?? "");
+      return situacao === "ACIMA_DO_DISPONIVEL" || situacao === "ZERADO_COM_COMPRA";
+    };
+    const jaListados = new Set(atipicos.map((item) => item.id));
+    const paraConferir = [...atipicos, ...countSessionDetail.items.filter((item) => !jaListados.has(item.id) && foraDaReferencia(item.id))];
+    if (paraConferir.length) {
+      const nomes = paraConferir.slice(0, 5).map((item) => item.productNameSnapshot).join(", ");
+      const resto = paraConferir.length > 5 ? ` e mais ${paraConferir.length - 5}` : "";
       if (!window.confirm(
-        `${atipicos.length} item(ns) com quantidade fora do normal: ${nomes}${resto}.
+        `${paraConferir.length} item(ns) com quantidade fora do normal: ${nomes}${resto}.
 
 ` +
         "Concluir assim mesmo? Depois disso o estoquista nao edita sem reabertura."
@@ -1250,7 +1303,8 @@ export function Inventory({
   // toda contagem, a um toque errado de distancia do Continuar.
   function countSessionMenuItems(session: StockCountSession): Array<RowMenuItem | RowMenuSeparator> {
     return [
-      { label: "Gerar PDF", icon: <Download size={15} />, onClick: () => downloadCountSessionPdf(session) },
+      { label: "Imprimir", icon: <Printer size={15} />, onClick: () => void printCountSession(session) },
+      { label: "Baixar PDF", icon: <Download size={15} />, onClick: () => downloadCountSessionPdf(session) },
       ...(canPlanPurchase && session.status === "CONCLUIDA"
         ? [{ label: "Gerar pedido de compra", icon: <ShoppingCart size={15} />, onClick: () => navigate(`/estoque/planejamento-compra?sourceType=STOCK_COUNT_SESSION&sourceId=${session.id}`) }]
         : []),
@@ -1946,6 +2000,14 @@ export function Inventory({
         <span><strong>demais</strong> inteiro &mdash; 1510</span>
       </div>
     );
+    // Quanto vale o que ja foi contado nesta contagem, pelo custo de cada item.
+    const valorDaContagem = (
+      <div className="count-valor-total" title="Soma de quantidade contada × custo de cada item">
+        <em>Valor contado</em>
+        <strong><Money value={countSessionValor.valor} /></strong>
+        {countSessionValor.contadosSemCusto > 0 && <small>{countSessionValor.contadosSemCusto} sem custo</small>}
+      </div>
+    );
     return (
       <div className={`stack stockkeeper-mode count-session-launch ${mobileQuickCountMode ? "quick-count-mode" : ""}`}>
         <Notice notice={notice} />
@@ -1968,7 +2030,8 @@ export function Inventory({
                 para fora da tela logo no primeiro item. */}
             <div className="actions-cell">
               <button className="secondary-button" type="button" onClick={() => { setCountSessionDetail(null); onCloseCountSessionRoute?.(); }}><X size={16} />Voltar</button>
-              <button className="secondary-button" type="button" onClick={() => downloadCountSessionPdf(countSessionDetail)}><Download size={16} />Gerar PDF</button>
+              <button className="secondary-button" type="button" onClick={() => void printCountSession(countSessionDetail)}><Printer size={16} />Imprimir</button>
+              <button className="secondary-button" type="button" onClick={() => downloadCountSessionPdf(countSessionDetail)}><Download size={16} />Baixar PDF</button>
               {canReshapeCountSession && !countSessionDetail.generatedInventoryId && ["ABERTA", "EM_ANDAMENTO", "CONCLUIDA"].includes(countSessionDetail.status) && ["GERAL", "SETORIAL"].includes(countSessionDetail.type) && (
                 <button className="secondary-button" type="button" onClick={reshapeCountSessionToCurrentFilters}>
                   <FilterX size={16} />Recortar para filtros
@@ -2042,6 +2105,7 @@ export function Inventory({
               <div className="count-toolbar-progress">
                 <div className="progress-header">
                   <span><strong>{countSessionProgress.counted}</strong> de {countSessionProgress.total} contados <em>{countSessionProgress.pending} pendentes</em></span>
+                  {canViewCosts && valorDaContagem}
                   <strong>{countSessionProgress.percent}%</strong>
                 </div>
                 <div className="progress-track"><div className="progress-fill" style={{ width: `${countSessionProgress.percent}%` }} /></div>
@@ -2066,6 +2130,7 @@ export function Inventory({
                   {mobileQuickCountMode ? "Sair do rapido" : "Modo rapido"}
                 </button>
               </div>
+              {canViewCosts && valorDaContagem}
               <div className="progress-track"><div className="progress-fill" style={{ width: `${countSessionProgress.percent}%` }} /></div>
               {regraDeDigitacao}
               <div className="mobile-count-search-row">
@@ -2184,6 +2249,13 @@ export function Inventory({
                       value={line.countedQuantity}
                       plausibility={countSessionPlausibility[item.id]}
                       isActive={isActiveInput}
+                    />
+                    <ReferenciaDaContagem
+                      referencia={countSessionReferencia[item.id]}
+                      unidade={item.unitLabel ?? item.unitSnapshot}
+                      valorDigitado={line.countedQuantity}
+                      isActive={isActiveInput}
+                      mostrarValor={canViewCosts}
                     />
                   </article>
                 </div>
@@ -2306,6 +2378,13 @@ export function Inventory({
                       plausibility={countSessionPlausibility[item.id]}
                       isActive={isActiveInput}
                     />
+                    <ReferenciaDaContagem
+                      referencia={countSessionReferencia[item.id]}
+                      unidade={item.unitLabel ?? item.unitSnapshot}
+                      valorDigitado={line.countedQuantity}
+                      isActive={isActiveInput}
+                      mostrarValor={canViewCosts}
+                    />
                   </article>
                 );
               })}
@@ -2323,7 +2402,8 @@ export function Inventory({
             <button className="secondary-button" type="button" aria-expanded={mobileCountMoreActionsOpen} onClick={() => setMobileCountMoreActionsOpen((current) => !current)}>Mais</button>
             {mobileCountMoreActionsOpen && (
               <div className="mobile-more-actions-panel">
-                <button className="secondary-button" type="button" onClick={() => { setMobileCountMoreActionsOpen(false); downloadCountSessionPdf(countSessionDetail); }}><span><Download size={15} />Gerar PDF</span></button>
+                <button className="secondary-button" type="button" onClick={() => { setMobileCountMoreActionsOpen(false); void printCountSession(countSessionDetail); }}><span><Printer size={15} />Imprimir</span><small>Por setor e categoria, com anterior, compras e esperado; o contado sai em branco para a caneta</small></button>
+                <button className="secondary-button" type="button" onClick={() => { setMobileCountMoreActionsOpen(false); downloadCountSessionPdf(countSessionDetail); }}><span><Download size={15} />Baixar PDF</span></button>
                 <button className="secondary-button" type="button" disabled={locked} onClick={() => {
                   markFilteredCountSessionItemsAsZero();
                   setMobileCountMoreActionsOpen(false);

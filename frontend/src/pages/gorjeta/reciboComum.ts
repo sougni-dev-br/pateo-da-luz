@@ -1,5 +1,6 @@
 // Peças comuns dos recibos impressos (vale da gorjeta e pagamento de quem não tem registro):
 // formatação, data por extenso, assinatura, linha de corte entre as vias e a impressão sem janela nova.
+import { imprimirBlobPdf } from "../../utils/imprimirPdf";
 import { textoPdf } from "./envioContabilidade";
 
 export type Doc = InstanceType<typeof import("jspdf").jsPDF>;
@@ -44,19 +45,7 @@ export function linhaDeCorte(doc: Doc) {
   doc.setLineDashPattern([], 0);
 }
 
-// Abre a caixa de impressão sem janela nova (celular e navegador bloqueiam pop-up):
-// o PDF carrega num quadro invisível da própria página. Devolve o endereço do PDF,
-// para a tela oferecer "abrir/baixar" caso a impressão não abra.
+/** Abre a caixa de impressão do recibo; devolve o endereço do PDF (ver imprimirBlobPdf). */
 export function imprimirPdf(doc: Doc): string {
-  const url = URL.createObjectURL(doc.output("blob"));
-  const quadro = document.createElement("iframe");
-  quadro.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden";
-  quadro.src = url;
-  quadro.onload = () => {
-    try { quadro.contentWindow?.focus(); quadro.contentWindow?.print(); } catch { /* a tela oferece abrir o PDF */ }
-    // Tira o quadro depois que a impressão teve tempo de começar.
-    window.setTimeout(() => quadro.remove(), 60_000);
-  };
-  document.body.appendChild(quadro);
-  return url;
+  return imprimirBlobPdf(doc.output("blob"));
 }
