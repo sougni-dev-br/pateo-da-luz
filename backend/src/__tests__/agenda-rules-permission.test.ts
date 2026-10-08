@@ -25,4 +25,8 @@ describe("regras da agenda de contagem", () => {
     expect(await ctx("PATCH", "/inventory/count-sessions/s1/reopen")).toEqual({ menuId: "inventory-counting", action: "edit" })
     expect(await ctx("PATCH", "/inventory/agenda/a1/confirm")).toEqual({ menuId: "inventory-counting", action: "approve" })
   })
+
+  it("a referencia da contagem (anterior + compras) e leitura de quem conta", async () => {
+    expect(await ctx("GET", "/inventory/count-sessions/s1/referencia")).toEqual({ menuId: "inventory-counting", action: "view" })
+  })
 })

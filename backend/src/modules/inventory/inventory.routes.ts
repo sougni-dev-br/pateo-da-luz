@@ -2680,6 +2680,125 @@ inventoryRouter.get("/count-sessions/:id/plausibility", async (request, response
   );
 });
 
+// Referencia de quem conta: a mesma conta da conferencia do inventario
+// (conferencia.ts) — ultima contagem aprovada do produto mais as compras
+// recebidas desde entao, ate o dia desta contagem. Antes o estoquista contava
+// as cegas e a sobra so aparecia na revisao, dias depois, quando ja nao dava
+// para olhar a prateleira de novo.
+//
+// O custo serve para mostrar quanto vale o que esta sendo contado. Mesma ordem
+// da conferencia (compras do periodo, depois a base oficial da contagem
+// anterior); produto nunca aprovado cai na ultima compra, para o total nao
+// esconder o item novo. Nunca o medio do saldo: herda erro de unidade.
+// Custo so vai para quem tem "Custos do estoque"; a referencia vai para todos.
+// A tela e a folha impressa leem daqui: o papel mostra a mesma conta da tela.
+async function referenciaDaContagem(sessionId: string, custoPermitido: boolean) {
+  const rows = await prisma.$queryRaw<Array<{
+    itemId: string;
+    anterior: Prisma.Decimal | null;
+    anteriorData: Date | null;
+    anteriorCodigo: string | null;
+    compras: Prisma.Decimal | null;
+    custoCompras: Prisma.Decimal | null;
+    custoBase: Prisma.Decimal | null;
+    custoUltimaCompra: Prisma.Decimal | null;
+  }>>`
+    -- Contagem de agosto feita em 01/09 fecha agosto: o dia que vale e o fim
+    -- do mes do ciclo, como o effectiveCountDate da consolidacao. Contagem no
+    -- meio do mes fica no proprio dia, senao entrariam compras posteriores.
+    WITH atual AS (
+      SELECT "id",
+             LEAST(
+               "referenceDate"::date,
+               CASE WHEN "periodYear" IS NOT NULL AND "periodMonth" IS NOT NULL
+                    THEN (make_date("periodYear", "periodMonth", 1) + INTERVAL '1 month' - INTERVAL '1 day')::date
+               END
+             ) AS dia
+      FROM "StockCountSession"
+      WHERE "id" = ${sessionId}
+    ),
+    alvo AS (
+      SELECT i."id", i."productId"
+      FROM "StockCountSessionItem" i
+      WHERE i."stockCountSessionId" = ${sessionId} AND i."productId" IS NOT NULL
+    ),
+    -- A anterior e o item do INVENTARIO aprovado, nunca a contagem que o
+    -- gerou: correcao na revisao, correcao pela conferencia e recontagem
+    -- aplicada regravam o countedQuantity daqui; "Esta certo" mantem o numero.
+    -- Inventario ainda em revisao nao entra: vale o ultimo aprovado.
+    anterior AS (
+      SELECT DISTINCT ON (i."productId")
+             i."productId", i."countedQuantity", o."code", o."inventorySnapshotId",
+             COALESCE(o."effectiveCountDate", o."date")::date AS dia
+      FROM "OperationalInventoryItem" i
+      JOIN "OperationalInventory" o ON o."id" = i."inventoryId"
+      CROSS JOIN atual
+      WHERE o."status" IN ('APROVADO', 'FECHADO')
+        AND i."countedQuantity" IS NOT NULL
+        AND i."productId" IN (SELECT "productId" FROM alvo)
+        AND COALESCE(o."effectiveCountDate", o."date")::date < atual.dia
+      ORDER BY i."productId", COALESCE(o."effectiveCountDate", o."date") DESC, o."approvedAt" DESC NULLS LAST, i."id"
+    ),
+    -- Itens da nota, nao movimentacoes: editar a nota deixa a entrada orfa.
+    compras AS (
+      SELECT pi."productId", SUM(COALESCE(pi."convertedQuantity", pi."quantity")) AS quantidade,
+             SUM(pi."totalPrice") / NULLIF(SUM(COALESCE(pi."convertedQuantity", pi."quantity")), 0) AS custo
+      FROM "PurchaseItem" pi
+      JOIN "Purchase" p ON p."id" = pi."purchaseId"
+      JOIN anterior a ON a."productId" = pi."productId"
+      CROSS JOIN atual
+      WHERE p."status" = 'ACTIVE'
+        AND p."workflowStatus" = 'confirmed'
+        AND COALESCE(p."receivedAt", p."purchaseDate")::date > a.dia
+        AND COALESCE(p."receivedAt", p."purchaseDate")::date <= atual.dia
+      GROUP BY pi."productId"
+    )
+    SELECT alvo."id" AS "itemId",
+           anterior."countedQuantity" AS anterior, anterior.dia AS "anteriorData", anterior."code" AS "anteriorCodigo",
+           compras.quantidade AS compras, compras.custo AS "custoCompras",
+           base."unitCost" AS "custoBase", ultima.custo AS "custoUltimaCompra"
+    FROM alvo
+    LEFT JOIN anterior ON anterior."productId" = alvo."productId"
+    LEFT JOIN compras ON compras."productId" = alvo."productId"
+    LEFT JOIN LATERAL (
+      SELECT si."unitCost"
+      FROM "InventorySnapshotItem" si
+      WHERE si."snapshotId" = anterior."inventorySnapshotId" AND si."productId" = alvo."productId" AND si."unitCost" > 0
+      ORDER BY si."unitCost" DESC
+      LIMIT 1
+    ) base ON true
+    LEFT JOIN LATERAL (
+      SELECT pi."totalPrice" / NULLIF(COALESCE(pi."convertedQuantity", pi."quantity"), 0) AS custo
+      FROM "PurchaseItem" pi
+      JOIN "Purchase" p ON p."id" = pi."purchaseId"
+      CROSS JOIN atual
+      WHERE pi."productId" = alvo."productId"
+        AND p."status" = 'ACTIVE'
+        AND p."workflowStatus" = 'confirmed'
+        AND pi."totalPrice" > 0
+        AND COALESCE(p."receivedAt", p."purchaseDate")::date <= atual.dia
+      ORDER BY COALESCE(p."receivedAt", p."purchaseDate") DESC, pi."id"
+      LIMIT 1
+    ) ultima ON true
+  `;
+
+  const numero = (valor: Prisma.Decimal | null) => (valor == null ? null : Number(valor));
+  return rows.map((row) => ({
+    itemId: row.itemId,
+    anterior: numero(row.anterior),
+    anteriorData: row.anteriorData,
+    anteriorCodigo: row.anteriorCodigo,
+    compras: numero(row.compras) ?? 0,
+    custoUnitario: custoPermitido ? numero(row.custoCompras) ?? numero(row.custoBase) ?? numero(row.custoUltimaCompra) : null
+  }));
+}
+
+inventoryRouter.get("/count-sessions/:id/referencia", async (request, response) => {
+  const user = await requireMenuPermission(request, response);
+  if (!user) return;
+  response.json(await referenciaDaContagem(request.params.id, await isCostAllowed(user)));
+});
+
 inventoryRouter.get("/count-sessions/:id/pdf", async (request, response) => {
   const user = await requireMenuPermission(request, response);
   if (!user) return;
@@ -2735,6 +2854,7 @@ inventoryRouter.get("/count-sessions/:id/pdf", async (request, response) => {
   `;
 
   const normalizedItems = items.map(normalizeStockCountSessionItem);
+  const referencia = new Map((await referenciaDaContagem(session.id, false)).map((r) => [r.itemId, r]));
 
   const pdf = createStockCountSessionPdf({
     systemName: "Pateo da Luz - Gestão de Estoque",
@@ -2747,8 +2867,11 @@ inventoryRouter.get("/count-sessions/:id/pdf", async (request, response) => {
       productCode: item.productCodeSnapshot,
       productName: item.productNameSnapshot,
       sectorName: item.sectorSnapshot,
+      categoryName: item.categorySnapshot,
       unit: item.unitSnapshot,
-      countedQuantity: item.countedQuantity == null ? null : Number(item.countedQuantity)
+      anterior: referencia.get(item.id)?.anterior ?? null,
+      compras: referencia.get(item.id)?.compras ?? 0,
+      notes: item.notes
     }))
   });
 
