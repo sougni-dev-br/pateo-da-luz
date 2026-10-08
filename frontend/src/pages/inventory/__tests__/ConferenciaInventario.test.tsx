@@ -20,7 +20,7 @@ const render = (ui: ReactElement) => renderRaw(<SessionContext.Provider value={S
 function item(parcial: Partial<ItemDaConferencia>): ItemDaConferencia {
   return {
     itemId: "i", productId: "p", productCode: "100", productName: "PRODUTO", sectorName: "ESTOQUE", unit: "UN",
-    contado: 1, anterior: 1, anteriorData: "2026-06-29T00:00:00.000Z", anteriorCodigo: "INV-2026-0020",
+    contado: 1, contadoPor: null, contadoEm: null, anterior: 1, anteriorData: "2026-06-29T00:00:00.000Z", anteriorCodigo: "INV-2026-0020",
     compras: 0, disponivel: 1, consumo: 0, custoUnitario: 1, impacto: 0, classe: "COERENTE", motivo: "Consumo de 0 UN no período.",
     ...parcial
   };
@@ -127,6 +127,73 @@ describe("ConferenciaInventario", () => {
     soltarA(conferencia([mexedor]));
     await new Promise((r) => setTimeout(r, 0));
     expect(screen.queryByText("MEXEDOR CAFÉ GOLDEN C/ 500")).not.toBeInTheDocument();
+  });
+
+  test("corrige a quantidade no proprio cartao, sem trocar de aba", async () => {
+    const onCorrigir = vi.fn().mockResolvedValue(true);
+    vi.mocked(getConferenciaDoInventario).mockResolvedValue(conferencia([mexedor]));
+    render(<ConferenciaInventario inventoryId="inv" onLocalizar={vi.fn()} podeCorrigir onCorrigir={onCorrigir} />);
+
+    const campo = await screen.findByLabelText(/quantidade certa de mexedor/i);
+    fireEvent.change(campo, { target: { value: "0,84" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(onCorrigir).toHaveBeenCalledWith(expect.objectContaining({ itemId: "mexedor" }), "0,84"));
+  });
+
+  test("o campo acompanha o valor salvo e compara numero, nao texto", async () => {
+    const um = item({ itemId: "x", productName: "BATATA", unit: "KG", contado: 12.5, classe: "FORA_DO_HISTORICO", impacto: 10 });
+    vi.mocked(getConferenciaDoInventario).mockResolvedValueOnce(conferencia([um]));
+    const { rerender } = render(<ConferenciaInventario inventoryId="inv" versao={1} onLocalizar={vi.fn()} podeCorrigir onCorrigir={vi.fn()} />);
+
+    const campo = await screen.findByLabelText(/quantidade certa de batata/i);
+    fireEvent.change(campo, { target: { value: "12,50" } });
+    expect(screen.getByRole("button", { name: "Salvar" })).toBeDisabled();
+
+    fireEvent.change(campo, { target: { value: "12,5" } });
+    vi.mocked(getConferenciaDoInventario).mockResolvedValueOnce(conferencia([{ ...um, contado: 14 }]));
+    rerender(<SessionContext.Provider value={SESSAO}><HideValuesProvider><ConferenciaInventario inventoryId="inv" versao={2} onLocalizar={vi.fn()} podeCorrigir onCorrigir={vi.fn()} /></HideValuesProvider></SessionContext.Provider>);
+    await waitFor(() => expect(screen.getByLabelText(/quantidade certa de batata/i)).toHaveValue("14"));
+  });
+
+  test("sem permissao de corrigir, o cartao nao mostra o campo", async () => {
+    vi.mocked(getConferenciaDoInventario).mockResolvedValue(conferencia([mexedor]));
+    render(<ConferenciaInventario inventoryId="inv" onLocalizar={vi.fn()} />);
+    await screen.findByText("MEXEDOR CAFÉ GOLDEN C/ 500");
+    expect(screen.queryByLabelText(/quantidade certa/i)).not.toBeInTheDocument();
+  });
+
+  test("sugestao de embalagem preenche o campo com um clique", async () => {
+    const palito = item({
+      itemId: "palito", productName: "SACHE DE PALITO C/ 2000", unit: "UN", anterior: 1.4, compras: 0, disponivel: 1.4,
+      contado: 1100, classe: "IMPOSSIVEL", impacto: 100, sugestao: { quantidade: 0.55, embalagem: 2000 }
+    });
+    vi.mocked(getConferenciaDoInventario).mockResolvedValue(conferencia([palito]));
+    render(<ConferenciaInventario inventoryId="inv" onLocalizar={vi.fn()} podeCorrigir onCorrigir={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /usar 0,55 un/i }));
+    expect(screen.getByLabelText(/quantidade certa de sache/i)).toHaveValue("0,55");
+  });
+
+  test("zerado mostra o produto parecido que foi contado", async () => {
+    const coca2lz = item({ itemId: "z", productName: "COCA COLA 2 L ZERO", contado: 0, classe: "ZERADO_SUSPEITO", impacto: 30 });
+    const coca2l = item({ itemId: "c", productName: "COCA COLA 2 L", contado: 1, classe: "COERENTE" });
+    vi.mocked(getConferenciaDoInventario).mockResolvedValue(conferencia([coca2lz, coca2l]));
+    render(<ConferenciaInventario inventoryId="inv" onLocalizar={vi.fn()} />);
+
+    expect(await screen.findByText(/contado em produto parecido/i)).toBeInTheDocument();
+    expect(screen.getByText(/COCA COLA 2 L — 1 UN/)).toBeInTheDocument();
+  });
+
+  test("recorte por setor muda os totais das classes", async () => {
+    vi.mocked(getConferenciaDoInventario).mockResolvedValue(conferencia([
+      { ...mexedor, sectorName: "CORREDORES" },
+      { ...salmao, sectorName: "CAMARA FRIA" }
+    ]));
+    render(<ConferenciaInventario inventoryId="inv" onLocalizar={vi.fn()} />);
+
+    fireEvent.change(await screen.findByLabelText("Setor"), { target: { value: "CAMARA FRIA" } });
+    expect(screen.getByRole("button", { name: /impossíveis/i })).toBeDisabled();
+    expect(screen.getByText(/mostrando 1 de 2/i)).toBeInTheDocument();
   });
 
   test("falha na consulta mostra o erro e deixa tentar de novo", async () => {

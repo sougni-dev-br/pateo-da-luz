@@ -1,14 +1,20 @@
-import { AlertTriangle, CheckCircle2, Loader2, RefreshCw, Search } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, CheckCircle2, ChevronDown, Loader2, RefreshCw, Search, Wand2 } from "lucide-react";
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type ClasseConferencia,
   type ConferenciaDoInventario,
   type ItemDaConferencia,
+  type NotaDoItemDaConferencia,
+  getComprasDoItemDaConferencia,
   getConferenciaDoInventario
 } from "../../api/client";
 import { Money, StatusBadge, type StatusTone } from "../../design-system";
 import { formatDate } from "../../utils/format";
+import { SEM_SETOR, filtrarConferencia, produtosParecidos, resumirItens } from "./conferencia-ajuda";
+import { quantityToApi, sanitizeQuantityInput } from "./shared";
 import "./conferencia.css";
+
+const formatoDataHora = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" });
 
 // A conferencia nao compara com o "saldo esperado" do sistema: esse saldo so
 // soma compras e nunca baixa, entao 38% dos itens apareciam divergentes e
@@ -88,14 +94,29 @@ type Props = {
   onCarregar?: (conferencia: ConferenciaDoInventario) => void;
   /** Inventario ja aprovado: os alertas ja estao na base do CMV. */
   jaAprovado?: boolean;
+  /** Corrigir a quantidade no proprio cartao (rascunho, ou revisao para quem aprova). */
+  podeCorrigir?: boolean;
+  /** Salva a quantidade; devolve false se nao salvou (o pai ja avisou o motivo). */
+  onCorrigir?: (item: ItemDaConferencia, quantidade: string) => Promise<boolean>;
 };
 
-export function ConferenciaInventario({ inventoryId, versao, onLocalizar, onCarregar, jaAprovado = false }: Props) {
+const VALORES_MINIMOS = [
+  { valor: 0, rotulo: "Qualquer valor" },
+  { valor: 50, rotulo: "A partir de R$ 50" },
+  { valor: 500, rotulo: "A partir de R$ 500" }
+];
+
+export function ConferenciaInventario({ inventoryId, versao, onLocalizar, onCarregar, jaAprovado = false, podeCorrigir = false, onCorrigir }: Props) {
   const [conferencia, setConferencia] = useState<ConferenciaDoInventario | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [classe, setClasse] = useState<ClasseConferencia | null>(null);
   const [limite, setLimite] = useState(ITENS_POR_PAGINA);
+  const [setor, setSetor] = useState("");
+  const [valorMinimo, setValorMinimo] = useState(0);
+  // Depois de corrigir, o cursor vai para o proximo item da lista (que pode ter
+  // mudado de lugar na recarga).
+  const [focarItem, setFocarItem] = useState<string | null>(null);
   // Salvar duas vezes seguidas dispara duas cargas; so a ultima vale.
   const ultimaCarga = useRef(0);
   const onCarregarRef = useRef(onCarregar);
@@ -123,10 +144,46 @@ export function ConferenciaInventario({ inventoryId, versao, onLocalizar, onCarr
     void carregar();
   }, [carregar, versao]);
 
-  const itensDaClasse = useMemo(
-    () => (conferencia && classe ? conferencia.itens.filter((item) => item.classe === classe) : []),
-    [conferencia, classe]
+  const filtrados = useMemo(
+    () => (conferencia ? filtrarConferencia(conferencia.itens, { setor, valorMinimo }) : []),
+    [conferencia, setor, valorMinimo]
   );
+  const resumoDoRecorte = useMemo(() => resumirItens(filtrados), [filtrados]);
+  const setores = useMemo(
+    () => [...new Set((conferencia?.itens ?? []).map((i) => i.sectorName ?? SEM_SETOR))].sort((a, b) => a.localeCompare(b, "pt-BR")),
+    [conferencia]
+  );
+  const itensDaClasse = useMemo(
+    () => (classe ? filtrados.filter((item) => item.classe === classe) : []),
+    [filtrados, classe]
+  );
+
+  useEffect(() => {
+    if (!focarItem || carregando) return;
+    const campo = document.querySelector<HTMLInputElement>(`[data-conf-input="${focarItem}"]`);
+    if (campo) {
+      campo.focus();
+      campo.select();
+      campo.scrollIntoView({ block: "center" });
+    }
+    setFocarItem(null);
+  }, [focarItem, carregando, itensDaClasse]);
+
+  async function corrigir(item: ItemDaConferencia, quantidade: string) {
+    if (!onCorrigir) return false;
+    const posicao = itensDaClasse.findIndex((i) => i.itemId === item.itemId);
+    // Sem proximo, volta ao primeiro que sobrou na lista.
+    const proximo = itensDaClasse[posicao + 1] ?? itensDaClasse.find((i) => i.itemId !== item.itemId) ?? null;
+    const salvou = await onCorrigir(item, quantidade);
+    if (salvou && proximo) {
+      // O corrigido costuma sair da classe; o proximo sobe uma posicao. Garante
+      // que ele esteja dentro da pagina mostrada.
+      const indiceDoProximo = itensDaClasse.indexOf(proximo);
+      if (indiceDoProximo >= limite) setLimite(indiceDoProximo + 1);
+      setFocarItem(proximo.itemId);
+    }
+    return salvou;
+  }
 
   function escolher(proxima: ClasseConferencia) {
     setClasse(proxima);
@@ -178,9 +235,30 @@ export function ConferenciaInventario({ inventoryId, versao, onLocalizar, onCarr
       )}
       {erro && <p className="conf-estado conf-estado--erro" role="alert">{erro}</p>}
 
+      <div className="conf-recorte">
+        <label>
+          <span>Setor</span>
+          <select value={setor} onChange={(e) => { setSetor(e.target.value); setLimite(ITENS_POR_PAGINA); }}>
+            <option value="">Todos os setores</option>
+            {setores.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </label>
+        <label>
+          <span>Valor</span>
+          <select value={valorMinimo} onChange={(e) => { setValorMinimo(Number(e.target.value)); setLimite(ITENS_POR_PAGINA); }}>
+            {VALORES_MINIMOS.map((v) => <option key={v.valor} value={v.valor}>{v.rotulo}</option>)}
+          </select>
+        </label>
+        {(setor || valorMinimo > 0) && (
+          <button type="button" className="conf-recorte__limpar" onClick={() => { setSetor(""); setValorMinimo(0); }}>
+            Mostrando {formatoQuantidade.format(filtrados.length)} de {formatoQuantidade.format(conferencia.itens.length)} · limpar
+          </button>
+        )}
+      </div>
+
       <div className="conf-classes" role="group" aria-label="Filtrar por resultado da conferência">
         {ORDEM.map((c) => {
-          const { itens, impacto } = conferencia.resumo[c];
+          const { itens, impacto } = resumoDoRecorte[c];
           return (
             <button
               key={c}
@@ -202,9 +280,22 @@ export function ConferenciaInventario({ inventoryId, versao, onLocalizar, onCarr
 
       <ul className="conf-lista">
         {itensDaClasse.slice(0, limite).map((item) => (
-          <LinhaDaConferencia key={item.itemId} item={item} rotuloImpacto={descricao?.impacto ?? ""} onLocalizar={onLocalizar} />
+          <LinhaDaConferencia
+            key={item.itemId}
+            inventoryId={inventoryId}
+            item={item}
+            todos={conferencia.itens}
+            rotuloImpacto={descricao?.impacto ?? ""}
+            onLocalizar={onLocalizar}
+            podeCorrigir={podeCorrigir && Boolean(onCorrigir)}
+            onCorrigir={corrigir}
+          />
         ))}
       </ul>
+
+      {itensDaClasse.length === 0 && classe && (
+        <p className="conf-ajuda">Nada nesta classe com o recorte atual.</p>
+      )}
 
       {itensDaClasse.length > limite && (
         <button type="button" className="secondary-button conf-mais" onClick={() => setLimite((atual) => atual + ITENS_POR_PAGINA)}>
@@ -249,19 +340,74 @@ export function SeloDaConferencia({ item }: { item: ItemDaConferencia | undefine
 }
 
 type LinhaProps = {
+  inventoryId: string;
   item: ItemDaConferencia;
+  todos: ItemDaConferencia[];
   rotuloImpacto: string;
   onLocalizar: (item: ItemDaConferencia) => void;
+  podeCorrigir: boolean;
+  onCorrigir: (item: ItemDaConferencia, quantidade: string) => Promise<boolean>;
 };
 
-function LinhaDaConferencia({ item, rotuloImpacto, onLocalizar }: LinhaProps) {
+function quantidadeParaCampo(valor: number | null) {
+  return valor == null ? "" : String(valor).replace(".", ",");
+}
+
+// O cartao e onde se decide: a conta, o motivo, as notas que entraram, o
+// produto vizinho que pode ter levado a contagem e o campo para corrigir. Antes
+// cada correcao era localizar, trocar de aba, salvar e voltar procurando.
+function LinhaDaConferencia({ inventoryId, item, todos, rotuloImpacto, onLocalizar, podeCorrigir, onCorrigir }: LinhaProps) {
   const u = item.unit;
   const temConta = item.anterior != null;
+  const [valor, setValor] = useState(quantidadeParaCampo(item.contado));
+  const [salvando, setSalvando] = useState(false);
+  const [notasAbertas, setNotasAbertas] = useState(false);
+  const campo = useRef<HTMLInputElement | null>(null);
+  // O valor pode mudar por fora (aba Itens, outra pessoa). Acompanha o novo
+  // valor salvo, mas nao atropela o que a pessoa estiver digitando.
+  const base = useRef(quantidadeParaCampo(item.contado));
+  useEffect(() => {
+    const novo = quantidadeParaCampo(item.contado);
+    setValor((atual) => (atual === base.current ? novo : atual));
+    base.current = novo;
+  }, [item.contado]);
+  const parecidos = useMemo(
+    () => (item.classe === "ZERADO_SUSPEITO" || item.classe === "SEM_REFERENCIA" ? produtosParecidos(item, todos) : []),
+    [item, todos]
+  );
+  // Compara numero, nao texto: "12,50" e o 12,5 salvo sao a mesma coisa.
+  const normalizado = quantityToApi(valor);
+  const mudou = normalizado === undefined
+    ? valor.trim() !== ""
+    : normalizado === "" ? item.contado != null : Number(normalizado) !== item.contado;
+
+  async function salvar(evento: FormEvent) {
+    evento.preventDefault();
+    if (!mudou || salvando) return;
+    setSalvando(true);
+    try {
+      await onCorrigir(item, valor);
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  function usarSugestao() {
+    if (!item.sugestao) return;
+    setValor(quantidadeParaCampo(item.sugestao.quantidade));
+    campo.current?.focus();
+  }
+
   return (
     <li className={`conf-item conf-item--${CLASSES[item.classe].tom}`}>
       <div className="conf-item__produto">
         <strong>{item.productName}</strong>
         <small>{[item.productCode, item.sectorName].filter(Boolean).join(" · ") || "sem código"}</small>
+        {item.contadoPor && (
+          <small className="conf-item__quem">
+            Contado por {item.contadoPor}{item.contadoEm ? ` em ${formatoDataHora.format(new Date(item.contadoEm))}` : ""}
+          </small>
+        )}
       </div>
 
       <dl className="conf-conta">
@@ -290,22 +436,122 @@ function LinhaDaConferencia({ item, rotuloImpacto, onLocalizar }: LinhaProps) {
         ) : <small>sem custo</small>}
       </div>
 
-      <button
-        type="button"
-        className="secondary-button conf-item__localizar"
-        aria-label={`Localizar ${item.productName} na lista`}
-        title="Abrir na lista de itens"
-        onClick={() => onLocalizar(item)}
-      >
-        <Search size={14} aria-hidden="true" /> <span>Localizar</span>
-      </button>
-
-      <p className="conf-item__motivo">
-        {item.motivo}
-        {temConta && item.anteriorCodigo && (
-          <span className="conf-item__origem"> Contagem anterior: {item.anteriorCodigo}{item.anteriorData ? `, ${formatDate(item.anteriorData)}` : ""}.</span>
+      <div className="conf-item__acoes">
+        {podeCorrigir && (
+          <form className="conf-corrigir" onSubmit={(e) => void salvar(e)}>
+            <label className="conf-sr" htmlFor={`conf-qtd-${item.itemId}`}>Quantidade certa de {item.productName}</label>
+            <input
+              ref={campo}
+              id={`conf-qtd-${item.itemId}`}
+              data-conf-input={item.itemId}
+              inputMode="decimal"
+              value={valor}
+              onChange={(e) => setValor(sanitizeQuantityInput(e.target.value))}
+              aria-describedby={`conf-motivo-${item.itemId}`}
+            />
+            {u && <span className="conf-corrigir__unidade">{u}</span>}
+            <button type="submit" className={mudou ? "primary-button" : "secondary-button"} disabled={!mudou || salvando}>
+              {salvando && <Loader2 size={14} className="spin" aria-hidden="true" />}
+              Salvar
+            </button>
+          </form>
         )}
-      </p>
+        <button
+          type="button"
+          className="icon-button conf-item__localizar"
+          aria-label={`Localizar ${item.productName} na lista`}
+          title="Abrir na lista de itens (observação, setor)"
+          onClick={() => onLocalizar(item)}
+        >
+          <Search size={15} aria-hidden="true" />
+        </button>
+      </div>
+
+      <div className="conf-item__detalhes">
+        <p className="conf-item__motivo" id={`conf-motivo-${item.itemId}`}>
+          {item.motivo}
+          {temConta && item.anteriorCodigo && (
+            <span className="conf-item__origem"> Contagem anterior: {item.anteriorCodigo}{item.anteriorData ? `, ${formatDate(item.anteriorData)}` : ""}.</span>
+          )}
+        </p>
+
+        {item.sugestao && podeCorrigir && (
+          <button type="button" className="conf-sugestao" onClick={usarSugestao}>
+            <Wand2 size={14} aria-hidden="true" />
+            Usar {quantidadeParaCampo(item.sugestao.quantidade)}{u ? ` ${u}` : ""} ({formatoQuantidade.format(item.contado ?? 0)} ÷ embalagem de {formatoQuantidade.format(item.sugestao.embalagem)})
+          </button>
+        )}
+
+        {parecidos.length > 0 && (
+          <p className="conf-parecidos">
+            <strong>Contado em produto parecido?</strong>{" "}
+            {parecidos.map((p, i) => (
+              <span key={p.itemId}>
+                {i > 0 && " · "}
+                {p.productName} — {qtd(p.contado, p.unit)}
+              </span>
+            ))}
+          </p>
+        )}
+
+        {item.compras > 0 && (
+          <NotasDoPeriodo inventoryId={inventoryId} itemId={item.itemId} aberto={notasAbertas} onAlternar={() => setNotasAbertas((v) => !v)} />
+        )}
+      </div>
     </li>
+  );
+}
+
+type NotasProps = { inventoryId: string; itemId: string; aberto: boolean; onAlternar: () => void };
+
+function NotasDoPeriodo({ inventoryId, itemId, aberto, onAlternar }: NotasProps) {
+  const [notas, setNotas] = useState<NotaDoItemDaConferencia[] | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!aberto || notas) return;
+    let vivo = true;
+    getComprasDoItemDaConferencia(inventoryId, itemId)
+      .then((resultado) => { if (vivo) setNotas(resultado); })
+      .catch((e) => { if (vivo) setErro(e instanceof Error ? e.message : "Não foi possível carregar as notas."); });
+    return () => { vivo = false; };
+  }, [aberto, notas, inventoryId, itemId]);
+
+  let conteudo = null;
+  if (aberto) {
+    if (erro) conteudo = <p className="conf-estado conf-estado--erro" role="alert">{erro}</p>;
+    else if (!notas) conteudo = <p className="conf-estado" role="status"><Loader2 size={14} className="spin" aria-hidden="true" /> Carregando…</p>;
+    else if (notas.length === 0) conteudo = <p className="conf-ajuda">Nenhuma nota no período.</p>;
+    else conteudo = (
+      <table className="conf-notas__tabela">
+        <thead><tr><th>Data</th><th>Nota</th><th>Fornecedor</th><th>Quantidade</th><th>Valor</th></tr></thead>
+        <tbody>
+          {notas.map((n, i) => (
+            <tr key={`${n.purchaseId}-${i}`}>
+              <td>{formatDate(n.data)}</td>
+              <td>{n.notaFiscal ? `NF ${n.notaFiscal}` : n.numero ?? "—"}</td>
+              <td>{n.fornecedor ?? "—"}</td>
+              <td>
+                {formatoQuantidade.format(n.quantidade)} {n.unidade ?? ""}
+                {n.quantidadeConvertida != null && n.unidadeConvertida && (
+                  <small> = {formatoQuantidade.format(n.quantidadeConvertida)} {n.unidadeConvertida}</small>
+                )}
+              </td>
+              <td>{n.valor != null ? <Money value={n.valor} /> : "—"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    );
+  }
+
+  return (
+    <div className="conf-notas">
+      <button type="button" className="conf-notas__abrir" aria-expanded={aberto} onClick={onAlternar}>
+        <ChevronDown size={14} aria-hidden="true" className={aberto ? "conf-notas__seta--aberta" : undefined} />
+        Notas de compra do período
+      </button>
+      {conteudo}
+    </div>
   );
 }
