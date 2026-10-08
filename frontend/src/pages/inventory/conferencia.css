@@ -745,3 +745,70 @@
     flex: 1 1 100%;
   }
 }
+
+.conf-marcar__dica {
+  flex: 1 1 100%;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.conf-ultimo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  min-height: 0;
+  color: var(--success);
+  font-size: 13px;
+}
+
+.conf-ultimo:empty {
+  display: none;
+}
+
+.conf-ultimo span {
+  flex: 1 1 200px;
+  min-width: 0;
+  color: var(--ink-soft);
+}
+
+.conf-marcar__erro {
+  flex: 1 1 100%;
+  margin: 0;
+  color: var(--danger);
+  font-size: 12.5px;
+}
+
+/* Dedo, nao mouse: alvos de 44px e campos com 16px (abaixo disso o iPhone
+   da zoom ao focar e a tela pula). */
+@media (pointer: coarse) {
+  .conf-corrigir input,
+  .conf-marcar__outro input {
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  .conf-corrigir button,
+  .conf-marcar__opcao,
+  .conf-marcar__outro button,
+  .conf-marcado__desfazer {
+    min-height: 44px;
+  }
+}
+
+/* Campo + "Salvar como Está certo" + "Outro": em tela estreita o campo ocupa
+   a linha e os botoes descem, sem espremer o texto. */
+.conf-marcar__outro {
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+
+.conf-marcar__outro input {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.conf-marcar__outro button {
+  flex: none;
+  white-space: nowrap;
+}
