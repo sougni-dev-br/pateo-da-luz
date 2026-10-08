@@ -107,7 +107,7 @@ describe("ConferenciaInventario", () => {
     vi.mocked(getConferenciaDoInventario).mockResolvedValue(conferencia([mignon]));
     render(<ConferenciaInventario inventoryId="inv" onLocalizar={vi.fn()} />);
 
-    expect(await screen.findByText(/nenhum item impossível ou zerado suspeito/i)).toBeInTheDocument();
+    expect(await screen.findByText(/nenhum alerta/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /coerentes/i })).toHaveAttribute("aria-pressed", "true");
   });
 
@@ -145,17 +145,37 @@ describe("ConferenciaInventario", () => {
     fireEvent.change(campo, { target: { value: "0,84" } });
     fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
     await waitFor(() => expect(onCorrigir).toHaveBeenCalledWith(expect.objectContaining({ itemId: "mexedor" }), "0,84"));
-    await waitFor(() => expect(marcarItemConferido).toHaveBeenCalledWith("inv", "mexedor", "CORRIGIDO"));
+    // Corrigir nao marca sozinho: se o numero novo ainda for alerta, continua pedindo conferencia.
+    await waitFor(() => expect(getConferenciaDoInventario).toHaveBeenCalledTimes(2));
+    expect(marcarItemConferido).not.toHaveBeenCalled();
   });
 
-  test("corrigido que nao conseguiu marcar avisa", async () => {
-    vi.mocked(marcarItemConferido).mockRejectedValue(new Error("falhou"));
-    vi.mocked(getConferenciaDoInventario).mockResolvedValue(conferencia([mexedor]));
-    render(<ConferenciaInventario inventoryId="inv" onLocalizar={vi.fn()} podeCorrigir podeConferir onCorrigir={vi.fn().mockResolvedValue(true)} />);
+  test("so fora do historico ainda e alerta (o servidor cobra)", async () => {
+    const fora = item({ itemId: "f", productName: "VINHO", classe: "FORA_DO_HISTORICO", impacto: 300 });
+    vi.mocked(getConferenciaDoInventario).mockResolvedValue(conferencia([fora]));
+    render(<ConferenciaInventario inventoryId="inv" onLocalizar={vi.fn()} podeCorrigir podeConferir onCorrigir={vi.fn()} />);
 
-    fireEvent.change(await screen.findByLabelText(/quantidade certa de mexedor/i), { target: { value: "1" } });
-    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
-    expect(await screen.findByText(/salva, mas não foi possível marcar/i)).toBeInTheDocument();
+    expect(await screen.findByText(/1 fora do histórico/i)).toBeInTheDocument();
+    expect(screen.queryByText(/nenhum alerta/i)).not.toBeInTheDocument();
+  });
+
+  test("quantidade digitada e nao salva trava os motivos", async () => {
+    vi.mocked(getConferenciaDoInventario).mockResolvedValue(conferencia([mexedor]));
+    render(<ConferenciaInventario inventoryId="inv" onLocalizar={vi.fn()} podeCorrigir podeConferir onCorrigir={vi.fn()} />);
+
+    fireEvent.change(await screen.findByLabelText(/quantidade certa de mexedor/i), { target: { value: "5" } });
+    expect(screen.getByRole("button", { name: "Está certo" })).toBeDisabled();
+    expect(screen.getByText(/salve a quantidade digitada/i)).toBeInTheDocument();
+  });
+
+  test("erro ao marcar aparece no proprio cartao", async () => {
+    vi.mocked(marcarItemConferido).mockRejectedValue(new Error("Sem permissão para conferir."));
+    vi.mocked(getConferenciaDoInventario).mockResolvedValue(conferencia([mexedor]));
+    render(<ConferenciaInventario inventoryId="inv" onLocalizar={vi.fn()} podeCorrigir podeConferir onCorrigir={vi.fn()} />);
+
+    const grupo = await screen.findByRole("group", { name: /conferir mexedor/i });
+    fireEvent.click(within(grupo).getByRole("button", { name: "Está certo" }));
+    expect(await within(grupo).findByRole("alert")).toHaveTextContent("Sem permissão para conferir.");
   });
 
   test("o campo acompanha o valor salvo e compara numero, nao texto", async () => {
@@ -218,7 +238,7 @@ describe("ConferenciaInventario", () => {
     vi.mocked(marcarItemConferido).mockResolvedValue({ ok: true });
     vi.mocked(getConferenciaDoInventario)
       .mockResolvedValueOnce(conferencia([mexedor]))
-      .mockResolvedValueOnce(conferencia([{ ...mexedor, conferido: { motivo: "CORRETO", observacao: null, em: null, por: "Eli" } }]));
+      .mockResolvedValueOnce(conferencia([{ ...mexedor, conferido: { motivo: "CORRETO", observacao: null, em: null, por: "Pessoa Teste" } }]));
     render(<ConferenciaInventario inventoryId="inv" onLocalizar={vi.fn()} podeCorrigir podeConferir onCorrigir={vi.fn()} />);
 
     const grupo = await screen.findByRole("group", { name: /conferir mexedor/i });
@@ -226,6 +246,8 @@ describe("ConferenciaInventario", () => {
     await waitFor(() => expect(marcarItemConferido).toHaveBeenCalledWith("inv", "mexedor", "CORRETO", undefined));
     // Conferido sai de "faltam conferir": a lista fica sem pendencia.
     expect(await screen.findByText(/nada falta conferir/i)).toBeInTheDocument();
+    // E diz qual saiu, com desfazer.
+    expect(screen.getByText(/saiu de "Faltam conferir"/i)).toBeInTheDocument();
   });
 
   test("no rascunho corrige mas nao marca conferido", async () => {
@@ -251,12 +273,48 @@ describe("ConferenciaInventario", () => {
     vi.mocked(getConferenciaDoInventario).mockResolvedValue(conferencia([mexedor]));
     render(<ConferenciaInventario inventoryId="inv" onLocalizar={vi.fn()} podeCorrigir podeConferir onCorrigir={vi.fn()} />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Outro…" }));
-    const ok = screen.getByRole("button", { name: "Ok" });
-    expect(ok).toBeDisabled();
-    fireEvent.change(screen.getByLabelText(/motivo da conferência de mexedor/i), { target: { value: "vencido, descartado" } });
-    fireEvent.click(ok);
+    fireEvent.click(await screen.findByRole("button", { name: "Justificar…" }));
+    const outro = screen.getByRole("button", { name: "Outro" });
+    expect(outro).toBeDisabled();
+    fireEvent.change(screen.getByLabelText(/justificativa da conferência de mexedor/i), { target: { value: "vencido, descartado" } });
+    fireEvent.click(outro);
     await waitFor(() => expect(marcarItemConferido).toHaveBeenCalledWith("inv", "mexedor", "OUTRO", "vencido, descartado"));
+  });
+
+  test("concordar com a contagem leva a justificativa junto", async () => {
+    vi.mocked(marcarItemConferido).mockResolvedValue({ ok: true });
+    vi.mocked(getConferenciaDoInventario).mockResolvedValue(conferencia([mexedor]));
+    render(<ConferenciaInventario inventoryId="inv" onLocalizar={vi.fn()} podeCorrigir podeConferir onCorrigir={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Justificar…" }));
+    fireEvent.change(screen.getByLabelText(/justificativa da conferência de mexedor/i), { target: { value: "caixa fechada no corredor" } });
+    fireEvent.click(screen.getByRole("button", { name: "Está certo" }));
+    await waitFor(() => expect(marcarItemConferido).toHaveBeenCalledWith("inv", "mexedor", "CORRETO", "caixa fechada no corredor"));
+  });
+
+  test("enter na justificativa grava como esta certo", async () => {
+    vi.mocked(marcarItemConferido).mockResolvedValue({ ok: true });
+    vi.mocked(getConferenciaDoInventario).mockResolvedValue(conferencia([mexedor]));
+    render(<ConferenciaInventario inventoryId="inv" onLocalizar={vi.fn()} podeCorrigir podeConferir onCorrigir={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Justificar…" }));
+    const campo = screen.getByLabelText(/justificativa da conferência de mexedor/i);
+    fireEvent.change(campo, { target: { value: "caixa fechada no corredor" } });
+    fireEvent.submit(campo.closest("form")!);
+    await waitFor(() => expect(marcarItemConferido).toHaveBeenCalledWith("inv", "mexedor", "CORRETO", "caixa fechada no corredor"));
+  });
+
+  test("item ja conferido pode receber justificativa depois", async () => {
+    vi.mocked(marcarItemConferido).mockResolvedValue({ ok: true });
+    const certo = { ...mexedor, conferido: { motivo: "CORRETO" as const, observacao: null, em: null, por: "Pessoa Teste" } };
+    vi.mocked(getConferenciaDoInventario).mockResolvedValue(conferencia([certo]));
+    render(<ConferenciaInventario inventoryId="inv" onLocalizar={vi.fn()} podeCorrigir podeConferir onCorrigir={vi.fn()} />);
+
+    fireEvent.change(await screen.findByLabelText(/situação/i), { target: { value: "todos" } });
+    fireEvent.click(await screen.findByRole("button", { name: /justificar/i }));
+    fireEvent.change(screen.getByLabelText(/justificativa da conferência de mexedor/i), { target: { value: "contagem anterior errada" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar justificativa" }));
+    await waitFor(() => expect(marcarItemConferido).toHaveBeenCalledWith("inv", "mexedor", "CORRETO", "contagem anterior errada"));
   });
 
   test("itens marcados para recontar viram pedido de recontagem", async () => {

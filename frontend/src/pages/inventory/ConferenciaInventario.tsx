@@ -1,4 +1,4 @@
-import { AlertTriangle, Check, CheckCircle2, ChevronDown, ClipboardList, Loader2, RefreshCw, Search, Undo2, Wand2 } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, ChevronDown, ClipboardList, Loader2, Pencil, RefreshCw, Search, Undo2, Wand2 } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type ClasseConferencia,
@@ -70,7 +70,8 @@ const CLASSES: Record<ClasseConferencia, DescricaoDaClasse> = {
 };
 
 const ORDEM: ClasseConferencia[] = ["IMPOSSIVEL", "ZERADO_SUSPEITO", "FORA_DO_HISTORICO", "SEM_REFERENCIA", "PENDENTE", "COERENTE"];
-const CLASSES_DE_ALERTA: ClasseConferencia[] = ["IMPOSSIVEL", "ZERADO_SUSPEITO"];
+// As mesmas classes que o servidor cobra para aprovar.
+const CLASSES_DE_ALERTA: ClasseConferencia[] = ["IMPOSSIVEL", "ZERADO_SUSPEITO", "FORA_DO_HISTORICO"];
 const ITENS_POR_PAGINA = 10;
 
 const formatoQuantidade = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 3 });
@@ -147,6 +148,11 @@ export function ConferenciaInventario({ inventoryId, versao, onLocalizar, onCarr
   // Depois de corrigir, o cursor vai para o proximo item da lista (que pode ter
   // mudado de lugar na recarga).
   const [focarItem, setFocarItem] = useState<string | null>(null);
+  // O campo de onde a pessoa saiu ao salvar/marcar. O foco so pula para o
+  // proximo se ela nao tiver ido para outro campo enquanto a tela recarregava.
+  const origemDoFoco = useRef<Element | null>(null);
+  // O item marcado sai de "Faltam conferir": diz qual foi e deixa desfazer.
+  const [ultimaMarca, setUltimaMarca] = useState<{ item: ItemDaConferencia; motivo: MotivoDeConferencia } | null>(null);
   // Salvar duas vezes seguidas dispara duas cargas; so a ultima vale.
   const ultimaCarga = useRef(0);
   const onCarregarRef = useRef(onCarregar);
@@ -208,13 +214,20 @@ export function ConferenciaInventario({ inventoryId, versao, onLocalizar, onCarr
 
   useEffect(() => {
     if (!focarItem || carregando) return;
+    setFocarItem(null);
     const campo = document.querySelector<HTMLInputElement>(`[data-conf-input="${focarItem}"]`);
-    if (campo) {
+    if (!campo) return;
+    const ativo = document.activeElement;
+    const livre = !ativo || ativo === document.body || ativo === origemDoFoco.current || !ativo.isConnected;
+    // Quem ja esta digitando em outro campo nao tem o texto selecionado e
+    // substituido. No celular o teclado nao abre por foco automatico (e o
+    // zoom pula a tela): so leva o proximo item para a vista.
+    const toque = typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
+    campo.scrollIntoView({ block: "center" });
+    if (livre && !toque) {
       campo.focus();
       campo.select();
-      campo.scrollIntoView({ block: "center" });
     }
-    setFocarItem(null);
   }, [focarItem, carregando, itensDaClasse]);
 
   async function corrigir(item: ItemDaConferencia, quantidade: string) {
@@ -222,18 +235,13 @@ export function ConferenciaInventario({ inventoryId, versao, onLocalizar, onCarr
     const posicao = itensDaClasse.findIndex((i) => i.itemId === item.itemId);
     // Sem proximo, volta ao primeiro que sobrou na lista.
     const proximo = itensDaClasse[posicao + 1] ?? itensDaClasse.find((i) => i.itemId !== item.itemId) ?? null;
+    origemDoFoco.current = document.activeElement;
     const salvou = await onCorrigir(item, quantidade);
     if (salvou) {
-      // Na revisao, corrigir e conferir: o item conta como visto.
-      // O aviso vem depois da recarga, que limpa o erro anterior.
-      let aviso: string | null = null;
-      if (podeConferir) {
-        await marcarItemConferido(inventoryId, item.itemId, "CORRIGIDO").catch(() => {
-          aviso = `Quantidade de ${item.productName} salva, mas não foi possível marcar como conferido. Marque no cartão.`;
-        });
-      }
+      // Nao marca "Corrigido" sozinho: se o numero novo ainda for alerta (um
+      // zero a mais), o item continua pedindo conferencia. Se ficou coerente,
+      // ja nao exige.
       await carregar();
-      if (aviso) setErro(aviso);
     }
     if (salvou && proximo) {
       // O corrigido costuma sair da classe; o proximo sobe uma posicao. Garante
@@ -245,17 +253,24 @@ export function ConferenciaInventario({ inventoryId, versao, onLocalizar, onCarr
     return salvou;
   }
 
-  async function marcar(item: ItemDaConferencia, motivo: MotivoDeConferencia | null, observacao?: string) {
+  // Devolve a mensagem de erro (ou null) para o proprio cartao mostrar: no
+  // meio da lista, um erro no topo da pagina passava despercebido.
+  async function marcar(item: ItemDaConferencia, motivo: MotivoDeConferencia | null, observacao?: string): Promise<string | null> {
     const posicao = itensDaClasse.findIndex((i) => i.itemId === item.itemId);
     const proximo = itensDaClasse[posicao + 1] ?? null;
+    origemDoFoco.current = document.activeElement;
     try {
       await marcarItemConferido(inventoryId, item.itemId, motivo, observacao);
-      if (motivo && proximo && situacao === "faltam") setFocarItem(proximo.itemId);
+      setUltimaMarca(motivo ? { item, motivo } : null);
+      if (motivo && proximo && situacao === "faltam") {
+        const indiceDoProximo = itensDaClasse.indexOf(proximo) - 1;
+        if (indiceDoProximo >= limite) setLimite(indiceDoProximo + 1);
+        setFocarItem(proximo.itemId);
+      }
       await carregar();
-      return true;
+      return null;
     } catch (error) {
-      setErro(error instanceof Error ? error.message : "Não foi possível marcar a conferência.");
-      return false;
+      return error instanceof Error ? error.message : "Não foi possível marcar a conferência.";
     }
   }
 
@@ -342,7 +357,7 @@ export function ConferenciaInventario({ inventoryId, versao, onLocalizar, onCarr
       ) : (
         <p className="conf-veredito conf-veredito--ok">
           <CheckCircle2 size={18} aria-hidden="true" />
-          <span>Nenhum item impossível ou zerado suspeito.</span>
+          <span>Nenhum alerta: nada impossível, zerado suspeito ou fora do histórico.</span>
         </p>
       )}
       {erro && <p className="conf-estado conf-estado--erro" role="alert">{erro}</p>}
@@ -421,6 +436,18 @@ export function ConferenciaInventario({ inventoryId, versao, onLocalizar, onCarr
 
       {descricao && <p className="conf-ajuda">{descricao.ajuda}</p>}
 
+      <div className="conf-ultimo" role="status" aria-live="polite">
+        {ultimaMarca && (
+          <>
+            <Check size={14} aria-hidden="true" />
+            <span><strong>{ultimaMarca.item.productName}</strong>: {ROTULO_DO_MOTIVO[ultimaMarca.motivo]}{situacao === "faltam" ? " — saiu de \"Faltam conferir\"." : "."}</span>
+            <button type="button" className="conf-marcado__desfazer" onClick={() => { const { item } = ultimaMarca; setUltimaMarca(null); void marcar(item, null); }}>
+              <Undo2 size={13} aria-hidden="true" /> Desfazer
+            </button>
+          </>
+        )}
+      </div>
+
       <ul className="conf-lista">
         {itensDaClasse.slice(0, limite).map((item) => (
           <LinhaDaConferencia
@@ -498,7 +525,7 @@ type LinhaProps = {
   podeCorrigir: boolean;
   podeConferir: boolean;
   onCorrigir: (item: ItemDaConferencia, quantidade: string) => Promise<boolean>;
-  onMarcar: (item: ItemDaConferencia, motivo: MotivoDeConferencia | null, observacao?: string) => Promise<boolean>;
+  onMarcar: (item: ItemDaConferencia, motivo: MotivoDeConferencia | null, observacao?: string) => Promise<string | null>;
   limiteDeConferencia: number;
 };
 
@@ -647,7 +674,7 @@ function LinhaDaConferencia({ inventoryId, item, todos, rotuloImpacto, onLocaliz
           </p>
         )}
 
-        <MarcacaoDoItem item={item} podeMarcar={podeConferir} onMarcar={onMarcar} />
+        <MarcacaoDoItem item={item} podeMarcar={podeConferir} quantidadePendente={mudou} onMarcar={onMarcar} />
 
         {item.compras > 0 && (
           <NotasDoPeriodo inventoryId={inventoryId} itemId={item.itemId} aberto={notasAbertas} onAlternar={() => setNotasAbertas((v) => !v)} />
@@ -666,6 +693,7 @@ function NotasDoPeriodo({ inventoryId, itemId, aberto, onAlternar }: NotasProps)
   useEffect(() => {
     if (!aberto || notas) return;
     let vivo = true;
+    setErro(null);
     getComprasDoItemDaConferencia(inventoryId, itemId)
       .then((resultado) => { if (vivo) setNotas(resultado); })
       .catch((e) => { if (vivo) setErro(e instanceof Error ? e.message : "Não foi possível carregar as notas."); });
@@ -714,63 +742,109 @@ function NotasDoPeriodo({ inventoryId, itemId, aberto, onAlternar }: NotasProps)
 type MarcacaoProps = {
   item: ItemDaConferencia;
   podeMarcar: boolean;
-  onMarcar: (item: ItemDaConferencia, motivo: MotivoDeConferencia | null, observacao?: string) => Promise<boolean>;
+  /** Quantidade digitada e ainda nao salva: marcar agora a descartaria. */
+  quantidadePendente?: boolean;
+  onMarcar: (item: ItemDaConferencia, motivo: MotivoDeConferencia | null, observacao?: string) => Promise<string | null>;
 };
 
 // "Conferido" com motivo: o que tira o item da lista do que falta. Sem isso, um
 // zerado que estava certo seguia como alerta para sempre.
-function MarcacaoDoItem({ item, podeMarcar, onMarcar }: MarcacaoProps) {
-  const [outroAberto, setOutroAberto] = useState(false);
+function MarcacaoDoItem({ item, podeMarcar, quantidadePendente = false, onMarcar }: MarcacaoProps) {
+  // A justificativa vale para qualquer motivo ("esta certo: a caixa estava
+  // fechada no corredor"); so "Outro" exige texto.
+  const [justificando, setJustificando] = useState(false);
   const [texto, setTexto] = useState("");
   const [enviando, setEnviando] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
 
   async function enviar(motivo: MotivoDeConferencia | null, observacao?: string) {
     setEnviando(true);
+    setErro(null);
     try {
-      const ok = await onMarcar(item, motivo, observacao);
-      if (ok) { setOutroAberto(false); setTexto(""); }
+      const falha = await onMarcar(item, motivo, observacao);
+      if (falha) setErro(falha);
+      else { setJustificando(false); setTexto(""); }
     } finally {
       setEnviando(false);
     }
   }
 
+  const avisoDeErro = erro ? <p className="conf-marcar__erro" role="alert">{erro}</p> : null;
+
+  const campoDaJustificativa = (
+    <input
+      autoFocus
+      value={texto}
+      maxLength={500}
+      placeholder="Por quê? Ex.: caixa fechada não foi vista na contagem anterior"
+      aria-label={`Justificativa da conferência de ${item.productName}`}
+      onChange={(e) => setTexto(e.target.value)}
+    />
+  );
+
   if (item.conferido) {
-    const recontar = item.conferido.motivo === "RECONTAR";
+    const conferido = item.conferido;
+    const recontar = conferido.motivo === "RECONTAR";
     return (
       <div className={`conf-marcado${recontar ? " conf-marcado--recontar" : ""}`}>
         {recontar ? <ClipboardList size={14} aria-hidden="true" /> : <Check size={14} aria-hidden="true" />}
         <span>
-          <strong>{recontar ? (item.recontagemId ? "Em recontagem" : "Marcado para recontar") : ROTULO_DO_MOTIVO[item.conferido.motivo]}</strong>
-          {item.conferido.observacao && <> — {item.conferido.observacao}</>}
-          {item.conferido.por && <small> · {item.conferido.por}{item.conferido.em ? `, ${formatoDataHora.format(new Date(item.conferido.em))}` : ""}</small>}
+          <strong>{recontar ? (item.recontagemId ? "Em recontagem" : "Marcado para recontar") : ROTULO_DO_MOTIVO[conferido.motivo]}</strong>
+          {conferido.observacao && <> — {conferido.observacao}</>}
+          {conferido.por && <small> · {conferido.por}{conferido.em ? `, ${formatoDataHora.format(new Date(conferido.em))}` : ""}</small>}
         </span>
+        {podeMarcar && justificando && (
+          <form className="conf-marcar__outro" onSubmit={(e) => { e.preventDefault(); if (texto.trim()) void enviar(conferido.motivo, texto); }}>
+            {campoDaJustificativa}
+            <button type="submit" className="secondary-button" aria-label="Salvar justificativa" disabled={!texto.trim() || enviando}>Salvar</button>
+          </form>
+        )}
+        {podeMarcar && !justificando && !recontar && (
+          <button type="button" className="conf-marcado__desfazer" disabled={enviando} onClick={() => { setTexto(conferido.observacao ?? ""); setJustificando(true); }}>
+            <Pencil size={13} aria-hidden="true" /> {conferido.observacao ? "Editar justificativa" : "Justificar"}
+          </button>
+        )}
         {podeMarcar && (
           <button type="button" className="conf-marcado__desfazer" disabled={enviando} onClick={() => void enviar(null)}>
             <Undo2 size={13} aria-hidden="true" /> Desfazer
           </button>
         )}
+        {avisoDeErro}
       </div>
     );
   }
 
   if (!podeMarcar) return null;
 
+  const observacao = texto.trim() || undefined;
   return (
     <div className="conf-marcar" role="group" aria-label={`Conferir ${item.productName}`}>
       <span className="conf-marcar__rotulo">Conferido:</span>
       {MOTIVOS_DO_CARTAO.map((motivo) => (
-        <button key={motivo} type="button" className={`conf-marcar__opcao conf-marcar__opcao--${motivo.toLowerCase()}`} disabled={enviando} onClick={() => void enviar(motivo)}>
+        <button key={motivo} type="button" className={`conf-marcar__opcao conf-marcar__opcao--${motivo.toLowerCase()}`} disabled={enviando || quantidadePendente} onClick={() => void enviar(motivo, observacao)}>
           {ROTULO_DO_MOTIVO[motivo]}
         </button>
       ))}
-      {outroAberto ? (
-        <form className="conf-marcar__outro" onSubmit={(e) => { e.preventDefault(); if (texto.trim()) void enviar("OUTRO", texto); }}>
-          <input autoFocus value={texto} maxLength={500} placeholder="Qual o motivo?" aria-label={`Motivo da conferência de ${item.productName}`} onChange={(e) => setTexto(e.target.value)} />
-          <button type="submit" className="secondary-button" disabled={!texto.trim() || enviando}>Ok</button>
+      {justificando ? (
+        // O caminho mais comum e concordar com a contagem e dizer por que:
+        // Enter (ou "Salvar") grava "Esta certo" com o texto. Os outros motivos
+        // continuam nos botoes acima, levando o mesmo texto.
+        <form className="conf-marcar__outro" onSubmit={(e) => { e.preventDefault(); if (observacao) void enviar("CORRETO", observacao); }}>
+          {campoDaJustificativa}
+          <button type="submit" className="primary-button" disabled={!observacao || enviando || quantidadePendente}>Salvar como “Está certo”</button>
+          <button type="button" className="secondary-button" title={observacao ? undefined : "Escreva o motivo primeiro"} disabled={!observacao || enviando || quantidadePendente} onClick={() => { if (observacao) void enviar("OUTRO", observacao); }}>Outro</button>
         </form>
       ) : (
-        <button type="button" className="conf-marcar__opcao" disabled={enviando} onClick={() => setOutroAberto(true)}>Outro…</button>
+        <button type="button" className="conf-marcar__opcao" disabled={enviando} onClick={() => setJustificando(true)}>Justificar…</button>
       )}
+      {quantidadePendente ? (
+        <small className="conf-marcar__dica">Salve a quantidade digitada (ou volte ao valor contado) antes de marcar.</small>
+      ) : justificando && (
+        <small className="conf-marcar__dica">
+          Enter também salva como <strong>Está certo</strong> com este texto. Se o motivo for outro, clique nele acima.
+        </small>
+      )}
+      {avisoDeErro}
     </div>
   );
 }
