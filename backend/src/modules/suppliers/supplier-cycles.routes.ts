@@ -4,7 +4,8 @@ import { Router } from "express";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 import { auditLog, requestIp, requireAdmin, requireRole } from "../security/security-utils.js";
-import { addPurchaseToCycle } from "./supplier-billing-cycle.service.js";
+import { addPurchaseToCycle, moverCompraEntreCiclos } from "./supplier-billing-cycle.service.js";
+import { notasParaTrazer, type NotaEmCiclo } from "./supplier-cycle-choice.js";
 import { empresaDoCiclo } from "./supplier-cycle-company.js";
 import { compraLevaDespesaAoDre } from "../purchases/purchase-aggregators.js";
 
@@ -225,17 +226,42 @@ supplierCyclesRouter.post("/", async (request, response) => {
   }
 
   const cycleId = crypto.randomUUID();
-  await prisma.$executeRaw`
-    INSERT INTO "SupplierBillingCycle" (
-      "id", "supplierId", "periodStart", "periodEnd", "status",
-      "totalAmount", "notes", "createdByUserId",
-      "createdAt", "updatedAt"
-    ) VALUES (
-      ${cycleId}, ${supplierId}, ${startDate}, ${endDate},
-      'OPEN', 0, ${notes ?? null}, ${user.id},
-      CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-    )
-  `;
+  // O ciclo nasce já com as notas do período que tinham caído em outro ciclo aberto
+  // por falta dele — antes a equipe tinha de movê-las uma a uma.
+  const trazidas = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`
+      INSERT INTO "SupplierBillingCycle" (
+        "id", "supplierId", "periodStart", "periodEnd", "status",
+        "totalAmount", "notes", "createdByUserId",
+        "createdAt", "updatedAt"
+      ) VALUES (
+        ${cycleId}, ${supplierId}, ${startDate}, ${endDate},
+        'OPEN', 0, ${notes ?? null}, ${user.id},
+        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+      )
+    `;
+    const notasEmCiclos = await tx.$queryRaw<NotaEmCiclo[]>`
+      SELECT i."purchaseId", p."purchaseDate", i."cycleId",
+             c."periodStart" AS "cicloInicio", c."periodEnd" AS "cicloFim"
+      FROM "SupplierBillingCycleItem" i
+      JOIN "SupplierBillingCycle" c ON c."id" = i."cycleId"
+      JOIN "Purchase" p ON p."id" = i."purchaseId"
+      WHERE c."supplierId" = ${supplierId}
+        AND c."id" <> ${cycleId}
+        AND c."status" IN ('OPEN', 'CHECKED')
+    `;
+    const movidas = [];
+    for (const nota of notasParaTrazer(notasEmCiclos, { inicio: startDate, fim: endDate })) {
+      const movida = await moverCompraEntreCiclos(tx, {
+        purchaseId: nota.purchaseId,
+        origemId: nota.cycleId,
+        destinoId: cycleId,
+        userId: user.id
+      });
+      if (movida) movidas.push({ ...movida, purchaseId: nota.purchaseId, origemId: nota.cycleId });
+    }
+    return movidas;
+  });
 
   await auditLog({
     userId: user.id,
@@ -246,6 +272,22 @@ supplierCyclesRouter.post("/", async (request, response) => {
     ipAddress: requestIp(request),
     userAgent: String(request.headers["user-agent"] ?? ""),
   });
+  for (const nota of trazidas) {
+    await auditLog({
+      userId: user.id,
+      action: "MOVE_PURCHASE_BETWEEN_CYCLES",
+      entity: "SupplierBillingCycle",
+      entityId: nota.origemId,
+      newValue: {
+        purchaseId: nota.purchaseId,
+        sourceCycleId: nota.origemId,
+        targetCycleId: cycleId,
+        motivo: "Trazida ao criar o ciclo que cobre a data da nota"
+      } as Prisma.InputJsonValue,
+      ipAddress: requestIp(request),
+      userAgent: String(request.headers["user-agent"] ?? ""),
+    });
+  }
 
   const [created] = await prisma.$queryRaw<Array<Record<string, unknown>>>`
     SELECT
@@ -257,7 +299,7 @@ supplierCyclesRouter.post("/", async (request, response) => {
       c."status",
       c."totalAmount"::text AS "totalAmount",
       c."generatedPurchaseId",
-      0::int AS "itemCount",
+      ${trazidas.length}::int AS "itemCount",
       0::int AS "checkedCount",
       false AS "hasDivergence",
       c."createdAt",
@@ -267,7 +309,10 @@ supplierCyclesRouter.post("/", async (request, response) => {
     WHERE c."id" = ${cycleId}
   `;
 
-  response.status(201).json(created);
+  response.status(201).json({
+    ...created,
+    notasTrazidas: trazidas.map(({ invoiceNumber, amount }) => ({ invoiceNumber, amount }))
+  });
 });
 
 // ── POST /supplier-cycles/:id/check-item ──────────────────────────────────────
@@ -988,65 +1033,18 @@ supplierCyclesRouter.post("/:id/purchases/:purchaseId/move", async (request, res
     return;
   }
 
-  const [item] = await prisma.$queryRaw<Array<{ id: string; amount: string; purchaseDate: Date; invoiceNumber: string | null }>>`
-    SELECT "id", "amount"::text AS "amount", "purchaseDate", "invoiceNumber"
-    FROM "SupplierBillingCycleItem"
-    WHERE "purchaseId" = ${request.params.purchaseId} AND "cycleId" = ${request.params.id}
-    LIMIT 1
-  `;
-  if (!item) {
+  const movida = await prisma.$transaction((tx) =>
+    moverCompraEntreCiclos(tx, {
+      purchaseId: request.params.purchaseId,
+      origemId: request.params.id,
+      destinoId: targetCycleId,
+      userId: user.id
+    })
+  );
+  if (!movida) {
     response.status(404).json({ message: "Compra nao encontrada no ciclo origem." });
     return;
   }
-
-  const amount = Number(item.amount);
-
-  await prisma.$transaction(async (tx) => {
-    // Remove da origem e recalcula
-    await tx.$executeRaw`
-      DELETE FROM "SupplierBillingCycleItem" WHERE "id" = ${item.id}
-    `;
-    await tx.$executeRaw`
-      UPDATE "SupplierBillingCycle"
-      SET "totalAmount" = GREATEST(0, "totalAmount" - ${new Prisma.Decimal(amount)}),
-          "updatedAt"   = CURRENT_TIMESTAMP
-      WHERE "id" = ${request.params.id}
-    `;
-    const [srcCounts] = await tx.$queryRaw<Array<{ total: number; checkedCount: number }>>`
-      SELECT COUNT(*)::int AS "total",
-             COUNT(*) FILTER (WHERE "checked" = true)::int AS "checkedCount"
-      FROM "SupplierBillingCycleItem" WHERE "cycleId" = ${request.params.id}
-    `;
-    const srcStatus = srcCounts.total > 0 && srcCounts.checkedCount === srcCounts.total ? "CHECKED" : "OPEN";
-    await tx.$executeRaw`
-      UPDATE "SupplierBillingCycle"
-      SET "status"          = ${srcStatus},
-          "checkedByUserId" = ${srcStatus === "CHECKED" ? user.id : null},
-          "checkedAt"       = ${srcStatus === "CHECKED" ? new Date() : null},
-          "updatedAt"       = CURRENT_TIMESTAMP
-      WHERE "id" = ${request.params.id}
-    `;
-
-    // Adiciona ao destino (sem checked — fresh start)
-    await addPurchaseToCycle(tx, {
-      cycleId: targetCycleId,
-      purchaseId: request.params.purchaseId,
-      amount,
-      purchaseDate: new Date(item.purchaseDate),
-      invoiceNumber: item.invoiceNumber,
-    });
-    // Recalculate target cycle status — new item is unchecked, may revert from CHECKED to OPEN
-    const [tgtCounts] = await tx.$queryRaw<Array<{ total: number; checkedCount: number }>>`
-      SELECT COUNT(*)::int AS "total",
-             COUNT(*) FILTER (WHERE "checked" = true)::int AS "checkedCount"
-      FROM "SupplierBillingCycleItem" WHERE "cycleId" = ${targetCycleId}
-    `;
-    const tgtStatus = tgtCounts.total > 0 && tgtCounts.checkedCount === tgtCounts.total ? "CHECKED" : "OPEN";
-    await tx.$executeRaw`
-      UPDATE "SupplierBillingCycle" SET "status" = ${tgtStatus}, "updatedAt" = CURRENT_TIMESTAMP
-      WHERE "id" = ${targetCycleId}
-    `;
-  });
 
   await auditLog({
     userId: user.id,
