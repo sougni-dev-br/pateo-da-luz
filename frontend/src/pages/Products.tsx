@@ -915,19 +915,22 @@ export function Products() {
                 </label>
               </div>
               <div className="subsection compact-note">
-                <h3>Conversoes futuras</h3>
+                <h3>Embalagens de compra</h3>
+                <p className="field-hint">
+                  Como o produto chega na nota e quantas unidades de contagem vêm em cada embalagem. Ex.: De <strong>PCT</strong> para <strong>UN</strong>, fator <strong>50</strong> — a nota "10 PCT" entra como 500 UN no estoque, com o custo de cada unidade.
+                </p>
                 <div className="form-grid">
                   <label>
-                    De
-                    <input value={conversionForm.fromUnit} onChange={(event) => setConversionForm({ ...conversionForm, fromUnit: event.target.value })} />
+                    Embalagem (De)
+                    <input placeholder="PCT, CX, FD…" value={conversionForm.fromUnit} onChange={(event) => setConversionForm({ ...conversionForm, fromUnit: event.target.value })} />
                   </label>
                   <label>
-                    Para
-                    <input value={conversionForm.toUnit} onChange={(event) => setConversionForm({ ...conversionForm, toUnit: event.target.value })} />
+                    Unidade de contagem (Para)
+                    <input placeholder="UN, KG…" value={conversionForm.toUnit} onChange={(event) => setConversionForm({ ...conversionForm, toUnit: event.target.value })} />
                   </label>
                   <label>
-                    Fator
-                    <input value={conversionForm.factor} onChange={(event) => setConversionForm({ ...conversionForm, factor: event.target.value })} />
+                    Quantas vêm em cada (Fator)
+                    <input placeholder="50" inputMode="decimal" value={conversionForm.factor} onChange={(event) => setConversionForm({ ...conversionForm, factor: event.target.value })} />
                   </label>
                   <label>
                     Peso médio

@@ -1,0 +1,216 @@
+.emb {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 18px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg, 12px);
+  background: var(--paper);
+}
+
+.emb-topo {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.emb-topo h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 4px;
+  font-size: 17px;
+}
+
+.emb-topo p {
+  max-width: 760px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.emb-topo__acoes {
+  display: flex;
+  gap: 6px;
+}
+
+.emb-estado {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.emb-estado--erro {
+  color: var(--danger);
+}
+
+.emb-produto {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--warning, var(--gold));
+  border-radius: var(--radius-md);
+  background: var(--paper);
+}
+
+.emb-produto__topo {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 6px 12px;
+}
+
+.emb-produto__topo > div {
+  display: grid;
+  gap: 2px;
+}
+
+.emb-produto__topo small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.emb-produto__excesso {
+  align-self: flex-start;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--tint-danger, var(--paper-soft));
+  color: var(--danger);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.emb-produto__embalagem {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  font-size: 13px;
+}
+
+.emb-produto__embalagem select,
+.emb-produto__embalagem input {
+  min-height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--paper);
+  font: inherit;
+}
+
+.emb-produto__embalagem input {
+  width: 72px;
+  text-align: right;
+}
+
+.emb-dica {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.emb-linhas {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.emb-linhas th {
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.emb-linhas td {
+  padding: 5px 6px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+
+.emb-linhas td small {
+  color: var(--muted);
+}
+
+.emb-linha--suspeita td {
+  background: var(--tint-warning, var(--paper-soft));
+}
+
+.emb-linha--revisada td {
+  color: var(--muted);
+}
+
+.emb-produto__acoes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (max-width: 720px) {
+  .emb-linhas thead {
+    display: none;
+  }
+
+  .emb-linhas tr {
+    display: grid;
+    grid-template-columns: auto 1fr 1fr;
+    gap: 2px 8px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .emb-linhas td {
+    padding: 0;
+    border: 0;
+  }
+}
+
+@media (pointer: coarse) {
+  .emb-produto__embalagem select,
+  .emb-produto__embalagem input {
+    min-height: 44px;
+    font-size: 16px;
+  }
+}
+
+.emb-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Linha da nota: a unidade com a previa da conversao embaixo. */
+.pnova-gr-unidade {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.pnova-gr-unidade .pnova-gr-select {
+  width: 100%;
+}
+
+.pnova-gr-conv {
+  overflow: hidden;
+  color: var(--success);
+  font-size: 10.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pnova-gr-conv--falta {
+  color: var(--danger);
+}
