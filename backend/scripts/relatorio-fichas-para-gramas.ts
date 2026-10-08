@@ -21,8 +21,8 @@
  */
 import fs from "node:fs";
 import { PrismaClient } from "@prisma/client";
-import { calculateDishCost } from "../src/modules/dishes/dish-cost.js";
-import { conversoesDoProduto, normalizarUnidade, resolveUnitFactor } from "../src/shared/unidades/conversao.js";
+import { arredonda as _a, csv, moeda, lerPlano, type Decisao } from "./fichas-gramas-plano.js";
+void _a;
 
 const argumentos = Object.fromEntries(
   process.argv.slice(2).map((a) => {
@@ -30,31 +30,6 @@ const argumentos = Object.fromEntries(
     return [chave, resto.length ? resto.join("=") : "true"];
   })
 );
-
-/** Diferença de custo aceita por ingrediente: arredondamento da quantidade em 4 casas. */
-const TOLERANCIA_RELATIVA = 0.001;
-const CASAS_DA_QUANTIDADE = 4;
-
-type Decisao = "JA-ESTA" | "MUDA" | "PENDENTE" | "CONFERIR";
-
-type Linha = {
-  prato: string;
-  ativo: boolean;
-  atualizadoEm: string;
-  produto: string;
-  quantidadeHoje: number;
-  unidadeHoje: string;
-  quantidadeNova: number | null;
-  unidadeNova: string | null;
-  custoHoje: number | null;
-  custoNovo: number | null;
-  decisao: Decisao;
-  motivo: string;
-};
-
-const arredonda = (n: number) => Number(n.toFixed(CASAS_DA_QUANTIDADE));
-const moeda = (n: number | null) => (n == null ? "—" : n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }));
-const csv = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
 
 async function main() {
   if (!process.env.DATABASE_URL) {
@@ -71,106 +46,7 @@ async function main() {
 
   console.log("RELATÓRIO SOMENTE LEITURA — nenhuma linha do banco será alterada.");
 
-  const pratos = await prisma.dish.findMany({
-    where: desde ? { OR: [{ createdAt: { gte: desde } }, { updatedAt: { gte: desde } }] } : undefined,
-    orderBy: { name: "asc" },
-    include: {
-      items: {
-        orderBy: { sortOrder: "asc" },
-        include: {
-          product: {
-            select: {
-              name: true,
-              unit: true,
-              stockUnit: true,
-              inventoryStock: { select: { averageCost: true } },
-              conversions: { where: { isActive: true }, select: { fromUnit: true, toUnit: true, factor: true } }
-            }
-          }
-        }
-      }
-    }
-  });
-
-  const linhas: Linha[] = [];
-
-  for (const prato of pratos) {
-    for (const item of prato.items) {
-      const base = normalizarUnidade(item.product.stockUnit || item.product.unit);
-      const cadastradas = item.product.conversions.map((c) => ({ fromUnit: c.fromUnit, toUnit: c.toUnit, factor: Number(c.factor) }));
-      const conversoes = conversoesDoProduto(item.product.name, base, cadastradas);
-      const custoMedio = item.product.inventoryStock?.averageCost == null ? null : Number(item.product.inventoryStock.averageCost);
-      const quantidade = Number(item.quantity);
-      const perda = Number(item.wasteFactor);
-      const unidade = normalizarUnidade(item.unit);
-
-      const custoEm = (qtd: number, un: string): number | null =>
-        calculateDishCost({
-          yieldQty: 1,
-          salePrice: null,
-          items: [{ quantity: qtd, unit: un, wasteFactor: perda, product: { unit: base, averageCost: custoMedio, conversions: conversoes } }]
-        }).items[0].itemCost;
-
-      const custoHoje = custoEm(quantidade, unidade);
-      const base_ = {
-        prato: prato.name,
-        ativo: prato.isActive,
-        atualizadoEm: prato.updatedAt.toISOString().slice(0, 10),
-        produto: item.product.name,
-        quantidadeHoje: quantidade,
-        unidadeHoje: unidade,
-        custoHoje
-      };
-
-      if (unidade === "G" || unidade === "ML") {
-        linhas.push({ ...base_, quantidadeNova: quantidade, unidadeNova: unidade, custoNovo: custoHoje, decisao: "JA-ESTA", motivo: "já está em g/ml" });
-        continue;
-      }
-
-      let novaUnidade: string | null = null;
-      let novaQuantidade: number | null = null;
-      let motivo = "";
-
-      if (unidade === "KG") {
-        novaUnidade = "G";
-        novaQuantidade = quantidade * 1000;
-        motivo = "kg → g (física)";
-      } else if (unidade === "L") {
-        novaUnidade = "ML";
-        novaQuantidade = quantidade * 1000;
-        motivo = "l → ml (física)";
-      } else {
-        for (const alvo of ["G", "ML"]) {
-          const fator = resolveUnitFactor(alvo, unidade, conversoes);
-          if (fator != null && fator > 0) {
-            novaUnidade = alvo;
-            novaQuantidade = quantidade / fator;
-            const inferida = conversoes.some((c) => "inferida" in c && c.inferida);
-            motivo = `${unidade} → ${alvo} (${inferida ? "peso/volume lido do nome do produto" : "conversão cadastrada"})`;
-            break;
-          }
-        }
-      }
-
-      if (novaUnidade == null || novaQuantidade == null) {
-        linhas.push({ ...base_, quantidadeNova: null, unidadeNova: null, custoNovo: null, decisao: "PENDENTE", motivo: `sem conversão de ${unidade} para g/ml: informar "1 ${unidade} = ? g" no produto` });
-        continue;
-      }
-
-      novaQuantidade = arredonda(novaQuantidade);
-      const custoNovo = custoEm(novaQuantidade, novaUnidade);
-      const diferenca = custoHoje != null && custoNovo != null && custoHoje > 0 ? Math.abs(custoNovo - custoHoje) / custoHoje : 0;
-      const confere = custoHoje != null && custoNovo != null ? diferenca <= TOLERANCIA_RELATIVA : custoHoje == null && custoNovo == null;
-      linhas.push({
-        ...base_,
-        quantidadeNova: novaQuantidade,
-        unidadeNova: novaUnidade,
-        custoNovo,
-        decisao: confere ? "MUDA" : "CONFERIR",
-        motivo: confere ? motivo : `${motivo} — custo diverge ${(diferenca * 100).toFixed(2)}% (hoje ${moeda(custoHoje)}, novo ${moeda(custoNovo)})`
-      });
-    }
-  }
+  const { pratos, linhas } = await lerPlano(prisma, desde);
 
   // ─── Relatório ───
   const visiveis = argumentos["so-mudancas"] ? linhas.filter((l) => l.decisao !== "JA-ESTA") : linhas;
