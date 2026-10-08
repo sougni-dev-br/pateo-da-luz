@@ -18,8 +18,10 @@ import {
   filtrarPratos,
   ordenarPratos,
   type FiltroDaLista,
-  type OrdemDaLista
+  type OrdemDaLista,
+  type SituacaoDaFicha
 } from "../../../lib/fichaTecnica";
+import { montarPainel } from "../../../lib/painelFichas";
 import { useNavigationGuard } from "../../../lib/navigationGuard";
 import { hasPermission } from "../../../lib/permissions";
 import { useRevealScroll } from "../../../lib/useRevealScroll";
@@ -27,9 +29,11 @@ import { Categorias } from "./Categorias";
 import { DetalheDoPrato } from "./DetalheDoPrato";
 import { FormularioDoPrato, type ModoDoFormulario } from "./FormularioDoPrato";
 import { ListaDePratos } from "./ListaDePratos";
+import { PainelDasFichasView } from "./PainelDasFichas";
 import "./fichas.css";
+import "./painel.css";
 
-type Aba = "fichas" | "categorias";
+type Aba = "painel" | "fichas" | "categorias";
 /** `chave` muda a cada abertura: reabrir "Novo prato" precisa de um formulário zerado, não do anterior. */
 type Editor = { modo: ModoDoFormulario; base: DishDetail | null; chave: number };
 
@@ -43,7 +47,7 @@ export function FichasTecnicas() {
   const canEdit = hasPermission(user, "dishes", "edit");
   const { notice, setNotice } = useNotice();
 
-  const [aba, setAba] = useState<Aba>("fichas");
+  const [aba, setAba] = useState<Aba>("painel");
   const [pratos, setPratos] = useState<DishListItem[]>([]);
   const [categorias, setCategorias] = useState<DishCategory[]>([]);
   const [carregando, setCarregando] = useState(true);
@@ -162,6 +166,23 @@ export function FichasTecnicas() {
     setAba(proxima as Aba);
   }
 
+  /** Do painel para a lista, já filtrada: "206 pratos sem ficha" leva direto a eles. */
+  function irParaPratos(parcial: { situacao?: SituacaoDaFicha; categoriaId?: string }) {
+    if (!confirmarDescarte()) return;
+    setEditor(null);
+    setAlterado(false);
+    setFiltro({ ...FILTRO_INICIAL, situacao: parcial.situacao ?? "todos", categoriaId: parcial.categoriaId ?? "" });
+    setOrdem(parcial.situacao === "cmv-alto" ? "cmv" : "nome");
+    setAba("fichas");
+  }
+
+  function abrirPratoDoPainel(id: string) {
+    if (!confirmarDescarte()) return;
+    setFiltro(FILTRO_INICIAL);
+    setAba("fichas");
+    selecionar(id);
+  }
+
   async function atualizar() {
     const aberto = selecionadoRef.current;
     await Promise.all([carregar(), aberto ? abrirDetalhe(aberto) : Promise.resolve()]);
@@ -192,8 +213,8 @@ export function FichasTecnicas() {
   }
 
   const pratosDaLista = useMemo(() => ordenarPratos(filtrarPratos(pratos, filtro), ordem), [pratos, filtro, ordem]);
-  // A barra de andamento é sempre dos ativos; os chips acompanham a lista (inclui inativos se ligado).
-  const contagemDosAtivos = useMemo(() => contarPorSituacao(pratos), [pratos]);
+  // O painel olha só os ativos; os chips da lista acompanham o que ela mostra (inclui inativos se ligado).
+  const painel = useMemo(() => montarPainel(pratos), [pratos]);
   const contagemDosChips = useMemo(() => contarPorSituacao(pratos, filtro.mostrarInativos), [pratos, filtro.mostrarInativos]);
 
   const detalheDoSelecionado = detalhe && detalhe.id === selecionadoId ? detalhe : null;
@@ -245,7 +266,7 @@ export function FichasTecnicas() {
       );
     }
 
-    const semFicha = contagemDosAtivos["sem-ficha"];
+    const semFicha = painel.pendencias.semFicha;
     return (
       <div className="ft-vazio">
         <ChefHat size={30} aria-hidden />
@@ -267,8 +288,9 @@ export function FichasTecnicas() {
         value={aba}
         onChange={trocarAba}
         tabs={[
-          { value: "fichas", label: "Fichas técnicas" },
-          { value: "categorias", label: "Categorias de pratos" }
+          { value: "painel", label: "Painel" },
+          { value: "fichas", label: "Pratos" },
+          { value: "categorias", label: "Categorias" }
         ]}
       />
 
@@ -279,7 +301,19 @@ export function FichasTecnicas() {
         </Alert>
       )}
 
-      {aba === "categorias" ? (
+      {aba === "painel" ? (
+        carregando && pratos.length === 0 ? (
+          <p className="ft-carregando" role="status">Carregando o painel…</p>
+        ) : (
+          <PainelDasFichasView
+            painel={painel}
+            canEdit={canEdit}
+            onIrParaPratos={irParaPratos}
+            onAbrirPrato={abrirPratoDoPainel}
+            onNovo={() => { setAba("fichas"); novoPrato(); }}
+          />
+        )
+      ) : aba === "categorias" ? (
         <Categorias categorias={categorias} canEdit={canEdit} onSalvo={() => void carregar()} notificar={notificar} />
       ) : (
         <ListDetailLayout
@@ -291,7 +325,6 @@ export function FichasTecnicas() {
             <ListaDePratos
               pratos={pratosDaLista}
               totalCadastrado={pratos.length}
-              contagemDosAtivos={contagemDosAtivos}
               contagemDosChips={contagemDosChips}
               categorias={categorias}
               filtro={filtro}
