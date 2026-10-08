@@ -19,7 +19,7 @@ import { ORIGEM_ACERTO, editadoAMao } from "./acerto-lista.js";
 import { RecusaFolha } from "./folha-lancamento.routes.js";
 import { cancelarLiberacao, contarSalariosSoltos, liberarLotes, lotesDaCompetencia, previaDaLiberacao, temLoteVivo } from "./folha-lote.service.js";
 import {
-  type Apelidos, type Combinados, type ExtratoEmpresa, type LinhaExtrato, type PessoaApurada, aplicarAcertosAjustados, conferir, textoContaBancaria, ehPendente, esconderTeto, montarFolhaLiquidos, separarJaPagos, somarSalariosPagos,
+  type Apelidos, type Combinados, type ExtratoEmpresa, type LinhaExtrato, type PessoaApurada, aplicarAcertosAjustados, diferencasDoExtrato, salariosDesatualizados, conferir, textoContaBancaria, ehPendente, esconderTeto, montarFolhaLiquidos, separarJaPagos, somarSalariosPagos,
 } from "./tip-conferencia.js";
 
 export const tipConferenciaRouter = Router();
@@ -27,6 +27,8 @@ export const tipConferenciaRouter = Router();
 const LIMITE_PDF = 5 * 1024 * 1024;
 const ETAPAS = ["ENVIADO_CONTABILIDADE", "OK_CONTABILIDADE", "FOLHA_PAGA"] as const;
 type Etapa = (typeof ETAPAS)[number];
+
+export const MSG_FOLHA_LIBERADA = "A folha já foi liberada para pagamento: para trocar o extrato use 'Trocar extrato' na lista de extratos; para desfazer, use 'Desfazer liberação' no passo 5.";
 
 const semAcento = (t: string) => t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
 
@@ -151,6 +153,41 @@ tipConferenciaRouter.get("/periods/:year/:month/conferencia", async (request, re
   response.json({ code: periodo.code, status: periodo.status, ...conf, etapas, podeVerFolha: veDados });
 });
 
+const AVISO_CONTAS_A_PAGAR = "Reimporte este PDF em RH → Retorno do RH para atualizar o Contas a Pagar.";
+
+// Diferenças do extrato trocado e os salários do Contas a Pagar (Retorno do RH, em aberto,
+// dentro ou fora de título) que ficaram diferentes do líquido novo.
+async function resultadoDaTroca(periodo: { competenceYear: number; competenceMonth: number }, antes: LinhaExtrato[], depois: LinhaExtrato[]) {
+  const diferencas = diferencasDoExtrato(antes, depois);
+  const ids = depois.flatMap((l) => (l.employeeId ? [l.employeeId] : []));
+  const mmaaaa = `${String(periodo.competenceMonth).padStart(2, "0")}/${periodo.competenceYear}`;
+  const abertos = ids.length === 0 ? [] : await prisma.payrollItem.findMany({
+    where: {
+      employeeId: { in: ids }, type: "SALARIO", competenceYear: periodo.competenceYear, competenceMonth: periodo.competenceMonth,
+      periodLabel: `Extrato ${mmaaaa}`, deletedAt: null, status: { not: "CANCELED" }, paymentDate: null,
+    },
+    select: { employeeId: true, amount: true, details: true, employee: { select: { firstName: true, lastName: true } }, folhaLote: { select: { rotulo: true, status: true } } },
+  });
+  const contasAPagar = salariosDesatualizados(abertos.map((a) => ({
+    employeeId: a.employeeId, nome: `${a.employee.firstName} ${a.employee.lastName}`.trim(), amount: a.amount, details: a.details,
+    titulo: a.folhaLote && a.folhaLote.status !== "CANCELADO" ? a.folhaLote.rotulo : null,
+  })), depois);
+  const gorjetaMudou = diferencas.some((d) => (d.situacao !== "MUDOU"
+    ? (d.gorjetaAntes ?? d.gorjetaDepois ?? 0) > 0
+    : Math.abs((d.gorjetaAntes ?? 0) - (d.gorjetaDepois ?? 0)) >= 0.005));
+  return { diferencas, contasAPagar, gorjetaMudou, avisoContasAPagar: contasAPagar.length > 0 ? AVISO_CONTAS_A_PAGAR : null };
+}
+
+// Líquido é salário: sem a permissão de Funcionários vão só os nomes e o que mudou.
+function trocaVisivel(t: Awaited<ReturnType<typeof resultadoDaTroca>>, veDados: boolean) {
+  if (veDados) return t;
+  return {
+    ...t,
+    diferencas: t.diferencas.map((d) => ({ ...d, liquidoAntes: null, liquidoDepois: null, gorjetaAntes: null, gorjetaDepois: null })),
+    contasAPagar: t.contasAPagar.map((c) => ({ ...c, noContasAPagar: null, extratoNovo: null })),
+  };
+}
+
 // Extrato de uma empresa: lê o PDF, confere a competência, casa cada pessoa com o
 // cadastro (CPF; na falta, nome) e grava as linhas sem CPF. Reenviar a mesma empresa substitui.
 tipConferenciaRouter.post("/periods/:year/:month/extratos", async (request, response) => {
@@ -158,8 +195,10 @@ tipConferenciaRouter.post("/periods/:year/:month/extratos", async (request, resp
   if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
   const periodo = await periodoDe(request, response);
   if (!periodo) return;
-  const b = request.body as { fileBase64?: unknown; fileName?: unknown };
+  const b = request.body as { fileBase64?: unknown; fileName?: unknown; motivo?: unknown; substitui?: unknown };
   if (typeof b.fileBase64 !== "string" || !b.fileBase64) return response.status(400).json({ message: "Envie o PDF do extrato." });
+  const motivo = typeof b.motivo === "string" ? b.motivo.trim().slice(0, 300) : "";
+  const substitui = typeof b.substitui === "string" && b.substitui ? b.substitui : null;
   const buffer = Buffer.from(b.fileBase64.replace(/^data:[^,]*,/, ""), "base64");
   if (buffer.length > LIMITE_PDF) return response.status(413).json({ message: "Arquivo grande demais para um extrato (máximo 5 MB)." });
   let lido;
@@ -177,9 +216,17 @@ tipConferenciaRouter.post("/periods/:year/:month/extratos", async (request, resp
       message: `O extrato é da competência ${String(lido.competenceMonth).padStart(2, "0")}/${lido.competenceYear}, e esta apuração é ${String(periodo.competenceMonth).padStart(2, "0")}/${periodo.competenceYear}.`,
     });
   }
+  // Trocar o extrato de uma empresa (a contabilidade reemitiu) vale também com o OK dado e a
+  // folha liberada: mesma competência e mesmo CNPJ, com motivo. O Contas a Pagar NÃO muda
+  // daqui: quem atualiza o salário é o Retorno do RH — a resposta diz quem ficou diferente.
   const etapas = await estadoEtapas(periodo.id);
-  if (etapas.estado.OK_CONTABILIDADE.marcada) {
-    return response.status(409).json({ message: "O OK à contabilidade já foi dado. Desmarque o OK para trocar o extrato." });
+  const travado = etapas.estado.OK_CONTABILIDADE.marcada || await temLoteVivo(periodo.competenceYear, periodo.competenceMonth);
+  if (substitui) {
+    const alvo = await prisma.tipExtrato.findFirst({ where: { id: substitui, periodId: periodo.id }, select: { empresa: true, cnpj: true } });
+    if (!alvo) return response.status(404).json({ message: "Extrato a trocar não encontrado." });
+    if (onlyDigits(alvo.cnpj) !== onlyDigits(lido.cnpj)) {
+      return response.status(422).json({ message: `Este PDF é de ${lido.empresa} (CNPJ ${lido.cnpj}), e o extrato a trocar é de ${alvo.empresa}. Escolha o PDF da mesma empresa.` });
+    }
   }
 
   const cadastro = await prisma.employee.findMany({
@@ -189,6 +236,14 @@ tipConferenciaRouter.post("/periods/:year/:month/extratos", async (request, resp
   const avisos: string[] = [];
   // Vínculos já confirmados num envio anterior do mesmo extrato continuam valendo.
   const anterior = await prisma.tipExtrato.findUnique({ where: { periodId_cnpj: { periodId: periodo.id, cnpj: lido.cnpj } }, select: { linhas: true } });
+  if (travado) {
+    if (!anterior) {
+      return response.status(409).json({ message: "Com o OK dado (ou a folha liberada), só se troca o extrato de uma empresa que já está na conferência (mesmo CNPJ)." });
+    }
+    if (motivo.length < 5) {
+      return response.status(400).json({ message: "Com o OK dado (ou a folha liberada), trocar o extrato exige o motivo (pelo menos 5 letras), ex.: \"contabilidade reemitiu\"." });
+    }
+  }
   const confirmados = new Map(((anterior?.linhas ?? []) as LinhaExtrato[])
     .filter((l) => l.vinculo === "CONFIRMADO" && l.employeeId).map((l) => [l.nome, l.employeeId!]));
   type Vinculo = { employeeId: string | null; vinculo: "CPF" | "NOME" | "CONFIRMADO" | undefined };
@@ -224,12 +279,25 @@ tipConferenciaRouter.post("/periods/:year/:month/extratos", async (request, resp
     create: { id: crypto.randomUUID(), periodId: periodo.id, cnpj: lido.cnpj, ...dados },
     update: dados,
   });
+  const veDados = await podeVerDadosPessoais(request);
+  const troca = anterior && (travado || substitui)
+    ? await resultadoDaTroca(periodo, (anterior.linhas ?? []) as LinhaExtrato[], linhas)
+    : null;
   await auditLog({
-    userId: user.id, action: "TIP_EXTRATO_CONFERENCIA", entity: "TipPeriod", entityId: periodo.code,
-    newValue: { empresa: lido.empresa, cnpj: lido.cnpj, arquivo, hash, pessoas: linhas.length },
+    userId: user.id, action: troca ? "TIP_EXTRATO_TROCADO" : "TIP_EXTRATO_CONFERENCIA", entity: "TipPeriod", entityId: periodo.code,
+    newValue: {
+      empresa: lido.empresa, cnpj: lido.cnpj, arquivo, hash, pessoas: linhas.length,
+      ...(troca ? { motivo: motivo || null, comOkMarcado: travado, diferencas: troca.diferencas, contasAPagar: troca.contasAPagar } : {}),
+    },
     ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
   });
-  response.json({ ...(await montarConferencia(periodo, await podeVerDadosPessoais(request))), avisos });
+  if (troca?.gorjetaMudou && travado) {
+    avisos.push("A gorjeta de alguém mudou no extrato novo: confira a pendência na conferência. O OK continua marcado.");
+  }
+  response.json({
+    ...(await montarConferencia(periodo, veDados)), avisos,
+    ...(troca ? { troca: { motivo: motivo || null, ...trocaVisivel(troca, veDados) } } : {}),
+  });
 });
 
 tipConferenciaRouter.delete("/periods/:year/:month/extratos/:id", async (request, response) => {
@@ -299,8 +367,10 @@ tipConferenciaRouter.post("/periods/:year/:month/etapas", async (request, respon
   if (comLotes && etapa === "FOLHA_PAGA") {
     return response.status(409).json({ message: "A folha paga é marcada sozinha quando todos os títulos da folha forem baixados no Contas a Pagar (e desmarcada no estorno)." });
   }
-  if (comLotes && etapa === "OK_CONTABILIDADE" && acao === "DESMARCOU") {
-    return response.status(409).json({ message: "A folha já foi liberada para pagamento: cancele a liberação (ou estorne os títulos pagos) antes de desmarcar o OK." });
+  // Desmarcar o envio ou o OK com títulos liberados (abertos ou pagos) desfaria a base do
+  // pagamento por fora: troca de extrato e desfazer liberação têm caminho próprio.
+  if (comLotes && acao === "DESMARCOU" && (etapa === "ENVIADO_CONTABILIDADE" || etapa === "OK_CONTABILIDADE")) {
+    return response.status(409).json({ message: MSG_FOLHA_LIBERADA });
   }
   if (acao === "MARCOU") {
     if (periodo.status !== "CLOSED") return response.status(409).json({ message: "Feche o período da gorjeta antes: os valores enviados não podem mudar depois." });

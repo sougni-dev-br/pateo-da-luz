@@ -590,6 +590,12 @@
 .etapas-folha li.atual .etapas-folha-marca { border-color: var(--ink); color: var(--ink); }
 .lista-extratos { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .lista-extratos li { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+/* Trocar extrato: o que mudou e o que ficou diferente no Contas a Pagar (fica até fechar). */
+.troca-extrato { display: flex; flex-direction: column; gap: 8px; margin: 8px 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
+.troca-extrato-topo { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.troca-extrato-lista, .troca-extrato-avisos, .troca-extrato-cap ul { margin: 0; padding-left: 18px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.troca-extrato-cap { padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, var(--warning, #b7791f) 12%, transparent); font-size: 13px; }
+.troca-extrato-avisos { color: var(--muted); }
 /* Liberar para pagamento: títulos por empresa (prévia e os já liberados). */
 .liberar-lista { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .liberar-lista li {

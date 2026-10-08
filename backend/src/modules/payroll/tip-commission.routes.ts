@@ -13,7 +13,7 @@ import {
   closeTipPeriod, computeTipCommission, ensureTipPeriod, findOverlappingPeriod,
   getServicePool, getServicePoolByRange, pontosBaseDoCadastro, reopenTipPeriod, syncParticipantsFromCadastro, tipPeriodBounds,
 } from "./tip-commission.service.js";
-import { contarLancamentosExistentes, extrairTextoPdf, importExtrato, lerTextoExtrato, onlyDigits, type ImportExtratoResult } from "./rh-extract.service.js";
+import { contarLancamentosExistentes, extrairTextoPdf, importExtrato, preverImportacao, lerTextoExtrato, onlyDigits, type ImportExtratoResult } from "./rh-extract.service.js";
 import { lerDetalhesExtrato } from "./rh-extract-detalhes.js";
 import { avisosDoExtrato } from "./rh-extract-store.service.js";
 import { rhExtratosRouter } from "./rh-extratos.routes.js";
@@ -507,6 +507,10 @@ tipCommissionRouter.post("/extrato/preview", async (request, response) => {
     items.flatMap((i) => (i.employeeId ? [{ employeeId: i.employeeId, liquido: i.liquido }] : [])),
     parsed.calculo, parsed.competenceYear, parsed.competenceMonth,
   );
+  // O que vai acontecer de fato com cada pessoa (novo, atualizar, líquido zero, desligado…).
+  const previsao = await preverImportacao(
+    items.map((i) => ({ employeeId: i.employeeId, liquido: i.liquido })), parsed.calculo, parsed.competenceYear, parsed.competenceMonth,
+  );
   const avisos = await avisosDoExtrato({
     detalhes, calculo: parsed.calculo, competenceYear: parsed.competenceYear, competenceMonth: parsed.competenceMonth,
     incluirDadosPessoais: await podeVerDadosPessoais(request),
@@ -521,6 +525,7 @@ tipCommissionRouter.post("/extrato/preview", async (request, response) => {
     pessoasLidas: detalhes.pessoas.length,
     pessoasConferidas: detalhes.pessoas.filter((p) => p.conferido).length,
     lancamentosExistentes,
+    previsao,
     avisos,
   });
 });
@@ -530,6 +535,7 @@ export function resumoDaImportacao(r: ImportExtratoResult) {
     rhExtractId: r.rhExtractId, calculo: r.calculo, competenceYear: r.competenceYear, competenceMonth: r.competenceMonth,
     companyId: r.companyId, empresa: r.empresa,
     titulosGerados: r.titulosGerados, titulosNovos: r.titulosNovos, titulosAtualizados: r.titulosAtualizados, titulosPulados: r.titulosPulados,
+    excluidosAMao: r.excluidosAMao, zerados: r.zerados, desligados: r.desligados, jaPagos: r.jaPagos, comOutroRotulo: r.comOutroRotulo,
     pessoasLidas: r.pessoasLidas, pessoasConferidas: r.pessoasConferidas, funcionariosCadastrados: r.funcionariosCadastrados,
     extratoAtualizado: r.extratoAtualizado,
   };

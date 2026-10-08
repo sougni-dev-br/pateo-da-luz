@@ -85,8 +85,9 @@ describe("passo 5: liberar para pagamento", () => {
     expect(await screen.findByText(/todos os títulos pagos/)).toBeInTheDocument();
     expect(screen.getByText(/pago em 05\/10\/2026 \(PIX\)/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Liberar/ })).not.toBeInTheDocument();
-    // Só o "Enviado" mostra desmarcar: o OK fica preso aos títulos e a folha paga é automática.
-    expect(screen.getAllByRole("button", { name: "desmarcar" })).toHaveLength(1);
+    // Com títulos liberados nada se desmarca à mão: envio e OK ficam presos aos títulos (trocar
+    // extrato e desfazer liberação têm caminho próprio) e a folha paga é automática.
+    expect(screen.queryByRole("button", { name: "desmarcar" })).not.toBeInTheDocument();
   });
 
   test("sem o OK: nada de liberar e não busca os títulos", async () => {
