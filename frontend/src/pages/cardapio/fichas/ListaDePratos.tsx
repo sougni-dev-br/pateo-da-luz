@@ -1,5 +1,5 @@
-import { Plus, RefreshCw, Search, X } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { ChevronDown, Plus, RefreshCw, Search, SlidersHorizontal, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import type { DishCategory, DishListItem } from "../../../api/client";
 import { Button, EmptyState, IconButton, ListDetailLayout, Select, StatusBadge, Switch } from "../../../design-system";
 import type { StatusTone } from "../../../design-system";
@@ -19,8 +19,6 @@ type Props = {
   /** Já filtrados e ordenados. */
   pratos: DishListItem[];
   totalCadastrado: number;
-  /** Só os ativos: é o andamento do trabalho de montar as fichas. */
-  contagemDosAtivos: Contagem;
   /** Acompanha o que a lista mostra (inclui inativos quando o botão está ligado). */
   contagemDosChips: Contagem;
   categorias: DishCategory[];
@@ -83,12 +81,14 @@ function subtituloDoPrato(prato: DishListItem): string {
 }
 
 export function ListaDePratos({
-  pratos, totalCadastrado, contagemDosAtivos, contagemDosChips, categorias, filtro, ordem, selecionadoId, carregando, canEdit,
+  pratos, totalCadastrado, contagemDosChips, categorias, filtro, ordem, selecionadoId, carregando, canEdit,
   onFiltro, onOrdem, onSelecionar, onNovo, onAtualizar
 }: Props) {
   const rolagemRef = useRef<HTMLDivElement>(null);
   const jaRolouPara = useRef<string | null>(null);
-  const percentualComFicha = contagemDosAtivos.total > 0 ? Math.round((contagemDosAtivos.comFicha / contagemDosAtivos.total) * 100) : 0;
+  // Categoria, ordem e inativos ficam recolhidos: a maioria das vezes só se busca e se filtra pela situação.
+  const filtrosExtrasAtivos = (filtro.categoriaId !== "" ? 1 : 0) + (ordem !== "nome" ? 1 : 0) + (filtro.mostrarInativos ? 1 : 0);
+  const [extrasAbertos, setExtrasAbertos] = useState(filtrosExtrasAtivos > 0);
   const filtrando = filtro.busca !== "" || filtro.categoriaId !== "" || filtro.situacao !== "todos";
 
   // Prato recém-salvo ou aberto por outro caminho precisa aparecer na lista — uma vez por
@@ -117,30 +117,7 @@ export function ListaDePratos({
     <div className="ft-filtros">
       {/* No celular o rodapé da lista fica a centenas de pratos de distância: o botão sobe para o topo. */}
       {canEdit && botaoNovo("ft-novo ft-novo--topo")}
-      <div className="ft-andamento">
-        <p className="ft-andamento-texto">
-          <strong>{contagemDosAtivos.comFicha}</strong> de {contagemDosAtivos.total} pratos com ingredientes
-          <span className="ft-andamento-pct">{percentualComFicha}%</span>
-          <IconButton
-            icon={<RefreshCw size={14} aria-hidden />}
-            label="Atualizar custos e pratos"
-            size="sm"
-            onClick={onAtualizar}
-            disabled={carregando}
-          />
-        </p>
-        <div
-          className="ft-andamento-barra"
-          role="progressbar"
-          aria-label="Pratos com ficha montada"
-          aria-valuemin={0}
-          aria-valuemax={contagemDosAtivos.total}
-          aria-valuenow={contagemDosAtivos.comFicha}
-        >
-          <i style={{ width: `${percentualComFicha}%` }} />
-        </div>
-      </div>
-
+      <div className="ft-busca-linha">
       <label className="ft-busca">
         <Search size={16} aria-hidden />
         <input
@@ -157,6 +134,14 @@ export function ListaDePratos({
           </button>
         )}
       </label>
+      <IconButton
+        icon={<RefreshCw size={15} aria-hidden />}
+        label="Atualizar custos e pratos"
+        size="sm"
+        onClick={onAtualizar}
+        disabled={carregando}
+      />
+      </div>
 
       <div className="ft-chips" role="group" aria-label="Situação da ficha">
         {FILTROS_DE_SITUACAO.map(({ valor, rotulo, chave }) => {
@@ -177,30 +162,47 @@ export function ListaDePratos({
         })}
       </div>
 
-      <div className="ft-selects">
-        <Select
-          label="Categoria"
-          value={filtro.categoriaId}
-          onChange={(event) => onFiltro({ categoriaId: event.target.value })}
-          options={opcoesDeCategoria}
-          placeholder="Todas"
-        />
-        <Select
-          label="Ordenar por"
-          value={ordem}
-          onChange={(event) => onOrdem(event.target.value as OrdemDaLista)}
-          options={OPCOES_DE_ORDEM}
-        />
-      </div>
+      <button
+        type="button"
+        className="ft-extras-botao"
+        aria-expanded={extrasAbertos}
+        aria-controls="ft-extras"
+        onClick={() => setExtrasAbertos((aberto) => !aberto)}
+      >
+        <SlidersHorizontal size={14} aria-hidden />
+        Categoria, ordem e inativos
+        {filtrosExtrasAtivos > 0 && <span className="ft-chip-n ft-extras-n">{filtrosExtrasAtivos}</span>}
+        <ChevronDown size={14} aria-hidden className={`ft-extras-seta${extrasAbertos ? " ft-extras-seta--aberta" : ""}`} />
+      </button>
 
-      <label className="ft-inativos">
-        <Switch
-          checked={filtro.mostrarInativos}
-          onChange={(marcado) => onFiltro({ mostrarInativos: marcado })}
-          label="Mostrar pratos inativos"
-        />
-        <span>Mostrar inativos</span>
-      </label>
+      {extrasAbertos && (
+        <div id="ft-extras" className="ft-extras">
+          <div className="ft-selects">
+            <Select
+              label="Categoria"
+              value={filtro.categoriaId}
+              onChange={(event) => onFiltro({ categoriaId: event.target.value })}
+              options={opcoesDeCategoria}
+              placeholder="Todas"
+            />
+            <Select
+              label="Ordenar por"
+              value={ordem}
+              onChange={(event) => onOrdem(event.target.value as OrdemDaLista)}
+              options={OPCOES_DE_ORDEM}
+            />
+          </div>
+
+          <label className="ft-inativos">
+            <Switch
+              checked={filtro.mostrarInativos}
+              onChange={(marcado) => onFiltro({ mostrarInativos: marcado })}
+              label="Mostrar pratos inativos"
+            />
+            <span>Mostrar inativos</span>
+          </label>
+        </div>
+      )}
     </div>
   );
 
