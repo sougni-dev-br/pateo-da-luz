@@ -6,6 +6,7 @@ import { z } from "zod";
 import { calculateDishCost, type CostItemInput } from "./dish-cost.js";
 import { parseBody } from "../../shared/validate-body.js";
 import { normalizeText } from "../../shared/utils/normalize-text.js";
+import { conversoesDoProduto, embalagemDoNome, normalizarUnidade } from "../../shared/unidades/conversao.js";
 import { auditLog, requestIp, requireRole } from "../security/security-utils.js";
 
 export const dishesRouter = Router();
@@ -15,6 +16,7 @@ type ItemComProduto = {
   unit: string;
   wasteFactor: Prisma.Decimal | number;
   product: {
+    name: string;
     unit: string | null;
     stockUnit?: string | null;
     inventoryStock: { averageCost: Prisma.Decimal | null } | null;
@@ -95,6 +97,31 @@ async function primeiroProdutoInvalido(items: Array<{ productId: string }>) {
  * O custo medio do estoque e expresso em "stockUnit" quando ele existe; caindo
  * para "unit" quando o produto ainda nao tem unidade de estoque definida.
  */
+type ProdutoParaConversao = ItemComProduto["product"];
+
+/**
+ * Conversoes que valem na ficha: as cadastradas no produto mais, quando o estoque conta em
+ * UN/pacote/caixa, o peso ou volume lido do NOME ("FARINHA TRIGO 5KG"). Assim a receita
+ * pode ser lancada em g/ml. A mesma lista vai para a tela (previa de custo) e para o calculo.
+ */
+function conversoesDaFicha(produto: Pick<ProdutoParaConversao, "name" | "unit" | "stockUnit" | "conversions">) {
+  const cadastradas = produto.conversions.map((c) => ({
+    fromUnit: c.fromUnit,
+    toUnit: c.toUnit,
+    factor: Number(c.factor)
+  }));
+  return conversoesDoProduto(produto.name, produto.stockUnit || produto.unit, cadastradas);
+}
+
+/** "1 UN = 5 KG (lido do nome)" quando a conversao e inferida; null quando nao ha. */
+function textoDaEmbalagemInferida(produto: Pick<ProdutoParaConversao, "name" | "unit" | "stockUnit" | "conversions">): string | null {
+  const conversoes = conversoesDaFicha(produto);
+  if (!conversoes.some((c) => c.inferida)) return null;
+  const embalagem = embalagemDoNome(produto.name);
+  const base = normalizarUnidade(produto.stockUnit || produto.unit);
+  return embalagem ? `1 ${base} = ${embalagem.quantidade.toLocaleString("pt-BR")} ${embalagem.unidade} (lido do nome do produto)` : null;
+}
+
 function toCostItem(item: ItemComProduto): CostItemInput {
   return {
     quantity: Number(item.quantity),
@@ -105,11 +132,7 @@ function toCostItem(item: ItemComProduto): CostItemInput {
       averageCost: item.product.inventoryStock?.averageCost == null
         ? null
         : Number(item.product.inventoryStock.averageCost),
-      conversions: item.product.conversions.map((c) => ({
-        fromUnit: c.fromUnit,
-        toUnit: c.toUnit,
-        factor: Number(c.factor)
-      }))
+      conversions: conversoesDaFicha(item.product)
     }
   };
 }
@@ -341,11 +364,8 @@ dishesRouter.get("/:id", async (request, response) => {
       issue: calculado.issue,
       // A tela reprevê o custo enquanto se edita a quantidade, entao precisa
       // das conversoes do produto junto do item.
-      conversions: item.product.conversions.map((c) => ({
-        fromUnit: c.fromUnit,
-        toUnit: c.toUnit,
-        factor: Number(c.factor)
-      })),
+      conversions: conversoesDaFicha(item.product),
+      embalagemInferida: textoDaEmbalagemInferida(item.product),
       notes: item.notes,
       sortOrder: item.sortOrder
     };
@@ -529,11 +549,8 @@ dishesRouter.get("/products/search", async (request, response) => {
     name: p.name,
     unit: p.stockUnit || p.unit,
     averageCost: Number(p.inventoryStock?.averageCost ?? 0),
-    conversions: p.conversions.map((c) => ({
-      fromUnit: c.fromUnit,
-      toUnit: c.toUnit,
-      factor: Number(c.factor)
-    }))
+    conversions: conversoesDaFicha(p),
+    embalagemInferida: textoDaEmbalagemInferida(p)
   })));
 });
 

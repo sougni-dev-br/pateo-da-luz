@@ -25,7 +25,9 @@ export function LinhaDeIngrediente({ item, erro, repetido, onAlterar, onRemover 
   const motivo = motivoSemCusto(item);
   const unidadeAtual = normalizarUnidade(item.unit);
   const idDaNota = `ft-nota-${item.tempId}`;
-  const temNota = Boolean(erro || motivo || repetido);
+  // Conversão lida do nome: só avisa quando a unidade escolhida depende dela.
+  const usaEmbalagemDoNome = Boolean(item.embalagemInferida) && unidadeAtual !== normalizarUnidade(item.productUnit);
+  const temNota = Boolean(erro || motivo || repetido || usaEmbalagemDoNome);
 
   const opcoes = unidadesPossiveis(item.productUnit, item.conversions).map((unidade) => ({ value: unidade, label: unidade }));
   // Unidade já gravada que não converte continua visível, marcada — sumir com ela mudaria a ficha em silêncio.
@@ -107,9 +109,9 @@ export function LinhaDeIngrediente({ item, erro, repetido, onAlterar, onRemover 
       </div>
 
       {temNota && (
-        <p id={idDaNota} className={`ft-ingrediente-nota${erro ? " ft-ingrediente-nota--erro" : ""}`} role={erro ? "alert" : undefined}>
+        <p id={idDaNota} className={`ft-ingrediente-nota${erro ? " ft-ingrediente-nota--erro" : !motivo && !repetido && usaEmbalagemDoNome ? " ft-ingrediente-nota--info" : ""}`} role={erro ? "alert" : undefined}>
           <AlertTriangle size={13} aria-hidden />
-          {erro?.mensagem ?? motivo ?? "Este produto aparece mais de uma vez na ficha."}
+          {erro?.mensagem ?? motivo ?? (repetido ? "Este produto aparece mais de uma vez na ficha." : `${item.embalagemInferida}. Confira se bate com a embalagem.`)}
         </p>
       )}
     </li>

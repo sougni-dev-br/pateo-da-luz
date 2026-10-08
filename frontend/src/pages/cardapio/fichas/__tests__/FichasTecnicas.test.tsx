@@ -44,7 +44,7 @@ const ANTIGO = resumo({ id: "d4", name: "Prato antigo", isActive: false });
 
 const ingrediente = (id: string, nome: string, extra: Record<string, unknown> = {}) => ({
   id, productId: `p-${id}`, productCode: null, productName: nome, productUnit: "KG", quantity: 150, unit: "G", wasteFactor: 0.07,
-  unitCost: 40, unitFactor: 0.001, itemCost: 6.42, issue: null, conversions: [], notes: null, sortOrder: 0, ...extra,
+  unitCost: 40, unitFactor: 0.001, itemCost: 6.42, issue: null, conversions: [], embalagemInferida: null, notes: null, sortOrder: 0, ...extra,
 });
 
 function detalhe(base: DishListItem, itens: ReturnType<typeof ingrediente>[], extra: Partial<DishDetail> = {}): DishDetail {
@@ -263,7 +263,7 @@ describe("formulário", () => {
 
   test("ingrediente sem quantidade barra o salvamento e fica marcado", async () => {
     vi.mocked(searchDishProducts).mockResolvedValue([
-      { id: "p-novo", externalCode: "9", name: "FARINHA", unit: "KG", averageCost: 5, conversions: [] },
+      { id: "p-novo", externalCode: "9", name: "FARINHA", unit: "KG", averageCost: 5, conversions: [], embalagemInferida: null },
     ]);
     await abrir();
     fireEvent.click(screen.getAllByRole("button", { name: "Novo prato" })[0]);
@@ -287,8 +287,8 @@ describe("formulário", () => {
 
   test("a unidade só oferece o que converte para a do estoque", async () => {
     vi.mocked(searchDishProducts).mockResolvedValue([
-      { id: "p1", externalCode: null, name: "AZEITE", unit: "L", averageCost: 38, conversions: [] },
-      { id: "p2", externalCode: null, name: "ARROZ 1KG", unit: "UN", averageCost: 27, conversions: [] },
+      { id: "p1", externalCode: null, name: "AZEITE", unit: "L", averageCost: 38, conversions: [], embalagemInferida: null },
+      { id: "p2", externalCode: null, name: "ARROZ 1KG", unit: "UN", averageCost: 27, conversions: [], embalagemInferida: null },
     ]);
     await abrir();
     fireEvent.click(screen.getAllByRole("button", { name: "Novo prato" })[0]);
@@ -306,9 +306,57 @@ describe("formulário", () => {
     expect([...arroz.options].map((o) => o.value)).toEqual(["UN"]);
   });
 
+  test("produto contado em UN com peso no nome: entra em gramas, mostra a conversão lida do nome e salva em G", async () => {
+    vi.mocked(searchDishProducts).mockResolvedValue([{
+      id: "p-farinha", externalCode: "381", name: "FARINHA TRIGO 5KG", unit: "UN", averageCost: 25,
+      conversions: [
+        { fromUnit: "KG", toUnit: "UN", factor: 0.2, inferida: true },
+        { fromUnit: "G", toUnit: "UN", factor: 0.0002, inferida: true },
+      ],
+      embalagemInferida: "1 UN = 5 KG (lido do nome do produto)",
+    }]);
+    await abrir();
+    fireEvent.click(screen.getAllByRole("button", { name: "Novo prato" })[0]);
+    await screen.findByRole("heading", { name: "Novo prato" });
+    fireEvent.change(screen.getByLabelText(/Nome do prato/), { target: { value: "Pão" } });
+
+    fireEvent.change(screen.getByRole("combobox", { name: /Buscar produto/ }), { target: { value: "far" } });
+    const opcao = await screen.findByRole("option", { name: /FARINHA/ });
+    expect(opcao).toHaveTextContent("1 UN = 5 KG (lido do nome do produto)");
+    fireEvent.click(opcao);
+
+    // A pessoa digita como pesa: 500 g. Nada de 0,1 UN.
+    const unidade = screen.getByLabelText("Unidade de FARINHA TRIGO 5KG") as HTMLSelectElement;
+    expect(unidade.value).toBe("G");
+    fireEvent.change(screen.getByLabelText("Quantidade de FARINHA TRIGO 5KG"), { target: { value: "500" } });
+    expect(screen.getByText(/1 UN = 5 KG \(lido do nome do produto\)\. Confira/)).toBeInTheDocument();
+    expect(screen.queryByText("sem custo")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Criar prato" }));
+    await waitFor(() => expect(saveDish).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(saveDish).mock.calls[0][0]).toMatchObject({ items: [{ productId: "p-farinha", quantity: 500, unit: "G" }] });
+  });
+
+  test("produto cotado em KG já abre em gramas e em L já abre em ml", async () => {
+    vi.mocked(searchDishProducts).mockResolvedValue([
+      { id: "p1", externalCode: null, name: "ALCATRA", unit: "KG", averageCost: 56, conversions: [], embalagemInferida: null },
+      { id: "p2", externalCode: null, name: "AZEITE", unit: "L", averageCost: 38, conversions: [], embalagemInferida: null },
+    ]);
+    await abrir();
+    fireEvent.click(screen.getAllByRole("button", { name: "Novo prato" })[0]);
+    await screen.findByRole("heading", { name: "Novo prato" });
+    const busca = screen.getByRole("combobox", { name: /Buscar produto/ });
+    fireEvent.change(busca, { target: { value: "a" } });
+    fireEvent.click(await screen.findByRole("option", { name: /ALCATRA/ }));
+    fireEvent.change(busca, { target: { value: "az" } });
+    fireEvent.click(await screen.findByRole("option", { name: /AZEITE/ }));
+    expect((screen.getByLabelText("Unidade de ALCATRA") as HTMLSelectElement).value).toBe("G");
+    expect((screen.getByLabelText("Unidade de AZEITE") as HTMLSelectElement).value).toBe("ML");
+  });
+
   test("custo muito acima do preço avisa para conferir as unidades", async () => {
     vi.mocked(searchDishProducts).mockResolvedValue([
-      { id: "p2", externalCode: null, name: "ARROZ 1KG", unit: "UN", averageCost: 27, conversions: [] },
+      { id: "p2", externalCode: null, name: "ARROZ 1KG", unit: "UN", averageCost: 27, conversions: [], embalagemInferida: null },
     ]);
     await abrir();
     fireEvent.click(screen.getAllByRole("button", { name: "Novo prato" })[0]);
@@ -350,7 +398,7 @@ describe("formulário", () => {
 
   test("Enter num campo não salva a ficha; na quantidade ele leva à busca do próximo ingrediente", async () => {
     vi.mocked(searchDishProducts).mockResolvedValue([
-      { id: "p-novo", externalCode: "9", name: "FARINHA", unit: "KG", averageCost: 5, conversions: [] },
+      { id: "p-novo", externalCode: "9", name: "FARINHA", unit: "KG", averageCost: 5, conversions: [], embalagemInferida: null },
     ]);
     await abrir();
     fireEvent.click(screen.getAllByRole("button", { name: "Novo prato" })[0]);

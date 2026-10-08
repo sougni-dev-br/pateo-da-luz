@@ -149,6 +149,7 @@ export function BuscaDeIngrediente({ jaNaFicha, onEscolher }: Props) {
                   <strong>{produto.name}</strong>
                   <small>
                     {produto.externalCode ? `${produto.externalCode} · ` : ""}estoque em {produto.unit ?? "—"}
+                    {produto.embalagemInferida && ` · ${produto.embalagemInferida}`}
                     {repetido && <em className="ft-combo-repetido"> · já está na ficha</em>}
                   </small>
                 </span>
