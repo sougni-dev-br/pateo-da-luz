@@ -1,5 +1,8 @@
 import crypto from "node:crypto";
 import { Prisma } from "@prisma/client";
+import { normalizeText } from "../../shared/utils/normalize-text.js";
+import { employeeToSupplierDraft, onlyDigits } from "../suppliers/employee-supplier.js";
+import { nextSupplierCode } from "../suppliers/supplier-code.js";
 import {
   ReimbursementError,
   decidirSincronizacao,
@@ -9,19 +12,76 @@ import {
 
 type Tx = Prisma.TransactionClient;
 
-/** "Quem pagou" precisa ser um fornecedor ativo da categoria Funcionario, e nao a propria loja. */
+/**
+ * "Quem pagou" precisa ser um fornecedor ativo que seja de um funcionario: da categoria
+ * Funcionario ou com o CPF de um funcionario ativo. E nunca a propria loja da compra.
+ */
 export async function validarQuemPagou(tx: Tx, payeeId: string, fornecedorDaCompraId: string) {
-  const [payee] = await tx.$queryRaw<Array<{ id: string; name: string; mainCategory: string | null; isActive: boolean }>>`
-    SELECT "id", "name", "mainCategory", "isActive" FROM "Supplier" WHERE "id" = ${payeeId} LIMIT 1
+  const [payee] = await tx.$queryRaw<Array<{ id: string; name: string; mainCategory: string | null; isActive: boolean; ehFuncionario: boolean }>>`
+    SELECT s."id", s."name", s."mainCategory", s."isActive",
+           EXISTS (
+             SELECT 1 FROM "Employee" e
+             WHERE e."isActive" AND e."deletedAt" IS NULL
+               AND length(regexp_replace(e."cpf", '[^0-9]', '', 'g')) = 11
+               AND regexp_replace(e."cpf", '[^0-9]', '', 'g') = regexp_replace(COALESCE(s."document", ''), '[^0-9]', '', 'g')
+           ) AS "ehFuncionario"
+    FROM "Supplier" s WHERE s."id" = ${payeeId} LIMIT 1
   `;
   if (!payee || !payee.isActive) throw new ReimbursementError("Quem pagou nao encontrado ou inativo.");
-  if (!ehCategoriaFuncionario(payee.mainCategory)) {
+  if (!ehCategoriaFuncionario(payee.mainCategory) && !payee.ehFuncionario) {
     throw new ReimbursementError(`${payee.name} nao e um fornecedor da categoria Funcionario. Cadastre a pessoa em Fornecedores > A partir de funcionario.`);
   }
   if (payee.id === fornecedorDaCompraId) {
     throw new ReimbursementError("O fornecedor da compra e a loja onde foi comprado; quem pagou vai no campo proprio.");
   }
   return payee;
+}
+
+/**
+ * O fornecedor que representa o funcionario nos reembolsos, achado pelo CPF. Se ainda
+ * nao existir, e criado a partir do cadastro do funcionario (nome, CPF, contato e PIX
+ * na observacao financeira) — o mesmo que "Fornecedores > A partir de funcionario".
+ * Assim a lista de quem pagou tem todos os funcionarios ativos sem cadastro manual.
+ */
+export async function fornecedorDoFuncionario(tx: Tx, employeeId: string): Promise<string> {
+  const employee = await tx.employee.findFirst({
+    where: { id: employeeId, isActive: true, deletedAt: null },
+    select: {
+      id: true, firstName: true, lastName: true, cpf: true, phone: true, email: true, position: true, isActive: true,
+      bankName: true, bankAgency: true, bankAccount: true, bankAccountDigit: true, bankAccountType: true,
+      pixKeyType: true, pixKey: true
+    }
+  });
+  if (!employee) throw new ReimbursementError("Funcionario nao encontrado ou desligado.");
+  const cpf = onlyDigits(employee.cpf);
+  if (cpf.length !== 11) throw new ReimbursementError("O funcionario esta sem CPF valido no cadastro. Corrija em Funcionarios antes de lancar o reembolso.");
+
+  const [existente] = await tx.$queryRaw<Array<{ id: string; isActive: boolean }>>`
+    SELECT "id", "isActive" FROM "Supplier"
+    WHERE regexp_replace(COALESCE("document", ''), '[^0-9]', '', 'g') = ${cpf}
+    ORDER BY "isActive" DESC, "createdAt" ASC
+    LIMIT 1
+  `;
+  if (existente) {
+    if (!existente.isActive) {
+      await tx.$executeRaw`UPDATE "Supplier" SET "isActive" = true, "updatedAt" = CURRENT_TIMESTAMP WHERE "id" = ${existente.id}`;
+    }
+    return existente.id;
+  }
+
+  const draft = employeeToSupplierDraft(employee);
+  const id = crypto.randomUUID();
+  const externalCode = await nextSupplierCode(tx);
+  await tx.$executeRaw`
+    INSERT INTO "Supplier" (
+      "id", "externalCode", "document", "name", "normalizedName", "phone", "email",
+      "mainCategory", "defaultFinancialNotes", "notes", "isActive", "updatedAt"
+    ) VALUES (
+      ${id}, ${externalCode}, ${draft.document}, ${draft.name}, ${normalizeText(draft.name)}, ${draft.phone || null}, ${draft.email || null},
+      ${draft.mainCategory}, ${draft.defaultFinancialNotes || null}, ${draft.notes}, true, CURRENT_TIMESTAMP
+    )
+  `;
+  return id;
 }
 
 /**

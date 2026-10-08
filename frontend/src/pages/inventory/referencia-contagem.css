@@ -1,0 +1,105 @@
+/* Referencia na linha da contagem: mesma leitura da conferencia (conf-conta),
+   mais compacta, porque divide o cartao com o campo de quantidade. */
+.ref-contagem {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 4px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--line);
+}
+
+.ref-contagem__conta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 2px 8px;
+  margin: 0;
+}
+
+.ref-contagem__conta > div {
+  display: grid;
+  gap: 0;
+}
+
+.ref-contagem__conta dt {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ref-contagem__conta dd {
+  margin: 0;
+  font-size: 12.5px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.ref-contagem__sinal {
+  padding-bottom: 1px;
+  color: var(--line-strong);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ref-contagem__sem-ref dd {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.ref-contagem__contado dd {
+  font-weight: 700;
+}
+
+/* O valor fica na ponta: e o numero que responde "quanto temos". */
+.ref-contagem__valor {
+  margin-left: auto;
+  text-align: right;
+}
+
+.ref-contagem__valor dd {
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.ref-contagem--alerta .ref-contagem__contado dd {
+  color: var(--danger);
+}
+
+.ref-contagem__aviso {
+  margin: 0;
+  padding: 4px 8px;
+  border-left: 3px solid var(--danger);
+  border-radius: 0 var(--radius-sm, 6px) var(--radius-sm, 6px) 0;
+  background: var(--tint-danger);
+  color: var(--danger);
+  font-size: var(--fs-xs, 12px);
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+/* Total da contagem na faixa de progresso. */
+.count-valor-total {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.count-valor-total > em {
+  color: var(--muted);
+  font-style: normal;
+}
+
+.count-valor-total strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.count-valor-total small {
+  color: var(--warning);
+  font-weight: 600;
+}

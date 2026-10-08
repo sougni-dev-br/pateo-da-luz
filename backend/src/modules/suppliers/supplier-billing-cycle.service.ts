@@ -1,12 +1,11 @@
 import crypto from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
+import { escolherCicloDaCompra, type CicloAberto } from "./supplier-cycle-choice.js";
 
 /**
- * Localiza o ciclo OPEN ou CHECKED cujo período cobre a data da compra.
- * Se não encontrar por data, usa o ciclo mais recente como fallback.
- * Se não houver nenhum ciclo ativo, cria um novo ciclo OPEN.
- * Deve ser chamado dentro de uma transação.
+ * Localiza o ciclo OPEN ou CHECKED cujo período cobre a data da compra; sem ele, cria um.
+ * A regra está em `escolherCicloDaCompra`. Deve ser chamado dentro de uma transação.
  */
 export async function findOrCreateOpenCycle(
   tx: Prisma.TransactionClient,
@@ -14,42 +13,30 @@ export async function findOrCreateOpenCycle(
   userId: string | null,
   purchaseDate?: Date | null
 ): Promise<string> {
-  // 1. Prefer the cycle whose period contains the purchase date
-  if (purchaseDate) {
-    const [byDate] = await tx.$queryRaw<Array<{ id: string }>>`
-      SELECT "id" FROM "SupplierBillingCycle"
-      WHERE "supplierId" = ${supplierId}
-        AND "status" IN ('OPEN', 'CHECKED')
-        AND "periodStart" <= ${purchaseDate}
-        AND ("periodEnd" IS NULL OR "periodEnd" >= ${purchaseDate})
-      ORDER BY "periodStart" DESC
-      LIMIT 1
-    `;
-    if (byDate) return byDate.id;
-  }
-
-  // 2. Fallback: any OPEN/CHECKED cycle for this supplier (most recent period)
-  const [fallback] = await tx.$queryRaw<Array<{ id: string }>>`
-    SELECT "id" FROM "SupplierBillingCycle"
+  const abertos = await tx.$queryRaw<CicloAberto[]>`
+    SELECT "id", "periodStart", "periodEnd" FROM "SupplierBillingCycle"
     WHERE "supplierId" = ${supplierId}
       AND "status" IN ('OPEN', 'CHECKED')
-    ORDER BY "periodStart" DESC
-    LIMIT 1
   `;
-  if (fallback) return fallback.id;
+  const escolha = escolherCicloDaCompra(abertos, purchaseDate ?? hojeUtc());
+  if ("cicloId" in escolha) return escolha.cicloId;
 
-  // 3. Create a new catch-all cycle (no end date)
   const cycleId = crypto.randomUUID();
   await tx.$executeRaw`
     INSERT INTO "SupplierBillingCycle" (
-      "id", "supplierId", "periodStart", "status", "totalAmount",
+      "id", "supplierId", "periodStart", "periodEnd", "status", "totalAmount",
       "createdByUserId", "createdAt", "updatedAt"
     ) VALUES (
-      ${cycleId}, ${supplierId}, CURRENT_TIMESTAMP, 'OPEN', 0,
+      ${cycleId}, ${supplierId}, ${escolha.criar.periodStart}, ${escolha.criar.periodEnd}, 'OPEN', 0,
       ${userId}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
     )
   `;
   return cycleId;
+}
+
+function hojeUtc(): Date {
+  const agora = new Date();
+  return new Date(Date.UTC(agora.getUTCFullYear(), agora.getUTCMonth(), agora.getUTCDate()));
 }
 
 /**

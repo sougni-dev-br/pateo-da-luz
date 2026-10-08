@@ -1449,7 +1449,9 @@ export function Purchases({ user }: { user: AppUser }) {
         smallExpenseMoneyOrigin: form.isSmallExpense ? selectedPaymentMethod?.name ?? null : null,
         smallExpenseNotes: form.isSmallExpense ? form.smallExpenseNotes || form.notes || null : null,
         creditCardId: usesCreditCard ? form.creditCardId || null : null,
-        reimbursementPayeeId: usesReimbursement ? form.reimbursementPayeeId || null : null,
+        // "emp:<id>": funcionário que ainda não tem cadastro de fornecedor; o servidor cria pelo CPF.
+        reimbursementPayeeId: usesReimbursement && !form.reimbursementPayeeId.startsWith("emp:") ? form.reimbursementPayeeId || null : null,
+        reimbursementEmployeeId: usesReimbursement && form.reimbursementPayeeId.startsWith("emp:") ? form.reimbursementPayeeId.slice(4) : null,
         numberOfInstallments: normalPurchaseUsesCreditCard ? Math.max(1, Number(form.ccNumberOfInstallments) || 1) : undefined,
         paymentDifferenceReason: form.paymentDifferenceReason || null,
         workflowStatus: "confirmed",
@@ -2863,7 +2865,7 @@ export function Purchases({ user }: { user: AppUser }) {
                       {usesReimbursement && (
                         <p className="pnova-cycle-info-hint" style={{ margin: "0 0 8px" }}>
                           {reimbursementPayees.length === 0
-                            ? "Nenhum fornecedor da categoria Funcionário. Cadastre a pessoa em Fornecedores › A partir de funcionário."
+                            ? "Nenhum funcionário ativo. Cadastre a pessoa em RH › Funcionários."
                             : <>Sem título agora: a compra entra no reembolso {selectedPayee ? <>de <strong>{selectedPayee.name}</strong></> : "da pessoa"}, com a data e a loja desta nota. O título nasce ao fechar o reembolso em <strong>Financeiro › Reembolsos</strong>.</>}
                         </p>
                       )}

@@ -3045,6 +3045,20 @@ export function getStockCountSessionPlausibility(id: string) {
   return request<StockCountPlausibility[]>(`/inventory/count-sessions/${id}/plausibility`);
 }
 
+/** Ultima contagem aprovada + compras desde entao, e o custo de cada item da contagem. */
+export type ReferenciaDaContagem = {
+  itemId: string;
+  anterior: number | null;
+  anteriorData: string | null;
+  anteriorCodigo: string | null;
+  compras: number;
+  custoUnitario: number | null;
+};
+
+export function getReferenciaDaContagem(id: string) {
+  return request<ReferenciaDaContagem[]>(`/inventory/count-sessions/${id}/referencia`);
+}
+
 export function getStockCountSession(id: string) {
   return request<StockCountSessionDetail>(`/inventory/count-sessions/${id}`).then(normalizeStockCountSessionDetail);
 }
@@ -3325,6 +3339,10 @@ export function getBuyerSupportReport(filters?: BuyerSupportFilters) {
 
 export function downloadOperationalInventoryPdf(id: string, code?: string) {
   return download(`/inventory/operational/${id}/pdf`, `${code ?? "inventario"}.pdf`);
+}
+
+export function getStockCountSessionPdfBlob(id: string) {
+  return fetchBlob(`/inventory/count-sessions/${id}/pdf`);
 }
 
 export function downloadStockCountSessionPdf(id: string, code?: string) {
@@ -7999,6 +8017,7 @@ export function saveEventSettings(input: EventSettings) {
 
 export type ReimbursementStatus = "OPEN" | "CLOSED" | "PAID" | "CANCELLED";
 
+/** id = fornecedor da pessoa, ou "emp:<id do funcionário>" quando o fornecedor ainda não existe. */
 export type ReimbursementPayee = { id: string; name: string };
 
 export type ReimbursementSummary = {
