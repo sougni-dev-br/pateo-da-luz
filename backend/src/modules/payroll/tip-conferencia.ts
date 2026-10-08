@@ -319,3 +319,61 @@ export function separarJaPagos(
   }
   return { linhas: restantes, jaPagos };
 }
+
+// ─── Trocar o extrato de uma empresa (contabilidade reemitiu) ─────────────────
+
+export type DiferencaExtrato = {
+  employeeId: string | null;
+  nome: string;
+  situacao: "MUDOU" | "ENTROU" | "SAIU";
+  liquidoAntes: number | null;
+  liquidoDepois: number | null;
+  gorjetaAntes: number | null;
+  gorjetaDepois: number | null;
+};
+
+const chaveDaLinha = (l: LinhaExtrato) => l.employeeId ?? `nome:${l.nome}`;
+const igualCentavo = (a: number | null, b: number | null) => (a == null || b == null ? a === b : Math.abs(a - b) < 0.005);
+
+/** Quem mudou de líquido ou gorjeta, entrou ou saiu entre o extrato guardado e o novo. */
+export function diferencasDoExtrato(antes: LinhaExtrato[], depois: LinhaExtrato[]): DiferencaExtrato[] {
+  const velho = new Map(antes.map((l) => [chaveDaLinha(l), l]));
+  const novo = new Map(depois.map((l) => [chaveDaLinha(l), l]));
+  const saida: DiferencaExtrato[] = [];
+  for (const [k, n] of novo) {
+    const v = velho.get(k);
+    if (!v) {
+      saida.push({ employeeId: n.employeeId, nome: n.nome, situacao: "ENTROU", liquidoAntes: null, liquidoDepois: n.liquido, gorjetaAntes: null, gorjetaDepois: n.gorjeta });
+      continue;
+    }
+    if (igualCentavo(v.liquido, n.liquido) && igualCentavo(v.gorjeta, n.gorjeta)) continue;
+    saida.push({ employeeId: n.employeeId, nome: n.nome, situacao: "MUDOU", liquidoAntes: v.liquido, liquidoDepois: n.liquido, gorjetaAntes: v.gorjeta, gorjetaDepois: n.gorjeta });
+  }
+  for (const [k, v] of velho) {
+    if (novo.has(k)) continue;
+    saida.push({ employeeId: v.employeeId, nome: v.nome, situacao: "SAIU", liquidoAntes: v.liquido, liquidoDepois: null, gorjetaAntes: v.gorjeta, gorjetaDepois: null });
+  }
+  return saida;
+}
+
+export type SalarioDoExtratoAberto = { employeeId: string; nome: string; amount: unknown; details: unknown; titulo: string | null };
+export type SalarioDesatualizado = { employeeId: string; nome: string; noContasAPagar: number; extratoNovo: number; titulo: string | null };
+
+/**
+ * SALARIO em aberto do Retorno do RH (dentro ou fora de título) cujo líquido do extrato ficou
+ * diferente do extrato novo. Compara o líquido guardado no lançamento (no salário combinado o
+ * valor é outro de propósito) — na falta dele, o valor do lançamento.
+ */
+export function salariosDesatualizados(abertos: SalarioDoExtratoAberto[], depois: LinhaExtrato[]): SalarioDesatualizado[] {
+  const novo = new Map(depois.filter((l) => l.employeeId).map((l) => [l.employeeId!, l.liquido]));
+  const saida: SalarioDesatualizado[] = [];
+  for (const s of abertos) {
+    const extratoNovo = novo.get(s.employeeId);
+    if (extratoNovo == null) continue;
+    const d = (s.details && typeof s.details === "object" ? s.details : {}) as Record<string, unknown>;
+    const guardado = [d.liquidoExtrato, d.liquido, s.amount].map((x) => (x == null ? null : Number(x))).find((x) => x != null && Number.isFinite(x)) ?? 0;
+    if (igualCentavo(guardado, extratoNovo)) continue;
+    saida.push({ employeeId: s.employeeId, nome: s.nome, noContasAPagar: round2(guardado), extratoNovo: round2(extratoNovo), titulo: s.titulo });
+  }
+  return saida;
+}

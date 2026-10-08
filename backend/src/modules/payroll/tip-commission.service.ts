@@ -1352,6 +1352,14 @@ export async function reopenTipPeriod(year: number, month: number, usuario: { id
   });
   if (!period) throw new Error("Período não encontrado.");
   if (period.status !== "CLOSED") throw new Error("O período não está fechado.");
+  // Reabrir desmarca o envio e o OK (abaixo). Com títulos da folha ainda em aberto é permitido
+  // (decisão do dono, 08/10/2026: corrigir a apuração depois de liberar acontece): ao fechar de
+  // novo, os acertos são relançados e o total dos títulos acompanha. Com título já PAGO, não:
+  // mudaria salário já pago — estorne a baixa antes.
+  const pagos = await prisma.folhaLote.count({ where: { competenceYear: year, competenceMonth: month, status: "PAGO" } });
+  if (pagos > 0) {
+    throw new Error("Há título da folha desta competência já pago: reabrir mudaria salário já pago. Estorne a baixa no Contas a Pagar antes de reabrir (ou use 'Trocar extrato' se só o extrato mudou).");
+  }
 
   await prisma.$transaction(async (tx) => {
     await travarFundo(tx);
