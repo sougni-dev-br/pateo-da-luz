@@ -221,6 +221,49 @@ export async function contarLancamentosExistentes(
   return contados.size;
 }
 
+// O que a importação vai fazer com cada pessoa do extrato — a mesma ordem de decisão de
+// importExtrato. A prévia mostra isto para não contar como "novo" quem não gera lançamento
+// (líquido zero, desligado antes da competência, excluído à mão, já pago).
+export type PrevisaoImportacao = {
+  novos: number; atualizar: number; zerados: number; desligados: number; excluidosAMao: number; jaPagos: number; comOutroRotulo: number;
+};
+
+export async function preverImportacao(
+  pessoas: Array<{ employeeId: string | null; liquido: number }>, calculo: CalculoExtrato, competenceYear: number, competenceMonth: number,
+): Promise<PrevisaoImportacao> {
+  const r: PrevisaoImportacao = { novos: 0, atualizar: 0, zerados: 0, desligados: 0, excluidosAMao: 0, jaPagos: 0, comOutroRotulo: 0 };
+  const mmaaaa = `${String(competenceMonth).padStart(2, "0")}/${competenceYear}`;
+  const chave = chaveDoExtrato(calculo, mmaaaa);
+  const ids = [...new Set(pessoas.flatMap((p) => (p.employeeId ? [p.employeeId] : [])))];
+  const salarioAntigo = { type: "SALARIO" as const, periodLabel: `Extrato ${mmaaaa}` };
+  const [itens, saidas] = ids.length === 0 ? [[], []] : await Promise.all([
+    prisma.payrollItem.findMany({
+      where: { employeeId: { in: ids }, competenceYear, competenceMonth, OR: calculo === "ADIANTAMENTO" ? [chave, salarioAntigo] : [chave] },
+      select: { employeeId: true, type: true, periodLabel: true, amount: true, source: true, deletedAt: true, deletedById: true, paymentDate: true },
+    }),
+    prisma.employee.findMany({ where: { id: { in: ids } }, select: { id: true, terminationDate: true } }),
+  ]);
+  const saidaDe = new Map(saidas.map((e) => [e.id, e.terminationDate ?? null]));
+  for (const p of pessoas) {
+    // Fora do cadastro: a importação cadastra a pessoa e lança (se o líquido não for zero).
+    if (!p.employeeId) { if (ehZero(p.liquido)) r.zerados += 1; else r.novos += 1; continue; }
+    if (aposSaida({ employeeId: p.employeeId, type: chave.type, competenceYear, competenceMonth }, saidaDe.get(p.employeeId) ?? null)) { r.desligados += 1; continue; }
+    const doEmp = itens.filter((i) => i.employeeId === p.employeeId);
+    const principal = doEmp.find((i) => i.type === chave.type && i.periodLabel === chave.periodLabel);
+    if (principal && excluidoAMao(principal)) { r.excluidosAMao += 1; continue; }
+    const ativo = Boolean(principal && principal.deletedAt == null);
+    if (ativo && principal!.paymentDate != null) { r.jaPagos += 1; continue; }
+    const vaiConverter = !ativo && calculo === "ADIANTAMENTO" && doEmp.some((i) =>
+      i.type === "SALARIO" && i.periodLabel === salarioAntigo.periodLabel && i.source === "EXTRATO_RH"
+      && i.deletedAt == null && mesmoValor(Number(i.amount), p.liquido));
+    if (ativo || vaiConverter) { r.atualizar += 1; continue; }
+    if (ehZero(p.liquido)) { r.zerados += 1; continue; }
+    if (await outroDoMesmoPagamento({ employeeId: p.employeeId, competenceYear, competenceMonth, ...chave })) { r.comOutroRotulo += 1; continue; }
+    r.novos += 1;
+  }
+  return r;
+}
+
 // O mesmo pagamento (pessoa + tipo + competência) já vivo com OUTRO rótulo: o gerado pela
 // folha ("Salário"), o lançado à mão. A chave única inclui o rótulo e não pega esse caso.
 // Complemento não conta (é pagamento a mais, de propósito).
@@ -274,8 +317,14 @@ export type ImportExtratoResult = {
   // (criados, ou excluídos antigos sem autor restaurados).
   titulosAtualizados: number;
   titulosNovos: number;
-  // Não gravados: excluídos à mão (cada um vira aviso) e líquido zero sem lançamento.
+  // Não gravados (soma dos motivos abaixo, mantida para quem já lia o total).
   titulosPulados: number;
+  // Cada motivo com a sua contagem: só "excluídos à mão" é exclusão de verdade.
+  excluidosAMao: number;
+  zerados: number;
+  desligados: number;
+  jaPagos: number;
+  comOutroRotulo: number;
   // Folha do mês: adiantamentos criados a partir do desconto da folha (sem o extrato do dia 20).
   adiantamentosDaFolha: number;
   empresa: string;
@@ -380,6 +429,10 @@ export async function importExtrato(opts: {
   let titulosNovos = 0;
   let titulosPulados = 0;
   let zerados = 0;
+  let excluidosAMao = 0;
+  let desligados = 0;
+  let jaPagos = 0;
+  let comOutroRotulo = 0;
   let adiantamentosDaFolha = 0;
   for (const f of parsed.funcionarios) {
     let empId = f.cpfNorm ? byCpf.get(f.cpfNorm) : undefined;
@@ -397,6 +450,7 @@ export async function importExtrato(opts: {
     const saida = saidaDe.get(empId) ?? null;
     if (aposSaida({ employeeId: empId, type: tipo, competenceYear, competenceMonth }, saida)) {
       titulosPulados += 1;
+      desligados += 1;
       avisosDaImportacao.push(`${f.nome} saiu em ${ddmmaaaa(saida!)}: ${tipo === "ADIANTAMENTO" ? "adiantamento" : "salário"} de ${mmaaaa} não lançado (competência depois da saída).`);
       continue;
     }
@@ -417,6 +471,7 @@ export async function importExtrato(opts: {
     });
     if (existente && excluidoAMao(existente)) {
       titulosPulados += 1;
+      excluidosAMao += 1;
       avisosDaImportacao.push(avisoExcluidoAMao(f.nome, parsed.calculo, mmaaaa, existente.deletedAt!));
       continue;
     }
@@ -424,6 +479,7 @@ export async function importExtrato(opts: {
     // Já pago: o valor e o detalhe ficam como foram pagos. Reimportar só avisa a diferença.
     if (ativo && existente!.paymentDate != null) {
       titulosPulados += 1;
+      jaPagos += 1;
       avisosDaImportacao.push(`${f.nome}: ${tipo === "ADIANTAMENTO" ? "adiantamento" : "salário"} de ${mmaaaa} já pago: não atualizado (extrato traz ${brl(f.liquido)}).`);
       continue;
     }
@@ -440,6 +496,7 @@ export async function importExtrato(opts: {
     const jaLancado = ativo ? null : await outroDoMesmoPagamento(chaveUnica);
     if (jaLancado) {
       titulosPulados += 1;
+      comOutroRotulo += 1;
       avisosDaImportacao.push(
         `${f.nome}: ${tipo === "ADIANTAMENTO" ? "adiantamento" : "salário"} de ${mmaaaa} já está na Folha como "${jaLancado.periodLabel}" ` +
         `(${brl(jaLancado.amount)}, ${jaLancado.paymentDate ? "pago" : "em aberto"}); o extrato (${brl(f.liquido)}) não criou outro. Confira o valor à mão.`,
@@ -491,7 +548,7 @@ export async function importExtrato(opts: {
 
   return {
     calculo: parsed.calculo, empresa: parsed.empresa, companyId, competenceYear, competenceMonth, totalLiquido, funcionariosCadastrados, titulosGerados,
-    titulosAtualizados, titulosNovos, titulosPulados, adiantamentosDaFolha,
+    titulosAtualizados, titulosNovos, titulosPulados, excluidosAMao, zerados, desligados, jaPagos, comOutroRotulo, adiantamentosDaFolha,
     rhExtractId: rh.id, extratoAtualizado: rh.atualizado,
     pessoasLidas: detalhes.pessoas.length, pessoasConferidas: detalhes.pessoas.filter((p) => p.conferido).length,
     avisos: [...avisosDaImportacao, ...avisosDoPdf],
