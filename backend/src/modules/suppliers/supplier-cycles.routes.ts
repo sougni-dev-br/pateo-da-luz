@@ -6,6 +6,7 @@ import { prisma } from "../../config/database.js";
 import { auditLog, requestIp, requireAdmin, requireRole } from "../security/security-utils.js";
 import { addPurchaseToCycle } from "./supplier-billing-cycle.service.js";
 import { empresaDoCiclo } from "./supplier-cycle-company.js";
+import { compraLevaDespesaAoDre } from "../purchases/purchase-aggregators.js";
 
 export const supplierCyclesRouter = Router();
 
@@ -452,14 +453,33 @@ supplierCyclesRouter.post("/:id/close", async (request, response) => {
 
   // ── Validar itens ─────────────────────────────────────────────────────────
 
-  const items = await prisma.$queryRaw<Array<{ id: string; checked: boolean; companyId: string | null }>>`
-    SELECT i."id", i."checked", p."companyId"
+  const items = await prisma.$queryRaw<Array<{
+    id: string;
+    checked: boolean;
+    companyId: string | null;
+    invoiceNumber: string | null;
+    purchaseNumber: string | null;
+    status: string;
+    itens: number;
+  }>>`
+    SELECT i."id", i."checked", p."companyId", i."invoiceNumber", p."purchaseNumber", p."status",
+           (SELECT COUNT(*) FROM "PurchaseItem" x WHERE x."purchaseId" = p."id")::int AS "itens"
     FROM "SupplierBillingCycleItem" i
     JOIN "Purchase" p ON p."id" = i."purchaseId"
     WHERE i."cycleId" = ${request.params.id}
   `;
   if (items.length === 0) {
     response.status(400).json({ message: "Ciclo sem itens — adicione compras ao ciclo antes de fechar." });
+    return;
+  }
+  // O titulo do ciclo nao entra no DRE: a despesa chega pelos itens de cada
+  // compra. Compra sem item ou cancelada faria o gasto sair so no caixa.
+  const foraDoDre = items.filter((i) => !compraLevaDespesaAoDre({ status: i.status, itens: Number(i.itens) }));
+  if (foraDoDre.length > 0) {
+    const lista = foraDoDre.map((i) => i.invoiceNumber || i.purchaseNumber || i.id).join(", ");
+    response.status(422).json({
+      message: `${foraDoDre.length} compra(s) do ciclo sem itens ou cancelada(s): ${lista}. Lance os itens de cada nota (ou tire a compra do ciclo) antes de fechar — sem isso o gasto sai do caixa e nao aparece no DRE.`
+    });
     return;
   }
   const unchecked = items.filter((i) => !i.checked);
