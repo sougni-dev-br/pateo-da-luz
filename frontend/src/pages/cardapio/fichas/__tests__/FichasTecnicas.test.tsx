@@ -68,8 +68,16 @@ async function abrir() {
       <HideValuesProvider><FichasTecnicas /></HideValuesProvider>
     </SessionContext.Provider>,
   );
+  // A tela abre no Painel; o trabalho de montar fichas acontece na aba Pratos.
+  fireEvent.click(await screen.findByRole("tab", { name: "Pratos" }));
   await screen.findByText("Risoto de camarão");
 }
+
+const abrirFiltrosExtras = () => fireEvent.click(screen.getByRole("button", { name: /Categoria, ordem e inativos/ }));
+const ligarInativos = () => {
+  abrirFiltrosExtras();
+  fireEvent.click(screen.getByRole("switch", { name: "Mostrar pratos inativos" }));
+};
 
 const lista = () => screen.getByRole("list");
 const itemDaLista = (nome: string) => within(lista()).getByText(nome).closest("button") as HTMLElement;
@@ -95,13 +103,56 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("lista de pratos", () => {
-  test("mostra o andamento: só os ativos entram na conta e quem não tem ingrediente fica de fora", async () => {
-    await abrir();
-    expect(screen.getByText(/de 3 pratos com ingredientes/)).toBeInTheDocument();
-    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "2");
+async function abrirPainel() {
+  render(
+    <SessionContext.Provider value={SESSAO}>
+      <HideValuesProvider><FichasTecnicas /></HideValuesProvider>
+    </SessionContext.Provider>,
+  );
+  await screen.findByText("Fichas montadas");
+}
+
+describe("painel", () => {
+  test("abre no painel: fichas montadas só dos ativos, CMV médio só de quem tem ficha completa e preço", async () => {
+    await abrirPainel();
+    expect(screen.getByRole("progressbar", { name: "Pratos com ficha montada" })).toHaveAttribute("aria-valuenow", "2");
+    expect(screen.getByText("de 3")).toBeInTheDocument();
+    // Risoto de camarão (25%) é o único analisável: o de funghi tem custo parcial e o purê não tem ficha.
+    expect(screen.getAllByText("25,0%").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(/Média simples de 1 prato/)).toBeInTheDocument();
   });
 
+  test("diz o que fazer agora e leva à lista já filtrada", async () => {
+    await abrirPainel();
+    fireEvent.click(screen.getByRole("button", { name: /1 ficha com custo parcial/ }));
+    expect(await screen.findByRole("tab", { name: "Pratos", selected: true })).toBeInTheDocument();
+    expect(within(lista()).getByText("Risoto de funghi")).toBeInTheDocument();
+    expect(within(lista()).queryByText("Risoto de camarão")).toBeNull();
+  });
+
+  test("clicar num prato do ranking abre a ficha dele", async () => {
+    await abrirPainel();
+    fireEvent.click(screen.getAllByRole("button", { name: /Risoto de camarão/ })[0]);
+    await waitFor(() => expect(getDishDetail).toHaveBeenCalledWith("d1"));
+    expect(await screen.findByRole("heading", { level: 2, name: "Risoto de camarão" })).toBeInTheDocument();
+  });
+
+  test("categoria do gráfico leva aos pratos dela", async () => {
+    await abrirPainel();
+    fireEvent.click(screen.getByRole("button", { name: /A la carte/ }));
+    expect(await screen.findByRole("tab", { name: "Pratos", selected: true })).toBeInTheDocument();
+    expect(within(lista()).getByText("Risoto de camarão")).toBeInTheDocument();
+    expect(within(lista()).queryByText("Purê de batata")).toBeNull();
+  });
+
+  test("sem nenhum prato cadastrado convida a cadastrar", async () => {
+    vi.mocked(getDishes).mockResolvedValue([]);
+    await abrirPainel().catch(() => undefined);
+    expect(await screen.findByText("Nenhum prato cadastrado.")).toBeInTheDocument();
+  });
+});
+
+describe("lista de pratos", () => {
   test("prato sem ingredientes mostra 'Sem ficha' em vez de um CMV de 0%", async () => {
     await abrir();
     const pure = itemDaLista("Purê de batata");
@@ -126,17 +177,15 @@ describe("lista de pratos", () => {
   test("inativos ficam escondidos até pedir", async () => {
     await abrir();
     expect(within(lista()).queryByText("Prato antigo")).toBeNull();
-    fireEvent.click(screen.getByRole("switch", { name: "Mostrar pratos inativos" }));
+    ligarInativos();
     expect(within(lista()).getByText("Prato antigo")).toBeInTheDocument();
   });
 
   test("os contadores dos chips acompanham a lista: com inativos ligados, eles entram na conta", async () => {
     await abrir();
     expect(screen.getByRole("button", { name: /^Todos\s*3$/ })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("switch", { name: "Mostrar pratos inativos" }));
+    ligarInativos();
     expect(screen.getByRole("button", { name: /^Todos\s*4$/ })).toBeInTheDocument();
-    // O andamento do trabalho continua sendo só dos ativos.
-    expect(screen.getByText(/de 3 pratos com ingredientes/)).toBeInTheDocument();
   });
 
   test("sem resultado oferece limpar os filtros", async () => {
@@ -154,7 +203,8 @@ describe("ficha do prato", () => {
     expect(screen.getByText("CMV")).toBeInTheDocument();
     expect(screen.getByText("CAMARAO DESCASCADO")).toBeInTheDocument();
     expect(screen.getByText("+7% de perda")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Onde é vendido" })).toBeInTheDocument();
+    expect(screen.getByText("Onde é vendido")).toBeInTheDocument();
+    expect(screen.getByText("1 loja · R$ 79,90")).toBeInTheDocument(); // resumo da seção recolhida
     expect(screen.getByText("Pateo Frei Caneca")).toBeInTheDocument();
   });
 
@@ -183,7 +233,7 @@ describe("ficha do prato", () => {
     await waitFor(() => expect(deactivateDish).toHaveBeenCalledWith("d1"));
     expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("Risoto de camarão"));
 
-    fireEvent.click(screen.getByRole("switch", { name: "Mostrar pratos inativos" }));
+    ligarInativos();
     await abrirPrato("Prato antigo", "d4");
     fireEvent.click(screen.getByRole("button", { name: "Reativar" }));
     await waitFor(() => expect(reactivateDish).toHaveBeenCalledWith("d4"));
