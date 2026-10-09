@@ -185,6 +185,33 @@ describe("formulário: cardápio e categoria", () => {
   });
 });
 
+describe("filtro de categoria da lista", () => {
+  test("mostra quantos pratos há em cada categoria e deixa filtrar os sem categoria", async () => {
+    await abrir();
+    fireEvent.click(within(screen.getByRole("radiogroup", { name: "Cardápio" })).getByRole("radio", { name: /Delivery/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Categoria, ordem e inativos/ }));
+    const select = screen.getByLabelText("Categoria") as HTMLSelectElement;
+    expect([...select.options].map((o) => o.textContent)).toEqual(["Todas", "Sem categoria · 2", "Pizzas · 0"]);
+
+    fireEvent.change(select, { target: { value: "sem-categoria" } });
+    expect(screen.getByText("Pizza Margherita")).toBeInTheDocument();
+    expect(screen.getByText("Pizza Calabresa")).toBeInTheDocument();
+  });
+
+  test("categoria vazia explica o motivo e leva aos pratos sem categoria; os chips acompanham o filtro", async () => {
+    await abrir();
+    fireEvent.click(within(screen.getByRole("radiogroup", { name: "Cardápio" })).getByRole("radio", { name: /Delivery/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Categoria, ordem e inativos/ }));
+    fireEvent.change(screen.getByLabelText("Categoria"), { target: { value: "pizzas" } });
+
+    expect(screen.getByText(/Nenhum prato foi classificado em “Pizzas” ainda\. 2 pratos estão sem categoria/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Todos\s*0/ })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Ver os pratos sem categoria" }));
+    expect(screen.getByText("Pizza Margherita")).toBeInTheDocument();
+  });
+});
+
 describe("organizar e imprimir em lote", () => {
   async function selecionar(...nomes: string[]) {
     await abrir();

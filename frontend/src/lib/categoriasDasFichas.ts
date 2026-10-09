@@ -24,8 +24,12 @@ export function caminhoDaCategoria(categoria: Pick<DishCategoryRef, "name" | "pa
   return categoria.parentName ? `${categoria.parentName} › ${categoria.name}` : categoria.name;
 }
 
+/** Valor do filtro para os pratos que ainda não têm categoria (hoje, a maioria dos importados da 99). */
+export const FILTRO_SEM_CATEGORIA = "sem-categoria";
+
 /** O filtro por categoria principal inclui as subcategorias dela. */
 export function categoriaCombina(prato: Pick<DishListItem, "category">, categoriaId: string): boolean {
+  if (categoriaId === FILTRO_SEM_CATEGORIA) return !prato.category;
   return prato.category?.id === categoriaId || prato.category?.parentId === categoriaId;
 }
 
@@ -113,13 +117,22 @@ export function contarPorCardapio(pratos: DishListItem[]): Record<FiltroDeCardap
  * Opções do filtro de categoria da lista. Com um cardápio escolhido, é o seletor de sempre; com "todos",
  * junta os dois e escreve o cardápio na frente, para "Pizzas" do delivery não se confundir com a do salão.
  */
-export function opcoesDoFiltroDeCategoria(categorias: DishCategory[], filtro: FiltroDeCardapio, atualId = ""): SelectOption[] {
-  if (filtro !== "todos") return opcoesDeCategoria(categorias, filtro, atualId);
+export function opcoesDoFiltroDeCategoria(
+  categorias: DishCategory[],
+  filtro: FiltroDeCardapio,
+  atualId = "",
+  /** Pratos que o filtro enxerga (já no cardápio e no "mostrar inativos" certos): vira o número de cada opção. */
+  pratos?: DishListItem[]
+): SelectOption[] {
+  const comNumero = (opcao: SelectOption): SelectOption =>
+    pratos ? { ...opcao, label: `${opcao.label} · ${pratos.filter((prato) => categoriaCombina(prato, opcao.value)).length}` } : opcao;
   const marcar = (menu: DishMenu) =>
     opcoesDeCategoria(categorias, menu, atualId).map((opcao) => ({
       ...opcao,
-      label: opcao.group ? opcao.label : `${ROTULO_DO_CARDAPIO[menu]} · ${opcao.label}`,
-      group: opcao.group ? `${ROTULO_DO_CARDAPIO[menu]} · ${opcao.group}` : undefined
+      label: opcao.group || filtro !== "todos" ? opcao.label : `${ROTULO_DO_CARDAPIO[menu]} · ${opcao.label}`,
+      group: opcao.group && filtro === "todos" ? `${ROTULO_DO_CARDAPIO[menu]} · ${opcao.group}` : opcao.group
     }));
-  return [...marcar("CARDAPIO"), ...marcar("DELIVERY")];
+  const daLista = filtro === "todos" ? [...marcar("CARDAPIO"), ...marcar("DELIVERY")] : marcar(filtro);
+  const semCategoria = comNumero({ value: FILTRO_SEM_CATEGORIA, label: SEM_CATEGORIA });
+  return [semCategoria, ...daLista.map(comNumero)];
 }
