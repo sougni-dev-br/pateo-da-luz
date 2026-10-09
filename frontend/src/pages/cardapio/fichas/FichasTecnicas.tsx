@@ -23,7 +23,7 @@ import {
   type OrdemDaLista,
   type SituacaoDaFicha
 } from "../../../lib/fichaTecnica";
-import { cardapioCombina, contarPorCardapio, type FiltroDeCardapio } from "../../../lib/categoriasDasFichas";
+import { cardapioCombina, categoriaCombina, contarPorCardapio, type FiltroDeCardapio } from "../../../lib/categoriasDasFichas";
 import { folhaDoNome, folhaDoPrato, type FolhaDados } from "../../../lib/folhaDaFicha";
 import { montarPainel } from "../../../lib/painelFichas";
 import { useNavigationGuard } from "../../../lib/navigationGuard";
@@ -269,7 +269,17 @@ export function FichasTecnicas() {
   const pratosDoCardapio = useMemo(() => pratos.filter((prato) => cardapioCombina(prato, filtro.menu)), [pratos, filtro.menu]);
   // O painel olha só os ativos; os chips da lista acompanham o que ela mostra (inclui inativos se ligado).
   const painel = useMemo(() => montarPainel(pratosDoCardapio), [pratosDoCardapio]);
-  const contagemDosChips = useMemo(() => contarPorSituacao(pratosDoCardapio, filtro.mostrarInativos), [pratosDoCardapio, filtro.mostrarInativos]);
+  // Base dos números do seletor de categoria: o cardápio escolhido, com ou sem inativos.
+  const pratosDoSeletor = useMemo(
+    () => pratosDoCardapio.filter((prato) => prato.isActive || filtro.mostrarInativos),
+    [pratosDoCardapio, filtro.mostrarInativos]
+  );
+  // Os chips seguem a categoria escolhida: "Todos 216" ao lado de "nenhum prato" parecia filtro quebrado.
+  const pratosDosChips = useMemo(
+    () => (filtro.categoriaId ? pratosDoSeletor.filter((prato) => categoriaCombina(prato, filtro.categoriaId)) : pratosDoSeletor),
+    [pratosDoSeletor, filtro.categoriaId]
+  );
+  const contagemDosChips = useMemo(() => contarPorSituacao(pratosDosChips, filtro.mostrarInativos), [pratosDosChips, filtro.mostrarInativos]);
 
   const detalheDoSelecionado = detalhe && detalhe.id === selecionadoId ? detalhe : null;
   const painelAberto = selecionadoId !== null || editor !== null;
@@ -386,6 +396,7 @@ export function FichasTecnicas() {
               pratos={pratosDaLista}
               totalCadastrado={pratos.length}
               contagemDosChips={contagemDosChips}
+              pratosDoSeletor={pratosDoSeletor}
               categorias={categorias}
               filtro={filtro}
               ordem={ordem}

@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { DishCategory, DishListItem } from "../../../api/client";
 import { Button, EmptyState, IconButton, ListDetailLayout, Select, StatusBadge, Switch } from "../../../design-system";
 import type { StatusTone } from "../../../design-system";
-import { ROTULO_DO_CARDAPIO, caminhoDaCategoria, opcoesDoFiltroDeCategoria } from "../../../lib/categoriasDasFichas";
+import { FILTRO_SEM_CATEGORIA, ROTULO_DO_CARDAPIO, caminhoDaCategoria, opcoesDoFiltroDeCategoria } from "../../../lib/categoriasDasFichas";
 import {
   ROTULO_DA_SITUACAO,
   faixaDeCmv,
@@ -22,6 +22,8 @@ type Props = {
   totalCadastrado: number;
   /** Acompanha o que a lista mostra (inclui inativos quando o botão está ligado). */
   contagemDosChips: Contagem;
+  /** Pratos do cardápio escolhido (com ou sem inativos), antes de busca, categoria e situação: base dos números do seletor. */
+  pratosDoSeletor: DishListItem[];
   categorias: DishCategory[];
   filtro: FiltroDaLista;
   ordem: OrdemDaLista;
@@ -94,8 +96,23 @@ function subtituloDoPrato(prato: DishListItem, mostrarCardapio: boolean): string
   return partes.join(" · ");
 }
 
+/** Diz POR QUE a lista ficou vazia: "nenhum prato com esses filtros" não ajuda a saber qual filtro soltar. */
+function explicarListaVazia(filtro: FiltroDaLista, categorias: DishCategory[], pratosDoSeletor: DishListItem[]): string {
+  const semCategoria = pratosDoSeletor.filter((prato) => !prato.category).length;
+  const nomeDaCategoria = categorias.find((categoria) => categoria.id === filtro.categoriaId)?.name;
+  const soCategoria = pratosDoSeletor.filter((prato) => prato.isActive || filtro.mostrarInativos);
+
+  if (filtro.busca === "" && filtro.situacao === "todos" && nomeDaCategoria && !soCategoria.some((prato) => prato.category?.id === filtro.categoriaId || prato.category?.parentId === filtro.categoriaId)) {
+    return semCategoria > 0
+      ? `Nenhum prato foi classificado em “${nomeDaCategoria}” ainda. ${semCategoria} prato${semCategoria === 1 ? " está" : "s estão"} sem categoria: use “Selecionar vários” e “Organizar” para classificar.`
+      : `Nenhum prato foi classificado em “${nomeDaCategoria}” ainda.`;
+  }
+  if (filtro.categoriaId === FILTRO_SEM_CATEGORIA) return "Todos os pratos já têm categoria.";
+  return "Nenhum prato com esses filtros.";
+}
+
 export function ListaDePratos({
-  pratos, totalCadastrado, contagemDosChips, categorias, filtro, ordem, selecionadoId, carregando, canEdit, modoSelecao, selecionados,
+  pratos, totalCadastrado, contagemDosChips, pratosDoSeletor, categorias, filtro, ordem, selecionadoId, carregando, canEdit, modoSelecao, selecionados,
   onFiltro, onOrdem, onSelecionar, onNovo, onAtualizar, onEntrarNaSelecao, onSairDaSelecao, onAlternarSelecao, onSelecionarTodos,
   onLimparSelecao, onMoverSelecionados, onImprimirSelecionados, onImprimirEmBranco
 }: Props) {
@@ -194,7 +211,7 @@ export function ListaDePratos({
               label="Categoria"
               value={filtro.categoriaId}
               onChange={(event) => onFiltro({ categoriaId: event.target.value })}
-              options={opcoesDoFiltroDeCategoria(categorias, filtro.menu, filtro.categoriaId)}
+              options={opcoesDoFiltroDeCategoria(categorias, filtro.menu, filtro.categoriaId, pratosDoSeletor)}
               placeholder="Todas"
             />
             <Select
@@ -259,11 +276,18 @@ export function ListaDePratos({
 
         {totalCadastrado > 0 && pratos.length === 0 && (
           <div className="ft-lista-aviso">
-            <p>Nenhum prato com esses filtros.</p>
+            <p>{explicarListaVazia(filtro, categorias, pratosDoSeletor)}</p>
             {filtrando && (
-              <button type="button" className="ft-link" onClick={() => onFiltro({ busca: "", categoriaId: "", situacao: "todos" })}>
-                Limpar filtros
-              </button>
+              <>
+                {filtro.categoriaId !== "" && filtro.categoriaId !== FILTRO_SEM_CATEGORIA && pratosDoSeletor.some((prato) => !prato.category) && (
+                  <button type="button" className="ft-link" onClick={() => onFiltro({ categoriaId: FILTRO_SEM_CATEGORIA })}>
+                    Ver os pratos sem categoria
+                  </button>
+                )}
+                <button type="button" className="ft-link" onClick={() => onFiltro({ busca: "", categoriaId: "", situacao: "todos" })}>
+                  Limpar filtros
+                </button>
+              </>
             )}
           </div>
         )}

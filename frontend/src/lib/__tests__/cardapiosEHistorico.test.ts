@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { DishCategory, DishListItem, DishRevision, DishRevisionSnapshot } from "../../api/client";
 import {
-  caminhoDaCategoria, categoriaCombina, contarPorCardapio, montarArvore, opcoesDeCategoria, opcoesDoFiltroDeCategoria
+  FILTRO_SEM_CATEGORIA, caminhoDaCategoria, categoriaCombina, contarPorCardapio, montarArvore, opcoesDeCategoria, opcoesDoFiltroDeCategoria
 } from "../categoriasDasFichas";
 import { filtrarPratos } from "../fichaTecnica";
 import { descreverMudancas, montarLinhaDoTempo, serieDoCusto } from "../historicoDaFicha";
@@ -90,6 +90,20 @@ describe("categorias e cardápios", () => {
     const opcoes = opcoesDoFiltroDeCategoria(CATEGORIAS, "todos");
     expect(opcoes.find((o) => o.value === "buffet")?.label).toBe("Cardápio · Buffet");
     expect(opcoes.find((o) => o.value === "doces")?.group).toBe("Delivery · Pizzas");
+  });
+
+  it("o filtro tem 'Sem categoria' e cada opção traz quantos pratos tem", () => {
+    const lista = [
+      prato({ id: "1", category: ref("fresca", "Fresca", "massas", "Massas") }),
+      prato({ id: "2", category: ref("fresca", "Fresca", "massas", "Massas") }),
+      prato({ id: "3", menu: "DELIVERY" }),
+      prato({ id: "4", menu: "DELIVERY" })
+    ];
+    const opcoes = opcoesDoFiltroDeCategoria(CATEGORIAS, "todos", "", lista);
+    expect(opcoes[0]).toMatchObject({ value: FILTRO_SEM_CATEGORIA, label: "Sem categoria · 2" });
+    expect(opcoes.find((o) => o.value === "massas")?.label).toContain("· 2");
+    expect(opcoes.find((o) => o.value === "buffet")?.label).toBe("Cardápio · Buffet · 0");
+    expect(filtrarPratos(lista, { busca: "", menu: "todos", categoriaId: FILTRO_SEM_CATEGORIA, situacao: "todos", mostrarInativos: false }).map((p) => p.id)).toEqual(["3", "4"]);
   });
 
   it("conta pratos ativos por cardápio", () => {
