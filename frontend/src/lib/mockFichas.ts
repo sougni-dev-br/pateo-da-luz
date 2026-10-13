@@ -192,7 +192,7 @@ export function mockFichas(url: string, method = "GET"): unknown | undefined {
     return { id: PRATOS[0].id, ok: true };
   }
 
-  if (resto === "bulk") return { atualizados: 2, categoriasLimpas: 0 };
+  if (resto === "bulk") return { atualizados: 2, categoriasLimpas: 0, nosDois: 2, jaNoCardapio: 0 };
   if (resto.endsWith("/revisions")) return revisoesDe(resto.split("/")[0]);
   if (resto === "") return PRATOS.map(resumo);
   if (resto === "categories") return CATEGORIAS;

@@ -412,7 +412,11 @@ const loteSchema = z.object({
   ids: z.array(z.string().trim().min(1)).min(1, "escolha ao menos um prato").max(500, "no máximo 500 pratos por vez"),
   menu: z.enum(MENUS).optional(),
   /** null tira da categoria; ausente deixa como está. */
-  categoryId: z.string().trim().min(1).nullable().optional()
+  categoryId: z.string().trim().min(1).nullable().optional(),
+  /** Também vender no outro cardápio: o cardápio escolhido vira o segundo de cada prato; null tira do segundo cardápio. */
+  alsoMenu: z.enum(MENUS).nullable().optional(),
+  /** Categoria no segundo cardápio (precisa ser dele); null limpa. */
+  alsoCategoryId: z.string().trim().min(1).nullable().optional()
 });
 
 /**
@@ -426,8 +430,12 @@ dishesRouter.post("/bulk", async (request, response) => {
 
   const body = parseBody(loteSchema, request.body, response);
   if (!body) return;
-  if (body.menu === undefined && body.categoryId === undefined) {
-    response.status(400).json({ message: "Escolha o cardápio e/ou a categoria para aplicar." });
+  if (body.menu === undefined && body.categoryId === undefined && body.alsoMenu === undefined && body.alsoCategoryId === undefined) {
+    response.status(400).json({ message: "Escolha o cardápio, a categoria ou onde mais vender para aplicar." });
+    return;
+  }
+  if (body.alsoCategoryId && !body.alsoMenu) {
+    response.status(400).json({ message: "Escolha o outro cardápio para usar a categoria dele." });
     return;
   }
 
@@ -457,11 +465,22 @@ dishesRouter.post("/bulk", async (request, response) => {
     }
   }
 
+  // A categoria do segundo cardápio tem que ser daquele cardápio.
+  if (body.alsoMenu && body.alsoCategoryId) {
+    const ruim = await categoriaIncompativel(prisma, body.alsoCategoryId, body.alsoMenu);
+    if (ruim) {
+      response.status(400).json({ message: ruim });
+      return;
+    }
+  }
+
   const resultado = await prisma.$transaction(async (tx) => {
     const dados: { menu?: string; categoryId?: string | null } = {};
     if (body.menu !== undefined) dados.menu = body.menu;
     if (body.categoryId !== undefined) dados.categoryId = body.categoryId;
-    const atualizados = await tx.dish.updateMany({ where: { id: { in: ids } }, data: dados });
+    const atualizados = Object.keys(dados).length > 0
+      ? await tx.dish.updateMany({ where: { id: { in: ids } }, data: dados })
+      : { count: ids.length };
 
     // O prato que passa a ser principal no cardápio em que já era vendido "também" deixa de ter segundo cardápio.
     if (body.menu !== undefined) {
@@ -477,10 +496,34 @@ dishesRouter.post("/bulk", async (request, response) => {
       });
       categoriasLimpas = limpas.count;
     }
-    return { atualizados: atualizados.count, categoriasLimpas };
+
+    // Também vender no outro cardápio. O prato que já é principal naquele cardápio não tem "outro": fica de fora e é contado.
+    let nosDois = 0;
+    let jaNoCardapio = 0;
+    if (body.alsoMenu === null) {
+      await tx.dish.updateMany({ where: { id: { in: ids } }, data: { alsoMenu: null, alsoCategoryId: null } });
+    } else if (body.alsoMenu) {
+      const elegiveis = pratos.filter((prato) => (body.menu ?? prato.menu) !== body.alsoMenu).map((prato) => prato.id);
+      nosDois = elegiveis.length;
+      jaNoCardapio = ids.length - elegiveis.length;
+      if (elegiveis.length > 0) {
+        await tx.dish.updateMany({ where: { id: { in: elegiveis } }, data: { alsoMenu: body.alsoMenu } });
+        if (body.alsoCategoryId !== undefined) {
+          await tx.dish.updateMany({ where: { id: { in: elegiveis } }, data: { alsoCategoryId: body.alsoCategoryId } });
+        } else {
+          // Sem categoria escolhida: a que o prato tinha só vale se for do cardápio certo.
+          await tx.dish.updateMany({
+            where: { id: { in: elegiveis }, alsoCategory: { is: { menu: { not: body.alsoMenu } } } },
+            data: { alsoCategoryId: null }
+          });
+        }
+      }
+    }
+
+    return { atualizados: atualizados.count, categoriasLimpas, nosDois, jaNoCardapio };
   });
 
-  await auditLog({ userId: user.id, action: "BULK_UPDATE", entity: "Dish", newValue: { ids: ids.length, menu: body.menu, categoryId: body.categoryId } });
+  await auditLog({ userId: user.id, action: "BULK_UPDATE", entity: "Dish", newValue: { ids: ids.length, menu: body.menu, categoryId: body.categoryId, alsoMenu: body.alsoMenu, alsoCategoryId: body.alsoCategoryId } });
   response.json(resultado);
 });
 

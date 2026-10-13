@@ -285,7 +285,7 @@ describe("ação em lote", () => {
     db.dishCategory.findUnique.mockResolvedValue({ id: "c1", name: "Pizzas", menu: "DELIVERY" });
     const r = await request(app).post("/dishes/bulk").send({ ids: ["a", "b"], categoryId: "c1" });
     expect(r.status).toBe(200);
-    expect(r.body).toEqual({ atualizados: 2, categoriasLimpas: 0 });
+    expect(r.body).toMatchObject({ atualizados: 2, categoriasLimpas: 0 });
     expect(db.dish.updateMany).toHaveBeenCalledWith({ where: { id: { in: ["a", "b"] } }, data: { categoryId: "c1" } });
     expect(auditLog).toHaveBeenCalledWith(expect.objectContaining({ action: "BULK_UPDATE" }));
   });
@@ -308,7 +308,7 @@ describe("ação em lote", () => {
   test("só trocar o cardápio limpa a categoria de quem tinha uma do outro", async () => {
     db.dish.updateMany.mockResolvedValueOnce({ count: 2 }).mockResolvedValueOnce({ count: 0 }).mockResolvedValueOnce({ count: 1 });
     const r = await request(app).post("/dishes/bulk").send({ ids: ["a", "b"], menu: "CARDAPIO" });
-    expect(r.body).toEqual({ atualizados: 2, categoriasLimpas: 1 });
+    expect(r.body).toMatchObject({ atualizados: 2, categoriasLimpas: 1 });
     expect(db.dish.updateMany).toHaveBeenLastCalledWith({
       where: { id: { in: ["a", "b"] }, category: { is: { menu: { not: "CARDAPIO" } } } }, data: { categoryId: null }
     });
@@ -326,6 +326,65 @@ describe("ação em lote", () => {
     const r = await request(app).post("/dishes/bulk").send({ ids: ["a", "b"], categoryId: null });
     expect(r.status).toBe(200);
     expect(db.dish.updateMany).toHaveBeenCalledWith({ where: { id: { in: ["a", "b"] } }, data: { categoryId: null } });
+  });
+});
+
+describe("lote: vender nos dois cardápios", () => {
+  beforeEach(() => {
+    const pratos = [
+      { id: "salao", menu: "CARDAPIO", categoryId: null },
+      { id: "delivery", menu: "DELIVERY", categoryId: null }
+    ];
+    db.dish.findMany.mockImplementation(async ({ where }: { where: { id: { in: string[] } } }) => pratos.filter((prato) => where.id.in.includes(prato.id)));
+    db.dish.updateMany.mockResolvedValue({ count: 1 });
+  });
+
+  test("'também no delivery': só o prato do salão ganha o segundo cardápio; o que já é do delivery fica de fora e é contado", async () => {
+    const r = await request(app).post("/dishes/bulk").send({ ids: ["salao", "delivery"], alsoMenu: "DELIVERY" });
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ atualizados: 2, nosDois: 1, jaNoCardapio: 1 });
+    expect(db.dish.updateMany).toHaveBeenCalledWith({ where: { id: { in: ["salao"] } }, data: { alsoMenu: "DELIVERY" } });
+    // O prato do delivery não é tocado.
+    expect(db.dish.updateMany.mock.calls.some(([arg]: [{ where: { id?: { in: string[] } } }]) => arg.where.id?.in.includes("delivery") && "alsoMenu" in ((arg as { data: object }).data))).toBe(false);
+  });
+
+  test("sem categoria escolhida, a segunda categoria que não for do cardápio certo é limpa", async () => {
+    await request(app).post("/dishes/bulk").send({ ids: ["salao"], alsoMenu: "DELIVERY" });
+    expect(db.dish.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ["salao"] }, alsoCategory: { is: { menu: { not: "DELIVERY" } } } },
+      data: { alsoCategoryId: null }
+    });
+  });
+
+  test("com categoria do outro cardápio: grava nos pratos elegíveis", async () => {
+    db.dishCategory.findUnique.mockResolvedValue({ name: "Carnes", menu: "DELIVERY" });
+    const r = await request(app).post("/dishes/bulk").send({ ids: ["salao"], alsoMenu: "DELIVERY", alsoCategoryId: "c-carnes" });
+    expect(r.status).toBe(200);
+    expect(db.dish.updateMany).toHaveBeenCalledWith({ where: { id: { in: ["salao"] } }, data: { alsoCategoryId: "c-carnes" } });
+  });
+
+  test("categoria de cardápio errado ou sem dizer o outro cardápio: 400, nada gravado", async () => {
+    db.dishCategory.findUnique.mockResolvedValue({ name: "A la carte", menu: "CARDAPIO" });
+    const errada = await request(app).post("/dishes/bulk").send({ ids: ["salao"], alsoMenu: "DELIVERY", alsoCategoryId: "c-salao" });
+    expect(errada.status).toBe(400);
+    expect(errada.body.message).toMatch(/"A la carte" é do cardápio do salão/);
+    const semMenu = await request(app).post("/dishes/bulk").send({ ids: ["salao"], alsoCategoryId: "c-salao" });
+    expect(semMenu.status).toBe(400);
+    expect(semMenu.body.message).toMatch(/Escolha o outro cardápio/);
+    expect(db.dish.updateMany).not.toHaveBeenCalled();
+  });
+
+  test("'só em um cardápio' tira o segundo cardápio e a categoria dele", async () => {
+    const r = await request(app).post("/dishes/bulk").send({ ids: ["salao", "delivery"], alsoMenu: null });
+    expect(r.status).toBe(200);
+    expect(db.dish.updateMany).toHaveBeenCalledWith({ where: { id: { in: ["salao", "delivery"] } }, data: { alsoMenu: null, alsoCategoryId: null } });
+  });
+
+  test("junto com a troca de cardápio principal, vale o cardápio final de cada prato", async () => {
+    // Todos viram do delivery; 'também no delivery' não sobra ninguém para ganhar o segundo cardápio.
+    const r = await request(app).post("/dishes/bulk").send({ ids: ["salao", "delivery"], menu: "DELIVERY", alsoMenu: "DELIVERY" });
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ nosDois: 0, jaNoCardapio: 2 });
   });
 });
 
