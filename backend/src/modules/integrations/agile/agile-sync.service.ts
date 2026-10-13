@@ -119,7 +119,10 @@ export function mapSaleRow(venda: AgileVenda) {
     people: venda.qtd_pessoas,
     totalAmount: venda.vl_total,
     cancelledBy: limparNome(venda.func_cancelou),
-    cancelReason: limparNome(venda.motivo_cancelamento)
+    cancelReason: limparNome(venda.motivo_cancelamento),
+    subtotalAmount: venda.vl_subtotal_itens,
+    discountAmount: venda.vl_desconto,
+    discountLabel: limparNome(venda.desconto)
   };
 }
 
@@ -141,7 +144,9 @@ export function mapSaleItemRow(item: AgileItem) {
     productCategory: item.categoria_produto?.trim() ? item.categoria_produto.trim() : null,
     quantity: item.qtd,
     totalAmount: item.vl_tot,
-    launchedBy: limparNome(item.func_lancou)
+    launchedBy: limparNome(item.func_lancou),
+    cancelledBy: limparNome(item.func_cancelou),
+    cancelReason: limparNome(item.motivo_cancelamento)
   };
 }
 
