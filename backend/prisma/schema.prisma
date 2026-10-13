@@ -151,35 +151,35 @@ enum TaxPaymentSource {
 }
 
 model Company {
-  id                    String               @id @default(cuid())
-  code                  String               @unique
-  tradeName             String
-  legalName             String
-  cnpj                  String               @unique
-  stateRegistration     String?
-  municipalRegistration String?
-  financialEmail        String?
-  phone                 String?
-  zipCode               String?
-  address               String?
-  addressNumber         String?
-  addressComplement     String?
-  neighborhood          String?
-  city                  String?
-  state                 String?
-  notes                 String?
-  isActive              Boolean              @default(true)
-  bankAccounts          CompanyBankAccount[]
-  purchases             Purchase[]
-  payingInstallments    PaymentInstallment[] @relation("PayingCompany")
-  taxPayments           TaxPayment[]
-  deliveryStores        DeliveryStore[]
-  receivables           Receivable[]
-  ifoodMonthlyExpenses  IfoodMonthlyExpense[]
+  id                         String                      @id @default(cuid())
+  code                       String                      @unique
+  tradeName                  String
+  legalName                  String
+  cnpj                       String                      @unique
+  stateRegistration          String?
+  municipalRegistration      String?
+  financialEmail             String?
+  phone                      String?
+  zipCode                    String?
+  address                    String?
+  addressNumber              String?
+  addressComplement          String?
+  neighborhood               String?
+  city                       String?
+  state                      String?
+  notes                      String?
+  isActive                   Boolean                     @default(true)
+  bankAccounts               CompanyBankAccount[]
+  purchases                  Purchase[]
+  payingInstallments         PaymentInstallment[]        @relation("PayingCompany")
+  taxPayments                TaxPayment[]
+  deliveryStores             DeliveryStore[]
+  receivables                Receivable[]
+  ifoodMonthlyExpenses       IfoodMonthlyExpense[]
   noventaNoveMonthlyExpenses NoventaNoveMonthlyExpense[]
-  employees             Employee[]
-  createdAt             DateTime             @default(now())
-  updatedAt             DateTime             @updatedAt
+  employees                  Employee[]
+  createdAt                  DateTime                    @default(now())
+  updatedAt                  DateTime                    @updatedAt
 
   @@index([cnpj])
   @@index([code])
@@ -187,48 +187,48 @@ model Company {
 }
 
 model CompanyBankAccount {
-  id           String          @id @default(cuid())
+  id           String               @id @default(cuid())
   companyId    String
-  company      Company         @relation(fields: [companyId], references: [id])
+  company      Company              @relation(fields: [companyId], references: [id])
   bankName     String?
   agency       String?
   account      String?
   accountDigit String?
-  accountType  BankAccountType @default(CONTA_CORRENTE)
+  accountType  BankAccountType      @default(CONTA_CORRENTE)
   pixKey       String?
   name         String
   notes        String?
-  isActive     Boolean         @default(true)
+  isActive     Boolean              @default(true)
   installments PaymentInstallment[] @relation("PaymentBankAccount")
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
 
   @@index([companyId])
   @@index([isActive])
 }
 
 model Supplier {
-  id           String     @id @default(cuid())
-  externalCode String?    @unique
-  document     String?
-  name         String
-  normalizedName String?
-  phone        String?
-  email        String?
-  contactName  String?
-  mainCategory String?
-  defaultPaymentTermDays   Int?
-  defaultPaymentMethodId   String?
-  defaultInstallmentCount  Int?
-  defaultInstallmentDays   Json?
-  defaultFinancialNotes    String?
-  billingMode              String    @default("DIRECT")
-  cycleFrequency           String?
-  cycleFirstDueDays        Int?
-  cycleSecondDueDays       Int?
-  registrationDate DateTime?
-  isActive     Boolean    @default(true)
-  notes        String?
+  id                      String    @id @default(cuid())
+  externalCode            String?   @unique
+  document                String?
+  name                    String
+  normalizedName          String?
+  phone                   String?
+  email                   String?
+  contactName             String?
+  mainCategory            String?
+  defaultPaymentTermDays  Int?
+  defaultPaymentMethodId  String?
+  defaultInstallmentCount Int?
+  defaultInstallmentDays  Json?
+  defaultFinancialNotes   String?
+  billingMode             String    @default("DIRECT")
+  cycleFrequency          String?
+  cycleFirstDueDays       Int?
+  cycleSecondDueDays      Int?
+  registrationDate        DateTime?
+  isActive                Boolean   @default(true)
+  notes                   String?
 
   // Fechamento mensal (CMV v2 — 2026-07-14):
   // Fornecedores marcados aqui aparecem na checklist do Painel de Fechamento
@@ -238,12 +238,12 @@ model Supplier {
   expectedClosingFrequency ClosingFrequency @default(MONTHLY)
   closingChecklistGroup    String?
 
-  purchases    Purchase[]
-  billingCycles SupplierBillingCycle[]
-  reimbursedPurchases  Purchase[]            @relation("PurchaseReimbursementPayee")
+  purchases            Purchase[]
+  billingCycles        SupplierBillingCycle[]
+  reimbursedPurchases  Purchase[]             @relation("PurchaseReimbursementPayee")
   reimbursementReports ReimbursementReport[]
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
 
   @@index([name])
   @@index([normalizedName])
@@ -260,21 +260,21 @@ enum ClosingFrequency {
 
 model PurchaseSequence {
   year         Int      @id
-  currentValue Int     @default(0)
+  currentValue Int      @default(0)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 }
 
 model SupplierSequence {
   id           Int      @id @default(1)
-  currentValue Int     @default(0)
+  currentValue Int      @default(0)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 }
 
 model PurchaseOrderSequence {
   year         Int      @id
-  currentValue Int     @default(0)
+  currentValue Int      @default(0)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 }
@@ -287,22 +287,22 @@ model ProductSequence {
 }
 
 model User {
-  id           String        @id
-  name         String
-  email        String        @unique
-  passwordHash String
-  role         UserRole      @default(VISUALIZACAO)
-  isActive     Boolean       @default(true)
-  mustChangePassword Boolean  @default(false)
-  passwordChangedAt DateTime?
-  failedLoginAttempts Int      @default(0)
-  lockedUntil  DateTime?
-  lastLoginAt  DateTime?
-  sessions     UserSession[]
-  menuPermissions UserMenuPermission[]
-  menuFavorites UserMenuFavorite[]
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  id                  String               @id
+  name                String
+  email               String               @unique
+  passwordHash        String
+  role                UserRole             @default(VISUALIZACAO)
+  isActive            Boolean              @default(true)
+  mustChangePassword  Boolean              @default(false)
+  passwordChangedAt   DateTime?
+  failedLoginAttempts Int                  @default(0)
+  lockedUntil         DateTime?
+  lastLoginAt         DateTime?
+  sessions            UserSession[]
+  menuPermissions     UserMenuPermission[]
+  menuFavorites       UserMenuFavorite[]
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
 
   @@index([role])
   @@index([lockedUntil])
@@ -411,8 +411,8 @@ model Subcategory {
   name       String
   categoryId String
   category   Category  @relation(fields: [categoryId], references: [id])
-  isActive  Boolean   @default(true)
-  notes     String?
+  isActive   Boolean   @default(true)
+  notes      String?
   products   Product[]
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
@@ -421,19 +421,19 @@ model Subcategory {
 }
 
 model UnitMeasure {
-  id        String         @id @default(cuid())
-  code      String         @unique
-  name      String
-  type      String?
-  isActive  Boolean        @default(true)
-  notes     String?
-  products  Product[]
-  items     PurchaseItem[]
-  inventoryStocks InventoryStock[]
+  id                 String              @id @default(cuid())
+  code               String              @unique
+  name               String
+  type               String?
+  isActive           Boolean             @default(true)
+  notes              String?
+  products           Product[]
+  items              PurchaseItem[]
+  inventoryStocks    InventoryStock[]
   inventoryMovements InventoryMovement[]
-  stockCounts StockCount[]
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
+  stockCounts        StockCount[]
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
 
   @@index([name])
   @@index([type])
@@ -474,52 +474,52 @@ model ExpenseTypeMaster {
 }
 
 model Product {
-  id             String         @id @default(cuid())
-  externalCode   String?        @unique
-  name           String
-  normalizedName String
-  unit           String?
-  unitMeasureId  String?
-  unitMeasure    UnitMeasure?    @relation(fields: [unitMeasureId], references: [id])
-  stockUnit      String?
-  purchaseUnit   String?
-  baseUnit       String?
-  conversionFactor Decimal?      @db.Decimal(12, 6)
-  packageWeight  Decimal?        @db.Decimal(12, 3)
-  conversionNotes String?
-  logisticsNotes String?
-  isActive       Boolean        @default(true)
-  notes          String?
-  categoryId     String?
-  subcategoryId  String?
-  inventorySectorId String?
-  storageLocation String?
-  storageCorridor String?
-  storageShelf    String?
-  storagePosition String?
-  storageNotes    String?
-  accountType    String?
-  controlsStock  Boolean        @default(true)
-  estoqueMinimo  Decimal?       @db.Decimal(14, 3)
-  estoqueIdeal   Decimal?       @db.Decimal(14, 3)
-  leadTimeCompraDias Int?
-  fornecedorPrincipalId String?
-  dreCategoryId  String?
-  dreCategory    DRECategory?   @relation(fields: [dreCategoryId], references: [id])
-  category       Category?      @relation(fields: [categoryId], references: [id])
-  subcategory    Subcategory?   @relation(fields: [subcategoryId], references: [id])
-  inventorySector InventorySector? @relation(fields: [inventorySectorId], references: [id])
-  aliases        ProductAlias[]
-  conversions    ProductUnitConversion[]
-  items          PurchaseItem[]
-  inventoryStock InventoryStock?
-  inventoryMovements InventoryMovement[]
-  stockCounts StockCount[]
-  stockCountSessionItems StockCountSessionItem[]
+  id                        String                     @id @default(cuid())
+  externalCode              String?                    @unique
+  name                      String
+  normalizedName            String
+  unit                      String?
+  unitMeasureId             String?
+  unitMeasure               UnitMeasure?               @relation(fields: [unitMeasureId], references: [id])
+  stockUnit                 String?
+  purchaseUnit              String?
+  baseUnit                  String?
+  conversionFactor          Decimal?                   @db.Decimal(12, 6)
+  packageWeight             Decimal?                   @db.Decimal(12, 3)
+  conversionNotes           String?
+  logisticsNotes            String?
+  isActive                  Boolean                    @default(true)
+  notes                     String?
+  categoryId                String?
+  subcategoryId             String?
+  inventorySectorId         String?
+  storageLocation           String?
+  storageCorridor           String?
+  storageShelf              String?
+  storagePosition           String?
+  storageNotes              String?
+  accountType               String?
+  controlsStock             Boolean                    @default(true)
+  estoqueMinimo             Decimal?                   @db.Decimal(14, 3)
+  estoqueIdeal              Decimal?                   @db.Decimal(14, 3)
+  leadTimeCompraDias        Int?
+  fornecedorPrincipalId     String?
+  dreCategoryId             String?
+  dreCategory               DRECategory?               @relation(fields: [dreCategoryId], references: [id])
+  category                  Category?                  @relation(fields: [categoryId], references: [id])
+  subcategory               Subcategory?               @relation(fields: [subcategoryId], references: [id])
+  inventorySector           InventorySector?           @relation(fields: [inventorySectorId], references: [id])
+  aliases                   ProductAlias[]
+  conversions               ProductUnitConversion[]
+  items                     PurchaseItem[]
+  inventoryStock            InventoryStock?
+  inventoryMovements        InventoryMovement[]
+  stockCounts               StockCount[]
+  stockCountSessionItems    StockCountSessionItem[]
   operationalInventoryItems OperationalInventoryItem[]
-  dishItems      DishItem[]
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  dishItems                 DishItem[]
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
 
   @@index([normalizedName])
   @@index([unitMeasureId])
@@ -547,23 +547,23 @@ model ProductUnitConversion {
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
-  @@index([productId])
   @@unique([productId, fromUnit, toUnit])
+  @@index([productId])
 }
 
 model PaymentMethod {
-  id             String            @id @default(cuid())
-  name           String
-  normalizedName String            @unique
-  type           PaymentMethodType @default(OTHER)
-  group          String?
-  isActive       Boolean           @default(true)
-  notes          String?
-  purchases      Purchase[]
-  installments   PaymentInstallment[] @relation("InstallmentPaymentMethod")
+  id               String               @id @default(cuid())
+  name             String
+  normalizedName   String               @unique
+  type             PaymentMethodType    @default(OTHER)
+  group            String?
+  isActive         Boolean              @default(true)
+  notes            String?
+  purchases        Purchase[]
+  installments     PaymentInstallment[] @relation("InstallmentPaymentMethod")
   paidInstallments PaymentInstallment[] @relation("InstallmentPaidPaymentMethod")
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
 
   @@index([name])
   @@index([type])
@@ -572,18 +572,18 @@ model PaymentMethod {
 }
 
 model CreditCard {
-  id             String    @id @default(cuid())
-  name           String
-  bankName       String
-  last4Digits    String
-  closingDay     Int
-  dueDay         Int
-  isActive       Boolean   @default(true)
-  notes          String?
-  statements     CreditCardStatement[]
-  purchases      Purchase[]
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  id          String                @id @default(cuid())
+  name        String
+  bankName    String
+  last4Digits String
+  closingDay  Int
+  dueDay      Int
+  isActive    Boolean               @default(true)
+  notes       String?
+  statements  CreditCardStatement[]
+  purchases   Purchase[]
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
 
   @@index([name])
   @@index([bankName])
@@ -592,53 +592,53 @@ model CreditCard {
 }
 
 model CreditCardStatement {
-  id                   String                    @id @default(cuid())
-  creditCardId         String
-  creditCard           CreditCard                @relation(fields: [creditCardId], references: [id])
-  name                 String?
-  competenceYear       Int
-  competenceMonth      Int
-  closingDate          DateTime
-  dueDate              DateTime
-  totalAmount          Decimal                   @default(0) @db.Decimal(12, 2)
-  status               CreditCardStatementStatus @default(OPEN)
-  notes                String?
-  generatedPurchaseId  String?
-  items                CreditCardStatementItem[]
-  createdAt            DateTime                  @default(now())
-  updatedAt            DateTime                  @updatedAt
+  id                  String                    @id @default(cuid())
+  creditCardId        String
+  creditCard          CreditCard                @relation(fields: [creditCardId], references: [id])
+  name                String?
+  competenceYear      Int
+  competenceMonth     Int
+  closingDate         DateTime
+  dueDate             DateTime
+  totalAmount         Decimal                   @default(0) @db.Decimal(12, 2)
+  status              CreditCardStatementStatus @default(OPEN)
+  notes               String?
+  generatedPurchaseId String?
+  items               CreditCardStatementItem[]
+  createdAt           DateTime                  @default(now())
+  updatedAt           DateTime                  @updatedAt
 
+  @@unique([creditCardId, competenceYear, competenceMonth])
   @@index([creditCardId])
   @@index([competenceYear, competenceMonth])
   @@index([status])
   @@index([closingDate])
   @@index([dueDate])
-  @@unique([creditCardId, competenceYear, competenceMonth])
 }
 
 model CreditCardStatementItem {
-  id                    String    @id @default(cuid())
-  statementId           String
-  statement             CreditCardStatement @relation(fields: [statementId], references: [id])
-  purchaseId            String?
-  purchase              Purchase? @relation(fields: [purchaseId], references: [id])
-  purchaseItemId        String?
-  purchaseItem          PurchaseItem? @relation(fields: [purchaseItemId], references: [id])
-  itemDate              DateTime?
-  description           String
-  supplierName          String?
-  value                 Decimal   @db.Decimal(12, 2)
-  installment           Int?
-  totalInstallments     Int?
-  categoryName          String?
-  smallExpenseTypeId     String?
-  smallExpenseType      SmallExpenseType? @relation(fields: [smallExpenseTypeId], references: [id])
-  responsibleName       String?
-  checked               Boolean   @default(false)
-  hasDivergence         Boolean   @default(false)
-  notes                 String?
-  createdAt             DateTime  @default(now())
-  updatedAt             DateTime  @updatedAt
+  id                 String              @id @default(cuid())
+  statementId        String
+  statement          CreditCardStatement @relation(fields: [statementId], references: [id])
+  purchaseId         String?
+  purchase           Purchase?           @relation(fields: [purchaseId], references: [id])
+  purchaseItemId     String?
+  purchaseItem       PurchaseItem?       @relation(fields: [purchaseItemId], references: [id])
+  itemDate           DateTime?
+  description        String
+  supplierName       String?
+  value              Decimal             @db.Decimal(12, 2)
+  installment        Int?
+  totalInstallments  Int?
+  categoryName       String?
+  smallExpenseTypeId String?
+  smallExpenseType   SmallExpenseType?   @relation(fields: [smallExpenseTypeId], references: [id])
+  responsibleName    String?
+  checked            Boolean             @default(false)
+  hasDivergence      Boolean             @default(false)
+  notes              String?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
 
   @@index([statementId])
   @@index([purchaseId])
@@ -649,19 +649,19 @@ model CreditCardStatementItem {
 }
 
 model SmallExpenseType {
-  id                     String              @id @default(cuid())
+  id                     String                    @id @default(cuid())
   name                   String
-  normalizedName         String              @unique
+  normalizedName         String                    @unique
   group                  String?
-  isActive               Boolean             @default(true)
+  isActive               Boolean                   @default(true)
   notes                  String?
   suggestedDreCategoryId String?
-  suggestedDreCategory   DRECategory?        @relation(fields: [suggestedDreCategoryId], references: [id])
+  suggestedDreCategory   DRECategory?              @relation(fields: [suggestedDreCategoryId], references: [id])
   naturezaGerencial      NaturezaGerencial?
   purchases              Purchase[]
   cardStatementItems     CreditCardStatementItem[]
-  createdAt              DateTime            @default(now())
-  updatedAt              DateTime            @updatedAt
+  createdAt              DateTime                  @default(now())
+  updatedAt              DateTime                  @updatedAt
 
   @@index([name])
   @@index([group])
@@ -718,43 +718,43 @@ model ImportConflictDecision {
 }
 
 model InventoryStock {
-  id              String    @id
-  productId       String    @unique
-  product         Product   @relation(fields: [productId], references: [id])
+  id              String       @id
+  productId       String       @unique
+  product         Product      @relation(fields: [productId], references: [id])
   unitMeasureId   String?
   unitMeasure     UnitMeasure? @relation(fields: [unitMeasureId], references: [id])
-  currentQuantity Decimal   @default(0) @db.Decimal(14, 4)
-  averageCost     Decimal   @default(0) @db.Decimal(14, 4)
-  costPerKg       Decimal?  @db.Decimal(14, 4)
-  costPerBox      Decimal?  @db.Decimal(14, 4)
-  costPerUnit     Decimal?  @db.Decimal(14, 4)
-  minQuantity     Decimal?  @db.Decimal(14, 4)
+  currentQuantity Decimal      @default(0) @db.Decimal(14, 4)
+  averageCost     Decimal      @default(0) @db.Decimal(14, 4)
+  costPerKg       Decimal?     @db.Decimal(14, 4)
+  costPerBox      Decimal?     @db.Decimal(14, 4)
+  costPerUnit     Decimal?     @db.Decimal(14, 4)
+  minQuantity     Decimal?     @db.Decimal(14, 4)
   lastMovementAt  DateTime?
-  updatedAt       DateTime  @updatedAt
+  updatedAt       DateTime     @updatedAt
 }
 
 model InventoryMovement {
-  id                   String                @id
-  productId            String
-  product              Product               @relation(fields: [productId], references: [id])
-  type                 InventoryMovementType
-  quantity             Decimal               @db.Decimal(14, 4)
-  unit                 String?
-  unitMeasureId         String?
-  unitMeasure           UnitMeasure?          @relation(fields: [unitMeasureId], references: [id])
-  unitCost             Decimal?              @db.Decimal(14, 4)
-  totalCost            Decimal?              @db.Decimal(14, 4)
-  sourcePurchaseItemId  String?
-  sourceStockCountId    String?
-  sourceRequisitionId   String?
+  id                           String                @id
+  productId                    String
+  product                      Product               @relation(fields: [productId], references: [id])
+  type                         InventoryMovementType
+  quantity                     Decimal               @db.Decimal(14, 4)
+  unit                         String?
+  unitMeasureId                String?
+  unitMeasure                  UnitMeasure?          @relation(fields: [unitMeasureId], references: [id])
+  unitCost                     Decimal?              @db.Decimal(14, 4)
+  totalCost                    Decimal?              @db.Decimal(14, 4)
+  sourcePurchaseItemId         String?
+  sourceStockCountId           String?
+  sourceRequisitionId          String?
   sourceOperationalInventoryId String?
-  responsibleUserId     String?
-  notes                 String?
-  isCancelled           Boolean               @default(false)
-  cancelledAt           DateTime?
-  cancelledByPurchaseId String?
-  restoredAt            DateTime?
-  createdAt             DateTime              @default(now())
+  responsibleUserId            String?
+  notes                        String?
+  isCancelled                  Boolean               @default(false)
+  cancelledAt                  DateTime?
+  cancelledByPurchaseId        String?
+  restoredAt                   DateTime?
+  createdAt                    DateTime              @default(now())
 
   @@index([productId])
   @@index([createdAt])
@@ -763,31 +763,31 @@ model InventoryMovement {
 }
 
 model StockCount {
-  id                   String       @id
-  productId            String
-  product              Product      @relation(fields: [productId], references: [id])
+  id                    String       @id
+  productId             String
+  product               Product      @relation(fields: [productId], references: [id])
   inventoryAgendaItemId String?
-  productCodeSnapshot  String?
-  productNameSnapshot  String?
-  sectorSnapshot       String?
-  categorySnapshot     String?
-  subcategorySnapshot  String?
-  unitSnapshot         String?
-  countedQuantity      Decimal      @db.Decimal(14, 4)
-  expectedQuantity     Decimal      @default(0) @db.Decimal(14, 4)
-  divergenceQuantity   Decimal      @default(0) @db.Decimal(14, 4)
-  unit                 String?
+  productCodeSnapshot   String?
+  productNameSnapshot   String?
+  sectorSnapshot        String?
+  categorySnapshot      String?
+  subcategorySnapshot   String?
+  unitSnapshot          String?
+  countedQuantity       Decimal      @db.Decimal(14, 4)
+  expectedQuantity      Decimal      @default(0) @db.Decimal(14, 4)
+  divergenceQuantity    Decimal      @default(0) @db.Decimal(14, 4)
+  unit                  String?
   unitMeasureId         String?
   unitMeasure           UnitMeasure? @relation(fields: [unitMeasureId], references: [id])
-  responsibleUserId    String?
-  status               String       @default("DRAFT")
-  notes                String?
-  adjustmentGenerated  Boolean      @default(false)
-  adjustmentMovementId String?
-  submittedAt          DateTime?
-  confirmedAt          DateTime?
-  confirmedByUserId    String?
-  countedAt            DateTime     @default(now())
+  responsibleUserId     String?
+  status                String       @default("DRAFT")
+  notes                 String?
+  adjustmentGenerated   Boolean      @default(false)
+  adjustmentMovementId  String?
+  submittedAt           DateTime?
+  confirmedAt           DateTime?
+  confirmedByUserId     String?
+  countedAt             DateTime     @default(now())
 
   @@index([productId])
   @@index([inventoryAgendaItemId])
@@ -825,6 +825,8 @@ model StockCountSession {
   items                 StockCountSessionItem[]
   createdAt             DateTime                @default(now())
   updatedAt             DateTime                @updatedAt
+  // linkedSnapshotId: UNIQUE PARTIAL index gerenciado pela migration SQL (WHERE IS NOT NULL)
+  // Não declarar @@index aqui para evitar que o Prisma crie um índice comum sobreposto.
 
   @@index([referenceDate])
   @@index([periodYear, periodMonth])
@@ -837,32 +839,30 @@ model StockCountSession {
   @@index([responsibleUserId])
   @@index([canceledByUserId])
   @@index([generatedInventoryId])
-  // linkedSnapshotId: UNIQUE PARTIAL index gerenciado pela migration SQL (WHERE IS NOT NULL)
-  // Não declarar @@index aqui para evitar que o Prisma crie um índice comum sobreposto.
 }
 
 model StockCountSessionItem {
-  id                    String            @id
-  stockCountSessionId   String
-  stockCountSession     StockCountSession @relation(fields: [stockCountSessionId], references: [id], onDelete: Cascade)
-  productId             String?
-  product               Product?          @relation(fields: [productId], references: [id])
-  productCodeSnapshot   String?
-  productNameSnapshot   String
-  sectorSnapshot        String?
-  categorySnapshot      String?
-  subcategorySnapshot   String?
-  locationSnapshot      String?
-  unitSnapshot          String?
-  expectedQuantity      Decimal           @default(0) @db.Decimal(14, 3)
-  countedQuantity       Decimal?          @db.Decimal(14, 3)
-  differenceQuantity    Decimal?          @db.Decimal(14, 3)
-  status                String            @default("PENDENTE")
-  notes                 String?
-  countedByUserId       String?
-  countedAt             DateTime?
-  createdAt             DateTime          @default(now())
-  updatedAt             DateTime          @updatedAt
+  id                  String            @id
+  stockCountSessionId String
+  stockCountSession   StockCountSession @relation(fields: [stockCountSessionId], references: [id], onDelete: Cascade)
+  productId           String?
+  product             Product?          @relation(fields: [productId], references: [id])
+  productCodeSnapshot String?
+  productNameSnapshot String
+  sectorSnapshot      String?
+  categorySnapshot    String?
+  subcategorySnapshot String?
+  locationSnapshot    String?
+  unitSnapshot        String?
+  expectedQuantity    Decimal           @default(0) @db.Decimal(14, 3)
+  countedQuantity     Decimal?          @db.Decimal(14, 3)
+  differenceQuantity  Decimal?          @db.Decimal(14, 3)
+  status              String            @default("PENDENTE")
+  notes               String?
+  countedByUserId     String?
+  countedAt           DateTime?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
 
   @@index([stockCountSessionId])
   @@index([productId])
@@ -926,36 +926,36 @@ model StockCountPolicy {
 }
 
 model OperationalInventory {
-  id                  String                     @id
-  code                String                     @unique
-  date                DateTime
-  effectiveCountDate  DateTime?
-  startedAt           DateTime?
-  finishedAt          DateTime?
-  name                String
-  type                String                     @default("GERAL")
-  status              String                     @default("RASCUNHO")
-  sectorId            String?
-  sectorName          String?
-  responsibleUserId   String?
-  reviewedByUserId    String?
-  approvedByUserId    String?
-  closedByUserId      String?
-  canceledByUserId    String?
-  sentToReviewAt      DateTime?
-  reviewedAt          DateTime?
-  approvedAt          DateTime?
-  closedAt            DateTime?
-  canceledAt          DateTime?
-  notes               String?
-  rejectionReason     String?
-  cancelReason        String?
-  inventorySnapshotId String?
+  id                        String                     @id
+  code                      String                     @unique
+  date                      DateTime
+  effectiveCountDate        DateTime?
+  startedAt                 DateTime?
+  finishedAt                DateTime?
+  name                      String
+  type                      String                     @default("GERAL")
+  status                    String                     @default("RASCUNHO")
+  sectorId                  String?
+  sectorName                String?
+  responsibleUserId         String?
+  reviewedByUserId          String?
+  approvedByUserId          String?
+  closedByUserId            String?
+  canceledByUserId          String?
+  sentToReviewAt            DateTime?
+  reviewedAt                DateTime?
+  approvedAt                DateTime?
+  closedAt                  DateTime?
+  canceledAt                DateTime?
+  notes                     String?
+  rejectionReason           String?
+  cancelReason              String?
+  inventorySnapshotId       String?
   sourceStockCountSessionId String?
-  stockReconciledAt   DateTime?
-  items               OperationalInventoryItem[]
-  createdAt           DateTime                   @default(now())
-  updatedAt           DateTime                   @updatedAt
+  stockReconciledAt         DateTime?
+  items                     OperationalInventoryItem[]
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
 
   @@index([date])
   @@index([effectiveCountDate])
@@ -968,38 +968,38 @@ model OperationalInventory {
 }
 
 model OperationalInventoryItem {
-  id                 String               @id
-  inventoryId        String
-  inventory          OperationalInventory @relation(fields: [inventoryId], references: [id], onDelete: Cascade)
-  productId          String?
-  product            Product?             @relation(fields: [productId], references: [id])
-  productCode        String?
-  productName        String
-  sectorName         String?
-  categoryName       String?
-  subcategoryName    String?
-  location           String?
-  unit               String?
-  expectedQuantity   Decimal              @default(0) @db.Decimal(14, 3)
-  countedQuantity    Decimal?             @db.Decimal(14, 3)
-  differenceQuantity Decimal?             @db.Decimal(14, 3)
-  status             String               @default("PENDENTE")
-  notes              String?
-  countedByUserId    String?
-  countedAt          DateTime?
+  id                     String               @id
+  inventoryId            String
+  inventory              OperationalInventory @relation(fields: [inventoryId], references: [id], onDelete: Cascade)
+  productId              String?
+  product                Product?             @relation(fields: [productId], references: [id])
+  productCode            String?
+  productName            String
+  sectorName             String?
+  categoryName           String?
+  subcategoryName        String?
+  location               String?
+  unit                   String?
+  expectedQuantity       Decimal              @default(0) @db.Decimal(14, 3)
+  countedQuantity        Decimal?             @db.Decimal(14, 3)
+  differenceQuantity     Decimal?             @db.Decimal(14, 3)
+  status                 String               @default("PENDENTE")
+  notes                  String?
+  countedByUserId        String?
+  countedAt              DateTime?
   /// Conferencia do item: motivo (CORRETO, COMPRA_NAO_LANCADA, ERRO_DE_UNIDADE, CORRIGIDO, OUTRO, RECONTAR).
-  reviewReason       String?
-  reviewNote         String?
-  reviewedAt         DateTime?
-  reviewedByUserId   String?
+  reviewReason           String?
+  reviewNote             String?
+  reviewedAt             DateTime?
+  reviewedByUserId       String?
   /// Contagem de recontagem (StockCountSession tipo RECONTAGEM) que inclui este item.
-  recountSessionId   String?
+  recountSessionId       String?
   /// Custo informado na conferencia quando o sistema nao acha nenhum (compra ou base anterior).
   manualUnitCost         Decimal?             @db.Decimal(14, 4)
   manualUnitCostByUserId String?
   manualUnitCostAt       DateTime?
-  createdAt          DateTime             @default(now())
-  updatedAt          DateTime             @updatedAt
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
 
   @@index([inventoryId])
   @@index([productId])
@@ -1044,62 +1044,62 @@ model CatalogImportChange {
 }
 
 model Purchase {
-  id               String             @id @default(cuid())
-  purchaseNumber   String?            @unique
-  purchaseOrderNumber String?
-  duplicateKey     String?
-  normalizedInvoiceNumber String?
+  id                            String                    @id @default(cuid())
+  purchaseNumber                String?                   @unique
+  purchaseOrderNumber           String?
+  duplicateKey                  String?
+  normalizedInvoiceNumber       String?
   normalizedPurchaseOrderNumber String?
-  workflowStatus   String             @default("confirmed")
-  purchaseDate     DateTime
-  receivedAt       DateTime?
-  competenceMonth  Int
-  competenceYear   Int
-  supplierId       String
-  supplier         Supplier           @relation(fields: [supplierId], references: [id])
-  companyId        String?
-  company          Company?            @relation(fields: [companyId], references: [id])
-  invoiceNumber    String?
-  noInvoiceReason  String?
-  rawSupplierCode  String?
-  paymentMethod    String?
-  paymentMethodId  String?
-  paymentMethodRef PaymentMethod?      @relation(fields: [paymentMethodId], references: [id])
-  creditCardId     String?
-  creditCard       CreditCard?         @relation(fields: [creditCardId], references: [id])
+  workflowStatus                String                    @default("confirmed")
+  purchaseDate                  DateTime
+  receivedAt                    DateTime?
+  competenceMonth               Int
+  competenceYear                Int
+  supplierId                    String
+  supplier                      Supplier                  @relation(fields: [supplierId], references: [id])
+  companyId                     String?
+  company                       Company?                  @relation(fields: [companyId], references: [id])
+  invoiceNumber                 String?
+  noInvoiceReason               String?
+  rawSupplierCode               String?
+  paymentMethod                 String?
+  paymentMethodId               String?
+  paymentMethodRef              PaymentMethod?            @relation(fields: [paymentMethodId], references: [id])
+  creditCardId                  String?
+  creditCard                    CreditCard?               @relation(fields: [creditCardId], references: [id])
   // Quem pagou do proprio bolso (fornecedor da categoria Funcionario). O fornecedor
   // da compra continua sendo a loja; a divida com a pessoa vai para o reembolso.
-  reimbursementPayeeId String?
-  reimbursementPayee   Supplier?                @relation("PurchaseReimbursementPayee", fields: [reimbursementPayeeId], references: [id])
-  reimbursementItem    ReimbursementReportItem?
-  paymentRegime    PaymentRegime      @default(ACCRUAL)
-  expenseType      ExpenseType         @default(OTHER)
-  expenseTypeId    String?
-  expenseTypeRef   ExpenseTypeMaster?  @relation(fields: [expenseTypeId], references: [id])
-  smallExpenseTypeId String?
-  smallExpenseType   SmallExpenseType? @relation(fields: [smallExpenseTypeId], references: [id])
-  isSmallExpense   Boolean            @default(false)
-  smallExpenseResponsibleName String?
-  smallExpenseAuthorizedBy String?
-  smallExpenseMoneyOrigin String?
-  smallExpenseNotes String?
-  totalAmount      Decimal            @db.Decimal(12, 2)
-  sourceFile       String?
-  importBatchId    String?
-  importBatch      ImportBatch?        @relation(fields: [importBatchId], references: [id])
-  status           String              @default("ACTIVE")
-  cancelledAt      DateTime?
-  cancellationReason String?
-  cancelledByUserId String?
-  restoredAt       DateTime?
-  restoredByUserId String?
-  rawRow           Json?
-  items            PurchaseItem[]
-  cardStatementItems CreditCardStatementItem[]
-  installments     PaymentInstallment[]
-  billingCycleItem SupplierBillingCycleItem?
-  createdAt        DateTime           @default(now())
-  updatedAt        DateTime           @updatedAt
+  reimbursementPayeeId          String?
+  reimbursementPayee            Supplier?                 @relation("PurchaseReimbursementPayee", fields: [reimbursementPayeeId], references: [id])
+  reimbursementItem             ReimbursementReportItem?
+  paymentRegime                 PaymentRegime             @default(ACCRUAL)
+  expenseType                   ExpenseType               @default(OTHER)
+  expenseTypeId                 String?
+  expenseTypeRef                ExpenseTypeMaster?        @relation(fields: [expenseTypeId], references: [id])
+  smallExpenseTypeId            String?
+  smallExpenseType              SmallExpenseType?         @relation(fields: [smallExpenseTypeId], references: [id])
+  isSmallExpense                Boolean                   @default(false)
+  smallExpenseResponsibleName   String?
+  smallExpenseAuthorizedBy      String?
+  smallExpenseMoneyOrigin       String?
+  smallExpenseNotes             String?
+  totalAmount                   Decimal                   @db.Decimal(12, 2)
+  sourceFile                    String?
+  importBatchId                 String?
+  importBatch                   ImportBatch?              @relation(fields: [importBatchId], references: [id])
+  status                        String                    @default("ACTIVE")
+  cancelledAt                   DateTime?
+  cancellationReason            String?
+  cancelledByUserId             String?
+  restoredAt                    DateTime?
+  restoredByUserId              String?
+  rawRow                        Json?
+  items                         PurchaseItem[]
+  cardStatementItems            CreditCardStatementItem[]
+  installments                  PaymentInstallment[]
+  billingCycleItem              SupplierBillingCycleItem?
+  createdAt                     DateTime                  @default(now())
+  updatedAt                     DateTime                  @updatedAt
 
   @@index([purchaseDate])
   @@index([purchaseNumber])
@@ -1126,31 +1126,31 @@ model Purchase {
 }
 
 model PurchaseItem {
-  id             String   @id @default(cuid())
-  purchaseId     String
-  purchase       Purchase @relation(fields: [purchaseId], references: [id])
-  productId      String
-  product        Product  @relation(fields: [productId], references: [id])
-  rawProductCode String?
-  rawProductName String
-  unit           String?
-  unitMeasureId  String?
-  unitMeasure    UnitMeasure? @relation(fields: [unitMeasureId], references: [id])
-  quantity       Decimal  @db.Decimal(12, 3)
-  unitPrice      Decimal  @db.Decimal(12, 4)
-  totalPrice     Decimal  @db.Decimal(12, 2)
-  convertedUnit  String?
-  convertedQuantity Decimal? @db.Decimal(12, 3)
-  convertedUnitPrice Decimal? @db.Decimal(12, 4)
-  conversionFactorUsed Decimal? @db.Decimal(12, 6)
-  conversionMissing Boolean @default(false)
+  id                        String                    @id @default(cuid())
+  purchaseId                String
+  purchase                  Purchase                  @relation(fields: [purchaseId], references: [id])
+  productId                 String
+  product                   Product                   @relation(fields: [productId], references: [id])
+  rawProductCode            String?
+  rawProductName            String
+  unit                      String?
+  unitMeasureId             String?
+  unitMeasure               UnitMeasure?              @relation(fields: [unitMeasureId], references: [id])
+  quantity                  Decimal                   @db.Decimal(12, 3)
+  unitPrice                 Decimal                   @db.Decimal(12, 4)
+  totalPrice                Decimal                   @db.Decimal(12, 2)
+  convertedUnit             String?
+  convertedQuantity         Decimal?                  @db.Decimal(12, 3)
+  convertedUnitPrice        Decimal?                  @db.Decimal(12, 4)
+  conversionFactorUsed      Decimal?                  @db.Decimal(12, 6)
+  conversionMissing         Boolean                   @default(false)
   /// Linha conferida na revisao de embalagens (avulso confirmado ou embalagem aplicada).
   packagingReviewedAt       DateTime?
   packagingReviewedByUserId String?
-  rawCategory    String?
-  rawSubcategory String?
-  cardStatementItems CreditCardStatementItem[]
-  createdAt      DateTime @default(now())
+  rawCategory               String?
+  rawSubcategory            String?
+  cardStatementItems        CreditCardStatementItem[]
+  createdAt                 DateTime                  @default(now())
 
   @@index([purchaseId])
   @@index([productId])
@@ -1161,42 +1161,42 @@ model PurchaseItem {
 }
 
 model PaymentInstallment {
-  id          String    @id @default(cuid())
-  purchaseId  String
-  purchase    Purchase  @relation(fields: [purchaseId], references: [id])
-  dueDate     DateTime?
-  paidDate    DateTime?
-  paidAmount  Decimal?  @db.Decimal(12, 2)
-  amount      Decimal?  @db.Decimal(12, 2)
-  installment Int?
-  paymentMethodId String?
-  paymentMethod   PaymentMethod? @relation("InstallmentPaymentMethod", fields: [paymentMethodId], references: [id])
-  paymentMethodName String?
-  paidPaymentMethodId String?
-  paidPaymentMethod   PaymentMethod? @relation("InstallmentPaidPaymentMethod", fields: [paidPaymentMethodId], references: [id])
+  id                    String              @id @default(cuid())
+  purchaseId            String
+  purchase              Purchase            @relation(fields: [purchaseId], references: [id])
+  dueDate               DateTime?
+  paidDate              DateTime?
+  paidAmount            Decimal?            @db.Decimal(12, 2)
+  amount                Decimal?            @db.Decimal(12, 2)
+  installment           Int?
+  paymentMethodId       String?
+  paymentMethod         PaymentMethod?      @relation("InstallmentPaymentMethod", fields: [paymentMethodId], references: [id])
+  paymentMethodName     String?
+  paidPaymentMethodId   String?
+  paidPaymentMethod     PaymentMethod?      @relation("InstallmentPaidPaymentMethod", fields: [paidPaymentMethodId], references: [id])
   paidPaymentMethodName String?
-  paymentNotes String?
-  paidByUserId String?
-  discountAmount Decimal? @db.Decimal(12, 2)
-  surchargeAmount Decimal? @db.Decimal(12, 2)
-  differenceReason String?
-  reversedAt DateTime?
-  reversedByUserId String?
-  cashFlowCategory String?
-  dreCategory String?
-  projectionCategory String?
-  cmvCategory String?
-  budgetCategory String?
-  bankAccount String?
+  paymentNotes          String?
+  paidByUserId          String?
+  discountAmount        Decimal?            @db.Decimal(12, 2)
+  surchargeAmount       Decimal?            @db.Decimal(12, 2)
+  differenceReason      String?
+  reversedAt            DateTime?
+  reversedByUserId      String?
+  cashFlowCategory      String?
+  dreCategory           String?
+  projectionCategory    String?
+  cmvCategory           String?
+  budgetCategory        String?
+  bankAccount           String?
   payingCompanyId       String?
   payingCompany         Company?            @relation("PayingCompany", fields: [payingCompanyId], references: [id])
   companyBankAccountId  String?
   companyBankAccount    CompanyBankAccount? @relation("PaymentBankAccount", fields: [companyBankAccountId], references: [id])
-  reconciliationStatus String?
-  status      String    @default("OPEN")
-  sourceType  String    @default("DIRECT")
-  rawValue    String?
-  createdAt   DateTime  @default(now())
+  reconciliationStatus  String?
+  status                String              @default("OPEN")
+  sourceType            String              @default("DIRECT")
+  rawValue              String?
+  createdAt             DateTime            @default(now())
 
   @@index([dueDate])
   @@index([sourceType])
@@ -1210,12 +1210,12 @@ model PaymentInstallment {
 }
 
 model PurchaseOrder {
-  id                   String   @id @default(cuid())
-  code                 String   @unique
+  id                   String              @id @default(cuid())
+  code                 String              @unique
   supplierId           String
   supplierNameSnapshot String
-  status               String   @default("RASCUNHO")
-  source               String   @default("MANUAL")
+  status               String              @default("RASCUNHO")
+  source               String              @default("MANUAL")
   createdByUserId      String?
   reviewedByUserId     String?
   approvedByUserId     String?
@@ -1227,8 +1227,8 @@ model PurchaseOrder {
   sentAt               DateTime?
   receivedAt           DateTime?
   canceledAt           DateTime?
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
   items                PurchaseOrderItem[]
 
   @@index([supplierId])
@@ -1239,57 +1239,57 @@ model PurchaseOrder {
 }
 
 model PurchaseOrderItem {
-  id                     String   @id @default(cuid())
+  id                     String        @id @default(cuid())
   purchaseOrderId        String
   purchaseOrder          PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
   productId              String
   productCodeSnapshot    String?
   productNameSnapshot    String
   unitSnapshot           String?
-  suggestedQuantity      Decimal? @db.Decimal(14, 3)
-  requestedQuantity      Decimal  @db.Decimal(14, 3)
-  approvedQuantity       Decimal? @db.Decimal(14, 3)
-  receivedQuantity       Decimal? @db.Decimal(14, 3)
-  lastCountedQuantity    Decimal? @db.Decimal(14, 3)
-  estoqueMinimoSnapshot  Decimal? @db.Decimal(14, 3)
-  estoqueIdealSnapshot   Decimal? @db.Decimal(14, 3)
+  suggestedQuantity      Decimal?      @db.Decimal(14, 3)
+  requestedQuantity      Decimal       @db.Decimal(14, 3)
+  approvedQuantity       Decimal?      @db.Decimal(14, 3)
+  receivedQuantity       Decimal?      @db.Decimal(14, 3)
+  lastCountedQuantity    Decimal?      @db.Decimal(14, 3)
+  estoqueMinimoSnapshot  Decimal?      @db.Decimal(14, 3)
+  estoqueIdealSnapshot   Decimal?      @db.Decimal(14, 3)
   alertSnapshot          String?
   suggestionTypeSnapshot String?
-  unitPriceEstimated     Decimal? @db.Decimal(14, 4)
-  totalEstimated         Decimal? @db.Decimal(14, 2)
+  unitPriceEstimated     Decimal?      @db.Decimal(14, 4)
+  totalEstimated         Decimal?      @db.Decimal(14, 2)
   notes                  String?
-  createdAt              DateTime @default(now())
-  updatedAt              DateTime @updatedAt
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
 
   @@index([purchaseOrderId])
   @@index([productId])
 }
 
 model InventorySnapshot {
-  id                 String                  @id
-  competenceYear     Int
-  competenceMonth    Int
-  type               InventorySnapshotType
-  countDate          DateTime
-  status             String                  @default("ACTIVE")
-  totalItems         Int                     @default(0)
-  totalValue         Decimal                 @default(0) @db.Decimal(14, 2)
-  importFileId       String?
-  originalFileName   String?
-  source             String                  @default("SISTEMA")
-  createdByUserId    String?
+  id                   String                  @id
+  competenceYear       Int
+  competenceMonth      Int
+  type                 InventorySnapshotType
+  countDate            DateTime
+  status               String                  @default("ACTIVE")
+  totalItems           Int                     @default(0)
+  totalValue           Decimal                 @default(0) @db.Decimal(14, 2)
+  importFileId         String?
+  originalFileName     String?
+  source               String                  @default("SISTEMA")
+  createdByUserId      String?
   linkedFromSnapshotId String?
-  isAutoLinkedInitial Boolean                 @default(false)
-  unlockReason       String?
-  unlockedAt         DateTime?
-  unlockedByUserId   String?
-  cancelledAt        DateTime?
-  cancelledByUserId  String?
-  cancellationReason String?
-  notes              String?
-  items              InventorySnapshotItem[]
-  createdAt          DateTime                @default(now())
-  updatedAt          DateTime                @updatedAt
+  isAutoLinkedInitial  Boolean                 @default(false)
+  unlockReason         String?
+  unlockedAt           DateTime?
+  unlockedByUserId     String?
+  cancelledAt          DateTime?
+  cancelledByUserId    String?
+  cancellationReason   String?
+  notes                String?
+  items                InventorySnapshotItem[]
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
 
   @@index([competenceYear, competenceMonth])
   @@index([type])
@@ -1323,61 +1323,61 @@ model InventorySnapshotItem {
 }
 
 model RevenueEntry {
-  id                 String   @id
+  id                 String              @id
   date               DateTime
   competenceYear     Int
   competenceMonth    Int
   channel            String
   sourcePlatform     String?
   description        String?
-  grossAmount        Decimal  @default(0) @db.Decimal(14, 2)
-  discounts          Decimal  @default(0) @db.Decimal(14, 2)
-  platformFees       Decimal  @default(0) @db.Decimal(14, 2)
-  netAmount          Decimal  @default(0) @db.Decimal(14, 2)
-  serviceAmount      Decimal  @default(0) @db.Decimal(14, 2)
-  tickets            Int      @default(0)
-  ticketAverage      Decimal? @db.Decimal(14, 4)
+  grossAmount        Decimal             @default(0) @db.Decimal(14, 2)
+  discounts          Decimal             @default(0) @db.Decimal(14, 2)
+  platformFees       Decimal             @default(0) @db.Decimal(14, 2)
+  netAmount          Decimal             @default(0) @db.Decimal(14, 2)
+  serviceAmount      Decimal             @default(0) @db.Decimal(14, 2)
+  tickets            Int                 @default(0)
+  ticketAverage      Decimal?            @db.Decimal(14, 4)
   peopleServed       Int?
-  salesFirstShift    Decimal  @default(0) @db.Decimal(14, 2)
-  ticketsFirstShift  Int      @default(0)
+  salesFirstShift    Decimal             @default(0) @db.Decimal(14, 2)
+  ticketsFirstShift  Int                 @default(0)
   peopleFirstShift   Int?
-  salesSecondShift   Decimal  @default(0) @db.Decimal(14, 2)
-  ticketsSecondShift Int      @default(0)
+  salesSecondShift   Decimal             @default(0) @db.Decimal(14, 2)
+  ticketsSecondShift Int                 @default(0)
   peopleSecondShift  Int?
-  repiqueAmount      Decimal  @default(0) @db.Decimal(14, 2)
-  salesTables        Decimal  @default(0) @db.Decimal(14, 2)
-  ticketsTables      Int      @default(0)
-  accumulatedAmount  Decimal? @db.Decimal(14, 2)
+  repiqueAmount      Decimal             @default(0) @db.Decimal(14, 2)
+  salesTables        Decimal             @default(0) @db.Decimal(14, 2)
+  ticketsTables      Int                 @default(0)
+  accumulatedAmount  Decimal?            @db.Decimal(14, 2)
   weekdayName        String?
   paymentMethod      String?
-  cashAmount         Decimal  @default(0) @db.Decimal(14, 2)
-  pixAmount          Decimal  @default(0) @db.Decimal(14, 2)
-  debitAmount        Decimal  @default(0) @db.Decimal(14, 2)
-  creditAmount       Decimal  @default(0) @db.Decimal(14, 2)
-  voucherAmount      Decimal  @default(0) @db.Decimal(14, 2)
-  shift1Cash         Decimal  @default(0) @db.Decimal(14, 2)
-  shift1Pix          Decimal  @default(0) @db.Decimal(14, 2)
-  shift1Card         Decimal  @default(0) @db.Decimal(14, 2)
-  shift1Ticket       Decimal  @default(0) @db.Decimal(14, 2)
-  shift1Service      Decimal  @default(0) @db.Decimal(14, 2)
-  shift1Tcs          Decimal  @default(0) @db.Decimal(14, 2)
-  shift2Cash         Decimal  @default(0) @db.Decimal(14, 2)
-  shift2Pix          Decimal  @default(0) @db.Decimal(14, 2)
-  shift2Card         Decimal  @default(0) @db.Decimal(14, 2)
-  shift2Ticket       Decimal  @default(0) @db.Decimal(14, 2)
-  shift2Service      Decimal  @default(0) @db.Decimal(14, 2)
-  shift2Tcs          Decimal  @default(0) @db.Decimal(14, 2)
-  tcsAmount          Decimal  @default(0) @db.Decimal(14, 2)
+  cashAmount         Decimal             @default(0) @db.Decimal(14, 2)
+  pixAmount          Decimal             @default(0) @db.Decimal(14, 2)
+  debitAmount        Decimal             @default(0) @db.Decimal(14, 2)
+  creditAmount       Decimal             @default(0) @db.Decimal(14, 2)
+  voucherAmount      Decimal             @default(0) @db.Decimal(14, 2)
+  shift1Cash         Decimal             @default(0) @db.Decimal(14, 2)
+  shift1Pix          Decimal             @default(0) @db.Decimal(14, 2)
+  shift1Card         Decimal             @default(0) @db.Decimal(14, 2)
+  shift1Ticket       Decimal             @default(0) @db.Decimal(14, 2)
+  shift1Service      Decimal             @default(0) @db.Decimal(14, 2)
+  shift1Tcs          Decimal             @default(0) @db.Decimal(14, 2)
+  shift2Cash         Decimal             @default(0) @db.Decimal(14, 2)
+  shift2Pix          Decimal             @default(0) @db.Decimal(14, 2)
+  shift2Card         Decimal             @default(0) @db.Decimal(14, 2)
+  shift2Ticket       Decimal             @default(0) @db.Decimal(14, 2)
+  shift2Service      Decimal             @default(0) @db.Decimal(14, 2)
+  shift2Tcs          Decimal             @default(0) @db.Decimal(14, 2)
+  tcsAmount          Decimal             @default(0) @db.Decimal(14, 2)
   notes              String?
-  status             String   @default("ACTIVE")
+  status             String              @default("ACTIVE")
   cancelledAt        DateTime?
   cancelledByUserId  String?
   cancellationReason String?
   createdByUserId    String?
   importBatchId      String?
   revenueImportBatch RevenueImportBatch? @relation(fields: [importBatchId], references: [id])
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
 
   @@index([competenceYear, competenceMonth])
   @@index([channel])
@@ -1387,8 +1387,8 @@ model RevenueEntry {
 }
 
 model RevenueImportBatch {
-  id               String               @id @default(cuid())
-  importFileId     String               @unique
+  id               String                @id @default(cuid())
+  importFileId     String                @unique
   originalFileName String?
   sheetName        String?
   competenceYear   Int
@@ -1396,12 +1396,12 @@ model RevenueImportBatch {
   defaultChannel   String
   notes            String?
   totalRows        Int
-  importedRows     Int                  @default(0)
-  ignoredRows      Int                  @default(0)
-  overwrittenRows  Int                  @default(0)
+  importedRows     Int                   @default(0)
+  ignoredRows      Int                   @default(0)
+  overwrittenRows  Int                   @default(0)
   revenueEntries   RevenueEntry[]
   changes          RevenueImportChange[]
-  createdAt        DateTime             @default(now())
+  createdAt        DateTime              @default(now())
 
   @@index([competenceYear, competenceMonth])
   @@index([createdAt])
@@ -1511,25 +1511,25 @@ model AgileSale {
 // Ultimo sinal de vida do agente que roda na maquina do PDV (uma linha por maquina).
 // Hora de recebimento e SEMPRE a do servidor: o relogio da PDV pode estar errado.
 model AgileAgentHeartbeat {
-  id                  String    @id @default(cuid())
-  sourcePlatform      String    @default("AGILE_PDV")
-  agenteHost          String
-  agenteVersion       String?
-  ultimoStatus        String
-  ultimaMensagem      String?
-  ultimoHeartbeatEm   DateTime
+  id                 String    @id @default(cuid())
+  sourcePlatform     String    @default("AGILE_PDV")
+  agenteHost         String
+  agenteVersion      String?
+  ultimoStatus       String
+  ultimaMensagem     String?
+  ultimoHeartbeatEm  DateTime
   // So avanca com status "ok". ultimoOkOcorridoEm e o relogio do AGENTE, guardado
   // apenas para descartar heartbeat atrasado/reordenado sem recuar ultimoOkEm.
-  ultimoOkEm          DateTime?
-  ultimoOkOcorridoEm  DateTime?
-  ultimoOkBatchId     String?
-  ultimoOkPeriodoFim  String?
+  ultimoOkEm         DateTime?
+  ultimoOkOcorridoEm DateTime?
+  ultimoOkBatchId    String?
+  ultimoOkPeriodoFim String?
   // Reservados para notificacao ativa (ainda NAO implementada): nivel em que o
   // alerta estava na ultima notificacao enviada e quando foi enviada.
-  alertaNivel         String?
-  alertaNotificadoEm  DateTime?
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  alertaNivel        String?
+  alertaNotificadoEm DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   @@unique([sourcePlatform, agenteHost])
 }
@@ -1561,17 +1561,17 @@ model MonthlyCmv {
   // proporcional aos dias corridos que o ciclo passou dentro do mes.
   // attributionBreakdown = Array<{cmvPeriodId, code, daysInMonth, totalDays, cycleCmv, contribution}>
   // justifications = Array<{blockKey, reason, justifiedByUserId, justifiedAt}>
-  cmvAttributedValue    Decimal?           @db.Decimal(14, 2)
-  attributionBreakdown  Json?
-  justifications        Json?
+  cmvAttributedValue   Decimal? @db.Decimal(14, 2)
+  attributionBreakdown Json?
+  justifications       Json?
 
   @@unique([competenceYear, competenceMonth])
   @@index([status])
 }
 
 model CmvPeriod {
-  id                       String           @id
-  code                     String?          @unique
+  id                       String          @id
+  code                     String?         @unique
   name                     String
   dataInicial              DateTime
   dataFinal                DateTime
@@ -1581,22 +1581,22 @@ model CmvPeriod {
   // No hard FK constraint (same pattern as StockCountSession.linkedSnapshotId).
   estoqueInicialSessionId  String?
   estoqueFinalSessionId    String?
-  comprasTotal             Decimal          @default(0) @db.Decimal(14, 2)
-  faturamentoTotal         Decimal          @default(0) @db.Decimal(14, 2)
-  estoqueInicialTotal      Decimal          @default(0) @db.Decimal(14, 2)
-  estoqueFinalTotal        Decimal          @default(0) @db.Decimal(14, 2)
-  cmvReal                  Decimal          @default(0) @db.Decimal(14, 2)
-  cmvPercentual            Decimal?         @db.Decimal(10, 4)
-  margemBruta              Decimal?         @db.Decimal(14, 2)
-  status                   CmvPeriodStatus  @default(OPEN)
+  comprasTotal             Decimal         @default(0) @db.Decimal(14, 2)
+  faturamentoTotal         Decimal         @default(0) @db.Decimal(14, 2)
+  estoqueInicialTotal      Decimal         @default(0) @db.Decimal(14, 2)
+  estoqueFinalTotal        Decimal         @default(0) @db.Decimal(14, 2)
+  cmvReal                  Decimal         @default(0) @db.Decimal(14, 2)
+  cmvPercentual            Decimal?        @db.Decimal(10, 4)
+  margemBruta              Decimal?        @db.Decimal(14, 2)
+  status                   CmvPeriodStatus @default(OPEN)
   fechadoPor               String?
   fechadoEm                DateTime?
   reabertoPor              String?
   reabertoEm               DateTime?
   motivoReabertura         String?
   observacoes              String?
-  createdAt                DateTime         @default(now())
-  updatedAt                DateTime         @updatedAt
+  createdAt                DateTime        @default(now())
+  updatedAt                DateTime        @updatedAt
 
   @@index([dataInicial, dataFinal])
   @@index([code])
@@ -1608,24 +1608,24 @@ model CmvPeriod {
 }
 
 model InventoryRequisition {
-  id                  String   @id
-  clientRequestId     String?  @unique
-  code                String   @unique
-  date                DateTime
-  shift               String
-  reason              String
-  reasonNotes         String?
-  sectorId            String?
-  sectorName          String?
-  requestedByUserId   String
-  status              String   @default("CONFIRMED")
-  notes               String?
-  cancelReason        String?
-  cancelledAt         DateTime?
-  cancelledByUserId   String?
-  items               InventoryRequisitionItem[]
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id                String                     @id
+  clientRequestId   String?                    @unique
+  code              String                     @unique
+  date              DateTime
+  shift             String
+  reason            String
+  reasonNotes       String?
+  sectorId          String?
+  sectorName        String?
+  requestedByUserId String
+  status            String                     @default("CONFIRMED")
+  notes             String?
+  cancelReason      String?
+  cancelledAt       DateTime?
+  cancelledByUserId String?
+  items             InventoryRequisitionItem[]
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
 
   @@index([date])
   @@index([sectorId])
@@ -1634,40 +1634,42 @@ model InventoryRequisition {
 }
 
 model InventoryRequisitionItem {
-  id            String   @id
+  id            String               @id
   requisitionId String
   requisition   InventoryRequisition @relation(fields: [requisitionId], references: [id])
   productId     String?
   productName   String
   productCode   String?
   unit          String?
-  quantity      Decimal  @db.Decimal(14, 4)
+  quantity      Decimal              @db.Decimal(14, 4)
   movementId    String?
-  stockBefore   Decimal? @db.Decimal(14, 4)
-  stockAfter    Decimal? @db.Decimal(14, 4)
-  createdAt     DateTime @default(now())
+  stockBefore   Decimal?             @db.Decimal(14, 4)
+  stockAfter    Decimal?             @db.Decimal(14, 4)
+  createdAt     DateTime             @default(now())
 
   @@index([requisitionId])
   @@index([productId])
 }
 
 model DishCategory {
-  id        String         @id @default(cuid())
+  id         String         @id @default(cuid())
   // O nome so e unico dentro do mesmo pai e do mesmo cardapio ("Sobremesas" pode existir no salao e no
   // delivery): o indice unico vive na migration, porque usa COALESCE e o Prisma nao o expressa.
-  name      String
-  sortOrder Int            @default(0)
-  isActive  Boolean        @default(true)
-  notes     String?
+  name       String
+  sortOrder  Int            @default(0)
+  isActive   Boolean        @default(true)
+  notes      String?
   // Subcategoria: aponta para a categoria de cima. So dois niveis (categoria > subcategoria), validado na rota.
-  parentId  String?
-  parent    DishCategory?  @relation("DishCategoryTree", fields: [parentId], references: [id])
-  children  DishCategory[] @relation("DishCategoryTree")
+  parentId   String?
+  parent     DishCategory?  @relation("DishCategoryTree", fields: [parentId], references: [id])
+  children   DishCategory[] @relation("DishCategoryTree")
   // CARDAPIO (salao) ou DELIVERY. A subcategoria herda o cardapio do pai.
-  menu      String         @default("CARDAPIO")
-  dishes    Dish[]
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
+  menu       String         @default("CARDAPIO")
+  dishes     Dish[]         @relation("DishCategoria")
+  // Pratos que estao nesta categoria por serem vendidos tambem neste cardapio.
+  alsoDishes Dish[]         @relation("DishCategoriaNoOutroCardapio")
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
 
   @@index([sortOrder])
   @@index([isActive])
@@ -1675,26 +1677,32 @@ model DishCategory {
 }
 
 model Dish {
-  id               String        @id @default(cuid())
-  code             String?       @unique
+  id               String         @id @default(cuid())
+  code             String?        @unique
   name             String
   categoryId       String?
-  category         DishCategory? @relation(fields: [categoryId], references: [id])
-  salePriceDefault Decimal?      @db.Decimal(10, 2)
-  yieldQty         Decimal       @default(1) @db.Decimal(8, 3)
-  yieldUnit        String        @default("UN")
+  category         DishCategory?  @relation("DishCategoria", fields: [categoryId], references: [id])
+  salePriceDefault Decimal?       @db.Decimal(10, 2)
+  yieldQty         Decimal        @default(1) @db.Decimal(8, 3)
+  yieldUnit        String         @default("UN")
   notes            String?
-  isActive         Boolean       @default(true)
+  isActive         Boolean        @default(true)
   // Em que cardapio o prato vive: CARDAPIO (salao) ou DELIVERY. Salao e delivery sao cardapios
   // separados (regra do Eli); o mesmo nome em cada um e uma ficha propria.
-  menu             String        @default("CARDAPIO")
+  menu             String         @default("CARDAPIO")
+  // O mesmo prato vendido nos dois cardapios (ex.: um filé que sai no a la carte e no delivery): a ficha e uma
+  // so, e aqui fica o OUTRO cardapio e a categoria dele. Nulo = vendido so em "menu".
+  alsoMenu         String?
+  alsoCategoryId   String?
+  alsoCategory     DishCategory?  @relation("DishCategoriaNoOutroCardapio", fields: [alsoCategoryId], references: [id])
   items            DishItem[]
   listings         DishListing[]
   revisions        DishRevision[]
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
 
   @@index([categoryId])
+  @@index([alsoCategoryId])
   @@index([isActive])
   @@index([menu, isActive])
 }
@@ -1763,18 +1771,18 @@ model DishListing {
 }
 
 model DishItem {
-  id            String      @id @default(cuid())
-  dishId        String
-  dish          Dish        @relation(fields: [dishId], references: [id], onDelete: Cascade)
-  productId     String
-  product       Product     @relation(fields: [productId], references: [id])
-  quantity      Decimal     @db.Decimal(10, 4)
-  unit          String
-  wasteFactor   Decimal     @default(0) @db.Decimal(5, 4)
-  notes         String?
-  sortOrder     Int         @default(0)
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
+  id          String   @id @default(cuid())
+  dishId      String
+  dish        Dish     @relation(fields: [dishId], references: [id], onDelete: Cascade)
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id])
+  quantity    Decimal  @db.Decimal(10, 4)
+  unit        String
+  wasteFactor Decimal  @default(0) @db.Decimal(5, 4)
+  notes       String?
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@index([dishId])
   @@index([productId])
@@ -1953,32 +1961,32 @@ model ReimbursementReportItem {
 }
 
 model TaxPayment {
-  id              String              @id @default(cuid())
-  companyId       String?
-  company         Company?            @relation(fields: [companyId], references: [id])
-  cnpj            String?
-  legalName       String?
-  tradeName       String?
-  documentType    String
-  description     String?
-  competenceDate  DateTime?
-  dueDate         DateTime
-  amount          Decimal             @db.Decimal(12, 2)
-  paymentDate     DateTime?
-  paidAmount      Decimal?            @db.Decimal(12, 2)
-  status          TaxPaymentStatus    @default(PENDING)
-  comments        String?
-  source          TaxPaymentSource    @default(MANUAL)
-  importBatchId   String?
-  dreCategoryId   String?
-  dreCategory     DRECategory?        @relation(fields: [dreCategoryId], references: [id])
-  createdById     String
-  updatedById     String?
-  deletedAt       DateTime?
-  deletedById     String?
-  attachments     TaxPaymentAttachment[]
-  createdAt       DateTime            @default(now())
-  updatedAt       DateTime            @updatedAt
+  id             String                 @id @default(cuid())
+  companyId      String?
+  company        Company?               @relation(fields: [companyId], references: [id])
+  cnpj           String?
+  legalName      String?
+  tradeName      String?
+  documentType   String
+  description    String?
+  competenceDate DateTime?
+  dueDate        DateTime
+  amount         Decimal                @db.Decimal(12, 2)
+  paymentDate    DateTime?
+  paidAmount     Decimal?               @db.Decimal(12, 2)
+  status         TaxPaymentStatus       @default(PENDING)
+  comments       String?
+  source         TaxPaymentSource       @default(MANUAL)
+  importBatchId  String?
+  dreCategoryId  String?
+  dreCategory    DRECategory?           @relation(fields: [dreCategoryId], references: [id])
+  createdById    String
+  updatedById    String?
+  deletedAt      DateTime?
+  deletedById    String?
+  attachments    TaxPaymentAttachment[]
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
 
   @@index([dueDate])
   @@index([competenceDate])
@@ -2029,31 +2037,31 @@ enum DeliveryPlatform {
 }
 
 model DeliveryStore {
-  id         String           @id @default(cuid())
-  platform   DeliveryPlatform
-  externalId String
+  id           String           @id @default(cuid())
+  platform     DeliveryPlatform
+  externalId   String
   // shopIdRemote é o ID que a plataforma (99/Keeta) atribui à loja no
   // sistema deles depois do bind. iFood: reutiliza externalId (merchantId).
   // 99: externalId = app_shop_id (nosso), shopIdRemote = shop_id (deles),
   // recebido no callback de autorização/pedido. Bigint como string pra
   // não perder precisão em JSON.
   shopIdRemote String?
-  nickname   String
-  active     Boolean          @default(true)
+  nickname     String
+  active       Boolean          @default(true)
   // Loja iFood aponta pra uma Company do ERP — usada pra rotear
   // faturamento (RevenueEntry), despesas (Purchase) e recebíveis
   // (Receivable) pro CNPJ correto no DRE. Opcional só pra permitir
   // cadastro incremental; sync que exige companyId só roda quando setado.
-  companyId  String?
-  company    Company?         @relation(fields: [companyId], references: [id])
-  createdAt  DateTime         @default(now())
-  updatedAt  DateTime         @updatedAt
+  companyId    String?
+  company      Company?         @relation(fields: [companyId], references: [id])
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
 
-  ifoodSales             IfoodSale[]
-  ifoodSettlements       IfoodSettlement[]
-  ifoodFees              IfoodFee[]
-  ifoodSyncLogs          IfoodSyncLog[]
-  ifoodMonthlyExpenses   IfoodMonthlyExpense[]
+  ifoodSales           IfoodSale[]
+  ifoodSettlements     IfoodSettlement[]
+  ifoodFees            IfoodFee[]
+  ifoodSyncLogs        IfoodSyncLog[]
+  ifoodMonthlyExpenses IfoodMonthlyExpense[]
 
   noventaNoveSales           NoventaNoveSale[]
   noventaNoveSettlements     NoventaNoveSettlement[]
@@ -2117,7 +2125,7 @@ model IfoodSettlement {
   rawPayload      Json?
   createdAt       DateTime      @default(now())
 
-  receivable      Receivable?
+  receivable Receivable?
 
   @@unique([deliveryStoreId, externalId])
   @@index([deliveryStoreId, periodStart])
@@ -2173,35 +2181,35 @@ enum IfoodMonthlyExpenseStatus {
 }
 
 model IfoodMonthlyExpense {
-  id                 String                    @id @default(cuid())
-  deliveryStoreId    String
-  deliveryStore      DeliveryStore             @relation(fields: [deliveryStoreId], references: [id], onDelete: Cascade)
-  companyId          String?
-  company            Company?                  @relation(fields: [companyId], references: [id])
-  competenceYear     Int
-  competenceMonth    Int
-  dueDate            DateTime
+  id              String        @id @default(cuid())
+  deliveryStoreId String
+  deliveryStore   DeliveryStore @relation(fields: [deliveryStoreId], references: [id], onDelete: Cascade)
+  companyId       String?
+  company         Company?      @relation(fields: [companyId], references: [id])
+  competenceYear  Int
+  competenceMonth Int
+  dueDate         DateTime
 
   // Breakdown por tipo — soma bate com totalAmount.
-  commissionAmount   Decimal                   @default(0) @db.Decimal(14, 2)
-  deliveryFeeAmount  Decimal                   @default(0) @db.Decimal(14, 2)
-  marketingAmount    Decimal                   @default(0) @db.Decimal(14, 2)
-  maintenanceAmount  Decimal                   @default(0) @db.Decimal(14, 2)
-  anticipationAmount Decimal                   @default(0) @db.Decimal(14, 2)
-  otherAmount        Decimal                   @default(0) @db.Decimal(14, 2)
-  totalAmount        Decimal                   @db.Decimal(14, 2)
-  paidAmount         Decimal?                  @db.Decimal(14, 2)
+  commissionAmount   Decimal  @default(0) @db.Decimal(14, 2)
+  deliveryFeeAmount  Decimal  @default(0) @db.Decimal(14, 2)
+  marketingAmount    Decimal  @default(0) @db.Decimal(14, 2)
+  maintenanceAmount  Decimal  @default(0) @db.Decimal(14, 2)
+  anticipationAmount Decimal  @default(0) @db.Decimal(14, 2)
+  otherAmount        Decimal  @default(0) @db.Decimal(14, 2)
+  totalAmount        Decimal  @db.Decimal(14, 2)
+  paidAmount         Decimal? @db.Decimal(14, 2)
 
-  status             IfoodMonthlyExpenseStatus @default(OPEN)
-  paidAt             DateTime?
-  paymentMethod      String?
-  notes              String?
+  status        IfoodMonthlyExpenseStatus @default(OPEN)
+  paidAt        DateTime?
+  paymentMethod String?
+  notes         String?
   // Sync sempre reescreve se autoGenerated=true e status=OPEN. Se operador
   // marcar como PAID ou editar manualmente, sync respeita (não sobrescreve).
-  autoGenerated      Boolean                   @default(true)
+  autoGenerated Boolean                   @default(true)
 
-  createdAt          DateTime                  @default(now())
-  updatedAt          DateTime                  @updatedAt
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
   cancelledAt        DateTime?
   cancellationReason String?
 
@@ -2222,19 +2230,19 @@ model IfoodMonthlyExpense {
 // Na terminologia da 99: app_id (clientId) + app_secret (clientSecret).
 // clientId aqui é o long bigint da 99 armazenado como string.
 model NoventaNoveCredential {
-  id                String   @id @default(cuid())
+  id                String    @id @default(cuid())
   clientId          String
   clientSecret      String
-  environment       String   @default("PRODUCTION")
-  active            Boolean  @default(true)
+  environment       String    @default("PRODUCTION")
+  active            Boolean   @default(true)
   lastTokenAt       DateTime?
   // Percentual de comissão contratual (ex: 18.00 = 18%). A DiDi não expõe
   // a comissão real via callback, então usamos este % pra estimar
   // noventaNoveFeeAmount de cada pedido. Reconciliar depois com invoice
   // mensal se a 99 mandar valor real por outro canal.
-  commissionPercent Decimal  @default(0) @db.Decimal(5, 2)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  commissionPercent Decimal   @default(0) @db.Decimal(5, 2)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 }
 
 // Auth token por loja — a 99 gera um token distinto por (app_id, secret,
@@ -2254,22 +2262,22 @@ model NoventaNoveShopAuthToken {
 }
 
 model NoventaNoveSale {
-  id                     String        @id @default(cuid())
-  deliveryStoreId        String
-  deliveryStore          DeliveryStore @relation(fields: [deliveryStoreId], references: [id], onDelete: Cascade)
-  externalOrderId        String
-  orderDate              DateTime
-  competenceYear         Int
-  competenceMonth        Int
-  grossAmount            Decimal       @db.Decimal(14, 2)
-  noventaNoveFeeAmount   Decimal       @db.Decimal(14, 2)
-  promotionAmount        Decimal       @db.Decimal(14, 2)
-  deliveryFeeAmount      Decimal       @db.Decimal(14, 2)
-  netAmount              Decimal       @db.Decimal(14, 2)
-  paymentMethod          String?
-  channel                String?
-  rawPayload             Json?
-  createdAt              DateTime      @default(now())
+  id                   String        @id @default(cuid())
+  deliveryStoreId      String
+  deliveryStore        DeliveryStore @relation(fields: [deliveryStoreId], references: [id], onDelete: Cascade)
+  externalOrderId      String
+  orderDate            DateTime
+  competenceYear       Int
+  competenceMonth      Int
+  grossAmount          Decimal       @db.Decimal(14, 2)
+  noventaNoveFeeAmount Decimal       @db.Decimal(14, 2)
+  promotionAmount      Decimal       @db.Decimal(14, 2)
+  deliveryFeeAmount    Decimal       @db.Decimal(14, 2)
+  netAmount            Decimal       @db.Decimal(14, 2)
+  paymentMethod        String?
+  channel              String?
+  rawPayload           Json?
+  createdAt            DateTime      @default(now())
 
   @@unique([deliveryStoreId, externalOrderId], map: "nnsale_store_order_uniq")
   @@index([deliveryStoreId, competenceYear, competenceMonth], map: "nnsale_store_competence_idx")
@@ -2291,7 +2299,7 @@ model NoventaNoveSettlement {
   rawPayload      Json?
   createdAt       DateTime      @default(now())
 
-  receivable      Receivable?
+  receivable Receivable?
 
   @@unique([deliveryStoreId, externalId], map: "nnstl_store_external_uniq")
   @@index([deliveryStoreId, periodStart], map: "nnstl_store_period_idx")
@@ -2336,32 +2344,32 @@ enum NoventaNoveMonthlyExpenseStatus {
 }
 
 model NoventaNoveMonthlyExpense {
-  id                 String                          @id @default(cuid())
-  deliveryStoreId    String
-  deliveryStore      DeliveryStore                   @relation(fields: [deliveryStoreId], references: [id], onDelete: Cascade)
-  companyId          String?
-  company            Company?                        @relation(fields: [companyId], references: [id])
-  competenceYear     Int
-  competenceMonth    Int
-  dueDate            DateTime
+  id              String        @id @default(cuid())
+  deliveryStoreId String
+  deliveryStore   DeliveryStore @relation(fields: [deliveryStoreId], references: [id], onDelete: Cascade)
+  companyId       String?
+  company         Company?      @relation(fields: [companyId], references: [id])
+  competenceYear  Int
+  competenceMonth Int
+  dueDate         DateTime
 
-  commissionAmount   Decimal                         @default(0) @db.Decimal(14, 2)
-  deliveryFeeAmount  Decimal                         @default(0) @db.Decimal(14, 2)
-  marketingAmount    Decimal                         @default(0) @db.Decimal(14, 2)
-  maintenanceAmount  Decimal                         @default(0) @db.Decimal(14, 2)
-  anticipationAmount Decimal                         @default(0) @db.Decimal(14, 2)
-  otherAmount        Decimal                         @default(0) @db.Decimal(14, 2)
-  totalAmount        Decimal                         @db.Decimal(14, 2)
-  paidAmount         Decimal?                        @db.Decimal(14, 2)
+  commissionAmount   Decimal  @default(0) @db.Decimal(14, 2)
+  deliveryFeeAmount  Decimal  @default(0) @db.Decimal(14, 2)
+  marketingAmount    Decimal  @default(0) @db.Decimal(14, 2)
+  maintenanceAmount  Decimal  @default(0) @db.Decimal(14, 2)
+  anticipationAmount Decimal  @default(0) @db.Decimal(14, 2)
+  otherAmount        Decimal  @default(0) @db.Decimal(14, 2)
+  totalAmount        Decimal  @db.Decimal(14, 2)
+  paidAmount         Decimal? @db.Decimal(14, 2)
 
-  status             NoventaNoveMonthlyExpenseStatus @default(OPEN)
-  paidAt             DateTime?
-  paymentMethod      String?
-  notes              String?
-  autoGenerated      Boolean                         @default(true)
+  status        NoventaNoveMonthlyExpenseStatus @default(OPEN)
+  paidAt        DateTime?
+  paymentMethod String?
+  notes         String?
+  autoGenerated Boolean                         @default(true)
 
-  createdAt          DateTime                        @default(now())
-  updatedAt          DateTime                        @updatedAt
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
   cancelledAt        DateTime?
   cancellationReason String?
 
@@ -2388,43 +2396,43 @@ enum ReceivableStatus {
 }
 
 model Receivable {
-  id                 String              @id @default(cuid())
-  companyId          String?
-  company            Company?            @relation(fields: [companyId], references: [id])
-  sourceType         ReceivableSourceType
-  sourceRef          String?
-  ifoodSettlementId  String?             @unique
-  ifoodSettlement    IfoodSettlement?    @relation(fields: [ifoodSettlementId], references: [id], onDelete: SetNull)
-  noventaNoveSettlementId String?        @unique
+  id                      String                 @id @default(cuid())
+  companyId               String?
+  company                 Company?               @relation(fields: [companyId], references: [id])
+  sourceType              ReceivableSourceType
+  sourceRef               String?
+  ifoodSettlementId       String?                @unique
+  ifoodSettlement         IfoodSettlement?       @relation(fields: [ifoodSettlementId], references: [id], onDelete: SetNull)
+  noventaNoveSettlementId String?                @unique
   noventaNoveSettlement   NoventaNoveSettlement? @relation(fields: [noventaNoveSettlementId], references: [id], onDelete: SetNull)
-  eventId            String?
-  customerName       String?
-  customerDocument   String?
-  description        String
-  competenceYear     Int
-  competenceMonth    Int
-  expectedDate       DateTime
-  receivedDate       DateTime?
-  grossAmount        Decimal             @db.Decimal(14, 2)
-  fees               Decimal             @default(0) @db.Decimal(14, 2)
-  netAmount          Decimal             @db.Decimal(14, 2)
-  paidAmount         Decimal?            @db.Decimal(14, 2)
-  paymentMethod      String?
-  bankAccountId      String?
-  installmentNumber  Int?
-  totalInstallments  Int?
+  eventId                 String?
+  customerName            String?
+  customerDocument        String?
+  description             String
+  competenceYear          Int
+  competenceMonth         Int
+  expectedDate            DateTime
+  receivedDate            DateTime?
+  grossAmount             Decimal                @db.Decimal(14, 2)
+  fees                    Decimal                @default(0) @db.Decimal(14, 2)
+  netAmount               Decimal                @db.Decimal(14, 2)
+  paidAmount              Decimal?               @db.Decimal(14, 2)
+  paymentMethod           String?
+  bankAccountId           String?
+  installmentNumber       Int?
+  totalInstallments       Int?
   // Auto-relação usada por eventos parcelados: a parcela mãe é o próprio
   // contrato; parcelas filhas apontam pra ela via parentReceivableId.
-  parentReceivableId String?
-  parent             Receivable?         @relation("ReceivableInstallments", fields: [parentReceivableId], references: [id], onDelete: SetNull)
-  installments       Receivable[]        @relation("ReceivableInstallments")
-  status             ReceivableStatus    @default(OPEN)
-  notes              String?
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
-  cancelledAt        DateTime?
-  cancelledByUserId  String?
-  cancellationReason String?
+  parentReceivableId      String?
+  parent                  Receivable?            @relation("ReceivableInstallments", fields: [parentReceivableId], references: [id], onDelete: SetNull)
+  installments            Receivable[]           @relation("ReceivableInstallments")
+  status                  ReceivableStatus       @default(OPEN)
+  notes                   String?
+  createdAt               DateTime               @default(now())
+  updatedAt               DateTime               @updatedAt
+  cancelledAt             DateTime?
+  cancelledByUserId       String?
+  cancellationReason      String?
 
   @@index([status, expectedDate])
   @@index([sourceType, companyId])
@@ -2559,10 +2567,10 @@ enum VtFareBasis {
 // parar de zerar indevidamente a perna de EMTU de quem viaja no domingo.
 // ─────────────────────────────────────────────────────────────────────────
 model VtFare {
-  id            String      @id @default(cuid())
-  name          String      @unique
-  amount        Decimal     @db.Decimal(8, 2)
-  basis         VtFareBasis @default(VIAGEM)
+  id               String          @id @default(cuid())
+  name             String          @unique
+  amount           Decimal         @db.Decimal(8, 2)
+  basis            VtFareBasis     @default(VIAGEM)
   /// Quanto esta tarifa custa nos dias de Domingão Tarifa Zero (domingos + 01/01,
   /// 25/01 e 25/12). NULL = não muda nada nesses dias.
   ///
@@ -2570,14 +2578,14 @@ model VtFare {
   /// zera no domingo: a SPTrans não dá desconto de integração quando o ônibus é
   /// gratuito, então quem integra paga a tarifa CHEIA do metrô (R$ 5,40) em vez
   /// dos R$ 9,38 da integração. Um booleano não sabe dizer isso.
-  sundayAmount  Decimal?    @db.Decimal(8, 2)
-  isActive      Boolean     @default(true)
-  sortOrder     Int         @default(0)
-  notes         String?
-  legs          EmployeeVtLeg[]
-  monthlyEmployees Employee[] @relation("EmployeeMonthlyFare")
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
+  sundayAmount     Decimal?        @db.Decimal(8, 2)
+  isActive         Boolean         @default(true)
+  sortOrder        Int             @default(0)
+  notes            String?
+  legs             EmployeeVtLeg[]
+  monthlyEmployees Employee[]      @relation("EmployeeMonthlyFare")
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
 
   @@index([isActive, sortOrder])
 }
@@ -2595,20 +2603,20 @@ model VtFare {
 // o desconto volta a ficar pendente e entra no vale seguinte.
 // ─────────────────────────────────────────────────────────────────────────
 model VtFaltaDeduction {
-  id            String      @id @default(cuid())
+  id            String          @id @default(cuid())
   employeeId    String
-  employee      Employee    @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  employee      Employee        @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   /// O dia da ausência.
-  date          DateTime    @db.Date
+  date          DateTime        @db.Date
   /// FALTA ou ATESTADO — os dois recuperam o vale, mas quem confere precisa
   /// saber de qual se trata sem ter de voltar na escala.
   dayType       ScheduleDayType @default(FALTA)
   /// Quanto aquele dia teria custado — o valor efetivamente abatido.
-  amount        Decimal     @db.Decimal(12, 2)
+  amount        Decimal         @db.Decimal(12, 2)
   /// O lançamento de VT em que o abatimento entrou.
   payrollItemId String
-  payrollItem   PayrollItem @relation(fields: [payrollItemId], references: [id], onDelete: Cascade)
-  createdAt     DateTime    @default(now())
+  payrollItem   PayrollItem     @relation(fields: [payrollItemId], references: [id], onDelete: Cascade)
+  createdAt     DateTime        @default(now())
 
   @@unique([employeeId, date])
   @@index([payrollItemId])
@@ -2618,163 +2626,163 @@ model VtFaltaDeduction {
 // é a soma das pernas de IDA + as de VOLTA, cada uma zerando sozinha nos dias
 // em que a tarifa dela é gratuita.
 model EmployeeVtLeg {
-  id          String      @id @default(cuid())
-  employeeId  String
-  employee    Employee    @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  direction   VtDirection
-  sortOrder   Int         @default(0)
-  fareId      String
-  fare        VtFare      @relation(fields: [fareId], references: [id])
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  id         String      @id @default(cuid())
+  employeeId String
+  employee   Employee    @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  direction  VtDirection
+  sortOrder  Int         @default(0)
+  fareId     String
+  fare       VtFare      @relation(fields: [fareId], references: [id])
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
 
   @@index([employeeId])
   @@index([fareId])
 }
 
 model Employee {
-  id                String             @id @default(cuid())
+  id                     String                     @id @default(cuid())
   // Pessoal
-  firstName         String
-  lastName          String
-  displayName       String?            // "Como quero ser chamado" — nome exibido na escala
-  cpf               String             @unique
-  rg                String?
-  pis               String?
-  birthDate         DateTime?
-  gender            EmployeeGender     @default(NAO_INFORMADO)
-  phone             String?
-  email             String?
+  firstName              String
+  lastName               String
+  displayName            String? // "Como quero ser chamado" — nome exibido na escala
+  cpf                    String                     @unique
+  rg                     String?
+  pis                    String?
+  birthDate              DateTime?
+  gender                 EmployeeGender             @default(NAO_INFORMADO)
+  phone                  String?
+  email                  String?
   // Endereço
-  zipCode           String?
-  address           String?
-  addressNumber     String?
-  addressComplement String?
-  neighborhood      String?
-  city              String?
-  state             String?
+  zipCode                String?
+  address                String?
+  addressNumber          String?
+  addressComplement      String?
+  neighborhood           String?
+  city                   String?
+  state                  String?
   // Bancário
-  bankName          String?
-  bankAgency        String?
-  bankAccount       String?
-  bankAccountDigit  String?
-  bankAccountType   BankAccountType    @default(CONTA_CORRENTE)
-  pixKeyType        String?
-  pixKey            String?
+  bankName               String?
+  bankAgency             String?
+  bankAccount            String?
+  bankAccountDigit       String?
+  bankAccountType        BankAccountType            @default(CONTA_CORRENTE)
+  pixKeyType             String?
+  pixKey                 String?
   // Trabalho
-  sector            String?
-  subgroup          String?
-  position          String?
-  baseSalary        Decimal?           @db.Decimal(12, 2)
-  shiftStart        String?
-  shiftEnd          String?
-  modality          EmployeeModality   @default(CLT)
-  scheduleRegime    WorkScheduleRegime @default(SEIS_POR_UM)
-  includeInSchedule Boolean            @default(true)
-  admissionDate     DateTime?
+  sector                 String?
+  subgroup               String?
+  position               String?
+  baseSalary             Decimal?                   @db.Decimal(12, 2)
+  shiftStart             String?
+  shiftEnd               String?
+  modality               EmployeeModality           @default(CLT)
+  scheduleRegime         WorkScheduleRegime         @default(SEIS_POR_UM)
+  includeInSchedule      Boolean                    @default(true)
+  admissionDate          DateTime?
   // Data de registro na carteira (vem do extrato da contabilidade). Pode ser depois do
   // início real (admissionDate): quem começa sem registro, em teste ou recebendo seguro.
   // Só informativo: gorjeta, VT e escala contam pelo admissionDate.
-  admissaoCarteira  DateTime?          @db.Date
+  admissaoCarteira       DateTime?                  @db.Date
   // Vale-transporte. TRANSPORTE_PUBLICO calcula pelas pernas (vtLegs) × escala;
   // BILHETE_MENSAL usa uma tarifa de base MENSAL; AUXILIO_COMBUSTIVEL usa o valor fixo.
-  vtType            VtType             @default(TRANSPORTE_PUBLICO)
-  vtPeriodicity     VtPeriodicity      @default(QUINZENAL)
-  vtFixedAmount     Decimal?           @db.Decimal(12, 2)
-  vtLegs            EmployeeVtLeg[]
-  vtFaltaDeductions VtFaltaDeduction[]
-  vtMonthlyFareId   String?
-  vtMonthlyFare     VtFare?            @relation("EmployeeMonthlyFare", fields: [vtMonthlyFareId], references: [id])
+  vtType                 VtType                     @default(TRANSPORTE_PUBLICO)
+  vtPeriodicity          VtPeriodicity              @default(QUINZENAL)
+  vtFixedAmount          Decimal?                   @db.Decimal(12, 2)
+  vtLegs                 EmployeeVtLeg[]
+  vtFaltaDeductions      VtFaltaDeduction[]
+  vtMonthlyFareId        String?
+  vtMonthlyFare          VtFare?                    @relation("EmployeeMonthlyFare", fields: [vtMonthlyFareId], references: [id])
   // Desligamento
-  terminationDate   DateTime?
-  terminationReason String?
-  isActive          Boolean            @default(true)
-  notes             String?
-  holidayCompBalance Int               @default(0)
-  scheduleDays      EmployeeScheduleDay[]
-  payrollItems      PayrollItem[]
+  terminationDate        DateTime?
+  terminationReason      String?
+  isActive               Boolean                    @default(true)
+  notes                  String?
+  holidayCompBalance     Int                        @default(0)
+  scheduleDays           EmployeeScheduleDay[]
+  payrollItems           PayrollItem[]
   // Gorjeta (comissão) — Fase A. companyId serve ao agrupamento da exportação.
-  companyId         String?
-  company           Company?           @relation(fields: [companyId], references: [id])
-  participaGorjeta  Boolean            @default(false)
+  companyId              String?
+  company                Company?                   @relation(fields: [companyId], references: [id])
+  participaGorjeta       Boolean                    @default(false)
   // Entra na gorjeta em: quem é contratado começa em teste; se fica, o dono decide quando
   // entra no rateio. Vazio = ainda não entrou (em teste ou fora). Sem registro em teste
   // recebe só o salário dos dias (desde a admissão); CLT em teste fica fora do rateio.
-  inicioGorjeta     DateTime?          @db.Date
-  tipoGorjeta       TipParticipantKind @default(PONTOS)
-  cotaFixaGorjeta   Decimal?           @db.Decimal(14, 2)
+  inicioGorjeta          DateTime?                  @db.Date
+  tipoGorjeta            TipParticipantKind         @default(PONTOS)
+  cotaFixaGorjeta        Decimal?                   @db.Decimal(14, 2)
   // Ponto extra (±) somado aos pontos da função, sempre com justificativa.
-  pontosExtra       Decimal?           @db.Decimal(6, 2)
-  pontosExtraMotivo String?
+  pontosExtra            Decimal?                   @db.Decimal(6, 2)
+  pontosExtraMotivo      String?
   // Salário combinado (acima do registrado): na folha de líquidos vale
   // (salário combinado − adiantamento salarial do extrato) + gorjeta líquida.
-  salarioCombinado       Decimal?        @db.Decimal(12, 2)
+  salarioCombinado       Decimal?                   @db.Decimal(12, 2)
   salarioCombinadoMotivo String?
   // Teto do IR para a gorjeta informada (CLT): o envio à contabilidade leva
   // teto − salário registrado; a pessoa continua recebendo a gorjeta dos pontos.
-  tetoIrGorjeta          Decimal?        @db.Decimal(12, 2)
+  tetoIrGorjeta          Decimal?                   @db.Decimal(12, 2)
   // Recebe adiantamento salarial no dia do adiantamento (PayrollSettings). Sem
   // registro: a lista de pagamento desconta o que já foi pago. CLT: só informativo.
-  recebeAdiantamento     Boolean         @default(false)
+  recebeAdiantamento     Boolean                    @default(false)
   // Sem registro que recebe por quinzena: metade do salário base no dia 15 (1ª quinzena)
   // e o acerto no dia 30 pela lista de pagamento, que desconta a 1ª quinzena. O cadastro
   // recusa as duas formas juntas (quinzena e adiantamento).
-  pagamentoQuinzenal     Boolean         @default(false)
-  tipFunctionId     String?
-  tipFunction       TipFunction?       @relation(fields: [tipFunctionId], references: [id])
-  tipParticipations TipParticipant[]
-  tipHistory        EmployeeTipHistory[]
-  historicoCadastro EmployeeHistorico[]
-  tipReserveMovements TipReserveMovement[]
+  pagamentoQuinzenal     Boolean                    @default(false)
+  tipFunctionId          String?
+  tipFunction            TipFunction?               @relation(fields: [tipFunctionId], references: [id])
+  tipParticipations      TipParticipant[]
+  tipHistory             EmployeeTipHistory[]
+  historicoCadastro      EmployeeHistorico[]
+  tipReserveMovements    TipReserveMovement[]
   // Extras por diária: as que a pessoa trabalhou e as que cobriram a ausência dela.
-  extraShifts        ExtraShift[]        @relation("ExtraShiftEmployee")
-  extraShiftsCovered ExtraShift[]        @relation("ExtraShiftCovered")
-  extraPayments      ExtraPayment[]
-  rhExtractPessoas  RhExtractPessoa[]
+  extraShifts            ExtraShift[]               @relation("ExtraShiftEmployee")
+  extraShiftsCovered     ExtraShift[]               @relation("ExtraShiftCovered")
+  extraPayments          ExtraPayment[]
+  rhExtractPessoas       RhExtractPessoa[]
   // Ficha de registro de empregado (contabilidade): documentos e contrato em carteira.
   // Só consulta — nenhum cálculo lê estes campos. Jornada é a do contrato; o turno real
   // da escala continua em shiftStart/shiftEnd.
   // Nome como está na carteira/ficha ("FULANO DE TAL DOS SANTOS"); Nome + Sobrenome
   // seguem como o restaurante chama a pessoa e podem ser mais curtos.
-  nomeCompleto      String?
-  registroNumero    String?
-  matriculaEsocial  String?
-  nomeMae           String?
-  nomePai           String?
-  estadoCivil       String?
-  nacionalidade     String?
-  naturalidade      String?
-  racaCor           String?
-  escolaridade      String?
-  possuiDeficiencia Boolean?
-  rgDataEmissao     DateTime?          @db.Date
-  rgOrgaoEmissor    String?
-  rgUf              String?
-  tituloEleitor     String?
-  tituloZona        String?
-  tituloSecao       String?
-  ctpsNumero        String?
-  ctpsSerie         String?
-  ctpsUf            String?
-  ctpsDataEmissao   DateTime?          @db.Date
-  cbo               String?
-  jornadaInicio     String?
-  jornadaFim        String?
-  intervaloInicio   String?
-  intervaloFim      String?
-  fgtsDataOpcao     DateTime?          @db.Date
-  nomeConjuge       String?
-  dependentes       EmployeeDependente[]
-  fichasCadastrais  FichaCadastral[]
-  feriasRegistradas EmployeeFerias[]
-  anotacoesCarteira EmployeeAnotacaoCarteira[]
+  nomeCompleto           String?
+  registroNumero         String?
+  matriculaEsocial       String?
+  nomeMae                String?
+  nomePai                String?
+  estadoCivil            String?
+  nacionalidade          String?
+  naturalidade           String?
+  racaCor                String?
+  escolaridade           String?
+  possuiDeficiencia      Boolean?
+  rgDataEmissao          DateTime?                  @db.Date
+  rgOrgaoEmissor         String?
+  rgUf                   String?
+  tituloEleitor          String?
+  tituloZona             String?
+  tituloSecao            String?
+  ctpsNumero             String?
+  ctpsSerie              String?
+  ctpsUf                 String?
+  ctpsDataEmissao        DateTime?                  @db.Date
+  cbo                    String?
+  jornadaInicio          String?
+  jornadaFim             String?
+  intervaloInicio        String?
+  intervaloFim           String?
+  fgtsDataOpcao          DateTime?                  @db.Date
+  nomeConjuge            String?
+  dependentes            EmployeeDependente[]
+  fichasCadastrais       FichaCadastral[]
+  feriasRegistradas      EmployeeFerias[]
+  anotacoesCarteira      EmployeeAnotacaoCarteira[]
   // Auditoria / soft delete
-  createdById       String
-  updatedById       String?
-  deletedAt         DateTime?
-  deletedById       String?
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
+  createdById            String
+  updatedById            String?
+  deletedAt              DateTime?
+  deletedById            String?
+  createdAt              DateTime                   @default(now())
+  updatedAt              DateTime                   @updatedAt
 
   @@index([cpf])
   @@index([isActive])
@@ -2849,12 +2857,12 @@ model ScheduleDayEvent {
 // ─────────────────────────────────────────────────────────────────────────
 
 model PayrollSettings {
-  id             String   @id @default("singleton")
+  id                      String   @id @default("singleton")
   // Dia em que a 2ª quinzena começa. 16 => 1ª quinzena = 01 a 15, 2ª = 16 ao fim.
   // O VT vence sempre na VÉSPERA do início do período (a 1ª quinzena, portanto,
   // vence no último dia do mês ANTERIOR): é assim que o pagamento acontece na
   // prática — 31/08 paga 01→15/09, 15/09 paga 16→30/09.
-  vtSecondPeriodStartDay Int @default(16)
+  vtSecondPeriodStartDay  Int      @default(16)
   /// A folga precisa cair em DOMINGO pelo menos uma vez a cada N semanas.
   /// Mulher: 2 (CLT art. 386 — escala quinzenal, um domingo sim outro não).
   /// Demais: 3 (Lei 10.101/2000 art. 6º p.único, aplicada a bares e restaurantes).
@@ -2862,51 +2870,51 @@ model PayrollSettings {
   /// Fica em configuração e não no código porque quem define isso na prática é
   /// a convenção coletiva da categoria, que muda todo ano. Número enterrado em
   /// código vira regra errada no dia seguinte a uma negociação sindical.
-  dsrDomingoMulherSemanas Int @default(2)
-  dsrDomingoGeralSemanas  Int @default(3)
-  advancePercent Decimal  @default(40) @db.Decimal(5, 2)
-  advanceDueDay  Int      @default(20)
-  salaryDueDay   Int      @default(5)
+  dsrDomingoMulherSemanas Int      @default(2)
+  dsrDomingoGeralSemanas  Int      @default(3)
+  advancePercent          Decimal  @default(40) @db.Decimal(5, 2)
+  advanceDueDay           Int      @default(20)
+  salaryDueDay            Int      @default(5)
   /// Extras: valor único da diária e da meia diária (decisão do Eli, 29/09/2026).
   /// Cada lançamento guarda o valor do dia; mudar aqui não reescreve o passado.
-  diariaValor     Decimal @default(100) @db.Decimal(12, 2)
-  meiaDiariaValor Decimal @default(50) @db.Decimal(12, 2)
+  diariaValor             Decimal  @default(100) @db.Decimal(12, 2)
+  meiaDiariaValor         Decimal  @default(50) @db.Decimal(12, 2)
   /// Extras: limites do aviso de habitualidade de pessoa de fora (risco de vínculo).
   /// Só avisam; ficam aqui porque são critério de gestão, não regra fixa.
-  extraHabitualSemana    Int @default(3)
-  extraHabitual30Dias    Int @default(8)
-  extraHabitualSemanas   Int @default(4)
-  updatedById    String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  extraHabitualSemana     Int      @default(3)
+  extraHabitual30Dias     Int      @default(8)
+  extraHabitualSemanas    Int      @default(4)
+  updatedById             String?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
 }
 
 // Rastreabilidade do retorno do RH: cada Extrato Mensal importado (arquivo + dados lidos).
 model RhExtract {
-  id              String   @id @default(cuid())
+  id              String            @id @default(cuid())
   competenceYear  Int
   competenceMonth Int
   empresa         String
   cnpj            String?
   companyId       String?
-  totalLiquido    Decimal  @db.Decimal(14, 2)
+  totalLiquido    Decimal           @db.Decimal(14, 2)
   headcount       Int
   fileName        String
   storagePath     String?
   sha256          String?
-  data            Json     // funcionários lidos (nome, cpf, líquido, gorjeta)
+  data            Json // funcionários lidos (nome, cpf, líquido, gorjeta)
   // "MENSAL" (folha do mês) ou "ADIANTAMENTO". Registros anteriores a esta coluna ficaram MENSAL.
-  calculo         String   @default("MENSAL")
+  calculo         String            @default("MENSAL")
   // O PDF inteiro. O disco do Render é apagado a cada deploy: o banco é o armazenamento
   // permanente; storagePath fica só como histórico.
   arquivo         Bytes?
-  texto           String?  // texto completo extraído do PDF
-  emissao         DateTime? @db.Date
-  totalProventos  Decimal? @db.Decimal(14, 2)
-  totalDescontos  Decimal? @db.Decimal(14, 2)
+  texto           String? // texto completo extraído do PDF
+  emissao         DateTime?         @db.Date
+  totalProventos  Decimal?          @db.Decimal(14, 2)
+  totalDescontos  Decimal?          @db.Decimal(14, 2)
   importedById    String
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime? @updatedAt
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime?         @updatedAt
   pessoas         RhExtractPessoa[]
 
   @@index([competenceYear, competenceMonth])
@@ -2918,34 +2926,34 @@ model RhExtract {
 
 // Uma pessoa do extrato (cabeçalho e rodapé do holerite). Sem CPF: o vínculo é o employeeId.
 model RhExtractPessoa {
-  id              String    @id @default(cuid())
+  id              String             @id @default(cuid())
   rhExtractId     String
-  rhExtract       RhExtract @relation(fields: [rhExtractId], references: [id], onDelete: Cascade)
+  rhExtract       RhExtract          @relation(fields: [rhExtractId], references: [id], onDelete: Cascade)
   employeeId      String?
-  employee        Employee? @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  employee        Employee?          @relation(fields: [employeeId], references: [id], onDelete: SetNull)
   matricula       String
   nome            String
   situacao        String?
   vinculo         String?
-  horasMes        Decimal?  @db.Decimal(8, 2)
+  horasMes        Decimal?           @db.Decimal(8, 2)
   cargoCodigo     String?
   cargo           String?
   cbo             String?
-  salarioBase     Decimal?  @db.Decimal(12, 2)
-  admissao        DateTime? @db.Date
-  demissao        DateTime? @db.Date
+  salarioBase     Decimal?           @db.Decimal(12, 2)
+  admissao        DateTime?          @db.Date
+  demissao        DateTime?          @db.Date
   demissaoMotivo  String?
-  proventos       Decimal   @db.Decimal(12, 2)
-  descontos       Decimal   @db.Decimal(12, 2)
-  liquido         Decimal   @db.Decimal(12, 2)
-  baseInss        Decimal?  @db.Decimal(12, 2)
-  baseFgts        Decimal?  @db.Decimal(12, 2)
-  baseIrrf        Decimal?  @db.Decimal(12, 2)
-  valorFgts       Decimal?  @db.Decimal(12, 2)
-  liquidoRescisao Decimal?  @db.Decimal(12, 2)
+  proventos       Decimal            @db.Decimal(12, 2)
+  descontos       Decimal            @db.Decimal(12, 2)
+  liquido         Decimal            @db.Decimal(12, 2)
+  baseInss        Decimal?           @db.Decimal(12, 2)
+  baseFgts        Decimal?           @db.Decimal(12, 2)
+  baseIrrf        Decimal?           @db.Decimal(12, 2)
+  valorFgts       Decimal?           @db.Decimal(12, 2)
+  liquidoRescisao Decimal?           @db.Decimal(12, 2)
   // Rubricas P somam os Proventos e D os Descontos. Falso = leitura a conferir no PDF.
-  conferido       Boolean   @default(false)
-  texto           String    // bloco bruto da pessoa, sem o CPF
+  conferido       Boolean            @default(false)
+  texto           String // bloco bruto da pessoa, sem o CPF
   rubricas        RhExtractRubrica[]
 
   @@index([rhExtractId])
@@ -2958,7 +2966,7 @@ model RhExtractRubrica {
   pessoa     RhExtractPessoa @relation(fields: [pessoaId], references: [id], onDelete: Cascade)
   codigo     String
   descricao  String
-  tipo       String          // "P" provento | "D" desconto
+  tipo       String // "P" provento | "D" desconto
   referencia Decimal?        @db.Decimal(12, 2)
   valor      Decimal         @db.Decimal(12, 2)
 
@@ -2982,28 +2990,28 @@ enum PayrollItemStatus {
 }
 
 model PayrollItem {
-  id              String            @id @default(cuid())
-  employeeId      String
-  employee        Employee          @relation(fields: [employeeId], references: [id])
-  type            PayrollItemType
-  competenceYear  Int
-  competenceMonth Int
-  periodLabel     String
-  periodStart     DateTime?         @db.Date
-  periodEnd       DateTime?         @db.Date
-  dueDate         DateTime
-  amount          Decimal           @db.Decimal(12, 2)
-  workedDays      Int?
-  freeDays        Int?
+  id                    String             @id @default(cuid())
+  employeeId            String
+  employee              Employee           @relation(fields: [employeeId], references: [id])
+  type                  PayrollItemType
+  competenceYear        Int
+  competenceMonth       Int
+  periodLabel           String
+  periodStart           DateTime?          @db.Date
+  periodEnd             DateTime?          @db.Date
+  dueDate               DateTime
+  amount                Decimal            @db.Decimal(12, 2)
+  workedDays            Int?
+  freeDays              Int?
   // Resíduo do modelo antigo de VT ("dia de sobra" adiantado + crédito na quinzena
   // seguinte), aposentado em 09/2026 — a quinzena agora é calculada exata. As colunas
   // ficam porque os lançamentos de julho/2026 as usaram e precisam continuar auditáveis;
   // nada novo escreve aqui.
-  bufferAmount    Decimal?          @db.Decimal(12, 2)
-  creditApplied   Decimal?          @db.Decimal(12, 2)
-  details         Json?
-  paymentDate     DateTime?
-  paidAmount      Decimal?          @db.Decimal(12, 2)
+  bufferAmount          Decimal?           @db.Decimal(12, 2)
+  creditApplied         Decimal?           @db.Decimal(12, 2)
+  details               Json?
+  paymentDate           DateTime?
+  paidAmount            Decimal?           @db.Decimal(12, 2)
   vtFaltaDeductions     VtFaltaDeduction[]
   paidPaymentMethodId   String?
   paidPaymentMethodName String?
@@ -3011,23 +3019,23 @@ model PayrollItem {
   companyBankAccountId  String?
   differenceReason      String?
   paymentNotes          String?
-  status          PayrollItemStatus @default(PENDING)
-  dreCategoryId   String?
-  dreCategory     DRECategory?      @relation(fields: [dreCategoryId], references: [id])
-  notes           String?
-  source          String            @default("GENERATED")
+  status                PayrollItemStatus  @default(PENDING)
+  dreCategoryId         String?
+  dreCategory           DRECategory?       @relation(fields: [dreCategoryId], references: [id])
+  notes                 String?
+  source                String             @default("GENERATED")
   // Lote de pagamento da folha: o SALARIO entra num título por empresa no Contas a Pagar.
   // Enquanto o lote existe (aberto ou pago) o item não aparece solto nem é baixado sozinho.
   // folhaLoteOrigemId: o lote da empresa de onde a pessoa foi retirada (para devolver).
-  folhaLoteId       String?
-  folhaLote         FolhaLote?        @relation(fields: [folhaLoteId], references: [id], onDelete: SetNull)
-  folhaLoteOrigemId String?
-  createdById     String
-  updatedById     String?
-  deletedAt       DateTime?
-  deletedById     String?
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
+  folhaLoteId           String?
+  folhaLote             FolhaLote?         @relation(fields: [folhaLoteId], references: [id], onDelete: SetNull)
+  folhaLoteOrigemId     String?
+  createdById           String
+  updatedById           String?
+  deletedAt             DateTime?
+  deletedById           String?
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
 
   @@unique([employeeId, type, competenceYear, competenceMonth, periodLabel])
   @@index([folhaLoteId])
@@ -3049,7 +3057,7 @@ enum TipPeriodStatus {
 }
 
 enum TipParticipantKind {
-  FIXO   // recebe cota fixa da gorjeta (sai do pool antes do rateio)
+  FIXO // recebe cota fixa da gorjeta (sai do pool antes do rateio)
   PONTOS // recebe pela pontuação
 }
 
@@ -3065,40 +3073,40 @@ enum TipValeType {
 
 // Função/nível e seus pontos-base no rateio (aba "Regras e Pontos" da planilha).
 model TipFunction {
-  id        String     @id
-  name      String     @unique
-  points    Decimal    @db.Decimal(6, 2)
-  minPoints Decimal?   @db.Decimal(6, 2)
-  maxPoints Decimal?   @db.Decimal(6, 2)
+  id        String               @id
+  name      String               @unique
+  points    Decimal              @db.Decimal(6, 2)
+  minPoints Decimal?             @db.Decimal(6, 2)
+  maxPoints Decimal?             @db.Decimal(6, 2)
   group     String?
   notes     String?
-  sortOrder Int        @default(0)
-  isActive  Boolean    @default(true)
+  sortOrder Int                  @default(0)
+  isActive  Boolean              @default(true)
   employees Employee[]
   history   TipFunctionHistory[]
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
 }
 
 // Histórico da função e dos pontos de cada funcionário na gorjeta. Uma linha por
 // mudança (ou por mudança na tabela de funções que altere a base dele), com a
 // data a partir da qual vale. Base dos relatórios de promoção e evolução.
 model EmployeeTipHistory {
-  id               String   @id
-  employeeId       String
-  employee         Employee @relation(fields: [employeeId], references: [id])
-  validFrom        DateTime @db.Date
-  participaGorjeta Boolean
-  tipFunctionId    String?
-  functionName     String?
-  functionPoints   Decimal? @db.Decimal(6, 2)
-  pontosPadrao     Decimal? @db.Decimal(6, 2) // legado: pontos personalizados (antes do ponto extra)
-  pontosExtra      Decimal? @db.Decimal(6, 2)
+  id                String   @id
+  employeeId        String
+  employee          Employee @relation(fields: [employeeId], references: [id])
+  validFrom         DateTime @db.Date
+  participaGorjeta  Boolean
+  tipFunctionId     String?
+  functionName      String?
+  functionPoints    Decimal? @db.Decimal(6, 2)
+  pontosPadrao      Decimal? @db.Decimal(6, 2) // legado: pontos personalizados (antes do ponto extra)
+  pontosExtra       Decimal? @db.Decimal(6, 2)
   pontosExtraMotivo String?
-  basePoints       Decimal? @db.Decimal(6, 2)
-  reason           String?
-  changedById      String
-  createdAt        DateTime @default(now())
+  basePoints        Decimal? @db.Decimal(6, 2)
+  reason            String?
+  changedById       String
+  createdAt         DateTime @default(now())
 
   @@index([employeeId, validFrom])
   @@index([validFrom])
@@ -3111,12 +3119,12 @@ model EmployeeHistorico {
   id            String   @id
   employeeId    String
   employee      Employee @relation(fields: [employeeId], references: [id])
-  campo         String   // baseSalary | salarioCombinado | tetoIrGorjeta | modality | companyId | position | recebeAdiantamento | pagamentoQuinzenal
+  campo         String // baseSalary | salarioCombinado | tetoIrGorjeta | modality | companyId | position | recebeAdiantamento | pagamentoQuinzenal
   valorAnterior String?
   valorNovo     String?
   vigenteDesde  DateTime @db.Date
   motivo        String?
-  origem        String   // CADASTRO | EQUIPE_GORJETA | CONFERENCIA_GORJETA | IMPORTADOR_PLANILHA | BACKFILL
+  origem        String // CADASTRO | EQUIPE_GORJETA | CONFERENCIA_GORJETA | IMPORTADOR_PLANILHA | BACKFILL
   // Backfill: id do AuditLog de onde a linha veio (rodar de novo não duplica).
   origemRef     String?
   criadoPorId   String?
@@ -3167,10 +3175,10 @@ model EmployeeAnotacaoCarteira {
   id                    String   @id @default(cuid())
   employeeId            String
   employee              Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  tipo                  String   // ADMISSAO | SALARIO | CARGO
+  tipo                  String // ADMISSAO | SALARIO | CARGO
   data                  DateTime @db.Date
   salario               Decimal? @db.Decimal(12, 2)
-  retroativoCompetencia String?  // "MM/AAAA"
+  retroativoCompetencia String? // "MM/AAAA"
   cargoAnterior         String?
   cboAnterior           String?
   cargo                 String?
@@ -3224,28 +3232,28 @@ model TipReserveMovement {
 // próximo fechamento cria a versão seguinte. O banco impede apagar e editar o
 // conteúdo (trigger na migration); só os campos de reabertura são gravados depois.
 model TipPeriodClosing {
-  id             String    @id
-  periodId       String
-  period         TipPeriod @relation(fields: [periodId], references: [id], onDelete: Restrict)
-  code           String    @unique // GOR-AAAA-NNNN/vN
-  version        Int
+  id              String    @id
+  periodId        String
+  period          TipPeriod @relation(fields: [periodId], references: [id], onDelete: Restrict)
+  code            String    @unique // GOR-AAAA-NNNN/vN
+  version         Int
   competenceYear  Int
   competenceMonth Int
-  periodStart    DateTime  @db.Date
-  periodEnd      DateTime  @db.Date
-  closedAt       DateTime
-  closedById     String
-  closedByName   String
-  params         Json
-  totals         Json
-  participants   Json
-  reserve        Json
+  periodStart     DateTime  @db.Date
+  periodEnd       DateTime  @db.Date
+  closedAt        DateTime
+  closedById      String
+  closedByName    String
+  params          Json
+  totals          Json
+  participants    Json
+  reserve         Json
   // SHA-256 do conteúdo (params + totais + pessoas + fundo), para provar integridade.
-  payloadHash    String
-  reopenedAt     DateTime?
-  reopenedById   String?
-  reopenedByName String?
-  reopenReason   String?
+  payloadHash     String
+  reopenedAt      DateTime?
+  reopenedById    String?
+  reopenedByName  String?
+  reopenReason    String?
 
   @@unique([periodId, version])
   @@index([competenceYear, competenceMonth])
@@ -3254,117 +3262,117 @@ model TipPeriodClosing {
 // Competência da gorjeta: 26 do mês anterior a 25 do mês da competência.
 // Pool único (não separa por empresa); a empresa importa só na exportação.
 model TipPeriod {
-  id               String           @id @default(cuid())
+  id                     String                 @id @default(cuid())
   // Código da apuração, gerado automaticamente: GOR-AAAA-NNNN.
-  code             String           @unique
-  competenceYear   Int
-  competenceMonth  Int
-  periodStart      DateTime         @db.Date
-  periodEnd        DateTime         @db.Date
-  label            String
-  grossPool        Decimal          @default(0) @db.Decimal(14, 2)
-  poolSource       String           @default("REVENUE") // REVENUE (puxado) | MANUAL (editado)
+  code                   String                 @unique
+  competenceYear         Int
+  competenceMonth        Int
+  periodStart            DateTime               @db.Date
+  periodEnd              DateTime               @db.Date
+  label                  String
+  grossPool              Decimal                @default(0) @db.Decimal(14, 2)
+  poolSource             String                 @default("REVENUE") // REVENUE (puxado) | MANUAL (editado)
   // Serviço arrecadado = o que veio do faturamento + ajuste manual (serviço que
   // não passa pelo sistema). grossPool guarda a soma.
-  servicoFaturamento  Decimal       @default(0) @db.Decimal(14, 2)
-  ajusteServico       Decimal       @default(0) @db.Decimal(14, 2)
-  ajusteServicoMotivo String?
-  deductionPercent Decimal          @default(20) @db.Decimal(5, 2)
-  netPool          Decimal          @default(0) @db.Decimal(14, 2)
-  pointsTotal      Int              @default(100) // total de pontos do rateio (denominador). Editável por competência.
-  pointValue       Decimal          @default(0) @db.Decimal(14, 6)
+  servicoFaturamento     Decimal                @default(0) @db.Decimal(14, 2)
+  ajusteServico          Decimal                @default(0) @db.Decimal(14, 2)
+  ajusteServicoMotivo    String?
+  deductionPercent       Decimal                @default(20) @db.Decimal(5, 2)
+  netPool                Decimal                @default(0) @db.Decimal(14, 2)
+  pointsTotal            Int                    @default(100) // total de pontos do rateio (denominador). Editável por competência.
+  pointValue             Decimal                @default(0) @db.Decimal(14, 6)
   // Presença: dias padrão de trabalho no período e quais ocorrências reduzem o rateio.
-  diasPadrao       Int              @default(26)
-  descontaFalta    Boolean          @default(true)
-  descontaAtestado Boolean          @default(true)
-  descontaFerias   Boolean          @default(true)
-  descontaOutros   Boolean          @default(false)
+  diasPadrao             Int                    @default(26)
+  descontaFalta          Boolean                @default(true)
+  descontaAtestado       Boolean                @default(true)
+  descontaFerias         Boolean                @default(true)
+  descontaOutros         Boolean                @default(false)
   // Afastamento não remunerado desconta na gorjeta (o salário e o VT descontam sempre).
-  descontaAfastamento Boolean       @default(true)
+  descontaAfastamento    Boolean                @default(true)
   // Admitido no meio do período recebe proporcional aos dias.
-  proporcionalEntrada Boolean       @default(true)
+  proporcionalEntrada    Boolean                @default(true)
   // Parte de quem saiu depois da saída: false = sobe o ponto de quem fica;
   // true = o ponto do mês não desconta as rescisões e a sobra vai para o livre.
-  sobraRescisaoParaSaldo Boolean    @default(false)
+  sobraRescisaoParaSaldo Boolean                @default(false)
   // Parte do líquido que ficou sem distribuir no fechamento.
-  saldoRetido      Decimal          @default(0) @db.Decimal(14, 2)
+  saldoRetido            Decimal                @default(0) @db.Decimal(14, 2)
   // Pontos que vão para o fundo de reserva da gorjeta (valor = pontos × valor do ponto).
-  reservaPontos    Decimal          @default(0) @db.Decimal(8, 2)
-  reserveMovements TipReserveMovement[]
-  closings         TipPeriodClosing[]
-  extratos         TipExtrato[]
-  aceites          TipConferenciaAceite[]
-  etapas           TipPeriodEtapa[]
-  status           TipPeriodStatus  @default(OPEN)
-  closedAt         DateTime?
-  participants     TipParticipant[]
-  createdById      String
-  updatedById      String?
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
+  reservaPontos          Decimal                @default(0) @db.Decimal(8, 2)
+  reserveMovements       TipReserveMovement[]
+  closings               TipPeriodClosing[]
+  extratos               TipExtrato[]
+  aceites                TipConferenciaAceite[]
+  etapas                 TipPeriodEtapa[]
+  status                 TipPeriodStatus        @default(OPEN)
+  closedAt               DateTime?
+  participants           TipParticipant[]
+  createdById            String
+  updatedById            String?
+  createdAt              DateTime               @default(now())
+  updatedAt              DateTime               @updatedAt
 
   @@unique([competenceYear, competenceMonth])
   @@index([status])
 }
 
 model TipParticipant {
-  id            String             @id @default(cuid())
-  periodId      String
-  period        TipPeriod          @relation(fields: [periodId], references: [id], onDelete: Cascade)
-  employeeId    String
-  employee      Employee           @relation(fields: [employeeId], references: [id])
-  kind          TipParticipantKind @default(PONTOS)
+  id                    String             @id @default(cuid())
+  periodId              String
+  period                TipPeriod          @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  employeeId            String
+  employee              Employee           @relation(fields: [employeeId], references: [id])
+  kind                  TipParticipantKind @default(PONTOS)
   // Pontos da função (ou personalizados) trazidos do cadastro — não se edita aqui.
-  basePoints       Decimal?        @db.Decimal(8, 2)
+  basePoints            Decimal?           @db.Decimal(8, 2)
   // Função do período, guardada para os relatórios não mudarem se o cadastro mudar.
-  functionName     String?
+  functionName          String?
   // Acréscimo (+) ou desconto (−) do mês sobre os pontos-base.
-  pointsAdjustment Decimal         @default(0) @db.Decimal(8, 2)
+  pointsAdjustment      Decimal            @default(0) @db.Decimal(8, 2)
   // Pontos finais (base × presença + ajuste), gravados no fechamento.
-  points        Decimal?           @db.Decimal(8, 2)
-  fixedAmount   Decimal?           @db.Decimal(14, 2)
+  points                Decimal?           @db.Decimal(8, 2)
+  fixedAmount           Decimal?           @db.Decimal(14, 2)
   // Ocorrências do período. null = usar o que está na Escala.
-  atestados            Int?
-  ferias               Int?
-  outrosDias           Int?
+  atestados             Int?
+  ferias                Int?
+  outrosDias            Int?
   diasPrevistosOverride Int?
   // Decisão de quem fecha para esta pessoa (null = regra do período).
-  descontaFalta        Boolean?
-  descontaAtestado     Boolean?
-  descontaFerias       Boolean?
-  descontaOutros       Boolean?
-  proporcionalEntrada  Boolean?
-  descontaAfastamento  Boolean?
+  descontaFalta         Boolean?
+  descontaAtestado      Boolean?
+  descontaFerias        Boolean?
+  descontaOutros        Boolean?
+  proporcionalEntrada   Boolean?
+  descontaAfastamento   Boolean?
   // Rescisão: serviço bruto até o desligamento (null = puxar do faturamento)
   // e valor já quitado/congelado, que prevalece sobre o cálculo.
-  rescisaoServicoBruto Decimal?    @db.Decimal(14, 2)
-  rescisaoValorFixo    Decimal?    @db.Decimal(14, 2)
+  rescisaoServicoBruto  Decimal?           @db.Decimal(14, 2)
+  rescisaoValorFixo     Decimal?           @db.Decimal(14, 2)
   // Recibo da rescisão lido do TRCT (gorjeta paga, datas, hash do arquivo).
-  rescisaoRecibo       Json?
+  rescisaoRecibo        Json?
   // Gorjeta real digitada no lugar da calculada (quem está no mês). Os outros não mudam;
   // a diferença vai para o livre para distribuir. Motivo, quem e quando ficam aqui.
-  gorjetaReal          Decimal?    @db.Decimal(14, 2)
-  gorjetaRealMotivo    String?
-  gorjetaRealPor       String?
-  gorjetaRealEm        DateTime?
+  gorjetaReal           Decimal?           @db.Decimal(14, 2)
+  gorjetaRealMotivo     String?
+  gorjetaRealPor        String?
+  gorjetaRealEm         DateTime?
   // Sem registro: dias de salário (null = calcular) e valores do fechamento.
-  diasSalarioOverride  Int?
-  salarioProporcional  Decimal     @default(0) @db.Decimal(14, 2)
-  totalAPagar          Decimal     @default(0) @db.Decimal(14, 2)
-  rateioAmount  Decimal            @default(0) @db.Decimal(14, 2)
-  valesTotal    Decimal            @default(0) @db.Decimal(14, 2)
-  netCommission Decimal            @default(0) @db.Decimal(14, 2)
+  diasSalarioOverride   Int?
+  salarioProporcional   Decimal            @default(0) @db.Decimal(14, 2)
+  totalAPagar           Decimal            @default(0) @db.Decimal(14, 2)
+  rateioAmount          Decimal            @default(0) @db.Decimal(14, 2)
+  valesTotal            Decimal            @default(0) @db.Decimal(14, 2)
+  netCommission         Decimal            @default(0) @db.Decimal(14, 2)
   // Sem registro que não participa da gorjeta: está no período só para receber o salário
   // (e ter vales) na lista de pagamento. Não entra no rateio: pontos e gorjeta zero.
-  foraDaGorjeta Boolean            @default(false)
+  foraDaGorjeta         Boolean            @default(false)
   // Dados informados para o RH/contabilidade (por competência) — vão no PDF de envio.
-  horaExtra        String?         // texto livre (ex.: "1,05")
-  adicionalNoturno String?         // texto livre (ex.: "2,10")
-  faltas           Int?            // número de faltas no período
-  justificada      Boolean         @default(false)
-  vales         TipVale[]
-  createdAt     DateTime           @default(now())
-  updatedAt     DateTime           @updatedAt
+  horaExtra             String? // texto livre (ex.: "1,05")
+  adicionalNoturno      String? // texto livre (ex.: "2,10")
+  faltas                Int? // número de faltas no período
+  justificada           Boolean            @default(false)
+  vales                 TipVale[]
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
 
   @@unique([periodId, employeeId])
   @@index([employeeId])
@@ -3372,30 +3380,30 @@ model TipParticipant {
 
 // Vale descontado por dentro da comissão, antes do RH. Não vai ao holerite.
 model TipVale {
-  id            String         @id @default(cuid())
-  participantId String
-  participant   TipParticipant @relation(fields: [participantId], references: [id], onDelete: Cascade)
-  type          TipValeType    @default(OUTRO)
-  amount        Decimal        @db.Decimal(14, 2)
-  date          DateTime?      @db.Date
-  notes         String?
-  createdById   String
-  createdByName String?
-  createdAt     DateTime       @default(now())
-  updatedById   String?
-  updatedAt     DateTime?
+  id                String              @id @default(cuid())
+  participantId     String
+  participant       TipParticipant      @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  type              TipValeType         @default(OUTRO)
+  amount            Decimal             @db.Decimal(14, 2)
+  date              DateTime?           @db.Date
+  notes             String?
+  createdById       String
+  createdByName     String?
+  createdAt         DateTime            @default(now())
+  updatedById       String?
+  updatedAt         DateTime?
   // Cancelar não apaga: o vale fica no histórico e nos relatórios, só deixa de descontar.
-  canceledAt     DateTime?
-  canceledById   String?
-  canceledByName String?
-  cancelReason   String?
+  canceledAt        DateTime?
+  canceledById      String?
+  canceledByName    String?
+  cancelReason      String?
   // Número impresso no recibo (VALE-AAAA-NNNNN) e o último recibo emitido.
-  codigo            String?   @unique
+  codigo            String?             @unique
   reciboEmpresaId   String?
   reciboImpressoEm  DateTime?
   reciboImpressoPor String?
-  reciboImpressoes  Int       @default(0)
-  reserveMovement TipReserveMovement?
+  reciboImpressoes  Int                 @default(0)
+  reserveMovement   TipReserveMovement?
 
   @@index([participantId])
   @@index([canceledAt])
@@ -3460,7 +3468,7 @@ model TipConferenciaAceite {
   id            String    @id
   periodId      String
   period        TipPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
-  employeeKey   String    // employeeId, ou "extrato:<nome>" quem não está no cadastro
+  employeeKey   String // employeeId, ou "extrato:<nome>" quem não está no cadastro
   justificativa String
   porId         String
   por           String
@@ -3475,8 +3483,8 @@ model TipPeriodEtapa {
   id       String    @id
   periodId String
   period   TipPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
-  etapa    String    // ENVIADO_CONTABILIDADE | OK_CONTABILIDADE | FOLHA_PAGA
-  acao     String    // MARCOU | DESMARCOU
+  etapa    String // ENVIADO_CONTABILIDADE | OK_CONTABILIDADE | FOLHA_PAGA
+  acao     String // MARCOU | DESMARCOU
   obs      String?
   porId    String
   por      String
@@ -3493,7 +3501,7 @@ model FolhaLote {
   id                    String        @id
   competenceYear        Int
   competenceMonth       Int
-  grupo                 String        // CNPJ (só dígitos) | SEM_REGISTRO | A_PARTE
+  grupo                 String // CNPJ (só dígitos) | SEM_REGISTRO | A_PARTE
   rotulo                String
   dueDate               DateTime
   status                String        @default("ABERTO") // ABERTO | PAGO | CANCELADO
@@ -3556,7 +3564,7 @@ enum ExtraShiftStatus {
 }
 
 model ExtraWorker {
-  id          String       @id @default(cuid())
+  id          String         @id @default(cuid())
   fullName    String
   displayName String?
   // Opcional: nem todo indicado passa CPF na primeira vez. Único entre os não
@@ -3567,15 +3575,15 @@ model ExtraWorker {
   pixKey      String?
   referredBy  String?
   notes       String?
-  isActive    Boolean      @default(true)
+  isActive    Boolean        @default(true)
   shifts      ExtraShift[]
   payments    ExtraPayment[]
   createdById String
   updatedById String?
   deletedAt   DateTime?
   deletedById String?
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
 
   @@index([cpf])
   @@index([fullName])

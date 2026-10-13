@@ -170,6 +170,25 @@ describe("formulário: cardápio e categoria", () => {
     expect([...select.options].map((o) => o.textContent)).toEqual(["Sem categoria", "Pizzas"]);
   });
 
+  test("'Cardápio e delivery' abre uma categoria para cada cardápio e salva o prato nos dois", async () => {
+    await novoPrato();
+    fireEvent.change(screen.getByLabelText(/Nome do prato/), { target: { value: "Filé" } });
+    fireEvent.change(screen.getByLabelText("Categoria"), { target: { value: "fresca" } });
+    fireEvent.click(within(screen.getByRole("radiogroup", { name: "Cardápio do prato" })).getByRole("radio", { name: "Cardápio e delivery" }));
+
+    const doSalao = screen.getByLabelText("Categoria no cardápio") as HTMLSelectElement;
+    const doDelivery = screen.getByLabelText("Categoria no delivery") as HTMLSelectElement;
+    expect(doSalao.value).toBe("fresca");
+    expect([...doDelivery.options].map((o) => o.textContent)).toEqual(["Sem categoria", "Pizzas"]);
+    fireEvent.change(doDelivery, { target: { value: "pizzas" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Criar prato" }));
+    await waitFor(() => expect(saveDish).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(saveDish).mock.calls[0][0]).toMatchObject({
+      name: "Filé", menu: "CARDAPIO", categoryId: "fresca", alsoMenu: "DELIVERY", alsoCategoryId: "pizzas"
+    });
+  });
+
   test("novo prato nasce no cardápio escolhido no alto da tela e salva o cardápio", async () => {
     await abrir();
     fireEvent.click(within(screen.getByRole("radiogroup", { name: "Cardápio" })).getByRole("radio", { name: /Delivery/ }));

@@ -13,6 +13,10 @@ export function montarSnapshot(detalhe: DetalheDoPrato) {
     code: detalhe.code,
     menu: detalhe.menu,
     category: detalhe.category ? { id: detalhe.category.id, name: detalhe.category.name, parentName: detalhe.category.parentName } : null,
+    alsoMenu: detalhe.alsoMenu,
+    alsoCategory: detalhe.alsoCategory
+      ? { id: detalhe.alsoCategory.id, name: detalhe.alsoCategory.name, parentName: detalhe.alsoCategory.parentName }
+      : null,
     salePriceDefault: detalhe.salePriceDefault,
     yieldQty: detalhe.yieldQty,
     yieldUnit: detalhe.yieldUnit,

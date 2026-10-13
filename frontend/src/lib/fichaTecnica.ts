@@ -7,7 +7,7 @@
 // tela mostrava "—" e um aviso falso para o que o backend calcula normalmente.
 
 import type { DishListItem, DishMenu, DishUnitConversion } from "../api/client";
-import { cardapioCombina, categoriaCombina, type FiltroDeCardapio } from "./categoriasDasFichas";
+import { OUTRO_CARDAPIO, cardapioCombina, categoriaCombina, type FiltroDeCardapio } from "./categoriasDasFichas";
 
 /** Até aqui o CMV é bom. */
 export const CMV_BOM = 32;
@@ -264,7 +264,7 @@ export function filtrarPratos(pratos: DishListItem[], filtro: FiltroDaLista): Di
   return pratos.filter((prato) => {
     if (!filtro.mostrarInativos && !prato.isActive) return false;
     if (!cardapioCombina(prato, filtro.menu)) return false;
-    if (filtro.categoriaId && !categoriaCombina(prato, filtro.categoriaId)) return false;
+    if (filtro.categoriaId && !categoriaCombina(prato, filtro.categoriaId, filtro.menu)) return false;
     if (filtro.situacao !== "todos" && situacaoDaFicha(prato) !== filtro.situacao) return false;
     if (palavras.length === 0) return true;
     const texto = normalizarBusca(`${prato.name} ${prato.code ?? ""} ${prato.category?.name ?? ""} ${prato.category?.parentName ?? ""}`);
@@ -355,6 +355,10 @@ export type CamposDaFicha = {
   /** Salão ou delivery: a categoria escolhida precisa ser do mesmo cardápio. */
   menu: DishMenu;
   categoryId: string;
+  /** Outro cardápio em que o mesmo prato também é vendido; null = só em `menu`. */
+  alsoMenu: DishMenu | null;
+  /** Categoria no outro cardápio. */
+  alsoCategoryId: string;
   salePriceDefault: string;
   yieldQty: string;
   yieldUnit: string;
@@ -412,6 +416,27 @@ export function validarFicha(campos: CamposDaFicha, itens: ItemDaFicha[]): Erros
   return erros;
 }
 
+export type OndeVende = DishMenu | "AMBOS";
+
+export const ondeVende = (campos: Pick<CamposDaFicha, "menu" | "alsoMenu">): OndeVende => (campos.alsoMenu ? "AMBOS" : campos.menu);
+
+/**
+ * "Vendido em" do formulário: salão, delivery ou os dois. Ficar nos dois guarda o outro cardápio; sair de um
+ * dos dois mantém o que sobrou (e a categoria dele); trocar de cardápio solto limpa a categoria que ficou do outro lado.
+ */
+export function trocarOndeVende(campos: CamposDaFicha, novo: OndeVende): CamposDaFicha {
+  const atual = ondeVende(campos);
+  if (novo === atual) return campos;
+  if (novo === "AMBOS") return { ...campos, alsoMenu: OUTRO_CARDAPIO[campos.menu], alsoCategoryId: "" };
+  if (campos.alsoMenu) {
+    // Era nos dois: fica o cardápio escolhido, com a categoria que ele já tinha.
+    return novo === campos.menu
+      ? { ...campos, alsoMenu: null, alsoCategoryId: "" }
+      : { ...campos, menu: novo, categoryId: campos.alsoCategoryId, alsoMenu: null, alsoCategoryId: "" };
+  }
+  return { ...campos, menu: novo, categoryId: "" };
+}
+
 export function temErros(erros: ErrosDaFicha): boolean {
   return Boolean(erros.name || erros.salePriceDefault || erros.yieldQty || Object.keys(erros.itens).length > 0);
 }
@@ -429,6 +454,8 @@ export function montarPayloadDaFicha(
     code: campos.code.trim(),
     menu: campos.menu,
     categoryId: campos.categoryId,
+    alsoMenu: campos.alsoMenu,
+    alsoCategoryId: campos.alsoMenu ? campos.alsoCategoryId : "",
     salePriceDefault: Number.isFinite(preco) ? preco : null,
     yieldQty: lerNumero(campos.yieldQty),
     yieldUnit: campos.yieldUnit.trim().toUpperCase() || "UN",
