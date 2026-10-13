@@ -81,6 +81,14 @@ export function categoriaResumida(
   };
 }
 
+/** Itens do cardapio principal do prato e, se ele e vendido em dois, os do outro cardapio. Item de outro cardapio qualquer e ignorado. */
+export function separarItensPorCardapio<T extends { menu: string }>(dish: { menu: string; alsoMenu: string | null; items: T[] }) {
+  return {
+    principais: dish.items.filter((item) => item.menu === dish.menu),
+    doOutro: dish.alsoMenu && dish.alsoMenu !== dish.menu ? dish.items.filter((item) => item.menu === dish.alsoMenu) : []
+  };
+}
+
 /** Prato completo, com custo calculado, ingredientes e onde e vendido; null se nao existir. */
 export async function carregarDetalhe(client: ClienteDoBanco, id: string) {
   const dish = await client.dish.findUnique({
@@ -113,14 +121,21 @@ export async function carregarDetalhe(client: ClienteDoBanco, id: string) {
   if (!dish) return null;
 
   const salePrice = dish.salePriceDefault ? Number(dish.salePriceDefault) : null;
+  // A quantidade do a la carte nao e a do delivery: cada cardapio tem a sua lista, e o custo de cada um sai da propria.
+  const { principais, doOutro } = separarItensPorCardapio(dish);
   const custo = calculateDishCost({
     yieldQty: Number(dish.yieldQty),
     salePrice,
-    items: dish.items.map((item) => toCostItem(item))
+    items: principais.map((item) => toCostItem(item))
+  });
+  const custoDoOutro = calculateDishCost({
+    yieldQty: Number(dish.yieldQty),
+    salePrice: null,
+    items: doOutro.map((item) => toCostItem(item))
   });
 
-  const items = dish.items.map((item, index) => {
-    const calculado = custo.items[index];
+  const mapear = (lista: typeof dish.items, calculo: typeof custo) => lista.map((item, index) => {
+    const calculado = calculo.items[index];
     return {
       id: item.id,
       productId: item.productId,
@@ -142,6 +157,8 @@ export async function carregarDetalhe(client: ClienteDoBanco, id: string) {
       sortOrder: item.sortOrder
     };
   });
+  const items = mapear(principais, custo);
+  const alsoItems = mapear(doOutro, custoDoOutro);
 
   return {
     id: dish.id,
@@ -162,6 +179,14 @@ export async function carregarDetalhe(client: ClienteDoBanco, id: string) {
     cmvPercentual: custo.cmvPercentual,
     custoIncompleto: custo.hasUnresolvedUnit || custo.hasMissingCost,
     items,
+    // Prato vendido nos dois cardapios: as quantidades do outro cardapio (o delivery) e o custo delas.
+    alsoItems,
+    alsoCusto: {
+      calculatedCost: custoDoOutro.totalCost,
+      custoPorcao: custoDoOutro.costPerServing,
+      custoIncompleto: custoDoOutro.hasUnresolvedUnit || custoDoOutro.hasMissingCost,
+      itemsCount: doOutro.length
+    },
     // Onde o prato e vendido e por quanto (hoje so o cardapio da 99). O preco de
     // venda padrao da ficha nao substitui isto: varia por loja.
     listings: dish.listings.map((listing) => ({

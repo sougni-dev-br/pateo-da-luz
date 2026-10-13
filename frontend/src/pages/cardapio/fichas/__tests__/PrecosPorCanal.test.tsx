@@ -25,7 +25,9 @@ function prato(parcial: Partial<DishDetail> = {}): DishDetail {
   return {
     id: "d1", code: null, name: "Filé", menu: "CARDAPIO", category: null, alsoMenu: "DELIVERY", alsoCategory: null, salePriceDefault: 80,
     yieldQty: 1, yieldUnit: "UN", isActive: true, itemsCount: 1, calculatedCost: 24, custoPorcao: 24, margemBruta: 56, cmvPercentual: 30,
-    custoIncompleto: false, notes: null, createdAt: "2026-10-01T00:00:00.000Z", updatedAt: "2026-10-08T00:00:00.000Z",
+    custoIncompleto: false, alsoCusto: { calculatedCost: 24, custoPorcao: 24, custoIncompleto: false, itemsCount: 1 },
+    alsoItems: [{ id: "i2", productId: "p1", productCode: null, productName: "FILE", productUnit: "KG", quantity: 200, unit: "G", wasteFactor: 0, unitCost: 120, unitFactor: 0.001, itemCost: 24, issue: null, conversions: [], embalagemInferida: null, notes: null, sortOrder: 0 }],
+    notes: null, createdAt: "2026-10-01T00:00:00.000Z", updatedAt: "2026-10-08T00:00:00.000Z",
     items: [{ id: "i1", productId: "p1", productCode: null, productName: "FILE", productUnit: "KG", quantity: 200, unit: "G", wasteFactor: 0, unitCost: 120, unitFactor: 0.001, itemCost: 24, issue: null, conversions: [], embalagemInferida: null, notes: null, sortOrder: 0 }],
     listings: [
       listagem({ id: "l99", price: 109.9 }),
@@ -122,6 +124,22 @@ describe("preços por canal", () => {
     mostrar(prato());
     await screen.findByText("Pateo Frei Caneca");
     expect(screen.queryByText("Líquido estimado")).toBeNull();
+  });
+
+  test("o delivery usa o custo das quantidades do delivery, não o do a la carte", () => {
+    // A la carte custa 24 (30% de 80); as quantidades do delivery custam 36 → 36 / 96 = 37,5% no iFood, e não 24 / 96 = 25%.
+    mostrar(prato({ alsoCusto: { calculatedCost: 36, custoPorcao: 36, custoIncompleto: false, itemsCount: 1 } }));
+    const ifood = screen.getByText("Pateo da Luz").closest("tr")!;
+    expect(within(ifood).getByText(/^37,5%$/)).toBeInTheDocument();
+    expect(within(screen.getByText("Salão (a la carte)").closest("tr")!).getByText(/^30(,0)?%$/)).toBeInTheDocument();
+  });
+
+  test("vendido nos dois sem as quantidades do delivery: o CMV do delivery não é calculado e a tela diz por quê", () => {
+    mostrar(prato({ alsoItems: [], alsoCusto: { calculatedCost: 0, custoPorcao: 0, custoIncompleto: false, itemsCount: 0 } }));
+    const ifood = screen.getByText("Pateo da Luz").closest("tr")!;
+    expect(within(ifood).getByText("falta delivery")).toBeInTheDocument();
+    // O salão segue com o CMV dele.
+    expect(within(screen.getByText("Salão (a la carte)").closest("tr")!).getByText(/^30(,0)?%$/)).toBeInTheDocument();
   });
 
   test("prato só do salão e sem preço de loja não mostra a seção", () => {
