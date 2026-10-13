@@ -637,6 +637,14 @@ function LinhaDaConferencia({ inventoryId, item, todos, rotuloImpacto, onLocaliz
           </>
         )}
         <div className="conf-conta__contado"><dt>Contado</dt><dd>{qtd(item.contado, u)}</dd></div>
+        {item.desperdicio > 0 && (
+          // Fora da conta: o desperdício já está dentro do consumo (anterior + compras − contado), não se subtrai de novo.
+          <div className="conf-conta__desperdicio">
+            <dt>Desperdício</dt>
+            <dd>{qtd(item.desperdicio, u)}</dd>
+            <small>já está no consumo</small>
+          </div>
+        )}
       </dl>
 
       <div className="conf-item__impacto">
