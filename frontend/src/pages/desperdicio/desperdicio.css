@@ -1,0 +1,194 @@
+/* Desperdício: lançamento rápido (celular primeiro) e leitura do período. */
+
+.waste-page { display: grid; gap: 20px; max-width: 980px; }
+.waste-page h2 { margin: 0; font-size: 17px; }
+
+.waste-intro { margin: 0; max-width: 720px; color: var(--ink-soft); font-size: 14px; line-height: 1.5; }
+
+.waste-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+.waste-form {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+.waste-form .ds-button { justify-self: stretch; min-height: 48px; }
+
+/* Mesma voz dos rótulos do design system (TextField): quem preenche não vê dois estilos no mesmo formulário. */
+.waste-field { display: grid; gap: 6px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.waste-label { padding: 0; font-size: 13px; font-weight: 400; color: var(--muted); }
+.waste-error { margin: 0; color: var(--danger, #b3261e); font-size: 13px; }
+
+.waste-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+/* Botão de enviar: no celular fica fixo no pé da tela, para não sumir atrás de 8 motivos e da foto. */
+.waste-submit { display: grid; gap: 8px; }
+@media (max-width: 700px) {
+  .waste-submit {
+    position: sticky;
+    bottom: 0;
+    margin: 0 -14px -14px;
+    padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
+    background: var(--paper);
+    border-top: 1px solid var(--line);
+    border-radius: 0 0 var(--radius-md) var(--radius-md);
+    z-index: 2;
+  }
+}
+
+/* Insumo ou prato pronto */
+.waste-modes { display: inline-flex; gap: 4px; padding: 4px; background: var(--paper-soft); border: 1px solid var(--line); border-radius: 999px; justify-self: start; }
+.waste-mode { min-height: 44px; padding: 0 18px; font: inherit; font-size: 14px; cursor: pointer; background: transparent; color: inherit; border: 0; border-radius: 999px; }
+.waste-mode:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.waste-mode-on { background: var(--paper); font-weight: 600; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
+
+/* Busca de produto */
+.waste-search { position: relative; display: grid; gap: 6px; }
+.waste-search-field {
+  display: flex; align-items: center; gap: 8px;
+  min-height: 48px; padding: 0 12px;
+  background: var(--paper); border: 1px solid var(--line-strong, var(--line)); border-radius: var(--radius-md);
+}
+.waste-search-field:focus-within { outline: 2px solid var(--ink); outline-offset: 1px; }
+.waste-search-field input { flex: 1; min-width: 0; border: 0; background: transparent; font: inherit; font-size: 16px; outline: none; }
+.waste-search-field:has(input[aria-invalid="true"]) { border-color: var(--danger, #b3261e); }
+.waste-search-note { margin: 0; font-size: 13px; color: var(--ink-soft); }
+.waste-search-list {
+  list-style: none; margin: 0; padding: 4px;
+  max-height: 280px; overflow-y: auto;
+  background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius-md);
+}
+.waste-search-list button {
+  display: grid; gap: 2px; width: 100%; min-height: 48px; padding: 8px 10px;
+  text-align: left; background: transparent; border: 0; border-radius: 8px; cursor: pointer; font: inherit;
+}
+.waste-search-list button:hover { background: var(--paper-soft); }
+/* O fundo claro do hover quase não se vê (1,1:1): o foco por teclado precisa de contorno de verdade. */
+.waste-search-list button:focus-visible { background: var(--paper-soft); outline: 2px solid var(--ink); outline-offset: -2px; }
+.waste-search-list button span { font-size: 12px; color: var(--ink-soft); }
+
+.waste-picked {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  min-height: 48px; padding: 8px 12px;
+  background: var(--paper-soft); border: 1px solid var(--line); border-radius: var(--radius-md);
+}
+.waste-picked div { display: grid; gap: 2px; min-width: 0; }
+.waste-picked span { font-size: 12px; color: var(--ink-soft); }
+.waste-picked-clear {
+  display: grid; place-items: center; width: 44px; height: 44px; flex: none;
+  background: transparent; border: 0; border-radius: 8px; cursor: pointer; color: var(--ink-soft);
+}
+.waste-picked-clear:hover { background: var(--line); }
+.waste-picked-clear:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+
+.waste-spin { animation: waste-spin 0.9s linear infinite; }
+@keyframes waste-spin { to { transform: rotate(360deg); } }
+
+/* Motivo */
+.waste-reasons legend { padding: 0; margin-bottom: 6px; }
+.waste-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.waste-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  min-height: 44px; padding: 0 14px; font: inherit; font-size: 14px; cursor: pointer;
+  background: var(--paper); color: inherit;
+  border: 1px solid var(--line-strong, var(--line)); border-radius: 999px;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+.waste-chip:hover { border-color: var(--ink); }
+.waste-chip:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+/* Selecionado: contorno escuro + marca de seleção, não só a cor de fundo (2,7:1 contra o branco). */
+.waste-chip-on { background: var(--gold); border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); font-weight: 600; }
+
+/* Relatório */
+.waste-report { display: grid; gap: 16px; }
+.waste-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
+.waste-filters .ds-text-field { flex: 0 1 160px; min-width: 130px; }
+
+.waste-kpis { display: flex; flex-wrap: wrap; gap: 12px; margin: 0; }
+.waste-kpis > div {
+  display: grid; gap: 4px; flex: 1 1 160px; padding: 14px 16px;
+  background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius-md);
+}
+.waste-kpis dt { font-size: 13px; color: var(--ink-soft); }
+.waste-kpis dd { margin: 0; font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.waste-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.waste-group { padding: 14px 16px; background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius-md); }
+.waste-group h3 { margin: 0 0 10px; font-size: 14px; }
+.waste-group ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.waste-group-row { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; }
+.waste-group-row span { min-width: 0; overflow-wrap: anywhere; }
+.waste-group-row strong { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.waste-bar { height: 6px; margin-top: 4px; background: var(--paper-soft); border-radius: 999px; overflow: hidden; }
+.waste-bar span { display: block; height: 100%; background: var(--gold); border-radius: inherit; }
+
+.waste-note { margin: 0; font-size: 13px; color: var(--ink-soft); }
+.waste-load-error {
+  display: grid; gap: 8px; justify-items: start; padding: 14px 16px;
+  background: var(--paper); border: 1px solid var(--danger, #b3261e); border-radius: var(--radius-md);
+}
+.waste-load-error span { font-size: 13px; color: var(--ink-soft); }
+
+/* Lista: tabela no computador */
+.waste-table-wrap { overflow-x: auto; min-width: 0; background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius-md); }
+.waste-table-wrap:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.waste-sub { display: block; margin-top: 2px; font-size: 12px; color: var(--ink-soft); font-weight: 400; }
+.waste-cancelled strong { text-decoration: line-through; }
+.waste-cancelled-tag { margin-left: 8px; vertical-align: middle; }
+
+/* Foto */
+.waste-photo-btn { display: inline-flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 16px; font: inherit; font-size: 14px; cursor: pointer; justify-self: start; background: var(--paper); color: inherit; border: 1px dashed var(--line-strong, var(--line)); border-radius: var(--radius-md); }
+.waste-photo-btn:hover { border-color: var(--ink); }
+.waste-photo-btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.waste-photo-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.waste-photo-picked { display: flex; align-items: center; gap: 10px; }
+.waste-photo-picked img { width: 72px; height: 72px; object-fit: cover; border-radius: var(--radius-md); border: 1px solid var(--line); }
+.waste-photo-view { display: block; max-width: 100%; max-height: 70vh; margin: 0 auto; border-radius: var(--radius-md); }
+/* "Ver foto" / "Anexar foto": alvo de toque confortável sem virar botão pesado em cada linha. */
+.waste-link { display: flex; width: fit-content; align-items: center; gap: 4px; min-height: 32px; margin-top: 2px; padding: 6px 4px; font: inherit; font-size: 13px; color: var(--ink-soft); background: none; border: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.waste-link:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.waste-link:disabled { cursor: progress; text-decoration: none; }
+
+/* Aviso por WhatsApp */
+.waste-config { padding: 0 16px; background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius-md); }
+.waste-config summary { display: flex; align-items: center; min-height: 48px; cursor: pointer; font-size: 14px; font-weight: 600; }
+.waste-config summary:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.waste-config form { display: grid; gap: 12px; margin: 0 0 16px; max-width: 420px; }
+.waste-config form .ds-button { justify-self: start; }
+.waste-config-erro { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 16px; font-size: 14px; border-color: var(--danger, #b3261e); }
+
+.waste-dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+
+@media (max-width: 560px) {
+  .waste-form { padding: 14px; }
+  .waste-filters .ds-text-field { flex: 1 1 130px; }
+}
+
+/* Celular: cada lançamento vira um cartão (nome, quantidade, motivo e valor à vista, sem rolar para o lado). */
+@media (max-width: 640px) {
+  .waste-table-wrap { overflow: visible; background: transparent; border: 0; }
+  .waste-table, .waste-table tbody { display: block; width: 100%; }
+  /* O cabeçalho some da vista, mas continua para o leitor de tela. */
+  .waste-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .waste-table tr {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px;
+    margin-bottom: 10px; padding: 12px 14px;
+    background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius-md);
+  }
+  .waste-table td { display: block; width: auto; padding: 0; border: 0; text-align: left; background: transparent !important; }
+  .waste-table td[data-col="item"] { order: 1; flex: 1 1 100%; }
+  .waste-table td[data-col="quantidade"] { order: 2; font-weight: 600; }
+  .waste-table td[data-col="motivo"] { order: 3; }
+  .waste-table td[data-col="data"] { order: 4; font-size: 13px; color: var(--ink-soft); }
+  .waste-table td[data-col="valor"] { order: 5; margin-left: auto; font-weight: 600; }
+  .waste-table td[data-col="acoes"] { order: 6; margin-left: auto; width: auto; }
+  .waste-table td[data-col="valor"] ~ td[data-col="acoes"] { margin-left: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .waste-spin { animation: none; }
+  .waste-chip { transition: none; }
+}

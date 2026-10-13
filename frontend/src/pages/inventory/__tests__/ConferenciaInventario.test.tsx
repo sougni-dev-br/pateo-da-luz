@@ -28,7 +28,7 @@ function item(parcial: Partial<ItemDaConferencia>): ItemDaConferencia {
   return {
     itemId: "i", productId: "p", productCode: "100", productName: "PRODUTO", sectorName: "ESTOQUE", unit: "UN",
     contado: 1, contadoPor: null, contadoEm: null, anterior: 1, anteriorData: "2026-06-29T00:00:00.000Z", anteriorCodigo: "INV-2026-0020",
-    compras: 0, disponivel: 1, consumo: 0, custoUnitario: 1, custoFonte: "COMPRAS_DO_PERIODO", custoDetalhe: null, impacto: 0, classe: "COERENTE", motivo: "Consumo de 0 UN no período.", conferido: null, recontagemId: null,
+    compras: 0, desperdicio: 0, disponivel: 1, consumo: 0, custoUnitario: 1, custoFonte: "COMPRAS_DO_PERIODO", custoDetalhe: null, impacto: 0, classe: "COERENTE", motivo: "Consumo de 0 UN no período.", conferido: null, recontagemId: null,
     ...parcial
   };
 }
@@ -93,6 +93,20 @@ describe("ConferenciaInventario", () => {
     expect(within(linha).getByText(/29\/06\/2026/)).toBeInTheDocument();
     expect(within(linha).getByText("Contado").nextElementSibling).toHaveTextContent("420 PCTE");
     expect(within(linha).getByText("Disponível").nextElementSibling).toHaveTextContent("2 PCTE");
+  });
+
+  test("mostra o desperdício registrado na conta, só quando houve", async () => {
+    const comPerda = item({
+      itemId: "perda", productName: "SALMAO", unit: "KG", anterior: 10, compras: 0, disponivel: 10, contado: 4, consumo: 6,
+      desperdicio: 2, classe: "COERENTE", motivo: "Consumo de 6 KG no período. Inclui 2 KG de desperdício registrado."
+    });
+    vi.mocked(getConferenciaDoInventario).mockResolvedValue(conferencia([comPerda, mignon]));
+    render(<ConferenciaInventario inventoryId="inv" onLocalizar={vi.fn()} />);
+
+    const linha = (await screen.findByText("SALMAO")).closest("li")!;
+    expect(within(linha).getByText("Desperdício").nextElementSibling).toHaveTextContent("2 KG");
+    const outra = screen.getByText("FILE MIGNON").closest("li")!;
+    expect(within(outra).queryByText("Desperdício")).not.toBeInTheDocument();
   });
 
   test("localizar leva o item para a lista de edicao", async () => {

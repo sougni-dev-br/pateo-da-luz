@@ -25,6 +25,7 @@ import { VerificacaoDoFechamento } from "../components/VerificacaoDoFechamento";
 import { EquacaoDoCmv } from "../components/cmv/EquacaoDoCmv";
 import { ComparacaoDeVisoes } from "../components/cmv/ComparacaoDeVisoes";
 import { ComposicaoDoPeriodo } from "../components/cmv/ComposicaoDoPeriodo";
+import { DesperdicioDoCiclo } from "../components/cmv/DesperdicioDoCiclo";
 import { compararVisoes } from "../lib/visoes-do-cmv";
 import { Button, IconButton, Money, StatusBadge as DsStatusBadge } from "../design-system";
 import type { StatusTone } from "../design-system";
@@ -1199,6 +1200,8 @@ export function CmvReal({ user }: { user: AppUser }) {
               cmvPercentual={selectedPeriod.cmvPercentual}
               margemBruta={selectedPeriod.margemBruta}
             />
+
+            <DesperdicioDoCiclo periodoId={selectedPeriod.id} />
 
             {/* O que a receita e as compras trouxeram, e de onde vieram as bases.
                 Antes eram cinco cartões de "Rastreabilidade" — três deles com "-"
