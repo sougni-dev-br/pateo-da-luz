@@ -25,7 +25,13 @@ const modoVenda = z.string().nullish().transform((valor) => (valor && valor.trim
 // Texto livre vindo do PDV (nome de funcionario, motivo, hora) que so alimenta analise.
 // TRUNCA em vez de recusar: um valor absurdo nao pode derrubar o sync inteiro e deixar o
 // dia sem faturamento por causa de um campo que nem entra na receita.
-const textoCurto = (max: number) => z.string().nullish().transform((valor) => (valor == null ? valor : valor.slice(0, max)));
+// Tipo inesperado (numero, booleano...) vira null pelo mesmo motivo: o dia nao pode ficar sem
+// receita por causa de um campo analitico que chegou diferente do combinado.
+const textoCurto = (max: number) =>
+  z.preprocess(
+    (valor) => (typeof valor === "string" || valor === null || valor === undefined ? valor : null),
+    z.string().nullish().transform((valor) => (valor == null ? valor : valor.slice(0, max)))
+  );
 
 const vendaSchema = z.object({
   modo_venda: modoVenda,
@@ -36,9 +42,14 @@ const vendaSchema = z.object({
   hora: textoCurto(8), // "HH:MM"
   func_cancelou: textoCurto(120),
   motivo_cancelamento: textoCurto(500),
+  // Tipo do desconto como o PDV escreve ("POR VALOR", "DESCONTO 30%"...); opcional.
+  desconto: textoCurto(120),
   situacao_da_venda: z.string().min(1), // "RECEBIDA" | "CANCELADA"
   nr_ticket: z.string().nullable().optional(),
   qtd_pessoas: z.number().int().nonnegative().default(0),
+  // Estes dois ja alimentam o faturamento do dia e o agente SEMPRE os envia; por isso o
+  // default(0) nao confunde "sem desconto" com "sem dado" na pratica. Se um agente passar a
+  // omiti-los, AgileSale gravaria 0/0 e o relatorio de descontos leria como "nenhum desconto".
   vl_subtotal_itens: money.default(0),
   vl_desconto: money.default(0),
   vl_servico_inf: money.default(0),
@@ -70,7 +81,10 @@ const itemSchema = z.object({
   categoria_produto: z.string().nullable().optional(),
   qtd: z.number().nonnegative().default(0),
   vl_tot: money.default(0),
-  func_lancou: textoCurto(120) // quem lancou o item; opcional (agente antigo nao manda)
+  func_lancou: textoCurto(120), // quem lancou o item; opcional (agente antigo nao manda)
+  // Item cancelado: quem cancelou e por que. Opcionais pelo mesmo motivo.
+  func_cancelou: textoCurto(120),
+  motivo_cancelamento: textoCurto(500)
 });
 
 export const agileSyncPayloadSchema = z.object({

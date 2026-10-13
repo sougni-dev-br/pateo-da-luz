@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { prisma } from "../../../../config/database.js";
+import { CANAIS_FATURADOS, canalDoWebhook } from "./noventa-nove-canais.js";
 import type { Prisma } from "@prisma/client";
 
 // Webhook receiver do 99 Food (DiDi Food).
@@ -140,7 +141,9 @@ export function verifyWebhookSignature(
   }
   return {
     valid: false,
-    reason: `assinatura invalida — esperado ${expected.slice(0, 12)}… recebido ${headerSign.slice(0, 12)}…`
+    // NAO inclui o valor esperado (nem um pedaco): com 12 hex de MD5(corpo+segredo) um chamador
+    // anonimo teria um oraculo para tentar descobrir o segredo offline.
+    reason: "assinatura invalida"
   };
 }
 
@@ -259,9 +262,9 @@ async function persistOrderCallback(
   storeId: string,
   order: OrderCallbackPayload,
   rawPayload: unknown
-): Promise<string | null> {
+): Promise<{ saleId: string | null; confirmadaPelaApi: boolean }> {
   const externalOrderId = exactOrderId(order, rawPayload);
-  if (!externalOrderId) return null;
+  if (!externalOrderId) return { saleId: null, confirmadaPelaApi: false };
 
   const orderDate = unixToDate(order.create_time) ?? unixToDate(order.pay_time) ?? new Date();
   const price = order.price ?? {};
@@ -294,21 +297,27 @@ async function persistOrderCallback(
     deliveryFeeAmount,
     netAmount,
     paymentMethod: order.pay_type !== undefined ? String(order.pay_type) : null,
-    channel: order.delivery_type !== undefined ? String(order.delivery_type) : null,
+    // O corpo do webhook e publico: um delivery_type igual a um canal de faturamento NAO pode virar
+    // receita (ver noventa-nove-canais.ts).
+    channel: canalDoWebhook(order.delivery_type),
     rawPayload: rawPayload as Prisma.InputJsonValue
   };
 
-  // Idempotente: upsert por (deliveryStoreId, externalOrderId)
-  const sale = await prisma.noventaNoveSale.upsert({
-    where: {
-      // Composite unique key — Prisma expõe assim
-      deliveryStoreId_externalOrderId: {
-        deliveryStoreId: storeId,
-        externalOrderId
-      }
-    },
-    create: data,
-    update: {
+  // Venda que a API FINANCEIRA ja confirmou (canal de faturamento) e a fonte da verdade: o webhook,
+  // que e publico, nao a reescreve (valores, canal e payload). A protecao e ATOMICA: o criar falha
+  // com P2002 se a venda existe, e o atualizar leva a condicao no proprio WHERE ("canal nulo ou nao
+  // faturado"), entao uma confirmacao da API entre uma leitura e a escrita nao e atropelada.
+  const chave = { deliveryStoreId: storeId, externalOrderId };
+  try {
+    const criada = await prisma.noventaNoveSale.create({ data });
+    return { saleId: criada.id, confirmadaPelaApi: false };
+  } catch (error: unknown) {
+    if ((error as { code?: string } | null)?.code !== "P2002") throw error;
+  }
+
+  const atualizadas = await prisma.noventaNoveSale.updateMany({
+    where: { ...chave, OR: [{ channel: null }, { channel: { notIn: [...CANAIS_FATURADOS] } }] },
+    data: {
       orderDate: data.orderDate,
       competenceYear: data.competenceYear,
       competenceMonth: data.competenceMonth,
@@ -322,7 +331,33 @@ async function persistOrderCallback(
       rawPayload: data.rawPayload
     }
   });
-  return sale.id;
+  const atual = await prisma.noventaNoveSale.findUnique({
+    where: { deliveryStoreId_externalOrderId: chave },
+    select: { id: true }
+  });
+  return { saleId: atual?.id ?? null, confirmadaPelaApi: atualizadas.count === 0 && atual !== null };
+}
+
+// Aviso (com limite de uma vez por janela) de que um evento foi aceito SEM assinatura. Sem isto o log
+// so mostra os eventos assinados ("assinatura OK"), e da para saber se a 99 assina em producao
+// apenas pela ausencia de linhas. Com o aviso, a duvida se responde olhando o log do servidor.
+const JANELA_AVISO_SEM_ASSINATURA_MS = 10 * 60 * 1000;
+let ultimoAvisoSemAssinatura = 0;
+function avisarSemAssinatura(agora = Date.now()) {
+  if (agora - ultimoAvisoSemAssinatura < JANELA_AVISO_SEM_ASSINATURA_MS) return;
+  ultimoAvisoSemAssinatura = agora;
+  console.warn("[99Food webhook] evento aceito SEM assinatura (didi-header-sign ausente). Se esta linha se repete a cada janela de 10 min com trafego real, a 99 nao esta assinando os callbacks; se so aparece de vez em quando, e chamador anonimo.");
+}
+
+// So para teste: o aviso guarda estado no modulo e o teste precisa partir do zero.
+export function reiniciarAvisoSemAssinatura() {
+  ultimoAvisoSemAssinatura = 0;
+}
+
+// Texto vindo do corpo de um webhook PUBLICO nunca vai cru para log nem para a resposta: sem quebras
+// de linha (injecao de linha de log), sem caracteres de controle e com tamanho limitado.
+export function textoSeguro(valor: unknown, max = 60): string {
+  return String(valor ?? "").replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, " ").trim().slice(0, max);
 }
 
 // Handler principal — chamado direto do route handler.
@@ -379,6 +414,7 @@ export async function handleWebhook(
       // Log só quando validou de fato (não quando aceitou sem sign)
       console.log("[99Food webhook] assinatura OK");
     }
+    if (!headerSign) avisarSemAssinatura();
   }
 
   // orderNew / orderCreated / order_new / orderStatusChanged etc — todos
@@ -389,11 +425,15 @@ export async function handleWebhook(
       return { event, handled: false, reason: "Payload sem order_info — nada a persistir", saleId: null };
     }
     try {
-      const saleId = await persistOrderCallback(store.id, orderInfo, rawBody);
+      const { saleId, confirmadaPelaApi } = await persistOrderCallback(store.id, orderInfo, rawBody);
       return {
         event,
         handled: Boolean(saleId),
-        reason: saleId ? "Pedido persistido/atualizado" : "order_id ausente — nada persistido",
+        reason: !saleId
+          ? "order_id ausente — nada persistido"
+          : confirmadaPelaApi
+            ? "Venda ja confirmada pela API financeira — o webhook nao altera"
+            : "Pedido persistido/atualizado",
         saleId
       };
     } catch (error: unknown) {

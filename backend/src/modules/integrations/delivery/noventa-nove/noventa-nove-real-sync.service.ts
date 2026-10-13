@@ -8,6 +8,8 @@ import {
 } from "./noventa-nove-financial-api.js";
 import { hasValidCredential } from "./noventa-nove-http-client.js";
 import { assertPeriodWritableForDate } from "../../../cmv-real/cmv-real.service.js";
+import { CANAIS_FATURADOS } from "./noventa-nove-canais.js";
+import { isPeriodLockedError } from "../../../cmv-real/period-locked-error.js";
 import { upsertReceivableFromNoventaNoveSettlement } from "../../../receivables/receivable.service.js";
 import {
   edgeBillsWindow,
@@ -319,13 +321,11 @@ async function persistSettlements(
 // 3. RevenueEntry — faturamento delivery no DRE (só com companyId)
 // ---------------------------------------------------------------------------
 
-// Canais que a API FINANCEIRA grava (ver persistSales: channel = isRevenue ?
-// "DELIVERY" : "DELIVERY_REFUND"). O webhook grava outra coisa no mesmo campo — o
-// delivery_type numerico do payload, tipicamente "1" — entao o canal serve para
-// separar as duas origens.
-export const CANAIS_FATURADOS = ["DELIVERY", "DELIVERY_REFUND"] as const;
+// Os canais de faturamento vivem em noventa-nove-canais.ts (sem dependencias): o webhook publico
+// precisa conhece-los para nunca grava-los. Reexportado aqui porque outros modulos importam daqui.
+export { CANAIS_FATURADOS };
 
-async function reflectSalesIntoRevenueEntries(
+export async function reflectSalesIntoRevenueEntries(
   store: { id: string; companyId: string | null; nickname: string },
   year: number,
   month: number
@@ -401,7 +401,11 @@ async function reflectSalesIntoRevenueEntries(
   for (const dateKey of [...byDate.keys()]) {
     try {
       await assertPeriodWritableForDate(byDate.get(dateKey)!.dateObj, "Sincronizacao do 99 Food");
-    } catch {
+    } catch (error: unknown) {
+      // So a TRAVA vira "dia pulado". Qualquer outro erro (banco fora, timeout) sobe: o passo
+      // do faturamento fica registrado como falha no resultado do sync, em vez de o dia deixar de
+      // ser gravado sob a etiqueta falsa "periodo fechado" (13/10/2026, mesmo defeito no sync do PDV).
+      if (!isPeriodLockedError(error)) throw error;
       bloqueados.push(dateKey);
       byDate.delete(dateKey);
     }

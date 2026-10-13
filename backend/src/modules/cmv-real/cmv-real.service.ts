@@ -10,6 +10,7 @@ import {
   getCmvPurchaseTotalsByPurchaseDateRange,
 } from "./cmv-purchase-base.service.js";
 import { compararTotaisCongelados, mensagemDeDivergencia } from "./divergencia-congelada.js";
+import { PeriodLockedError } from "./period-locked-error.js";
 
 type CmvPeriodStatus = "OPEN" | "CLOSED";
 
@@ -376,7 +377,7 @@ export async function assertPeriodWritableForRange(startDate: Date, endDate: Dat
   const lockedMonth = await findLockedMonthByDateRange(startDate, endDate);
   if (lockedMonth) {
     const mes = `${String(lockedMonth.competenceMonth).padStart(2, "0")}/${lockedMonth.competenceYear}`;
-    throw new Error(
+    throw new PeriodLockedError(
       `${context} bloqueado: o fechamento mensal de ${mes} esta travado. Reabra o mes antes de alterar dados.`
     );
   }
@@ -384,7 +385,7 @@ export async function assertPeriodWritableForRange(startDate: Date, endDate: Dat
   const period = await findClosedCmvPeriodByDateRange(startDate, endDate);
   if (!period) return;
   const code = period.code?.trim() || period.name;
-  throw new Error(
+  throw new PeriodLockedError(
     `${context} bloqueado: existe apuracao de CMV fechada (${code}) cobrindo ${toDateKey(period.dataInicial)} a ${toDateKey(period.dataFinal)}. Reabra o periodo antes de alterar dados.`
   );
 }

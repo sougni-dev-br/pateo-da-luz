@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { assertPeriodWritableForDate } from "../../cmv-real/cmv-real.service.js";
+import { isPeriodLockedError } from "../../cmv-real/period-locked-error.js";
 import { REVENUE_CHANNEL_SALON } from "../../monthly/revenue-channels.js";
 import { prisma } from "../../../config/database.js";
 import { auditLog } from "../../security/security-utils.js";
@@ -119,7 +120,10 @@ export function mapSaleRow(venda: AgileVenda) {
     people: venda.qtd_pessoas,
     totalAmount: venda.vl_total,
     cancelledBy: limparNome(venda.func_cancelou),
-    cancelReason: limparNome(venda.motivo_cancelamento)
+    cancelReason: limparNome(venda.motivo_cancelamento),
+    subtotalAmount: venda.vl_subtotal_itens,
+    discountAmount: venda.vl_desconto,
+    discountLabel: limparNome(venda.desconto)
   };
 }
 
@@ -141,7 +145,9 @@ export function mapSaleItemRow(item: AgileItem) {
     productCategory: item.categoria_produto?.trim() ? item.categoria_produto.trim() : null,
     quantity: item.qtd,
     totalAmount: item.vl_tot,
-    launchedBy: limparNome(item.func_lancou)
+    launchedBy: limparNome(item.func_lancou),
+    cancelledBy: limparNome(item.func_cancelou),
+    cancelReason: limparNome(item.motivo_cancelamento)
   };
 }
 
@@ -454,43 +460,22 @@ export async function importAgileSync(payload: AgileSyncPayload): Promise<AgileS
     avisos.push(`${duplicatasNrseqvenda} linha(s) duplicada(s) por nrseqvenda foram deduplicadas.`);
   }
 
-  // Venda que não é de mesa NÃO entra no Salão (nem o pagamento, nem o item). Fica
-  // registrado, porque é faturamento que o PDV mandou e o ERP não somou aqui: se for
-  // delivery/viagem de verdade, quem o conta são as plataformas; se for um modo novo
-  // que deveria ser Salão, alguém precisa ver isto e decidir.
-  if (naoMesa.vendas > 0 || naoMesa.pagamentos > 0 || naoMesa.itens > 0) {
-    const porModo = Object.entries(naoMesa.modos).map(([modo, qtd]) => `${modo}: ${qtd}`).join(", ");
-    avisos.push(
-      `${naoMesa.vendas} venda(s) com modo diferente de "mesa" ficaram fora do Salao (${porModo || "sem modo informado"}); ` +
-      `${naoMesa.pagamentos} pagamento(s) e ${naoMesa.itens} item(ns) junto.`
-    );
-    await auditLog({
-      userId: null,
-      action: "AGILE_SYNC_NON_TABLE_SALES_EXCLUDED",
-      entity: "RevenueEntry",
-      entityId: null,
-      newValue: {
-        batchId,
-        periodo: `${payload.periodoInicio}..${payload.periodoFim}`,
-        vendas: naoMesa.vendas,
-        pagamentos: naoMesa.pagamentos,
-        itens: naoMesa.itens,
-        modos: naoMesa.modos,
-        motivo: "modo_venda diferente de mesa nao compoe o faturamento do Salao"
-      }
-    });
-  }
-
   // O sync grava faturamento; um mes travado ou periodo de CMV fechado nao pode ser
   // reescrito pelo agente. Dias bloqueados sao pulados e reportados, para nao derrubar
   // o sync dos dias abertos nem manter o agente em erro permanente.
+  //
+  // So a TRAVA vira "dia pulado". Qualquer outro erro (banco fora, timeout) sobe e falha o
+  // sync inteiro, antes de gravar qualquer coisa: o agente tenta de novo (retry com espera)
+  // e o proximo sync cobre os ultimos 5 dias. Engolir o erro como "periodo fechado"
+  // deixava o faturamento do dia sem gravar e a auditoria acusava um bloqueio que nao existia.
   const diasBloqueados: string[] = [];
   const diasGravaveis: typeof dias = [];
   for (const dia of dias) {
     try {
       await assertPeriodWritableForDate(dia.date, "Sincronizacao do Agile PDV");
       diasGravaveis.push(dia);
-    } catch {
+    } catch (error: unknown) {
+      if (!isPeriodLockedError(error)) throw error;
       diasBloqueados.push(dia.date.toISOString().slice(0, 10));
     }
   }
@@ -517,6 +502,35 @@ export async function importAgileSync(payload: AgileSyncPayload): Promise<AgileS
         dias: diasBloqueados.length,
         datas: diasBloqueados,
         motivo: "periodo de CMV fechado ou mes travado — o faturamento desses dias NAO foi gravado"
+      }
+    });
+  }
+
+  // Auditoria/aviso das vendas fora do Salao so DEPOIS do laco da trava: se a checagem falhar e o
+  // sync subir o erro, o agente tenta de novo e nada fica auditado em duplicidade.
+  // Venda que não é de mesa NÃO entra no Salão (nem o pagamento, nem o item). Fica
+  // registrado, porque é faturamento que o PDV mandou e o ERP não somou aqui: se for
+  // delivery/viagem de verdade, quem o conta são as plataformas; se for um modo novo
+  // que deveria ser Salão, alguém precisa ver isto e decidir.
+  if (naoMesa.vendas > 0 || naoMesa.pagamentos > 0 || naoMesa.itens > 0) {
+    const porModo = Object.entries(naoMesa.modos).map(([modo, qtd]) => `${modo}: ${qtd}`).join(", ");
+    avisos.push(
+      `${naoMesa.vendas} venda(s) com modo diferente de "mesa" ficaram fora do Salao (${porModo || "sem modo informado"}); ` +
+      `${naoMesa.pagamentos} pagamento(s) e ${naoMesa.itens} item(ns) junto.`
+    );
+    await auditLog({
+      userId: null,
+      action: "AGILE_SYNC_NON_TABLE_SALES_EXCLUDED",
+      entity: "RevenueEntry",
+      entityId: null,
+      newValue: {
+        batchId,
+        periodo: `${payload.periodoInicio}..${payload.periodoFim}`,
+        vendas: naoMesa.vendas,
+        pagamentos: naoMesa.pagamentos,
+        itens: naoMesa.itens,
+        modos: naoMesa.modos,
+        motivo: "modo_venda diferente de mesa nao compoe o faturamento do Salao"
       }
     });
   }

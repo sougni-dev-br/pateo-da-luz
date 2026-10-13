@@ -57,6 +57,33 @@ describe("texto livre do PDV e truncado, nunca recusado", () => {
   });
 });
 
+describe("desconto da venda", () => {
+  const venda = (over = {}) => payload({ vendas: [{ ...vendaBase, ...over }] }).vendas[0];
+
+  test("guarda subtotal, desconto e o tipo do desconto", () => {
+    const r = mapSaleRow(venda({ vl_subtotal_itens: 195.8, vl_desconto: 82, desconto: " DESCONTO PRATO DUO APP " }));
+    expect(r).toMatchObject({ subtotalAmount: 195.8, discountAmount: 82, discountLabel: "DESCONTO PRATO DUO APP" });
+  });
+
+  test("venda sem desconto: valor zero e tipo null (agente antigo nao manda o tipo)", () => {
+    expect(mapSaleRow(venda({ vl_subtotal_itens: 100 }))).toMatchObject({ subtotalAmount: 100, discountAmount: 0, discountLabel: null });
+    expect(mapSaleRow(venda({ desconto: "   " })).discountLabel).toBeNull();
+  });
+
+  test("tipo absurdo e truncado, nao recusado", () => {
+    expect(venda({ desconto: "d".repeat(900) }).desconto).toHaveLength(120);
+  });
+
+  test("campo de texto que chega com tipo errado (numero, booleano) vira null: nao derruba o lote", () => {
+    for (const estranho of [0, 12.5, true, false]) {
+      expect(() => payload({ vendas: [{ ...vendaBase, desconto: estranho, func_cancelou: estranho, hora: estranho }] })).not.toThrow();
+      const v = payload({ vendas: [{ ...vendaBase, desconto: estranho }] }).vendas[0];
+      expect(v.desconto).toBeNull();
+    }
+    expect(() => payload({ itens: [{ ...itemBase, func_lancou: 7, func_cancelou: 7, motivo_cancelamento: 7 }] })).not.toThrow();
+  });
+});
+
 describe("mapSaleRow", () => {
   const venda = (over = {}) => payload({ vendas: [{ ...vendaBase, ...over }] }).vendas[0];
 
@@ -91,6 +118,22 @@ describe("mapSaleItemRow guarda quem lancou", () => {
     expect(mapSaleItemRow(item({ func_lancou: " Bruno " })).launchedBy).toBe("Bruno");
     expect(mapSaleItemRow(item()).launchedBy).toBeNull();
     expect(mapSaleItemRow(item({ func_lancou: "  " })).launchedBy).toBeNull();
+  });
+});
+
+describe("mapSaleItemRow guarda quem cancelou o item e o motivo", () => {
+  const item = (over = {}) => payload({ itens: [{ ...itemBase, ...over }] }).itens[0];
+  test("com nomes, sem nada e so espacos", () => {
+    const r = mapSaleItemRow(item({ situacao_da_venda: "CANCELADA", func_cancelou: " Carla ", motivo_cancelamento: " Cliente desistiu " }));
+    expect(r).toMatchObject({ saleStatus: "CANCELADA", cancelledBy: "Carla", cancelReason: "Cliente desistiu" });
+    expect(mapSaleItemRow(item())).toMatchObject({ cancelledBy: null, cancelReason: null });
+    expect(mapSaleItemRow(item({ func_cancelou: "   ", motivo_cancelamento: "" }))).toMatchObject({ cancelledBy: null, cancelReason: null });
+  });
+
+  test("texto absurdo do item e truncado, nao recusado", () => {
+    const p = payload({ itens: [{ ...itemBase, func_cancelou: "n".repeat(500), motivo_cancelamento: "m".repeat(5000) }] });
+    expect(p.itens[0].func_cancelou).toHaveLength(120);
+    expect(p.itens[0].motivo_cancelamento).toHaveLength(500);
   });
 });
 
