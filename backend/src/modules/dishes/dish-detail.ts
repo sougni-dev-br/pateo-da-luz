@@ -63,6 +63,10 @@ export function toCostItem(item: ItemComProduto): CostItemInput {
 }
 
 
+/** Preço lançado à mão no ERP (iFood, Keeta, loja ainda não importada), em vez de vindo do cardápio da plataforma. */
+export const PREFIXO_MANUAL = "manual:";
+export const ehListagemManual = (externalItemId: string) => externalItemId.startsWith(PREFIXO_MANUAL);
+
 /** Categoria como a tela precisa: com o nome da de cima, para mostrar "Massas › Fresca". */
 export function categoriaResumida(
   categoria: { id: string; name: string; parentId: string | null; menu?: string; parent?: { id: string; name: string } | null } | null
@@ -163,7 +167,10 @@ export async function carregarDetalhe(client: ClienteDoBanco, id: string) {
     listings: dish.listings.map((listing) => ({
       id: listing.id,
       channel: listing.channel,
+      deliveryStoreId: listing.deliveryStoreId,
       storeName: listing.deliveryStore?.nickname ?? null,
+      // Lançado à mão aqui (iFood, Keeta, loja ainda não importada); o resto vem do cardápio da plataforma.
+      manual: ehListagemManual(listing.externalItemId),
       externalName: listing.externalName,
       price: Number(listing.price),
       isActive: listing.isActive,
