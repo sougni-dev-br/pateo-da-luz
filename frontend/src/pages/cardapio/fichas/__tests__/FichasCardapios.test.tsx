@@ -263,6 +263,35 @@ describe("organizar e imprimir em lote", () => {
     expect(categoria).not.toBeDisabled();
   });
 
+  test("marca vários pratos do salão como vendidos também no delivery, com a categoria de lá", async () => {
+    vi.mocked(bulkUpdateDishes).mockResolvedValue({ atualizados: 2, categoriasLimpas: 0, nosDois: 2, jaNoCardapio: 0 });
+    await selecionar("Penne ao sugo", "Feijoada");
+    fireEvent.click(screen.getByRole("button", { name: "Organizar…" }));
+    const dialogo = await screen.findByRole("dialog");
+
+    // A categoria do outro cardápio só aparece depois de escolher onde mais vender.
+    expect(within(dialogo).queryByLabelText("Categoria no delivery")).toBeNull();
+    fireEvent.change(within(dialogo).getByRole("combobox", { name: /Vendido também em/ }), { target: { value: "DELIVERY" } });
+    const categoriaDeLa = within(dialogo).getByLabelText("Categoria no delivery") as HTMLSelectElement;
+    expect([...categoriaDeLa.options].map((o) => o.textContent)).toEqual(["Manter como está", "Sem categoria", "Pizzas"]);
+    fireEvent.change(categoriaDeLa, { target: { value: "pizzas" } });
+    fireEvent.click(within(dialogo).getByRole("button", { name: "Aplicar" }));
+
+    await waitFor(() => expect(bulkUpdateDishes).toHaveBeenCalledWith({ ids: ["d1", "d2"], alsoMenu: "DELIVERY", alsoCategoryId: "pizzas" }));
+    expect(await screen.findByText(/2 passaram a ser vendidos nos dois cardápios/)).toBeInTheDocument();
+  });
+
+  test("'só em um cardápio' tira os pratos do segundo cardápio", async () => {
+    vi.mocked(bulkUpdateDishes).mockResolvedValue({ atualizados: 2, categoriasLimpas: 0, nosDois: 0, jaNoCardapio: 0 });
+    await selecionar("Penne ao sugo", "Feijoada");
+    fireEvent.click(screen.getByRole("button", { name: "Organizar…" }));
+    const dialogo = await screen.findByRole("dialog");
+    fireEvent.change(within(dialogo).getByRole("combobox", { name: /Vendido também em/ }), { target: { value: "__so_um__" } });
+    expect(within(dialogo).queryByLabelText("Categoria no delivery")).toBeNull();
+    fireEvent.click(within(dialogo).getByRole("button", { name: "Aplicar" }));
+    await waitFor(() => expect(bulkUpdateDishes).toHaveBeenCalledWith({ ids: ["d1", "d2"], alsoMenu: null }));
+  });
+
   test("erro do servidor aparece no diálogo e a seleção continua", async () => {
     vi.mocked(bulkUpdateDishes).mockRejectedValue(new Error("2 pratos não são do cardápio da categoria."));
     await selecionar("Pizza Margherita", "Pizza Calabresa");

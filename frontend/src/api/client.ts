@@ -4290,8 +4290,16 @@ export function getDishRevisions(id: string) {
 }
 
 /** Organiza vários pratos de uma vez: cardápio e/ou categoria (null tira da categoria). */
-export function bulkUpdateDishes(payload: { ids: string[]; menu?: DishMenu; categoryId?: string | null }) {
-  return request<{ atualizados: number; categoriasLimpas: number }>("/dishes/bulk", {
+export function bulkUpdateDishes(payload: {
+  ids: string[];
+  menu?: DishMenu;
+  categoryId?: string | null;
+  /** Também vender neste cardápio (o outro do prato); null tira do segundo cardápio. */
+  alsoMenu?: DishMenu | null;
+  /** Categoria no segundo cardápio; null limpa. */
+  alsoCategoryId?: string | null;
+}) {
+  return request<{ atualizados: number; categoriasLimpas: number; nosDois?: number; jaNoCardapio?: number }>("/dishes/bulk", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
