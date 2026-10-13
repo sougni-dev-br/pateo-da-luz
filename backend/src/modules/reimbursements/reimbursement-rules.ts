@@ -63,6 +63,39 @@ export function mensagemDeBloqueio(reportStatus: string): string {
     : "Esta compra esta num reembolso ja fechado. Reabra o reembolso antes de alterar valor, data ou quem pagou.";
 }
 
+export type ItemConferido = { id: string; amount: number; purchaseDate: string };
+export type ItemAtualDoReembolso = { id: string; amount: number; purchaseDate: Date };
+
+/**
+ * Itens que a tela mandou conferir mas mudaram desde que foram mostrados (valor ou data),
+ * ou que nem foram mostrados. Conferir e bater a compra com o comprovante: marcar um
+ * valor que a pessoa nao viu derrota o proposito — a compra editada voltaria conferida
+ * com o valor novo nunca olhado.
+ */
+export function itensVistosDesatualizados(vistos: ItemConferido[], atuais: ItemAtualDoReembolso[]): string[] {
+  const porId = new Map(vistos.map((v) => [v.id, v]));
+  return atuais
+    .filter((atual) => {
+      const visto = porId.get(atual.id);
+      return !visto || cents(visto.amount) !== cents(atual.amount) || String(visto.purchaseDate).slice(0, 10) !== dia(atual.purchaseDate);
+    })
+    .map((atual) => atual.id);
+}
+
+/** Lista "o que a tela mostrava" vinda do corpo da requisicao; null se veio malformada. */
+export function lerItensVistos(valor: unknown): ItemConferido[] | null {
+  if (!Array.isArray(valor)) return null;
+  const itens: ItemConferido[] = [];
+  for (const bruto of valor) {
+    const item = bruto as Record<string, unknown>;
+    const amount = Number(item?.amount);
+    const purchaseDate = String(item?.purchaseDate ?? "");
+    if (typeof item?.id !== "string" || !Number.isFinite(amount) || !/^\d{4}-\d{2}-\d{2}/.test(purchaseDate)) return null;
+    itens.push({ id: item.id, amount, purchaseDate });
+  }
+  return itens;
+}
+
 export type DadosDoFechamento = {
   status: string;
   itens: Array<{ checked: boolean }>;
