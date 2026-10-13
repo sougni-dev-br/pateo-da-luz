@@ -9,7 +9,7 @@ vi.mock("../../../api/client", () => ({
   getWasteEntries: vi.fn(),
   getWastePhoto: vi.fn(),
   getWasteSettings: vi.fn(),
-  getWasteSummary: vi.fn(),
+  getWasteAnalysis: vi.fn(),
   saveWasteSettings: vi.fn(),
   searchWasteDishes: vi.fn(),
   searchWasteProducts: vi.fn(),
@@ -17,9 +17,9 @@ vi.mock("../../../api/client", () => ({
 }));
 vi.mock("../foto", async (original) => ({ ...(await original<typeof import("../foto")>()), reduzirFoto: vi.fn() }));
 
-import type { WasteEntry } from "../../../api/client";
+import type { WasteAnalysis, WasteEntry } from "../../../api/client";
 import {
-  cancelWasteEntry, createWasteEntry, getWasteEntries, getWastePhoto, getWasteSettings, getWasteSummary,
+  cancelWasteEntry, createWasteEntry, getWasteAnalysis, getWasteEntries, getWastePhoto, getWasteSettings,
   saveWasteSettings, searchWasteDishes, searchWasteProducts, uploadWastePhoto,
 } from "../../../api/client";
 import { SessionContext, type SessionContextValue } from "../../../context/SessionContext";
@@ -32,10 +32,19 @@ const SESSAO = {
   setUser: () => undefined, hideSensitiveValues: false, toggleSensitiveValues: () => undefined,
   canAccessSection: () => true, hasPermission: () => true,
 } as unknown as SessionContextValue;
-const render = (ui: ReactElement) => renderRaw(<MemoryRouter><SessionContext.Provider value={SESSAO}><HideValuesProvider>{ui}</HideValuesProvider></SessionContext.Provider></MemoryRouter>);
+// Por padrão abre na aba de lançamento (formulário e "lançado hoje"); a análise é pedida com `?aba=analise`.
+const render = (ui: ReactElement, rota = "/?aba=lancar") => renderRaw(<MemoryRouter initialEntries={[rota]}><SessionContext.Provider value={SESSAO}><HideValuesProvider>{ui}</HideValuesProvider></SessionContext.Provider></MemoryRouter>);
+const ANALISE = "/?aba=analise";
 
 const periodoVazio = { from: "2026-09-14", to: "2026-10-13", truncated: false, items: [] as WasteEntry[] };
-const resumoVazio = { from: "2026-09-14", to: "2026-10-13", total: { lancamentos: 0, valor: 0, semCusto: 0 }, porMotivo: [], porSetor: [], porProduto: [] };
+const analiseVazia: WasteAnalysis = {
+  periodo: { from: "2026-09-14", to: "2026-10-13", dias: 30 },
+  total: { lancamentos: 0, valor: 0, semCusto: 0 },
+  anterior: { from: "2026-08-15", to: "2026-09-13", lancamentos: 0, valor: 0 },
+  faturamento: null,
+  porDia: [], porDiaDaSemana: [], porMotivo: [], porSetor: [], porProduto: [], produtosTotal: 0, itensPara80: null, reincidentes: [], porPessoa: [],
+  qualidade: { semCusto: 0, motivoOutro: 0, retroativos: 0, semFotoNosMaiores: 0, diasSemRegistro: null, diasComVenda: null },
+};
 
 const lancamento = (parcial: Partial<WasteEntry> = {}): WasteEntry => ({
   id: "w1", kind: "INSUMO", productId: "p1", dishId: null, productName: "Arroz", productCode: null, quantity: 2, unit: "KG",
@@ -48,7 +57,7 @@ const lancamento = (parcial: Partial<WasteEntry> = {}): WasteEntry => ({
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(getWasteEntries).mockResolvedValue(periodoVazio);
-  vi.mocked(getWasteSummary).mockResolvedValue(resumoVazio);
+  vi.mocked(getWasteAnalysis).mockResolvedValue(analiseVazia);
   vi.mocked(createWasteEntry).mockResolvedValue({ id: "w1", hasCost: true } as never);
   vi.mocked(getWasteSettings).mockResolvedValue({ dailyAlertValue: null, activeRecipients: 1 });
   vi.mocked(uploadWastePhoto).mockResolvedValue({ ok: true });
@@ -201,7 +210,7 @@ describe("Desperdicio: validação e foco", () => {
 describe("Desperdicio: carga do período", () => {
   test("erro de carga não vira 'Nenhum desperdício': fica um aviso persistente com 'Tentar de novo'", async () => {
     vi.mocked(getWasteEntries).mockRejectedValueOnce(new Error("sem conexão"));
-    render(<Desperdicio />);
+    render(<Desperdicio />, ANALISE);
 
     expect(await screen.findByText("Não foi possível carregar o desperdício deste período.")).toBeInTheDocument();
     expect(screen.getByText("sem conexão")).toBeInTheDocument();
@@ -217,7 +226,7 @@ describe("Desperdicio: carga do período", () => {
     vi.mocked(getWasteEntries)
       .mockImplementationOnce(() => new Promise((resolver) => { resolverAntiga = resolver; }))
       .mockResolvedValue({ ...periodoVazio, items: [lancamento({ productName: "Item do período novo" })] });
-    render(<Desperdicio />);
+    render(<Desperdicio />, ANALISE);
 
     fireEvent.change(screen.getByLabelText("De"), { target: { value: "2026-10-01" } });
     expect(await screen.findByText("Item do período novo")).toBeInTheDocument();
@@ -227,9 +236,21 @@ describe("Desperdicio: carga do período", () => {
     expect(screen.queryByText("Item do período velho")).not.toBeInTheDocument();
   });
 
+  test("data apagada não deixa a tela presa em 'carregando' nem mostra dados de outro período", async () => {
+    vi.mocked(getWasteEntries).mockResolvedValue({ ...periodoVazio, items: [lancamento({ productName: "Item do período" })] });
+    render(<Desperdicio />, ANALISE);
+    await screen.findByText("Item do período");
+
+    fireEvent.change(screen.getByLabelText("De"), { target: { value: "" } });
+    expect(await screen.findByText("Informe as duas datas para ver o período.")).toBeInTheDocument();
+    expect(screen.queryByText("Item do período")).not.toBeInTheDocument();
+    expect(screen.queryByText("Nenhum desperdício no período")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Atualizar" })).toBeEnabled();
+  });
+
   test("enquanto carrega a primeira vez, diz que está carregando", () => {
     vi.mocked(getWasteEntries).mockReturnValue(new Promise(() => undefined));
-    render(<Desperdicio />);
+    render(<Desperdicio />, ANALISE);
     expect(screen.getByText("Carregando…")).toBeInTheDocument();
     expect(screen.queryByText("Nenhum desperdício no período")).not.toBeInTheDocument();
   });
@@ -337,11 +358,12 @@ describe("Desperdicio: cancelamento", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Cancelar lançamento de Arroz" }));
     fireEvent.change(await screen.findByLabelText(/Motivo do cancelamento/), { target: { value: "lancei duas vezes" } });
+    const chamadasAntes = vi.mocked(getWasteEntries).mock.calls.length;
     fireEvent.click(screen.getByRole("button", { name: "Cancelar lançamento" }));
 
     expect(await screen.findByText("Este lançamento já foi cancelado.")).toBeInTheDocument();
     // "Já cancelado" significa que a lista na tela está velha: recarrega.
-    await waitFor(() => expect(getWasteEntries).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(vi.mocked(getWasteEntries).mock.calls.length).toBe(chamadasAntes + 2));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
@@ -364,7 +386,7 @@ describe("Desperdicio: aviso por WhatsApp", () => {
   test("quem administra salva o limite", async () => {
     vi.mocked(getWasteSettings).mockResolvedValue({ dailyAlertValue: 500, activeRecipients: 2 });
     vi.mocked(saveWasteSettings).mockResolvedValue({ dailyAlertValue: 800 });
-    render(<Desperdicio />);
+    render(<Desperdicio />, ANALISE);
 
     fireEvent.click(await screen.findByText(/Aviso por WhatsApp/));
     const campo = await screen.findByLabelText(/Avisar quando o desperdício do dia chegar a/);
@@ -384,7 +406,7 @@ describe("Desperdicio: aviso por WhatsApp", () => {
   test("erro ao salvar o limite aparece no cartão, como alerta", async () => {
     vi.mocked(getWasteSettings).mockResolvedValue({ dailyAlertValue: 500, activeRecipients: 2 });
     vi.mocked(saveWasteSettings).mockRejectedValue(new Error("Informe um limite maior que zero."));
-    render(<Desperdicio />);
+    render(<Desperdicio />, ANALISE);
     fireEvent.click(await screen.findByText(/Aviso por WhatsApp/));
     fireEvent.click(await screen.findByRole("button", { name: /salvar limite/i }));
     const erro = await screen.findByText("Informe um limite maior que zero.");
@@ -394,7 +416,7 @@ describe("Desperdicio: aviso por WhatsApp", () => {
 
   test("'1.500' é recusado antes de gravar R$ 1,50 sem ninguém perceber", async () => {
     vi.mocked(getWasteSettings).mockResolvedValue({ dailyAlertValue: 500, activeRecipients: 2 });
-    render(<Desperdicio />);
+    render(<Desperdicio />, ANALISE);
 
     fireEvent.click(await screen.findByText(/Aviso por WhatsApp/));
     fireEvent.change(await screen.findByLabelText(/Avisar quando o desperdício do dia chegar a/), { target: { value: "1.500" } });
@@ -406,14 +428,14 @@ describe("Desperdicio: aviso por WhatsApp", () => {
 
   test("limite ligado sem destinatário ativo avisa que ninguém vai receber", async () => {
     vi.mocked(getWasteSettings).mockResolvedValue({ dailyAlertValue: 500, activeRecipients: 0 });
-    render(<Desperdicio />);
+    render(<Desperdicio />, ANALISE);
     fireEvent.click(await screen.findByText(/Aviso por WhatsApp/));
     expect(await screen.findByText(/Nenhum destinatário ativo/)).toBeInTheDocument();
   });
 
   test("se a configuração não carrega, o administrador vê o erro e pode tentar de novo (não some em silêncio)", async () => {
     vi.mocked(getWasteSettings).mockRejectedValueOnce(new Error("fora do ar")).mockResolvedValue({ dailyAlertValue: null, activeRecipients: 1 });
-    render(<Desperdicio />);
+    render(<Desperdicio />, ANALISE);
 
     expect(await screen.findByText("Não foi possível carregar a configuração do aviso por WhatsApp.")).toBeInTheDocument();
     fireEvent.click(screen.getAllByRole("button", { name: "Tentar de novo" })[0]);

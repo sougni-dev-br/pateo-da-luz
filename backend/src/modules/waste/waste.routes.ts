@@ -23,6 +23,7 @@ import { listActivePhones } from "../notifications/recipients.service.js";
 import { avisarSePassouDoLimite } from "./waste-alert.service.js";
 import { wastePhotoRouter } from "./waste-photo.routes.js";
 import { LIMITE_DE_LANCAMENTOS, limitarGravacoes } from "./waste-limite.js";
+import { analisePeriodo } from "./waste-analise.service.js";
 
 // Desperdício de insumo. Decomposição do CMV: não baixa InventoryStock, não entra no DRE
 // e não toca período financeiro (ver waste.ts). Quem lança vê quantidades; o valor em R$
@@ -429,6 +430,18 @@ wasteRouter.get("/summary", async (request, response) => {
         porSetor: semValor(resumo.porSetor),
         porProduto: semValor(resumo.porProduto),
       });
+});
+
+// Leitura analítica (comparação com o período anterior, tendência, reincidência, qualidade do registro).
+// Valor e faturamento só saem para quem tem "inventory-costs"; os demais veem contagens.
+wasteRouter.get("/analysis", async (request, response) => {
+  const user = await getSessionUser(request);
+  if (!user) return void response.status(401).json({ message: "Sessao obrigatoria." });
+
+  const periodo = lerPeriodo(request.query);
+  if ("erro" in periodo) return void response.status(400).json({ message: periodo.erro });
+
+  response.json(await analisePeriodo(periodo.from, periodo.to, await custoVisivel(user)));
 });
 
 // Cancelar pede "excluir" (rota /cancel): quem lançou errado não apaga o próprio rastro.
