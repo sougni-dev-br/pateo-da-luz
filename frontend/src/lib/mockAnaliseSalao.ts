@@ -1,4 +1,4 @@
-import type { AnaliseCancelamentos, AnaliseVendasPorPessoa } from "../api/client";
+import type { AnaliseCancelamentos, AnaliseDescontos, AnaliseItensCancelados, AnaliseVendasPorPessoa } from "../api/client";
 
 // Dados de demonstração da tela "Análise do Salão" (modo ?mock-user=1, só em dev local).
 // Tudo fictício: nomes, valores e proporções inventados para exercitar a interface.
@@ -47,6 +47,72 @@ function cancelamentos(periodo: { inicio: string; fim: string }): AnaliseCancela
   };
 }
 
+function itensCancelados(periodo: { inicio: string; fim: string }): AnaliseItensCancelados {
+  const pessoa = (nome: string, itens: number, vendas: number, valor: number) => ({ pessoa: nome, itens, vendas, valor, participacao: valor / 75634.95 });
+  return {
+    periodo,
+    cobertura: { itensCancelados: 1357, itensSemVenda: 0, primeiroDia: periodo.inicio, ultimoDia: periodo.fim },
+    resumo: {
+      itens: 1357, vendasAfetadas: 872, valorCancelado: 75634.95, valorItensRecebidos: 2022634.98, taxaValor: 0.036,
+      semQuemCancelou: 0, semMotivo: 1357, mesmaPessoa: 904, comOsDoisNomes: 1357
+    },
+    porQuemLancou: [
+      pessoa("Carla Fictícia", 410, 280, 24120.5), pessoa("Diego Fictício", 330, 220, 18890.0), pessoa("Elisa Fictícia", 250, 160, 13310.45),
+      pessoa("Fábio Fictício", 190, 120, 10104.0), pessoa("Ana Fictícia", 120, 80, 6310.0), pessoa("Bruno Fictício", 57, 40, 2900.0)
+    ],
+    porQuemCancelou: [
+      pessoa("Carla Fictícia", 520, 340, 28950.0), pessoa("Diego Fictício", 380, 250, 21070.95), pessoa("Gustavo Fictício", 300, 200, 17114.0),
+      pessoa("Elisa Fictícia", 157, 110, 8500.0)
+    ],
+    porProduto: [
+      { produto: "BUFFET PROMO 15", grupo: "Buffet por quilo", linhas: 210, quantidade: 640, valor: 14210.0 },
+      { produto: "BUFFET PROMO 20", grupo: "Buffet por quilo", linhas: 140, quantidade: 410, valor: 9980.5 },
+      { produto: "AGUA COM GAS", grupo: "Bebidas", linhas: 180, quantidade: 260, valor: 2080.0 },
+      { produto: "SOBREMESA DO DIA", grupo: "Sobremesas", linhas: 95, quantidade: 120, valor: 1990.0 }
+    ],
+    porHora: [
+      { hora: "12", itens: 330, valor: 18200.0 }, { hora: "13", itens: 420, valor: 23400.0 }, { hora: "14", itens: 150, valor: 7800.0 },
+      { hora: "20", itens: 300, valor: 17100.0 }, { hora: "21", itens: 157, valor: 9134.95 }
+    ],
+    maiores: [
+      { saleId: "7001", data: periodo.fim, hora: "13:11", produto: "BUFFET PROMO 15", quantidade: 14, valor: 1216.6, quemLancou: "Carla Fictícia", quemCancelou: "Carla Fictícia", motivo: null },
+      { saleId: "7002", data: periodo.fim, hora: "13:28", produto: "BUFFET PROMO 20", quantidade: 10, valor: 849.0, quemLancou: "Diego Fictício", quemCancelou: "Gustavo Fictício", motivo: null }
+    ]
+  };
+}
+
+function descontos(periodo: { inicio: string; fim: string }): AnaliseDescontos {
+  return {
+    periodo,
+    cobertura: { vendasComDado: 10490, vendasSemDado: 0, primeiroDia: periodo.inicio, ultimoDia: periodo.fim },
+    resumo: {
+      vendasRecebidas: 10490, vendasComDesconto: 590, taxaVendas: 0.0562, valorDescontos: 36840.5, valorSubtotal: 1980400,
+      percentualSobreSubtotal: 0.0186, descontoMedio: 62.44, acimaDe50: 41, semPessoa: 0, semTipo: 0
+    },
+    porTipo: [
+      { tipo: "POR VALOR", vendas: 262, valor: 15210.0, participacao: 0.413, percentualMedio: 0.31 },
+      { tipo: "DESCONTO PRATO DUO APP", vendas: 238, valor: 13900.5, participacao: 0.377, percentualMedio: 0.43 },
+      { tipo: "DESCONTO 30%", vendas: 48, valor: 4310.0, participacao: 0.117, percentualMedio: 0.3 },
+      { tipo: "DESCONTO 10%", vendas: 24, valor: 1900.0, participacao: 0.052, percentualMedio: 0.1 },
+      { tipo: "DESCONTO 50%", vendas: 18, valor: 1520.0, participacao: 0.041, percentualMedio: 0.5 }
+    ],
+    porPessoa: [
+      { pessoa: "Gustavo Fictício", vendas: 250, valor: 15800.0, participacao: 0.429, percentualMedio: 0.33 },
+      { pessoa: "Helena Fictícia", vendas: 180, valor: 11200.5, participacao: 0.304, percentualMedio: 0.31 },
+      { pessoa: "Igor Fictício", vendas: 110, valor: 6840.0, participacao: 0.186, percentualMedio: 0.28 },
+      { pessoa: "Júlia Fictícia", vendas: 50, valor: 3000.0, participacao: 0.081, percentualMedio: 0.4 }
+    ],
+    porTurno: [
+      { turno: "Almoço", vendas: 6020, vendasComDesconto: 380, taxa: 0.0631, valor: 22100.0 },
+      { turno: "Jantar", vendas: 4470, vendasComDesconto: 210, taxa: 0.047, valor: 14740.5 }
+    ],
+    maiores: [
+      { saleId: "8001", data: periodo.fim, hora: "20:15", turno: "Jantar", pessoas: 6, subtotal: 1240.0, desconto: 1220.0, percentual: 0.984, tipo: "POR VALOR", pessoa: "Helena Fictícia" },
+      { saleId: "8002", data: periodo.inicio, hora: "13:40", turno: "Almoço", pessoas: 4, subtotal: 640.0, desconto: 320.0, percentual: 0.5, tipo: "DESCONTO 50%", pessoa: "Gustavo Fictício" }
+    ]
+  };
+}
+
 function vendasPorPessoa(periodo: { inicio: string; fim: string }): AnaliseVendasPorPessoa {
   const pessoa = (nome: string, valor: number, vendas: number, itens: number, mix: Array<[string, number]>) => ({
     pessoa: nome,
@@ -76,6 +142,8 @@ function vendasPorPessoa(periodo: { inicio: string; fim: string }): AnaliseVenda
 export function mockAnaliseSalao(url: string): unknown | undefined {
   const path = new URL(url, "http://localhost").pathname;
   if (path.endsWith("/integrations/agile/analise/cancelamentos")) return cancelamentos(periodoDaUrl(url));
+  if (path.endsWith("/integrations/agile/analise/itens-cancelados")) return itensCancelados(periodoDaUrl(url));
+  if (path.endsWith("/integrations/agile/analise/descontos")) return descontos(periodoDaUrl(url));
   if (path.endsWith("/integrations/agile/analise/vendas-por-pessoa")) return vendasPorPessoa(periodoDaUrl(url));
   return undefined;
 }
