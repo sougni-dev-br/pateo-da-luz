@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ChevronDown, ChevronUp, RefreshCw, SlidersHorizontal } from "lucide-react";
-import { AppUser, getAgileSyncStatus, getRevenue, type AgileSyncStatus, type RevenueEntry, type RevenueSummary } from "../api/client";
+import { AppUser, getAgileSyncStatus, getRevenue, type AgileAgentHealth, type AgileSyncStatus, type RevenueEntry, type RevenueSummary } from "../api/client";
 import { Alert, Money, PanelEyebrow, SummaryCard, Table, useFormatCurrency } from "../design-system";
 import { formatDate, formatNumber } from "../utils/format";
 import "./FaturamentoSalao.css";
@@ -616,6 +616,8 @@ export function FaturamentoSalao({ user: _user }: Props) {
 
       {syncBanner}
 
+      <AgentHealthNotice agente={status?.agente} />
+
       {missingDays.length > 0 && (
         <Alert tone="warning" style={{ marginTop: 12 }}>
           <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
@@ -931,6 +933,32 @@ function toNumber(value: string | number | null | undefined): number {
   if (value == null) return 0;
   if (typeof value === "number") return value;
   return Number(value) || 0;
+}
+
+const AGENT_ALERT_TONE = { info: "info", alerta: "warning", critico: "error" } as const;
+
+// Heartbeat do agente do PDV: alertas (erro no último sync, PDV sem sincronizar) mais
+// a linha de estado com o último OK e o período coberto. Os alertas e os limites de
+// 26 h / 48 h vêm prontos do servidor, calculados com a hora dele (o relógio da
+// PDV pode estar errado).
+function AgentHealthNotice({ agente }: { agente: AgileAgentHealth | undefined }) {
+  if (!agente) return null;
+  const detalhe = agente.ultimoOkEm
+    ? `Agente do PDV · último sync OK em ${new Date(agente.ultimoOkEm).toLocaleString("pt-BR")}` +
+      (agente.ultimoOkPeriodoFim ? ` · dados até ${formatDate(agente.ultimoOkPeriodoFim)}` : "")
+    : null;
+  return (
+    <>
+      {agente.alertas.map((alerta) => (
+        <Alert key={alerta.mensagem} tone={AGENT_ALERT_TONE[alerta.nivel]} style={{ marginTop: 12 }}>
+          {alerta.mensagem}
+        </Alert>
+      ))}
+      {detalhe && (
+        <p style={{ margin: "8px 0 0", fontSize: 13, color: "var(--muted, #64748b)" }}>{detalhe}</p>
+      )}
+    </>
+  );
 }
 
 function renderSyncBanner(status: AgileSyncStatus | null, now: Date, hasAnyData: boolean) {

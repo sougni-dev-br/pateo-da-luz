@@ -5049,7 +5049,21 @@ export function confirmTaxImport(filePath: string, skipDuplicates = true) {
   );
 }
 
+// Saúde do agente do PDV (heartbeat), já avaliada pelo servidor com a hora dele.
+export type AgileAgentAlert = { nivel: "info" | "alerta" | "critico"; mensagem: string };
+export type AgileAgentHealth = {
+  estado: "aguardando" | "ok" | "erro" | "atrasado" | "critico";
+  alertas: AgileAgentAlert[];
+  horasSemOk: number | null;
+  ultimoStatus: string | null;
+  ultimoHeartbeatEm: string | null;
+  ultimoOkEm: string | null;
+  ultimoOkPeriodoFim: string | null;
+};
+
 export type AgileSyncStatus = {
+  // Opcional: o front pode subir antes do back que passa a enviar este campo.
+  agente?: AgileAgentHealth;
   ultimaSyncEm: string | null;
   ultimoBatchId: string | null;
   ultimoPeriodoFim: string | null;
