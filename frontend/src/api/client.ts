@@ -4106,6 +4106,10 @@ export type DishListItem = {
   name: string;
   menu: DishMenu;
   category: DishCategoryRef | null;
+  /** Outro cardápio em que o MESMO prato também é vendido (uma ficha só); null/ausente = só em `menu`. */
+  alsoMenu?: DishMenu | null;
+  /** Categoria do prato nesse outro cardápio. */
+  alsoCategory?: DishCategoryRef | null;
   salePriceDefault: number | null;
   yieldQty: number;
   yieldUnit: string;
@@ -4183,6 +4187,8 @@ export type DishRevisionSnapshot = {
   code: string | null;
   menu: DishMenu;
   category: { id: string; name: string; parentName: string | null } | null;
+  alsoMenu?: DishMenu | null;
+  alsoCategory?: { id: string; name: string; parentName: string | null } | null;
   salePriceDefault: number | null;
   yieldQty: number;
   yieldUnit: string;

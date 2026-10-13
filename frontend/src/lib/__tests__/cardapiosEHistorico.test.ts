@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { DishCategory, DishListItem, DishRevision, DishRevisionSnapshot } from "../../api/client";
 import {
-  FILTRO_SEM_CATEGORIA, caminhoDaCategoria, categoriaCombina, contarPorCardapio, montarArvore, opcoesDeCategoria, opcoesDoFiltroDeCategoria
+  FILTRO_SEM_CATEGORIA, caminhoDaCategoria, cardapioCombina, categoriaCombina, categoriaNoCardapio, menusDoPrato, rotuloDosCardapios, contarPorCardapio, montarArvore, opcoesDeCategoria, opcoesDoFiltroDeCategoria
 } from "../categoriasDasFichas";
 import { filtrarPratos } from "../fichaTecnica";
 import { descreverMudancas, montarLinhaDoTempo, serieDoCusto } from "../historicoDaFicha";
@@ -106,6 +106,32 @@ describe("categorias e cardápios", () => {
     expect(filtrarPratos(lista, { busca: "", menu: "todos", categoriaId: FILTRO_SEM_CATEGORIA, situacao: "todos", mostrarInativos: false }).map((p) => p.id)).toEqual(["3", "4"]);
   });
 
+  it("prato vendido nos dois aparece nos dois cardápios, conta uma vez em 'todos' e tem uma categoria em cada", () => {
+    const filé = prato({
+      id: "f", menu: "CARDAPIO", category: ref("buffet", "Buffet", null, null, "CARDAPIO"),
+      alsoMenu: "DELIVERY", alsoCategory: ref("pizzas", "Pizzas", null, null, "DELIVERY")
+    });
+    const soSalao = prato({ id: "s", menu: "CARDAPIO" });
+    expect(menusDoPrato(filé)).toEqual(["CARDAPIO", "DELIVERY"]);
+    expect(categoriaNoCardapio(filé, "DELIVERY")?.name).toBe("Pizzas");
+    expect(categoriaNoCardapio(soSalao, "DELIVERY")).toBeNull();
+    expect(rotuloDosCardapios(filé)).toBe("Cardápio e delivery");
+    expect(rotuloDosCardapios(soSalao)).toBe("Cardápio");
+
+    expect(cardapioCombina(filé, "DELIVERY")).toBe(true);
+    expect(cardapioCombina(soSalao, "DELIVERY")).toBe(false);
+    expect(contarPorCardapio([filé, soSalao])).toEqual({ todos: 2, CARDAPIO: 2, DELIVERY: 1 });
+
+    // A categoria de qualquer um dos lados acha o prato.
+    expect(categoriaCombina(filé, "buffet")).toBe(true);
+    expect(categoriaCombina(filé, "pizzas")).toBe(true);
+    // 'Sem categoria' olha o cardápio da lista: no delivery o filé tem categoria; o prato só do salão sem categoria não é do delivery.
+    expect(categoriaCombina(filé, FILTRO_SEM_CATEGORIA, "DELIVERY")).toBe(false);
+    expect(categoriaCombina({ ...filé, alsoCategory: null }, FILTRO_SEM_CATEGORIA, "DELIVERY")).toBe(true);
+    expect(categoriaCombina({ ...filé, alsoCategory: null }, FILTRO_SEM_CATEGORIA, "CARDAPIO")).toBe(false);
+    expect(categoriaCombina({ ...filé, alsoCategory: null }, FILTRO_SEM_CATEGORIA)).toBe(true);
+  });
+
   it("conta pratos ativos por cardápio", () => {
     expect(contarPorCardapio([prato(), prato({ menu: "DELIVERY" }), prato({ menu: "DELIVERY" }), prato({ menu: "DELIVERY", isActive: false })]))
       .toEqual({ todos: 3, CARDAPIO: 1, DELIVERY: 2 });
@@ -174,7 +200,7 @@ describe("histórico da ficha", () => {
     );
     expect(frases).toEqual(expect.arrayContaining([
       "Nome: “Risoto” → “Risoto de camarão”",
-      "Cardápio: Cardápio → Delivery",
+      "Vendido em: Cardápio → Delivery",
       "Categoria: Sem categoria → Massas › Fresca",
       expect.stringMatching(/Preço de venda: R\$\s80,00 → R\$\s89,90/),
       "Rendimento: 1 UN → 2 PORÇÃO",
@@ -227,5 +253,16 @@ describe("histórico da ficha", () => {
       revisao("a", "2026-10-07T12:00:00Z", 7)
     ]);
     expect(serie.map((p) => p.custo)).toEqual([7, 8]);
+  });
+});
+
+describe("histórico: prato nos dois cardápios", () => {
+  it("avisa quando o prato passa a ser vendido nos dois e qual a categoria no outro cardápio", () => {
+    const depois = snap({ alsoMenu: "DELIVERY", alsoCategory: { id: "c", name: "Carnes", parentName: "Pratos executivos" } });
+    expect(descreverMudancas(snap(), depois)).toEqual(expect.arrayContaining([
+      "Vendido em: Cardápio → Cardápio e delivery",
+      "Categoria no outro cardápio: Sem categoria → Pratos executivos › Carnes"
+    ]));
+    expect(descreverMudancas(depois, depois)).toEqual(["Gravada sem mudanças na ficha"]);
   });
 });
