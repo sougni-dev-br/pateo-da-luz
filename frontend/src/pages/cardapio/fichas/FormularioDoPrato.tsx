@@ -6,6 +6,9 @@ import {
   faixaDeCmv,
   converterAoTrocarUnidade,
   fracaoParaPercentual,
+  ondeVende,
+  trocarOndeVende,
+  type OndeVende,
   montarPayloadDaFicha,
   normalizarUnidade,
   resumoDaFicha,
@@ -41,8 +44,14 @@ const CMV_ABSURDO = 100;
 const UNIDADES_DE_RENDIMENTO = ["UN", "PORÇÃO", "KG", "L", "G", "ML"];
 const MAXIMO_DE_ATALHOS_DE_PRECO = 4;
 
+const OPCOES_ONDE_VENDE: Array<{ valor: OndeVende; rotulo: string; titulo: string }> = [
+  { valor: "CARDAPIO", rotulo: ROTULO_DO_CARDAPIO.CARDAPIO, titulo: DESCRICAO_DO_CARDAPIO.CARDAPIO },
+  { valor: "DELIVERY", rotulo: ROTULO_DO_CARDAPIO.DELIVERY, titulo: DESCRICAO_DO_CARDAPIO.DELIVERY },
+  { valor: "AMBOS", rotulo: "Cardápio e delivery", titulo: "O mesmo prato vendido no salão e no delivery, com uma ficha só" }
+];
+
 const camposVazios = (menu: DishMenu): CamposDaFicha => ({
-  name: "", code: "", menu, categoryId: "", salePriceDefault: "", yieldQty: "1", yieldUnit: "UN", notes: ""
+  name: "", code: "", menu, categoryId: "", alsoMenu: null, alsoCategoryId: "", salePriceDefault: "", yieldQty: "1", yieldUnit: "UN", notes: ""
 });
 
 let sequenciaDeLinhas = 0;
@@ -59,6 +68,8 @@ function montarInicial(modo: ModoDoFormulario, base: DishDetail | null, menuPadr
       code: copia ? "" : base.code ?? "",
       menu: base.menu,
       categoryId: base.category?.id ?? "",
+      alsoMenu: base.alsoMenu ?? null,
+      alsoCategoryId: base.alsoCategory?.id ?? "",
       salePriceDefault: base.salePriceDefault != null ? String(base.salePriceDefault) : "",
       yieldQty: String(base.yieldQty),
       yieldUnit: base.yieldUnit,
@@ -138,15 +149,14 @@ export function FormularioDoPrato({ modo, base, categorias, menuPadrao, onCancel
       .slice(0, MAXIMO_DE_ATALHOS_DE_PRECO);
   }, [modo, base]);
 
-  // Só as categorias do cardápio do prato, agrupadas em principal › subcategorias.
-  const opcoesDaCategoria = opcoesDeCategoria(categorias, campos.menu, campos.categoryId);
+  // Uma categoria por cardápio em que o prato é vendido, só com as categorias daquele cardápio.
+  const cardapiosDoPrato: Array<{ menu: DishMenu; campo: "categoryId" | "alsoCategoryId" }> = [
+    { menu: campos.menu, campo: "categoryId" },
+    ...(campos.alsoMenu ? [{ menu: campos.alsoMenu, campo: "alsoCategoryId" as const }] : [])
+  ];
 
-  function trocarCardapio(novo: DishMenu) {
-    setCampos((anterior) => {
-      // A categoria só vale no cardápio dela: trocar de cardápio tira a que ficou do lado de lá.
-      const daCategoria = categorias.find((categoria) => categoria.id === anterior.categoryId);
-      return { ...anterior, menu: novo, categoryId: daCategoria && daCategoria.menu !== novo ? "" : anterior.categoryId };
-    });
+  function trocarOndeVender(novo: OndeVende) {
+    setCampos((anterior) => trocarOndeVende(anterior, novo));
   }
 
   function alterarCampo(campo: keyof CamposDaFicha, valor: string) {
@@ -289,35 +299,48 @@ export function FormularioDoPrato({ modo, base, categorias, menuPadrao, onCancel
             <TextField value={campos.code} onChange={(evento) => alterarCampo("code", evento.target.value)} placeholder="Ex.: PRAT-001" maxLength={40} />
           </FormField>
           <div className="ft-campo-cheio">
-            <FormField label="Cardápio" hint="Salão e delivery são cardápios separados, cada um com as suas categorias e preços.">
+            <FormField label="Cardápio" hint="Salão e delivery têm categorias e preços próprios. Se o mesmo prato sai nos dois, escolha “Cardápio e delivery”: a ficha é uma só.">
               <div className="ft-segmentos" role="radiogroup" aria-label="Cardápio do prato">
-                {(["CARDAPIO", "DELIVERY"] as const).map((valor) => (
+                {OPCOES_ONDE_VENDE.map(({ valor, rotulo, titulo }) => (
                   <button
                     key={valor}
                     type="button"
                     role="radio"
-                    aria-checked={campos.menu === valor}
+                    aria-checked={ondeVende(campos) === valor}
                     className="ft-segmento"
-                    onClick={() => trocarCardapio(valor)}
-                    title={DESCRICAO_DO_CARDAPIO[valor]}
+                    onClick={() => trocarOndeVender(valor)}
+                    title={titulo}
                   >
-                    {ROTULO_DO_CARDAPIO[valor]}
+                    {rotulo}
                   </button>
                 ))}
               </div>
             </FormField>
           </div>
-          <FormField label="Categoria" hint={opcoesDaCategoria.length === 0 ? "Este cardápio ainda não tem categorias. Crie na aba Categorias." : undefined}>
-            <Select
-              value={campos.categoryId}
-              onChange={(evento) => alterarCampo("categoryId", evento.target.value)}
-              options={opcoesDaCategoria}
-              placeholder="Sem categoria"
-            />
-          </FormField>
+          {cardapiosDoPrato.map(({ menu, campo }) => {
+            const opcoes = opcoesDeCategoria(categorias, menu, campos[campo]);
+            return (
+              <FormField
+                key={campo}
+                label={cardapiosDoPrato.length === 1 ? "Categoria" : `Categoria no ${menu === "DELIVERY" ? "delivery" : "cardápio"}`}
+                hint={opcoes.length === 0 ? `${menu === "DELIVERY" ? "O delivery" : "Este cardápio"} ainda não tem categorias. Crie na aba Categorias.` : undefined}
+              >
+                <Select
+                  value={campos[campo]}
+                  onChange={(evento) => alterarCampo(campo, evento.target.value)}
+                  options={opcoes}
+                  placeholder="Sem categoria"
+                />
+              </FormField>
+            );
+          })}
           <FormField
-            label="Preço de venda (R$)"
-            hint="Por porção. Em branco, a ficha não calcula margem nem CMV."
+            label={campos.menu === "DELIVERY" && !campos.alsoMenu ? "Preço base (R$)" : "Preço no salão (R$)"}
+            hint={campos.menu === "DELIVERY" && !campos.alsoMenu
+              ? "Por porção. O delivery tem preço por loja: depois de salvar, lance cada um na ficha do prato."
+              : campos.alsoMenu
+                ? "Preço do salão, por porção. O preço de cada loja do delivery é lançado na ficha do prato, depois de salvar."
+                : "Por porção. Em branco, a ficha não calcula margem nem CMV."}
             error={mostrarErros.salePriceDefault}
           >
             <TextField

@@ -11,6 +11,7 @@ import { carregarDetalhe, categoriaResumida, conversoesDaFicha, textoDaEmbalagem
 import { auditLog, requestIp, requireRole } from "../security/security-utils.js";
 import { MENUS, registrarRotasDeCategoria } from "./dish-categories.js";
 import { registrarRevisao } from "./dish-revisions.js";
+import { registrarRotasDeListagem } from "./dish-listings.js";
 
 export const dishesRouter = Router();
 
@@ -57,6 +58,9 @@ const dishBodySchema = z.object({
   notes: textoOpcional,
   isActive: z.boolean().optional(),
   menu: z.enum(MENUS).optional(),
+  /** Outro cardápio onde o mesmo prato também é vendido; vazio = só no principal. */
+  alsoMenu: z.enum(MENUS).nullish().transform((valor) => valor ?? null),
+  alsoCategoryId: textoOpcional,
   items: dishItemsSchema.optional()
 });
 
@@ -114,6 +118,8 @@ dishesRouter.use(async (request, response, next) => {
 // ──────────────────────────────────────────────
 
 registrarRotasDeCategoria(dishesRouter);
+// Lojas e preços por canal: /delivery-stores precisa vir antes de GET /:id.
+registrarRotasDeListagem(dishesRouter);
 
 // ──────────────────────────────────────────────
 // DISHES
@@ -127,14 +133,15 @@ dishesRouter.get("/", async (request, response) => {
   const dishes = await prisma.dish.findMany({
     where: {
       isActive: showInactive ? undefined : true,
-      categoryId: categoryId || undefined,
+      ...(categoryId ? { OR: [{ categoryId }, { alsoCategoryId: categoryId }] } : {}),
       ...(search
         ? { name: { contains: search, mode: "insensitive" } }
         : {})
     },
     include: {
       category: { include: { parent: { select: { id: true, name: true } } } },
-      listings: { where: { isActive: true }, select: { price: true } },
+      alsoCategory: { include: { parent: { select: { id: true, name: true } } } },
+      listings: { where: { isActive: true }, select: { price: true, channel: true, deliveryStoreId: true, deliveryStore: { select: { nickname: true } } } },
       items: {
         include: {
           product: {
@@ -172,6 +179,8 @@ dishesRouter.get("/", async (request, response) => {
       name: dish.name,
       menu: dish.menu,
       category: categoriaResumida(dish.category),
+      alsoMenu: dish.alsoMenu,
+      alsoCategory: categoriaResumida(dish.alsoCategory),
       salePriceDefault: salePrice,
       yieldQty: Number(dish.yieldQty),
       yieldUnit: dish.yieldUnit,
@@ -181,6 +190,13 @@ dishesRouter.get("/", async (request, response) => {
       listingsCount: precosNosCanais.length,
       listingPriceMin: precosNosCanais.length ? Math.min(...precosNosCanais) : null,
       listingPriceMax: precosNosCanais.length ? Math.max(...precosNosCanais) : null,
+      // O preço em cada loja: a tela de CMV por canal calcula o CMV de cada prato em cada lugar.
+      canais: dish.listings.map((listing) => ({
+        channel: listing.channel,
+        deliveryStoreId: listing.deliveryStoreId,
+        storeName: listing.deliveryStore?.nickname ?? null,
+        price: Number(listing.price)
+      })),
       calculatedCost: cost,
       custoPorcao: custo.costPerServing,
       margemBruta,
@@ -237,6 +253,22 @@ async function categoriaIncompativel(client: Pick<typeof prisma, "dishCategory">
   return null;
 }
 
+/**
+ * Prato nos dois cardápios: o segundo tem que ser o OUTRO cardápio, e a categoria dele, do mesmo cardápio.
+ * Sem segundo cardápio não há segunda categoria (nada fica pendurado).
+ */
+async function validarSegundoCardapio(
+  client: Pick<typeof prisma, "dishCategory">,
+  menu: string,
+  alsoMenu: string | null,
+  alsoCategoryId: string | null
+): Promise<{ erro: string } | { alsoMenu: string | null; alsoCategoryId: string | null }> {
+  if (!alsoMenu) return { alsoMenu: null, alsoCategoryId: null };
+  if (alsoMenu === menu) return { erro: "O prato já é deste cardápio: escolha o outro para vendê-lo nos dois." };
+  const ruim = await categoriaIncompativel(client, alsoCategoryId, alsoMenu);
+  return ruim ? { erro: ruim } : { alsoMenu, alsoCategoryId };
+}
+
 dishesRouter.post("/", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
@@ -260,6 +292,12 @@ dishesRouter.post("/", async (request, response) => {
     return;
   }
 
+  const segundo = await validarSegundoCardapio(prisma, menu, body.alsoMenu, body.alsoCategoryId);
+  if ("erro" in segundo) {
+    response.status(400).json({ message: segundo.erro });
+    return;
+  }
+
   const id = crypto.randomUUID();
   try {
     const dish = await prisma.$transaction(async (tx) => {
@@ -269,6 +307,8 @@ dishesRouter.post("/", async (request, response) => {
           name: body.name,
           code: body.code,
           menu,
+          alsoMenu: segundo.alsoMenu,
+          alsoCategoryId: segundo.alsoCategoryId,
           categoryId: body.categoryId,
           salePriceDefault: body.salePriceDefault,
           yieldQty: body.yieldQty,
@@ -319,6 +359,11 @@ dishesRouter.put("/:id", async (request, response) => {
     response.status(400).json({ message: categoriaRuim });
     return;
   }
+  const segundo = await validarSegundoCardapio(prisma, menu, body.alsoMenu, body.alsoCategoryId);
+  if ("erro" in segundo) {
+    response.status(400).json({ message: segundo.erro });
+    return;
+  }
 
   try {
     // Prato, ingredientes e versao do historico na mesma transacao: o delete seguido de create sem
@@ -330,6 +375,8 @@ dishesRouter.put("/:id", async (request, response) => {
           name: body.name,
           code: body.code,
           menu,
+          alsoMenu: segundo.alsoMenu,
+          alsoCategoryId: segundo.alsoCategoryId,
           categoryId: body.categoryId,
           salePriceDefault: body.salePriceDefault,
           yieldQty: body.yieldQty,
@@ -412,6 +459,11 @@ dishesRouter.post("/bulk", async (request, response) => {
     if (body.menu !== undefined) dados.menu = body.menu;
     if (body.categoryId !== undefined) dados.categoryId = body.categoryId;
     const atualizados = await tx.dish.updateMany({ where: { id: { in: ids } }, data: dados });
+
+    // O prato que passa a ser principal no cardápio em que já era vendido "também" deixa de ter segundo cardápio.
+    if (body.menu !== undefined) {
+      await tx.dish.updateMany({ where: { id: { in: ids }, alsoMenu: body.menu }, data: { alsoMenu: null, alsoCategoryId: null } });
+    }
 
     // Mudou o cardápio sem escolher categoria: quem tinha categoria do outro cardápio fica sem ela.
     let categoriasLimpas = 0;

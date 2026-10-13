@@ -3,6 +3,8 @@ import type { DishListItem } from "../../api/client";
 import {
   contarPorSituacao,
   converterAoTrocarUnidade,
+  ondeVende,
+  trocarOndeVende,
   custoPrevisto,
   faixaDeCmv,
   fatorConversao,
@@ -288,7 +290,7 @@ describe("lista", () => {
 });
 
 describe("formulário da ficha", () => {
-  const campos = { name: "Risoto", code: "", menu: "CARDAPIO" as const, categoryId: "", salePriceDefault: "79,90", yieldQty: "1", yieldUnit: "un", notes: "" };
+  const campos = { name: "Risoto", code: "", menu: "CARDAPIO" as const, categoryId: "", alsoMenu: null, alsoCategoryId: "", salePriceDefault: "79,90", yieldQty: "1", yieldUnit: "un", notes: "" };
   const item = (parcial: Partial<ItemDaFicha> = {}): ItemDaFicha => ({
     ...ingrediente(), tempId: "t1", productId: "p1", productName: "CAMARAO", notes: "", ...parcial
   });
@@ -373,5 +375,34 @@ describe("converter a quantidade ao trocar a unidade", () => {
 
   it("não deixa a quantidade virar zero por arredondamento", () => {
     expect(converterAoTrocarUnidade(ingrediente({ quantity: "0,01" }), "KG")).toBeNull();
+  });
+});
+
+describe("prato vendido nos dois cardápios (formulário)", () => {
+  const base = { name: "Filé", code: "", menu: "CARDAPIO" as const, categoryId: "c-salao", alsoMenu: null, alsoCategoryId: "", salePriceDefault: "", yieldQty: "1", yieldUnit: "UN", notes: "" };
+
+  it("passar para 'nos dois' guarda o outro cardápio, sem categoria ainda", () => {
+    expect(ondeVende(base)).toBe("CARDAPIO");
+    const dois = trocarOndeVende(base, "AMBOS");
+    expect(dois).toMatchObject({ menu: "CARDAPIO", categoryId: "c-salao", alsoMenu: "DELIVERY", alsoCategoryId: "" });
+    expect(ondeVende(dois)).toBe("AMBOS");
+    expect(trocarOndeVende({ ...base, menu: "DELIVERY" }, "AMBOS").alsoMenu).toBe("CARDAPIO");
+  });
+
+  it("sair de 'nos dois' mantém o cardápio escolhido com a categoria dele", () => {
+    const dois = { ...base, alsoMenu: "DELIVERY" as const, alsoCategoryId: "c-delivery" };
+    expect(trocarOndeVende(dois, "CARDAPIO")).toMatchObject({ menu: "CARDAPIO", categoryId: "c-salao", alsoMenu: null, alsoCategoryId: "" });
+    expect(trocarOndeVende(dois, "DELIVERY")).toMatchObject({ menu: "DELIVERY", categoryId: "c-delivery", alsoMenu: null, alsoCategoryId: "" });
+  });
+
+  it("trocar de cardápio solto limpa a categoria do outro lado; escolher o mesmo não muda nada", () => {
+    expect(trocarOndeVende(base, "DELIVERY")).toMatchObject({ menu: "DELIVERY", categoryId: "", alsoMenu: null });
+    expect(trocarOndeVende(base, "CARDAPIO")).toBe(base);
+  });
+
+  it("o payload leva o segundo cardápio e a categoria dele; sem segundo cardápio não leva categoria", () => {
+    const dois = montarPayloadDaFicha({ ...base, alsoMenu: "DELIVERY", alsoCategoryId: "c-delivery" }, []);
+    expect(dois).toMatchObject({ menu: "CARDAPIO", alsoMenu: "DELIVERY", alsoCategoryId: "c-delivery" });
+    expect(montarPayloadDaFicha({ ...base, alsoCategoryId: "sobrou" }, [])).toMatchObject({ alsoMenu: null, alsoCategoryId: "" });
   });
 });

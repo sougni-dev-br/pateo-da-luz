@@ -4121,6 +4121,10 @@ export type DishListItem = {
   name: string;
   menu: DishMenu;
   category: DishCategoryRef | null;
+  /** Outro cardápio em que o MESMO prato também é vendido (uma ficha só); null/ausente = só em `menu`. */
+  alsoMenu?: DishMenu | null;
+  /** Categoria do prato nesse outro cardápio. */
+  alsoCategory?: DishCategoryRef | null;
   salePriceDefault: number | null;
   yieldQty: number;
   yieldUnit: string;
@@ -4128,6 +4132,8 @@ export type DishListItem = {
   itemsCount: number;
   /** Quantas listagens ativas o prato tem nos canais (hoje, o cardapio da 99). */
   listingsCount: number;
+  /** O preço em cada loja (listagens ativas): base do CMV por canal. */
+  canais?: Array<{ channel: string; deliveryStoreId: string | null; storeName: string | null; price: number }>;
   listingPriceMin: number | null;
   listingPriceMax: number | null;
   /** Custo do rendimento inteiro. */
@@ -4143,8 +4149,11 @@ export type DishListItem = {
 export type DishListing = {
   id: string;
   channel: string;
+  deliveryStoreId: string | null;
   /** Apelido da loja na plataforma; null quando a listagem nao esta ligada a uma loja. */
   storeName: string | null;
+  /** Preço lançado à mão no ERP (iFood, Keeta...); false = veio do cardápio da plataforma (99), que o atualiza. */
+  manual: boolean;
   externalName: string;
   price: number;
   isActive: boolean;
@@ -4189,6 +4198,25 @@ export function saveDish(payload: Record<string, unknown>) {
   );
 }
 
+export type DishDeliveryStore = { id: string; platform: string; nickname: string };
+
+/** Lojas onde o prato pode ter preço (as ativas, de todas as plataformas). */
+export function getDishDeliveryStores() {
+  return request<DishDeliveryStore[]>("/dishes/delivery-stores");
+}
+
+export function createDishListing(dishId: string, payload: { deliveryStoreId: string; price: number }) {
+  return request<{ id: string }>(`/dishes/${dishId}/listings`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(payload) });
+}
+
+export function updateDishListing(dishId: string, listingId: string, payload: { price?: number; isActive?: boolean }) {
+  return request<{ id: string }>(`/dishes/${dishId}/listings/${listingId}`, { method: "PUT", headers: JSON_HEADERS, body: JSON.stringify(payload) });
+}
+
+export function deleteDishListing(dishId: string, listingId: string) {
+  return request<{ ok: boolean }>(`/dishes/${dishId}/listings/${listingId}`, { method: "DELETE" });
+}
+
 export function deactivateDish(id: string) {
   return request<{ ok: boolean }>(`/dishes/${id}`, { method: "DELETE" });
 }
@@ -4198,11 +4226,15 @@ export type DishRevisionSnapshot = {
   code: string | null;
   menu: DishMenu;
   category: { id: string; name: string; parentName: string | null } | null;
+  alsoMenu?: DishMenu | null;
+  alsoCategory?: { id: string; name: string; parentName: string | null } | null;
   salePriceDefault: number | null;
   yieldQty: number;
   yieldUnit: string;
   notes: string | null;
   isActive: boolean;
+  /** Preço em cada loja no momento da versão (só as ativas). */
+  canais?: Array<{ canal: string; loja: string | null; preco: number }>;
   custoPorcao: number;
   cmvPercentual: number | null;
   custoIncompleto: boolean;

@@ -301,16 +301,24 @@ describe("leitura", () => {
     notes: null, isActive: true, createdAt: new Date(), updatedAt: new Date(),
     items: [{ id: "i1", productId: "p1", product: produto, quantity: 100, unit: "G", wasteFactor: 0, notes: null, sortOrder: 0 }],
     listings: [
-      { id: "l1", channel: "NOVENTA_NOVE", price: 49.9, isActive: true, externalName: "Risoto", lastSeenAt: new Date(), deliveryStore: { nickname: "Pateo Frei Caneca", platform: "NOVENTA_NOVE" } },
-      { id: "l2", channel: "NOVENTA_NOVE", price: 60.9, isActive: true, externalName: "Risoto", lastSeenAt: new Date(), deliveryStore: null }
+      { id: "l1", channel: "NOVENTA_NOVE", price: 49.9, isActive: true, externalItemId: "9001", externalName: "Risoto", lastSeenAt: new Date(), deliveryStore: { nickname: "Pateo Frei Caneca", platform: "NOVENTA_NOVE" } },
+      { id: "l2", channel: "NOVENTA_NOVE", price: 60.9, isActive: true, externalItemId: "manual:d1", externalName: "Risoto", lastSeenAt: new Date(), deliveryStore: null }
     ]
   };
 
   test("lista resume os precos praticados nos canais", async () => {
-    db.dish.findMany.mockResolvedValue([{ ...prato, listings: prato.listings.map((l) => ({ price: l.price })) }]);
+    db.dish.findMany.mockResolvedValue([{
+      ...prato,
+      listings: prato.listings.map((l) => ({ price: l.price, channel: l.channel, deliveryStoreId: l.deliveryStore ? "s1" : null, deliveryStore: l.deliveryStore ? { nickname: l.deliveryStore.nickname } : null }))
+    }]);
     const r = await request(app).get("/dishes");
     expect(r.status).toBe(200);
     expect(r.body[0]).toMatchObject({ listingsCount: 2, listingPriceMin: 49.9, listingPriceMax: 60.9, itemsCount: 1 });
+    // O preço em cada loja vai junto: é com ele que a tela calcula o CMV de cada prato em cada lugar.
+    expect(r.body[0].canais).toEqual([
+      { channel: "NOVENTA_NOVE", deliveryStoreId: "s1", storeName: "Pateo Frei Caneca", price: 49.9 },
+      { channel: "NOVENTA_NOVE", deliveryStoreId: null, storeName: null, price: 60.9 }
+    ]);
   });
 
   test("prato sem listagem nao inventa faixa de preco", async () => {
@@ -324,8 +332,8 @@ describe("leitura", () => {
     const r = await request(app).get("/dishes/d1");
     expect(r.status).toBe(200);
     expect(r.body.listings).toEqual([
-      expect.objectContaining({ storeName: "Pateo Frei Caneca", price: 49.9 }),
-      expect.objectContaining({ storeName: null, price: 60.9 })
+      expect.objectContaining({ storeName: "Pateo Frei Caneca", price: 49.9, manual: false }),
+      expect.objectContaining({ storeName: null, price: 60.9, manual: true })
     ]);
   });
 
@@ -361,9 +369,9 @@ describe("leitura", () => {
   });
 
   test("categorias trazem quantos pratos ativos cada uma tem", async () => {
-    db.dishCategory.findMany.mockResolvedValue([{ id: "c1", name: "A la carte", sortOrder: 0, isActive: true, notes: null, _count: { dishes: 12 } }]);
+    db.dishCategory.findMany.mockResolvedValue([{ id: "c1", name: "A la carte", sortOrder: 0, isActive: true, notes: null, _count: { dishes: 12, alsoDishes: 2 } }]);
     const r = await request(app).get("/dishes/categories");
-    expect(r.body).toEqual([expect.objectContaining({ name: "A la carte", dishesCount: 12 })]);
+    expect(r.body).toEqual([expect.objectContaining({ name: "A la carte", dishesCount: 14 })]);
     expect(r.body[0]._count).toBeUndefined();
   });
 });

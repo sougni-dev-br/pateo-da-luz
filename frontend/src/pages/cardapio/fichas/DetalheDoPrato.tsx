@@ -1,6 +1,6 @@
 import { AlertTriangle, Copy, Pencil, Power, Printer, RotateCcw, X } from "lucide-react";
 import type { ReactNode } from "react";
-import type { DishDetail, DishIngredient, DishListing } from "../../../api/client";
+import type { DishDetail, DishIngredient } from "../../../api/client";
 import { Alert, Button, IconButton, Money, Percent, StatusBadge } from "../../../design-system";
 import type { StatusTone } from "../../../design-system";
 import {
@@ -13,8 +13,9 @@ import {
   situacaoDaFicha
 } from "../../../lib/fichaTecnica";
 import { formatPercent } from "../../../utils/format";
-import { ROTULO_DO_CARDAPIO, caminhoDaCategoria } from "../../../lib/categoriasDasFichas";
+import { ROTULO_DO_CARDAPIO, caminhoDaCategoria, categoriaNoCardapio, menusDoPrato } from "../../../lib/categoriasDasFichas";
 import { HistoricoDaFicha } from "./HistoricoDaFicha";
+import { PrecosPorCanal } from "./PrecosPorCanal";
 
 type Props = {
   prato: DishDetail;
@@ -24,6 +25,9 @@ type Props = {
   onAlternarAtivo: () => void;
   onImprimir: () => void;
   onFechar: () => void;
+  /** Depois de mexer no preço de uma loja: recarrega o prato. */
+  onPrecosMudaram: () => void;
+  notificar: (tom: "success" | "error", mensagem: string) => void;
 };
 
 /** Escala da régua do CMV: acima de 60% não muda mais a leitura. */
@@ -111,65 +115,6 @@ function Aviso({ prato, canEdit, onEditar }: Pick<Props, "prato" | "canEdit" | "
   return null;
 }
 
-function resumoDasListagens(listagens: DishListing[]): string {
-  const ativas = listagens.filter((listagem) => listagem.isActive);
-  const base = ativas.length > 0 ? ativas : listagens;
-  const lojas = new Set(base.map((listagem) => listagem.storeName ?? "sem loja")).size;
-  const precos = base.map((listagem) => listagem.price);
-  const moeda = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-  const faixa = Math.min(...precos) === Math.max(...precos) ? moeda(precos[0]) : `${moeda(Math.min(...precos))} a ${moeda(Math.max(...precos))}`;
-  return `${lojas} loja${lojas === 1 ? "" : "s"} · ${faixa}`;
-}
-
-function ListagensDoPrato({ prato }: { prato: DishDetail }) {
-  if (prato.listings.length === 0) return null;
-  const temCusto = prato.items.length > 0 && !prato.custoIncompleto;
-
-  return (
-    <details className="ft-recolhivel">
-      <summary>
-        <span className="ft-recolhivel-titulo">Onde é vendido</span>
-        <span className="ft-recolhivel-resumo">{resumoDasListagens(prato.listings)}</span>
-      </summary>
-      <div className="ft-tabela-rolagem">
-        <table className="ft-tabela">
-          <thead>
-            <tr>
-              <th scope="col">Loja</th>
-              <th scope="col">Canal</th>
-              <th scope="col" className="ft-num">Preço de tabela</th>
-              <th scope="col" className="ft-num">CMV sobre a tabela</th>
-            </tr>
-          </thead>
-          <tbody>
-            {prato.listings.map((listagem: DishListing) => {
-              const cmv = temCusto && listagem.price > 0 ? (prato.custoPorcao / listagem.price) * 100 : null;
-              const faixa = faixaDeCmv(cmv);
-              return (
-                <tr key={listagem.id} className={listagem.isActive ? undefined : "ft-linha-inativa"}>
-                  <th scope="row" data-rotulo="Loja">
-                    {listagem.storeName ?? "Sem loja"}
-                    {!listagem.isActive && <StatusBadge tone="neutral" className="ft-etiqueta">Pausado</StatusBadge>}
-                  </th>
-                  <td data-rotulo="Canal">{rotuloDoCanal(listagem.channel)}</td>
-                  <td className="ft-num" data-rotulo="Preço de tabela"><Money value={listagem.price} /></td>
-                  <td className="ft-num" data-rotulo="CMV sobre a tabela">
-                    {cmv == null ? "—" : <StatusBadge tone={faixa?.tom ?? "neutral"}>{formatPercent(cmv)}</StatusBadge>}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-      <p className="ft-nota">
-        É o preço de tabela do cardápio. Na 99 o desconto é bancado em boa parte pela loja, então o líquido
-        que entra fica bem abaixo disso e o CMV sobre o que a loja recebe é maior.
-      </p>
-    </details>
-  );
-}
-
 function Ingredientes({ prato }: { prato: DishDetail }) {
   if (prato.items.length === 0) return null;
   const total = prato.calculatedCost;
@@ -237,7 +182,7 @@ function Ingredientes({ prato }: { prato: DishDetail }) {
   );
 }
 
-export function DetalheDoPrato({ prato, canEdit, onEditar, onCopiar, onAlternarAtivo, onImprimir, onFechar }: Props) {
+export function DetalheDoPrato({ prato, canEdit, onEditar, onCopiar, onAlternarAtivo, onImprimir, onFechar, onPrecosMudaram, notificar }: Props) {
   const semFicha = prato.items.length === 0;
   const faixa = faixaDeCmv(prato.cmvPercentual);
   const mostraCmv = !semFicha && prato.cmvPercentual != null;
@@ -249,8 +194,12 @@ export function DetalheDoPrato({ prato, canEdit, onEditar, onCopiar, onAlternarA
         <div className="ft-detalhe-titulos">
           <h2 id="ft-detalhe-titulo" className="ft-detalhe-nome" tabIndex={-1}>{prato.name}</h2>
           <p className="ft-detalhe-meta">
-            <span className={`ft-etiqueta-cardapio${prato.menu === "DELIVERY" ? " ft-etiqueta-cardapio--delivery" : ""}`}>{ROTULO_DO_CARDAPIO[prato.menu]}</span>
-            <span>{caminhoDaCategoria(prato.category)}</span>
+            {menusDoPrato(prato).map((menu) => (
+              <span key={menu} className="ft-detalhe-cardapio">
+                <span className={`ft-etiqueta-cardapio${menu === "DELIVERY" ? " ft-etiqueta-cardapio--delivery" : ""}`}>{ROTULO_DO_CARDAPIO[menu]}</span>
+                <span>{caminhoDaCategoria(categoriaNoCardapio(prato, menu))}</span>
+              </span>
+            ))}
             {prato.code && <span>Código {prato.code}</span>}
             <span>Rende {formatarQuantidade(prato.yieldQty)} {prato.yieldUnit}</span>
             <span>Atualizado em {dataHora(prato.updatedAt)}</span>
@@ -301,7 +250,7 @@ export function DetalheDoPrato({ prato, canEdit, onEditar, onCopiar, onAlternarA
       </section>
 
       <Ingredientes prato={prato} />
-      <ListagensDoPrato prato={prato} />
+      <PrecosPorCanal prato={prato} canEdit={canEdit} onEditarPrato={onEditar} onMudou={onPrecosMudaram} notificar={notificar} />
       <HistoricoDaFicha pratoId={prato.id} versao={prato.updatedAt} />
 
       {prato.notes && (

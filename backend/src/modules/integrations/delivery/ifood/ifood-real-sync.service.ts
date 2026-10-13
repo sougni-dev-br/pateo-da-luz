@@ -4,6 +4,7 @@ import { hasValidCredential } from "./ifood-http-client.js";
 import { assertPeriodWritableForDate } from "../../../cmv-real/cmv-real.service.js";
 import { isPeriodLockedError } from "../../../cmv-real/period-locked-error.js";
 import { upsertReceivableFromIfoodSettlement } from "../../../receivables/receivable.service.js";
+import { zerarDiasSemVenda } from "../zerar-dias-sem-venda.js";
 
 // Sync real do iFood: chama Financial API e persiste em IfoodSale/Settlement/Fee.
 // Só roda pra lojas com merchantId real (não começa com "PENDENTE-").
@@ -205,6 +206,9 @@ export async function reflectSalesIntoRevenueEntries(store: { id: string; compan
   // Mes travado ou periodo de CMV fechado nao pode ser reescrito por uma
   // sincronizacao. O sync do Agile ja fazia isto; os de delivery nao. Mesma politica:
   // pula o dia bloqueado e reporta, sem derrubar o sync dos dias abertos.
+  // Dias travados que TEM venda: saem de byDate (nao gravam), mas seguem sendo "dia com venda" para a
+  // zeragem la embaixo — senao o lancamento travado seria zerado.
+  const diasTravadosComVenda: string[] = [];
   for (const dateKey of [...byDate.keys()]) {
     try {
       await assertPeriodWritableForDate(byDate.get(dateKey)!.dateObj, "Sincronizacao do iFood");
@@ -214,6 +218,7 @@ export async function reflectSalesIntoRevenueEntries(store: { id: string; compan
       // ser gravado sob a etiqueta falsa "periodo fechado" (13/10/2026, mesmo defeito no sync do PDV).
       if (!isPeriodLockedError(error)) throw error;
       bloqueios.push(dateKey);
+      diasTravadosComVenda.push(dateKey);
       byDate.delete(dateKey);
     }
   }
@@ -291,20 +296,19 @@ export async function reflectSalesIntoRevenueEntries(store: { id: string; compan
   //
   // Zera em vez de apagar: o lancamento volta a ter valor se a venda reaparecer, e a
   // linha nao some do historico. Restrito ao prefixo de id desta loja.
-  const diasComVenda = [...byDate.keys()].map((k) => `ifood-${store.id}-${k.replace(/-/g, "")}`);
-  const zerados = await prisma.revenueEntry.updateMany({
-    where: {
-      sourcePlatform: "IFOOD",
-      competenceYear: year,
-      competenceMonth: month,
-      status: "ACTIVE",
-      id: { startsWith: `ifood-${store.id}-`, notIn: diasComVenda },
-      OR: [{ grossAmount: { not: 0 } }, { netAmount: { not: 0 } }, { tickets: { not: 0 } }]
-    },
-    data: { grossAmount: 0, discounts: 0, platformFees: 0, netAmount: 0, tickets: 0 }
+  const idDoDia = (k: string) => `ifood-${store.id}-${k.replace(/-/g, "")}`;
+  const zeragem = await zerarDiasSemVenda({
+    sourcePlatform: "IFOOD",
+    prefixoId: `ifood-${store.id}-`,
+    year,
+    month,
+    idsPreservados: [...byDate.keys(), ...diasTravadosComVenda].map(idDoDia),
+    contexto: "Sincronizacao do iFood"
   });
-  if (zerados.count > 0) {
-    console.warn(`[iFood] ${zerados.count} dia(s) sem venda em ${String(month).padStart(2, "0")}/${year} zerados no razao.`);
+  // Dia sem venda que a trava impediu de zerar tambem entra nos bloqueios do sync.
+  bloqueios.push(...zeragem.bloqueados);
+  if (zeragem.zerados > 0) {
+    console.warn(`[iFood] ${zeragem.zerados} dia(s) sem venda em ${String(month).padStart(2, "0")}/${year} zerados no razao.`);
   }
 
   return count;

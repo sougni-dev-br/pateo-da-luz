@@ -13,11 +13,19 @@ export function montarSnapshot(detalhe: DetalheDoPrato) {
     code: detalhe.code,
     menu: detalhe.menu,
     category: detalhe.category ? { id: detalhe.category.id, name: detalhe.category.name, parentName: detalhe.category.parentName } : null,
+    alsoMenu: detalhe.alsoMenu,
+    alsoCategory: detalhe.alsoCategory
+      ? { id: detalhe.alsoCategory.id, name: detalhe.alsoCategory.name, parentName: detalhe.alsoCategory.parentName }
+      : null,
     salePriceDefault: detalhe.salePriceDefault,
     yieldQty: detalhe.yieldQty,
     yieldUnit: detalhe.yieldUnit,
     notes: detalhe.notes,
     isActive: detalhe.isActive,
+    // Preço em cada loja no momento: o histórico mostra quando o preço de uma loja mudou.
+    canais: detalhe.listings
+      .filter((listagem) => listagem.isActive)
+      .map((listagem) => ({ canal: listagem.channel, loja: listagem.storeName, preco: listagem.price })),
     custoPorcao: detalhe.custoPorcao,
     cmvPercentual: detalhe.cmvPercentual,
     custoIncompleto: detalhe.custoIncompleto,
