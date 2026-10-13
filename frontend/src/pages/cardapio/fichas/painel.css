@@ -244,3 +244,4 @@
 .ft-cmv-preco { color: var(--muted); font-size: var(--fs-2xs); font-variant-numeric: tabular-nums; }
 .ft-cmv-vazio { color: var(--muted); font-size: var(--fs-xs); }
 .ft-cmv-vazio--incompleta, .ft-cmv-vazio--sem-preco { color: var(--warning); }
+.ft-cmv-vazio--sem-listagem { opacity: 0.7; }

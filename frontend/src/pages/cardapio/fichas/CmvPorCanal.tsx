@@ -58,6 +58,7 @@ const TEXTO_DO_ESTADO: Record<Exclude<Celula["estado"], "ok">, { curto: string; 
   "nao-vende": { curto: "—", longo: "O prato não é vendido aqui." },
   "sem-ficha": { curto: "Sem ficha", longo: "Monte a ficha para ver o CMV." },
   incompleta: { curto: "Parcial", longo: "A ficha tem ingrediente sem custo: o CMV sairia menor do que é." },
+  "sem-listagem": { curto: "Sem preço", longo: "Este prato ainda não tem preço lançado neste canal. Lance na ficha do prato, em Preços por canal." },
   "falta-delivery": { curto: "Falta delivery", longo: "Informe as quantidades do delivery: as do a la carte não valem para ele." },
   "sem-preco": { curto: "Sem preço", longo: "Defina o preço para ver o CMV." }
 };

@@ -147,11 +147,39 @@ describe("preços por canal", () => {
     expect(screen.queryByRole("heading", { name: "Preços por canal" })).toBeNull();
   });
 
-  test("prato do delivery sem nenhum preço de loja explica e deixa lançar", () => {
+  test("99, iFood e Keeta aparecem sempre; a plataforma sem preço vira uma linha para lançar", () => {
     mostrar(prato({ menu: "DELIVERY", alsoMenu: null, listings: [], salePriceDefault: null }));
-    expect(screen.getByText(/Nenhuma loja do delivery tem preço/)).toBeInTheDocument();
     expect(screen.queryByText("Salão (a la carte)")).toBeNull();
+    for (const plataforma of ["99 Food", "iFood", "Keeta"]) {
+      const linha = screen.getByRole("rowheader", { name: plataforma }).closest("tr")!;
+      expect(within(linha).getByText("Nenhuma loja com preço")).toBeInTheDocument();
+    }
+    // A 99 vem do cardápio dela; iFood e Keeta têm o atalho para lançar.
+    expect(within(screen.getByRole("rowheader", { name: "99 Food" }).closest("tr")!).getByText("vem do cardápio da 99")).toBeInTheDocument();
+    expect(within(screen.getByRole("rowheader", { name: "iFood" }).closest("tr")!).getByRole("button", { name: "Lançar preço" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Adicionar preço de uma loja/ })).toBeInTheDocument();
+  });
+
+  test("plataforma que já tem preço não ganha linha de 'sem preço'", () => {
+    mostrar(prato());
+    // O prato padrão tem 99 e iFood com preço: só a Keeta falta.
+    expect(screen.queryAllByText("Nenhuma loja com preço")).toHaveLength(1);
+    expect(within(screen.getByRole("rowheader", { name: "Keeta" }).closest("tr")!).getByText("Nenhuma loja com preço")).toBeInTheDocument();
+  });
+
+  test("'Lançar preço' da Keeta já vem com a loja única escolhida e grava só o preço", async () => {
+    vi.mocked(getDishDeliveryStores).mockResolvedValue([
+      { id: "s-ifood", platform: "IFOOD", nickname: "Pateo da Luz" },
+      { id: "plataforma:KEETA", platform: "KEETA", nickname: "Loja única" },
+    ]);
+    mostrar(prato());
+    fireEvent.click(within(screen.getByRole("rowheader", { name: "Keeta" }).closest("tr")!).getByRole("button", { name: "Lançar preço" }));
+    const loja = (await screen.findByLabelText("Loja")) as HTMLSelectElement;
+    await waitFor(() => expect(loja.value).toBe("plataforma:KEETA"));
+    expect([...loja.options].map((o) => o.textContent)).toEqual(["Escolha a loja", "Keeta · Loja única"]);
+    fireEvent.change(screen.getByLabelText("Preço (R$)"), { target: { value: "79.9" } });
+    fireEvent.click(screen.getByRole("button", { name: "Gravar" }));
+    await waitFor(() => expect(createDishListing).toHaveBeenCalledWith("d1", { deliveryStoreId: "plataforma:KEETA", price: 79.9 }));
   });
 
   test("lança o preço de uma loja que ainda não tem; as que já têm não aparecem na escolha", async () => {
