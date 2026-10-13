@@ -4198,6 +4198,18 @@ export function saveDish(payload: Record<string, unknown>) {
   );
 }
 
+/** Quanto do preço de tabela da 99 chega ao caixa em cada loja, medido nos pedidos recentes. */
+export type DishNetRatios = {
+  channel: "NOVENTA_NOVE";
+  dias: number;
+  plataforma: { razao: number | null; pedidos: number };
+  lojas: Array<{ deliveryStoreId: string; storeName: string; razao: number | null; pedidos: number; base: "loja" | "plataforma" }>;
+};
+
+export function getDishNetRatios(dias?: number) {
+  return request<DishNetRatios>(`/dishes/net-ratios${toQueryString({ dias: dias == null ? undefined : String(dias) })}`);
+}
+
 export type DishDeliveryStore = { id: string; platform: string; nickname: string };
 
 /** Lojas onde o prato pode ter preço (as ativas, de todas as plataformas). */
