@@ -8491,15 +8491,47 @@ export type WasteInput = {
   notes: string;
 };
 
-export type WasteGroup = { chave: string; nome: string; lancamentos: number; valor: number | null; semCusto: number };
-export type WasteSummary = {
-  from: string;
-  to: string;
-  total: { lancamentos: number; valor: number | null; semCusto: number };
-  porMotivo: WasteGroup[];
-  porSetor: WasteGroup[];
-  porProduto: WasteGroup[];
+export type WasteAnalysisGroup = {
+  chave: string;
+  nome: string;
+  lancamentos: number;
+  valor: number | null;
+  semCusto: number;
+  /** O mesmo grupo no período anterior de igual tamanho. */
+  anteriorLancamentos: number;
+  anteriorValor: number | null;
 };
+export type WasteAnalysisProduct = WasteAnalysisGroup & {
+  dias: number;
+  quantidade: number | null;
+  unidade: string | null;
+  motivoPrincipal: WasteReason;
+  motivoPrincipalRotulo: string;
+  /** Comprado no período na mesma unidade de `quantidade`, e o % disso que virou perda. Só para quem vê custos. */
+  comprado: number | null;
+  taxaDePerda: number | null;
+};
+export type WasteAnalysis = {
+  periodo: { from: string; to: string; dias: number };
+  total: { lancamentos: number; valor: number | null; semCusto: number };
+  anterior: { from: string; to: string; lancamentos: number; valor: number | null };
+  /** Só para quem vê custos. */
+  faturamento: { liquido: number; diasComVenda: number; pessoas: number; anteriorLiquido: number; percentual: number | null; percentualAnterior: number | null; porPessoa: number | null } | null;
+  porDia: Array<{ dia: string; lancamentos: number; valor: number | null }>;
+  porDiaDaSemana: Array<{ diaDaSemana: number; nome: string; lancamentos: number; valor: number | null; ocorrencias: number }>;
+  porMotivo: WasteAnalysisGroup[];
+  porSetor: WasteAnalysisGroup[];
+  porProduto: WasteAnalysisProduct[];
+  produtosTotal: number;
+  itensPara80: number | null;
+  reincidentes: WasteAnalysisProduct[];
+  porPessoa: Array<{ id: string; nome: string; lancamentos: number }>;
+  qualidade: { semCusto: number; motivoOutro: number; retroativos: number; semFotoNosMaiores: number; diasSemRegistro: number | null; diasComVenda: number | null };
+};
+
+export function getWasteAnalysis(filters: { from: string; to: string }) {
+  return request<WasteAnalysis>(`/waste/analysis${toQueryString(filters)}`);
+}
 
 export function searchWasteProducts(search: string) {
   return request<WasteProductHit[]>(`/waste/products${toQueryString({ search })}`);
@@ -8515,10 +8547,6 @@ export function createWasteEntry(payload: WasteInput) {
 
 export function getWasteEntries(filters: { from: string; to: string; reason?: string }) {
   return request<{ from: string; to: string; truncated: boolean; items: WasteEntry[] }>(`/waste${toQueryString(filters)}`);
-}
-
-export function getWasteSummary(filters: { from: string; to: string }) {
-  return request<WasteSummary>(`/waste/summary${toQueryString(filters)}`);
 }
 
 export function cancelWasteEntry(id: string, reason: string) {
