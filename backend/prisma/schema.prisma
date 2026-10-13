@@ -1463,6 +1463,32 @@ model AgileSaleItem {
   @@index([productName], map: "agitem_product_name_idx")
 }
 
+// Ultimo sinal de vida do agente que roda na maquina do PDV (uma linha por maquina).
+// Hora de recebimento e SEMPRE a do servidor: o relogio da PDV pode estar errado.
+model AgileAgentHeartbeat {
+  id                  String    @id @default(cuid())
+  sourcePlatform      String    @default("AGILE_PDV")
+  agenteHost          String
+  agenteVersion       String?
+  ultimoStatus        String
+  ultimaMensagem      String?
+  ultimoHeartbeatEm   DateTime
+  // So avanca com status "ok". ultimoOkOcorridoEm e o relogio do AGENTE, guardado
+  // apenas para descartar heartbeat atrasado/reordenado sem recuar ultimoOkEm.
+  ultimoOkEm          DateTime?
+  ultimoOkOcorridoEm  DateTime?
+  ultimoOkBatchId     String?
+  ultimoOkPeriodoFim  String?
+  // Reservados para notificacao ativa (ainda NAO implementada): nivel em que o
+  // alerta estava na ultima notificacao enviada e quando foi enviada.
+  alertaNivel         String?
+  alertaNotificadoEm  DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@unique([sourcePlatform, agenteHost])
+}
+
 model MonthlyCmv {
   id                    String             @id
   competenceYear        Int

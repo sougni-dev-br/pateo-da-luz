@@ -31,7 +31,7 @@ pateo-da-luz/
 - ⚠️ Validar localmente antes de propor qualquer deploy (ver DEPLOY.md)
 - Variáveis de ambiente nunca commitar — usar .env local ou painel Render
 - Migrations: `npm run prisma:migrate` (dev local) — NUNCA rodar em produção sem autorização. Em produção é o Render que executa `prisma migrate deploy` automaticamente no boot
-- Sem framework de testes configurado atualmente — nenhum `npm test` funciona
+- Testes com vitest: `npm test` em `backend/` e em `frontend/` (backend: ~2200 testes)
 - CORS do backend permite apenas: https://pateo.sougni.com e localhost:5173/5174/3000
 
 ## Skills ECC ativas para este projeto

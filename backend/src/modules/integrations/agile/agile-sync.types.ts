@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { SaudeAgente } from "./agile-heartbeat.health.js";
 
 // Payload enviado pelo agente que roda na máquina do PDV.
 // Cada array corresponde a um dos 3 CSVs exportados pelo AgileReport,
@@ -16,7 +17,13 @@ const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data deve estar em ISO 
 // de forma de pagamento (comum quando o cliente altera Pix→Crédito).
 const money = z.number().finite();
 
+// Modo da venda no PDV: "mesa" (Salão), "viagem", "delivery"... O PDV só mandou
+// "mesa" até hoje. Ausente/vazio/null vira "mesa" (era o contrato antes do campo
+// existir). Só "mesa" entra no faturamento do Salão — ver ehVendaDeMesa.
+const modoVenda = z.string().nullish().transform((valor) => (valor && valor.trim() ? valor.trim() : "mesa"));
+
 const vendaSchema = z.object({
+  modo_venda: modoVenda,
   nrseqvenda: z.string().min(1),
   dt_movimento: isoDate,
   turno: z.string().min(1), // "Almoço" | "Jantar" | outros
@@ -31,6 +38,7 @@ const vendaSchema = z.object({
 });
 
 const pagamentoSchema = z.object({
+  modo_venda: modoVenda,
   nrseqvenda: z.string().min(1),
   nrseqpgto: z.string().min(1),
   dt_movimento: isoDate,
@@ -41,6 +49,7 @@ const pagamentoSchema = z.object({
 });
 
 const itemSchema = z.object({
+  modo_venda: modoVenda,
   nrseqvenda: z.string().min(1),
   nrseqitem: z.string().min(1),
   dt_movimento: isoDate,
@@ -94,4 +103,7 @@ export type AgileSyncStatus = {
   ultimoPeriodoFim: string | null;
   diasImportadosUltimoBatch: number;
   totalRegistrosSalaoAgile: number;
+  // Saúde do agente do PDV (heartbeat): estado e alertas já avaliados pelo servidor.
+  // Ausente se a leitura do heartbeat falhou; a tela trata como "sem informação".
+  agente?: SaudeAgente;
 };
