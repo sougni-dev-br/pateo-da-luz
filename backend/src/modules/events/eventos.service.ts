@@ -1,3 +1,4 @@
+import { SITUACAO_RECEBIDA } from "../integrations/agile/agile-situacao.js";
 import type { PrismaClient } from "@prisma/client";
 import { posicaoNoEvento, preverAlmoco, type DiaHistorico, type EventoNoDia, type Limites, type Previsao, type Tamanho } from "./eventos-previsao.js";
 
@@ -47,7 +48,7 @@ export type ServicoDoPdv = {
 export async function servicoDoPdvPorData(prisma: PrismaClient, de?: string, ate?: string): Promise<Map<string, ServicoDoPdv>> {
   const itens = await prisma.agileSaleItem.findMany({
     where: {
-      saleStatus: "RECEBIDA",
+      saleStatus: SITUACAO_RECEBIDA,
       // Gravado ao meio-dia UTC, como o RevenueEntry.
       movementDate: { ...(de ? { gte: dataUtc(de) } : {}), ...(ate ? { lt: new Date(dataUtc(ate).getTime() + 86400000) } : {}) },
     },
