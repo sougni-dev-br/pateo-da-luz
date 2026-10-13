@@ -214,3 +214,27 @@
 .pnova-gr-conv--falta {
   color: var(--danger);
 }
+
+.emb-resultado {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.emb-resultado--ok {
+  border: 1px solid var(--tint-success-border, var(--line));
+  background: var(--tint-success, var(--paper-soft));
+  color: var(--success);
+}
+
+.emb-resultado--erro {
+  border: 1px solid var(--tint-danger-border, var(--line));
+  background: var(--tint-danger, var(--paper-soft));
+  color: var(--danger);
+}

@@ -1,6 +1,6 @@
 ﻿import { ChevronDown, Copy, Eye, FileText, Package, PackageCheck, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
 import { RevisaoEmbalagens } from "./compras/RevisaoEmbalagens";
-import { previaDaConversao } from "./compras/embalagem";
+import { avisoDePreco, previaDaConversao } from "./compras/embalagem";
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { UNSAFE_NavigationContext, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
@@ -17,6 +17,7 @@ import {
   getCards,
   getCardStatements,
   getPaymentMethods,
+  getPrecosNormais,
   getProducts,
   getPurchase,
   getPurchases,
@@ -297,6 +298,19 @@ export function Purchases({ user }: { user: AppUser }) {
   const [productStep, setProductStep] = useState<ProductStep>("produtos");
   const [filtersExpanded, setFiltersExpanded] = useState(() => window.innerWidth > 640);
   const [mostrarEmbalagens, setMostrarEmbalagens] = useState(false);
+  // Preco normal por unidade de contagem dos produtos da nota em edicao: avisa
+  // pacote lancado como unidade antes de salvar.
+  const [precosNormais, setPrecosNormais] = useState<Record<string, { precoNormal: number | null; unidade: string }>>({});
+  const precosPedidos = useRef(new Set<string>());
+  const idsDaNota = [...new Set(items.map((item) => item.productId).filter(Boolean))].sort().join(",");
+  useEffect(() => {
+    const faltam = idsDaNota.split(",").filter((id) => id && !precosPedidos.current.has(id));
+    if (!faltam.length) return;
+    faltam.forEach((id) => precosPedidos.current.add(id));
+    getPrecosNormais(faltam)
+      .then(({ precos }) => setPrecosNormais((atual) => ({ ...atual, ...precos })))
+      .catch(() => faltam.forEach((id) => precosPedidos.current.delete(id)));
+  }, [idsDaNota]);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 640);
   const [productSheetOpen, setProductSheetOpen] = useState(false);
@@ -1423,6 +1437,14 @@ export function Purchases({ user }: { user: AppUser }) {
     return Object.values(errors)[0] ?? null;
   }
 
+  function linhasQueParecemEmbalagem() {
+    return items.flatMap((item) => {
+      if (!item.productId) return [];
+      const aviso = avisoDePreco(products.find((p) => p.id === item.productId), item.unit, Number(item.unitPrice) || 0, precosNormais[item.productId]);
+      return aviso ? [{ nome: item.productName, ...aviso }] : [];
+    });
+  }
+
   async function handleCreatePurchase() {
     const validation = validateForm();
     if (validation) {
@@ -1430,6 +1452,21 @@ export function Purchases({ user }: { user: AppUser }) {
       return;
     }
     const validItems = items.filter((item) => item.productId && Number(item.quantity) > 0);
+    const suspeitas = linhasQueParecemEmbalagem();
+    if (suspeitas.length) {
+      const exemplo = suspeitas[0];
+      const dinheiro = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 4 });
+      const ok = window.confirm(
+        `${suspeitas.length} linha(s) parecem pacote ou caixa lançados como unidade.
+
+`
+        + `Ex.: ${exemplo.nome} a ${dinheiro(exemplo.precoPorUnidade)}/${exemplo.unidade}, quando o normal é ${dinheiro(exemplo.precoNormal)}/${exemplo.unidade}.
+
+`
+        + `Se veio em pacote, escolha PCT/CX na unidade da linha. Salvar assim mesmo?`
+      );
+      if (!ok) return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -2590,7 +2627,17 @@ export function Purchases({ user }: { user: AppUser }) {
                             {units.map((u) => <option key={u.id} value={u.code}>{u.code}</option>)}
                           </select>
                           {(() => {
-                            const previa = previaDaConversao(products.find((p) => p.id === item.productId), item.unit, Number(item.quantity) || 0);
+                            const produto = products.find((p) => p.id === item.productId);
+                            const aviso = avisoDePreco(produto, item.unit, Number(item.unitPrice) || 0, precosNormais[item.productId]);
+                            if (aviso) {
+                              return (
+                                <small className="pnova-gr-conv pnova-gr-conv--falta" title={`Parece pacote ou caixa: o normal é R$ ${aviso.precoNormal.toLocaleString("pt-BR", { maximumFractionDigits: 4 })}/${aviso.unidade}. Se veio em pacote, escolha PCT/CX.`}
+                                  aria-label={`Parece pacote ou caixa: o normal é R$ ${aviso.precoNormal.toLocaleString("pt-BR", { maximumFractionDigits: 4 })} por ${aviso.unidade}`}>
+                                  pacote?
+                                </small>
+                              );
+                            }
+                            const previa = previaDaConversao(produto, item.unit, Number(item.quantity) || 0);
                             if (!previa) return null;
                             return previa.tipo === "converte"
                               ? <small className="pnova-gr-conv" title={`1 ${item.unit} = ${previa.fator} ${previa.unidade}`}>= {previa.quantidade.toLocaleString("pt-BR", { maximumFractionDigits: 3 })} {previa.unidade}</small>
