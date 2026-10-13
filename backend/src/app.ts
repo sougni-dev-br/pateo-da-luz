@@ -48,8 +48,13 @@ import { authRouter, userRouter } from "./modules/security/auth.routes.js";
 import { requireMenuAccess } from "./modules/security/menu-permissions.js";
 import { describeHttpError } from "./shared/http-error.js";
 import { jsonSafe } from "./shared/utils/json-safe.js";
+import { normalizarBarrasDuplas } from "./shared/middleware/normalizar-barras.js";
 
 export const app = express();
+
+// PRIMEIRO de todos, antes do CORS, dos roteadores publicos e do portao de acesso: "//" no meio
+// do caminho nao pode fazer o portao e o roteador enxergarem caminhos diferentes.
+app.use(normalizarBarrasDuplas);
 
 const ALLOWED_ORIGINS = [
   "https://pateo.sougni.com",

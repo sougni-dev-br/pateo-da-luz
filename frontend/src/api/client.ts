@@ -5115,12 +5115,53 @@ export type AnaliseVendasPorPessoa = {
   }>;
 };
 
+export type AnaliseItensCancelados = {
+  periodo: AnalisePeriodo;
+  cobertura: { itensCancelados: number; itensSemVenda: number; primeiroDia: string | null; ultimoDia: string | null };
+  resumo: {
+    itens: number; vendasAfetadas: number; valorCancelado: number; valorItensRecebidos: number; taxaValor: number;
+    semQuemCancelou: number; semMotivo: number; mesmaPessoa: number; comOsDoisNomes: number;
+  };
+  porQuemLancou: Array<{ pessoa: string; itens: number; vendas: number; valor: number; participacao: number }>;
+  porQuemCancelou: Array<{ pessoa: string; itens: number; vendas: number; valor: number; participacao: number }>;
+  porProduto: Array<{ produto: string; grupo: string; linhas: number; quantidade: number; valor: number }>;
+  porHora: Array<{ hora: string; itens: number; valor: number }>;
+  maiores: Array<{
+    saleId: string; data: string; hora: string | null; produto: string; quantidade: number; valor: number;
+    quemLancou: string; quemCancelou: string; motivo: string | null;
+  }>;
+};
+
+export type AnaliseDescontos = {
+  periodo: AnalisePeriodo;
+  cobertura: { vendasComDado: number; vendasSemDado: number; primeiroDia: string | null; ultimoDia: string | null };
+  resumo: {
+    vendasRecebidas: number; vendasComDesconto: number; taxaVendas: number; valorDescontos: number; valorSubtotal: number;
+    percentualSobreSubtotal: number; descontoMedio: number; acimaDe50: number; semPessoa: number; semTipo: number;
+  };
+  porTipo: Array<{ tipo: string; vendas: number; valor: number; participacao: number; percentualMedio: number }>;
+  porPessoa: Array<{ pessoa: string; vendas: number; valor: number; participacao: number; percentualMedio: number }>;
+  porTurno: Array<{ turno: string; vendas: number; vendasComDesconto: number; taxa: number; valor: number }>;
+  maiores: Array<{
+    saleId: string; data: string; hora: string | null; turno: string; pessoas: number; subtotal: number; desconto: number;
+    percentual: number; tipo: string; pessoa: string;
+  }>;
+};
+
 function queryPeriodo({ inicio, fim }: AnalisePeriodo) {
   return `inicio=${encodeURIComponent(inicio)}&fim=${encodeURIComponent(fim)}`;
 }
 
 export function getAnaliseCancelamentos(periodo: AnalisePeriodo, signal?: AbortSignal) {
   return request<AnaliseCancelamentos>(`/integrations/agile/analise/cancelamentos?${queryPeriodo(periodo)}`, { signal });
+}
+
+export function getAnaliseDescontos(periodo: AnalisePeriodo, signal?: AbortSignal) {
+  return request<AnaliseDescontos>(`/integrations/agile/analise/descontos?${queryPeriodo(periodo)}`, { signal });
+}
+
+export function getAnaliseItensCancelados(periodo: AnalisePeriodo, signal?: AbortSignal) {
+  return request<AnaliseItensCancelados>(`/integrations/agile/analise/itens-cancelados?${queryPeriodo(periodo)}`, { signal });
 }
 
 export function getAnaliseVendasPorPessoa(periodo: AnalisePeriodo, signal?: AbortSignal) {
