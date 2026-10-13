@@ -2,8 +2,9 @@
 // e a evolução do custo por porção. A comparação é por produto — nome de ingrediente não é chave.
 
 import type { DishRevision, DishRevisionSnapshot } from "../api/client";
-import { caminhoDaCategoria, ROTULO_DO_CARDAPIO } from "./categoriasDasFichas";
-import { formatarQuantidade } from "./fichaTecnica";
+import type { DishMenu } from "../api/client";
+import { SEM_CATEGORIA, caminhoDaCategoria, rotuloDosCardapios } from "./categoriasDasFichas";
+import { formatarQuantidade, rotuloDoCanal } from "./fichaTecnica";
 
 type ItemDaVersao = DishRevisionSnapshot["items"][number];
 
@@ -31,6 +32,23 @@ function indexar(itens: ItemDaVersao[]): Map<string, ItemDaVersao> {
  * As diferenças entre duas versões. `anterior` nulo = primeira versão. Devolve no máximo 8 frases,
  * com "e mais N mudanças" no fim, para a linha do tempo não virar um relatório.
  */
+export function mudancasDePrecoPorLoja(anterior: DishRevisionSnapshot, atual: DishRevisionSnapshot): string[] {
+  // Versões antigas não guardavam o preço das lojas: sem os dois lados não há o que comparar.
+  if (!anterior.canais || !atual.canais) return [];
+  const chave = (c: { canal: string; loja: string | null }) => `${c.canal}|${c.loja ?? ""}`;
+  const antes = new Map(anterior.canais.map((c) => [chave(c), c]));
+  const frases: string[] = [];
+  for (const c of atual.canais) {
+    const nome = `${c.loja ?? "loja"} (${rotuloDoCanal(c.canal)})`;
+    const velho = antes.get(chave(c));
+    if (!velho) frases.push(`Preço em ${nome}: ${dinheiro(c.preco)}`);
+    else if (velho.preco !== c.preco) frases.push(`Preço em ${nome}: ${dinheiro(velho.preco)} → ${dinheiro(c.preco)}`);
+    antes.delete(chave(c));
+  }
+  for (const c of antes.values()) frases.push(`Preço em ${c.loja ?? "loja"} (${rotuloDoCanal(c.canal)}) removido`);
+  return frases;
+}
+
 export function descreverMudancas(anterior: DishRevisionSnapshot | null, atual: DishRevisionSnapshot): string[] {
   if (!anterior) {
     const n = atual.items.length;
@@ -40,18 +58,27 @@ export function descreverMudancas(anterior: DishRevisionSnapshot | null, atual: 
   const frases: string[] = [];
 
   if (anterior.name !== atual.name) frases.push(`Nome: “${anterior.name}” → “${atual.name}”`);
-  if (anterior.menu !== atual.menu) frases.push(`Cardápio: ${ROTULO_DO_CARDAPIO[anterior.menu]} → ${ROTULO_DO_CARDAPIO[atual.menu]}`);
+  const dosCardapios = (s: { menu: DishMenu; alsoMenu?: DishMenu | null }) => rotuloDosCardapios(s);
+  if (dosCardapios(anterior) !== dosCardapios(atual)) frases.push(`Vendido em: ${dosCardapios(anterior)} → ${dosCardapios(atual)}`);
+
+  const outraAntes = anterior.alsoCategory ? caminhoDaCategoria(anterior.alsoCategory) : null;
+  const outraDepois = atual.alsoCategory ? caminhoDaCategoria(atual.alsoCategory) : null;
+  if (outraAntes !== outraDepois && (outraAntes || outraDepois)) {
+    frases.push(`Categoria no outro cardápio: ${outraAntes ?? SEM_CATEGORIA} → ${outraDepois ?? SEM_CATEGORIA}`);
+  }
 
   const caminhoAntes = caminhoDaCategoria(anterior.category);
   const caminhoDepois = caminhoDaCategoria(atual.category);
   if (caminhoAntes !== caminhoDepois) frases.push(`Categoria: ${caminhoAntes} → ${caminhoDepois}`);
 
   if (anterior.salePriceDefault !== atual.salePriceDefault) {
-    frases.push(`Preço de venda: ${dinheiro(anterior.salePriceDefault)} → ${dinheiro(atual.salePriceDefault)}`);
+    frases.push(`Preço no salão: ${dinheiro(anterior.salePriceDefault)} → ${dinheiro(atual.salePriceDefault)}`);
   }
   if (anterior.yieldQty !== atual.yieldQty || anterior.yieldUnit !== atual.yieldUnit) {
     frases.push(`Rendimento: ${formatarQuantidade(anterior.yieldQty)} ${anterior.yieldUnit} → ${formatarQuantidade(atual.yieldQty)} ${atual.yieldUnit}`);
   }
+
+  frases.push(...mudancasDePrecoPorLoja(anterior, atual));
 
   const antes = indexar(anterior.items);
   const depois = indexar(atual.items);

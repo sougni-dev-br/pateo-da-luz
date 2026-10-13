@@ -11,6 +11,7 @@ import { assertPeriodWritableForDate } from "../../../cmv-real/cmv-real.service.
 import { CANAIS_FATURADOS } from "./noventa-nove-canais.js";
 import { isPeriodLockedError } from "../../../cmv-real/period-locked-error.js";
 import { upsertReceivableFromNoventaNoveSettlement } from "../../../receivables/receivable.service.js";
+import { zerarDiasSemVenda } from "../zerar-dias-sem-venda.js";
 import {
   edgeBillsWindow,
   parseYmd,
@@ -398,6 +399,9 @@ export async function reflectSalesIntoRevenueEntries(
   // um mes ja apurado, em silencio. Mesma politica do Agile: pula o dia bloqueado e
   // reporta, em vez de derrubar o sync dos dias abertos.
   const bloqueados: string[] = [];
+  // Dias travados que TEM venda: saem de byDate (nao gravam), mas seguem sendo "dia com venda" para a
+  // zeragem la embaixo — senao o lancamento travado seria zerado.
+  const diasTravadosComVenda: string[] = [];
   for (const dateKey of [...byDate.keys()]) {
     try {
       await assertPeriodWritableForDate(byDate.get(dateKey)!.dateObj, "Sincronizacao do 99 Food");
@@ -407,6 +411,7 @@ export async function reflectSalesIntoRevenueEntries(
       // ser gravado sob a etiqueta falsa "periodo fechado" (13/10/2026, mesmo defeito no sync do PDV).
       if (!isPeriodLockedError(error)) throw error;
       bloqueados.push(dateKey);
+      diasTravadosComVenda.push(dateKey);
       byDate.delete(dateKey);
     }
   }
@@ -470,20 +475,22 @@ export async function reflectSalesIntoRevenueEntries(
   // Zera em vez de apagar: o lancamento volta a ter valor quando a API financeira
   // faturar o dia, e a linha nao some do historico. Restrito ao proprio prefixo de id
   // desta loja — nunca toca lancamento de outra origem.
-  const diasComVenda = [...byDate.keys()].map((k) => `nnfood-${store.id}-${k.replace(/-/g, "")}`);
-  const zerados = await prisma.revenueEntry.updateMany({
-    where: {
-      sourcePlatform: "NOVENTA_NOVE",
-      competenceYear: year,
-      competenceMonth: month,
-      status: "ACTIVE",
-      id: { startsWith: `nnfood-${store.id}-`, notIn: diasComVenda },
-      OR: [{ grossAmount: { not: 0 } }, { netAmount: { not: 0 } }, { tickets: { not: 0 } }]
-    },
-    data: { grossAmount: 0, discounts: 0, platformFees: 0, netAmount: 0, tickets: 0 }
+  const idDoDia = (k: string) => `nnfood-${store.id}-${k.replace(/-/g, "")}`;
+  const zeragem = await zerarDiasSemVenda({
+    sourcePlatform: "NOVENTA_NOVE",
+    prefixoId: `nnfood-${store.id}-`,
+    year,
+    month,
+    idsPreservados: [...byDate.keys(), ...diasTravadosComVenda].map(idDoDia),
+    contexto: "Sincronizacao do 99 Food"
   });
-  if (zerados.count > 0) {
-    console.warn(`[99Food] ${zerados.count} dia(s) sem venda faturada em ${String(month).padStart(2, "0")}/${year} zerados no razao.`);
+  // Dia sem venda que a trava impediu de zerar tambem e "nao gravado por periodo fechado".
+  bloqueados.push(...zeragem.bloqueados);
+  if (zeragem.bloqueados.length > 0) {
+    console.warn(`[99Food] ${zeragem.bloqueados.length} dia(s) sem venda nao zerado(s) por periodo fechado: ${zeragem.bloqueados.join(", ")}`);
+  }
+  if (zeragem.zerados > 0) {
+    console.warn(`[99Food] ${zeragem.zerados} dia(s) sem venda faturada em ${String(month).padStart(2, "0")}/${year} zerados no razao.`);
   }
 
   return { count, bloqueados };

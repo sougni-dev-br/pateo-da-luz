@@ -175,6 +175,56 @@ describe("cardápio do prato", () => {
   });
 });
 
+describe("prato vendido nos dois cardápios", () => {
+  test("grava o outro cardápio e a categoria dele, validada contra o cardápio certo", async () => {
+    db.dishCategory.findUnique.mockImplementation(async ({ where }: { where: { id: string } }) =>
+      where.id === "c-delivery" ? { name: "Carnes", menu: "DELIVERY" } : { name: "A la carte", menu: "CARDAPIO" });
+    const r = await request(app).post("/dishes").send({ name: "Filé", menu: "CARDAPIO", categoryId: "c-salao", alsoMenu: "DELIVERY", alsoCategoryId: "c-delivery" });
+    expect(r.status).toBe(200);
+    expect(db.dish.create).toHaveBeenLastCalledWith({
+      data: expect.objectContaining({ menu: "CARDAPIO", categoryId: "c-salao", alsoMenu: "DELIVERY", alsoCategoryId: "c-delivery" })
+    });
+  });
+
+  test("o segundo cardápio não pode ser o mesmo do principal", async () => {
+    const r = await request(app).post("/dishes").send({ name: "Filé", menu: "CARDAPIO", alsoMenu: "CARDAPIO" });
+    expect(r.status).toBe(400);
+    expect(r.body.message).toMatch(/escolha o outro/);
+    expect(db.dish.create).not.toHaveBeenCalled();
+  });
+
+  test("categoria do segundo cardápio tem que ser daquele cardápio", async () => {
+    db.dishCategory.findUnique.mockResolvedValue({ name: "A la carte", menu: "CARDAPIO" });
+    const r = await request(app).post("/dishes").send({ name: "Filé", menu: "CARDAPIO", alsoMenu: "DELIVERY", alsoCategoryId: "c-salao" });
+    expect(r.status).toBe(400);
+    expect(r.body.message).toMatch(/"A la carte" é do cardápio do salão/);
+  });
+
+  test("sem segundo cardápio, a segunda categoria é descartada", async () => {
+    await request(app).post("/dishes").send({ name: "Filé", alsoCategoryId: "sobrou" });
+    expect(db.dish.create).toHaveBeenLastCalledWith({ data: expect.objectContaining({ alsoMenu: null, alsoCategoryId: null }) });
+  });
+
+  test("editar sem o segundo cardápio tira o prato do outro cardápio", async () => {
+    await request(app).put("/dishes/d1").send({ name: "Filé" });
+    expect(db.dish.update).toHaveBeenLastCalledWith(expect.objectContaining({ data: expect.objectContaining({ alsoMenu: null, alsoCategoryId: null }) }));
+  });
+
+  test("a versão do histórico guarda o segundo cardápio", async () => {
+    db.dish.findUnique.mockImplementation(async (arg: { where: { id: string }; select?: object }) =>
+      arg.select ? { menu: "CARDAPIO" } : detalheMinimo(arg.where.id, { alsoMenu: "DELIVERY", alsoCategory: { id: "c2", name: "Carnes", parentId: null, menu: "DELIVERY" } }));
+    await request(app).put("/dishes/d1").send({ name: "Filé", alsoMenu: "DELIVERY" });
+    expect(db.dishRevision.create.mock.calls.at(-1)[0].data.snapshot).toMatchObject({ alsoMenu: "DELIVERY", alsoCategory: { name: "Carnes" } });
+  });
+
+  test("lote: passar a ser principal no cardápio em que já era vendido 'também' desfaz o segundo cardápio", async () => {
+    db.dish.findMany.mockResolvedValue([{ id: "d1", menu: "CARDAPIO", categoryId: null }]);
+    db.dish.updateMany.mockResolvedValue({ count: 1 });
+    await request(app).post("/dishes/bulk").send({ ids: ["d1"], menu: "DELIVERY" });
+    expect(db.dish.updateMany).toHaveBeenCalledWith({ where: { id: { in: ["d1"] }, alsoMenu: "DELIVERY" }, data: { alsoMenu: null, alsoCategoryId: null } });
+  });
+});
+
 describe("histórico de versões", () => {
   test("criar, alterar, inativar e reativar deixam uma versão cada, com a ação certa", async () => {
     await request(app).post("/dishes").send({ name: "Pizza" });
@@ -256,7 +306,7 @@ describe("ação em lote", () => {
   });
 
   test("só trocar o cardápio limpa a categoria de quem tinha uma do outro", async () => {
-    db.dish.updateMany.mockResolvedValueOnce({ count: 2 }).mockResolvedValueOnce({ count: 1 });
+    db.dish.updateMany.mockResolvedValueOnce({ count: 2 }).mockResolvedValueOnce({ count: 0 }).mockResolvedValueOnce({ count: 1 });
     const r = await request(app).post("/dishes/bulk").send({ ids: ["a", "b"], menu: "CARDAPIO" });
     expect(r.body).toEqual({ atualizados: 2, categoriasLimpas: 1 });
     expect(db.dish.updateMany).toHaveBeenLastCalledWith({

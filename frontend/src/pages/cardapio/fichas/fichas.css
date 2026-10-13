@@ -343,3 +343,7 @@
 @media (prefers-reduced-motion: reduce) {
   .ft-chip { transition: none; }
 }
+
+/* Preços por canal: ações da linha (alterar / remover) */
+.ft-acoes-linha { display: flex; justify-content: flex-end; gap: 12px; white-space: nowrap; }
+.ft-link--perigo { color: var(--danger); }

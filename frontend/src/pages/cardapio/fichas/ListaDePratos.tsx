@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { DishCategory, DishListItem } from "../../../api/client";
 import { Button, EmptyState, IconButton, ListDetailLayout, Select, StatusBadge, Switch } from "../../../design-system";
 import type { StatusTone } from "../../../design-system";
-import { FILTRO_SEM_CATEGORIA, ROTULO_DO_CARDAPIO, caminhoDaCategoria, opcoesDoFiltroDeCategoria } from "../../../lib/categoriasDasFichas";
+import { FILTRO_SEM_CATEGORIA, caminhoDaCategoria, categoriaCombina, categoriaNoCardapio, menusDoPrato, opcoesDoFiltroDeCategoria, rotuloDosCardapios } from "../../../lib/categoriasDasFichas";
 import {
   ROTULO_DA_SITUACAO,
   faixaDeCmv,
@@ -79,10 +79,12 @@ function EtiquetaDoPrato({ prato }: { prato: DishListItem }) {
 
 const moeda = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-function subtituloDoPrato(prato: DishListItem, mostrarCardapio: boolean): string {
+function subtituloDoPrato(prato: DishListItem, filtroDeCardapio: FiltroDaLista["menu"]): string {
   const partes: string[] = [];
-  if (mostrarCardapio) partes.push(ROTULO_DO_CARDAPIO[prato.menu]);
-  partes.push(caminhoDaCategoria(prato.category));
+  if (filtroDeCardapio === "todos") partes.push(rotuloDosCardapios(prato));
+  // Em um cardápio só, a categoria dele; em "todos", a de cada cardápio em que o prato é vendido.
+  const menus = filtroDeCardapio === "todos" ? menusDoPrato(prato) : [filtroDeCardapio];
+  partes.push([...new Set(menus.map((menu) => caminhoDaCategoria(categoriaNoCardapio(prato, menu))))].join(" / "));
 
   if (prato.salePriceDefault != null) {
     partes.push(`R$ ${moeda(prato.salePriceDefault)}`);
@@ -98,11 +100,11 @@ function subtituloDoPrato(prato: DishListItem, mostrarCardapio: boolean): string
 
 /** Diz POR QUE a lista ficou vazia: "nenhum prato com esses filtros" não ajuda a saber qual filtro soltar. */
 function explicarListaVazia(filtro: FiltroDaLista, categorias: DishCategory[], pratosDoSeletor: DishListItem[]): string {
-  const semCategoria = pratosDoSeletor.filter((prato) => !prato.category).length;
+  const semCategoria = pratosDoSeletor.filter((prato) => categoriaCombina(prato, FILTRO_SEM_CATEGORIA, filtro.menu)).length;
   const nomeDaCategoria = categorias.find((categoria) => categoria.id === filtro.categoriaId)?.name;
   const soCategoria = pratosDoSeletor.filter((prato) => prato.isActive || filtro.mostrarInativos);
 
-  if (filtro.busca === "" && filtro.situacao === "todos" && nomeDaCategoria && !soCategoria.some((prato) => prato.category?.id === filtro.categoriaId || prato.category?.parentId === filtro.categoriaId)) {
+  if (filtro.busca === "" && filtro.situacao === "todos" && nomeDaCategoria && !soCategoria.some((prato) => categoriaCombina(prato, filtro.categoriaId))) {
     return semCategoria > 0
       ? `Nenhum prato foi classificado em “${nomeDaCategoria}” ainda. ${semCategoria} prato${semCategoria === 1 ? " está" : "s estão"} sem categoria: use “Selecionar vários” e “Organizar” para classificar.`
       : `Nenhum prato foi classificado em “${nomeDaCategoria}” ainda.`;
@@ -279,7 +281,7 @@ export function ListaDePratos({
             <p>{explicarListaVazia(filtro, categorias, pratosDoSeletor)}</p>
             {filtrando && (
               <>
-                {filtro.categoriaId !== "" && filtro.categoriaId !== FILTRO_SEM_CATEGORIA && pratosDoSeletor.some((prato) => !prato.category) && (
+                {filtro.categoriaId !== "" && filtro.categoriaId !== FILTRO_SEM_CATEGORIA && pratosDoSeletor.some((prato) => categoriaCombina(prato, FILTRO_SEM_CATEGORIA, filtro.menu)) && (
                   <button type="button" className="ft-link" onClick={() => onFiltro({ categoriaId: FILTRO_SEM_CATEGORIA })}>
                     Ver os pratos sem categoria
                   </button>
@@ -293,7 +295,7 @@ export function ListaDePratos({
         )}
 
         {pratos.map((prato) => {
-          const subtitulo = subtituloDoPrato(prato, filtro.menu === "todos");
+          const subtitulo = subtituloDoPrato(prato, filtro.menu);
           if (!modoSelecao) {
             return (
               <ListDetailLayout.Item
