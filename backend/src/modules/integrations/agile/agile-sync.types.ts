@@ -22,11 +22,20 @@ const money = z.number().finite();
 // existir). Só "mesa" entra no faturamento do Salão — ver ehVendaDeMesa.
 const modoVenda = z.string().nullish().transform((valor) => (valor && valor.trim() ? valor.trim() : "mesa"));
 
+// Texto livre vindo do PDV (nome de funcionario, motivo, hora) que so alimenta analise.
+// TRUNCA em vez de recusar: um valor absurdo nao pode derrubar o sync inteiro e deixar o
+// dia sem faturamento por causa de um campo que nem entra na receita.
+const textoCurto = (max: number) => z.string().nullish().transform((valor) => (valor == null ? valor : valor.slice(0, max)));
+
 const vendaSchema = z.object({
   modo_venda: modoVenda,
   nrseqvenda: z.string().min(1),
   dt_movimento: isoDate,
   turno: z.string().min(1), // "Almoço" | "Jantar" | outros
+  // Opcionais: agente antigo nao manda. Alimentam a analise de cancelamentos.
+  hora: textoCurto(8), // "HH:MM"
+  func_cancelou: textoCurto(120),
+  motivo_cancelamento: textoCurto(500),
   situacao_da_venda: z.string().min(1), // "RECEBIDA" | "CANCELADA"
   nr_ticket: z.string().nullable().optional(),
   qtd_pessoas: z.number().int().nonnegative().default(0),
@@ -60,7 +69,8 @@ const itemSchema = z.object({
   grupo_produto: z.string().nullable().optional(),
   categoria_produto: z.string().nullable().optional(),
   qtd: z.number().nonnegative().default(0),
-  vl_tot: money.default(0)
+  vl_tot: money.default(0),
+  func_lancou: textoCurto(120) // quem lancou o item; opcional (agente antigo nao manda)
 });
 
 export const agileSyncPayloadSchema = z.object({

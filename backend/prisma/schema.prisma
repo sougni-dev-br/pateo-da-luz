@@ -1453,14 +1453,45 @@ model AgileSaleItem {
   productCategory String?
   quantity        Decimal  @default(0) @db.Decimal(12, 3)
   totalAmount     Decimal  @default(0) @db.Decimal(14, 2)
+  // Funcionario que lancou o item no PDV (func_lancou). Null nas linhas gravadas antes
+  // de o agente enviar o campo; reimportar o periodo preenche.
+  launchedBy      String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   @@unique([saleId, itemSeq], map: "agitem_sale_seq_uniq")
+  @@index([launchedBy], map: "agitem_launched_by_idx")
   @@index([movementDate], map: "agitem_movement_idx")
   @@index([competenceYear, competenceMonth], map: "agitem_competence_idx")
   @@index([productCode], map: "agitem_product_code_idx")
   @@index([productName], map: "agitem_product_name_idx")
+}
+
+// Uma linha por venda de MESA do PDV, inclusive a cancelada (o agregado diario em
+// RevenueEntry descarta o cancelamento). Dado analitico: nao alimenta DRE nem CMV e,
+// como AgileSaleItem, nao respeita trava de periodo.
+model AgileSale {
+  id              String   @id @default(cuid())
+  // Chave natural do PDV (nrseqvenda). Torna o import idempotente.
+  saleId          String   @unique
+  movementDate    DateTime
+  competenceYear  Int
+  competenceMonth Int
+  shift           String
+  saleStatus      String
+  // "HH:MM" como o PDV mandou; null se nao veio.
+  saleHour        String?
+  people          Int      @default(0)
+  // vl_total. Numa venda CANCELADA e o valor que se perdeu (o subtotal vem zerado).
+  totalAmount     Decimal  @default(0) @db.Decimal(14, 2)
+  cancelledBy     String?
+  cancelReason    String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([movementDate], map: "agsale_movement_idx")
+  @@index([competenceYear, competenceMonth], map: "agsale_competence_idx")
+  @@index([saleStatus, movementDate], map: "agsale_status_movement_idx")
 }
 
 // Ultimo sinal de vida do agente que roda na maquina do PDV (uma linha por maquina).
