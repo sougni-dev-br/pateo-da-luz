@@ -202,6 +202,23 @@ export function mockFichas(url: string, method = "GET"): unknown | undefined {
       lojas: [
         { deliveryStoreId: "mock-99-0", storeName: "Pateo Frei Caneca", razao: 0.53, pedidos: 901, base: "loja" },
         { deliveryStoreId: "mock-99-1", storeName: "Pateo da Luz & Pizza", razao: 0.39, pedidos: 1163, base: "loja" }
+      ],
+      canais: [
+        {
+          channel: "NOVENTA_NOVE", fonte: "tabela", referencia: { pedidos: 2416 }, plataforma: { razao: 0.46 },
+          lojas: [
+            { deliveryStoreId: "mock-99-0", storeName: "Pateo Frei Caneca", razao: 0.53, pedidos: 901, base: "loja" },
+            { deliveryStoreId: "mock-99-1", storeName: "Pateo da Luz & Pizza", razao: 0.39, pedidos: 1163, base: "loja" }
+          ]
+        },
+        {
+          channel: "IFOOD", fonte: "faturamento", referencia: { faturamento: 14000, de: "2026-07-31", ate: "2026-08-31" }, plataforma: { razao: 0.58 },
+          lojas: [{ deliveryStoreId: "mock-ifood-1", storeName: "Pateo da Luz", razao: 0.62, pedidos: 0, base: "loja" }]
+        },
+        {
+          channel: "KEETA", fonte: "faturamento", referencia: { faturamento: 130000, de: "2026-07-01", ate: "2026-09-18" }, plataforma: { razao: 0.77 },
+          lojas: [{ deliveryStoreId: "plataforma:KEETA", storeName: "Keeta (loja única)", razao: 0.77, pedidos: 0, base: "plataforma" }]
+        }
       ]
     };
   }
@@ -209,7 +226,7 @@ export function mockFichas(url: string, method = "GET"): unknown | undefined {
     return [
       { id: "mock-ifood-1", platform: "IFOOD", nickname: "Pateo da Luz" },
       { id: "mock-ifood-2", platform: "IFOOD", nickname: "Pateo da Luz Pizzaria" },
-      { id: "mock-keeta-1", platform: "KEETA", nickname: "Pateo Frei Caneca" }
+      { id: "plataforma:KEETA", platform: "KEETA", nickname: "Loja única" }
     ];
   }
   if (resto === "products/search") {

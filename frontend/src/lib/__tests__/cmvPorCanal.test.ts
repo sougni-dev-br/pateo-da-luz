@@ -111,6 +111,16 @@ describe("CMV sobre o líquido da 99", () => {
     expect(linha.celulas.NOVENTA_NOVE.cmv).toBeCloseTo(100);
   });
 
+  it("Keeta sem loja cadastrada usa a razão da plataforma (chave plataforma:KEETA)", () => {
+    const keeta = prato({ id: "k", name: "Keeta", menu: "DELIVERY", salePriceDefault: null, custoPorcao: 30, canais: [{ channel: "KEETA", deliveryStoreId: null, storeName: null, price: 100 }] });
+    const colunas = montarColunas([keeta], "loja");
+    const [linha] = montarMatriz([keeta], colunas, "loja", { "plataforma:KEETA": 0.78 });
+    const celula = linha.celulas[colunas[0].chave];
+    expect(celula).toMatchObject({ sobreLiquido: true });
+    expect(celula.preco).toBeCloseTo(78);
+    expect(celula.cmv).toBeCloseTo(38.46, 1); // 30 / 78
+  });
+
   it("loja sem razão medida fica pela tabela, e sem razões nada muda", () => {
     const [semRazao] = montarMatriz([FILE], montarColunas([FILE], "loja"), "loja", { "s-Frei Caneca": 0.5 });
     expect(semRazao.celulas["NOVENTA_NOVE|Pizzaria"]).toMatchObject({ sobreLiquido: false });
