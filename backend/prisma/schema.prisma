@@ -1456,6 +1456,11 @@ model AgileSaleItem {
   // Funcionario que lancou o item no PDV (func_lancou). Null nas linhas gravadas antes
   // de o agente enviar o campo; reimportar o periodo preenche.
   launchedBy      String?
+  // Quem cancelou o item e o motivo (func_cancelou / motivo_cancelamento da linha do
+  // item). So fazem sentido quando saleStatus != RECEBIDA; null nas linhas gravadas antes
+  // de o agente enviar o campo.
+  cancelledBy     String?
+  cancelReason    String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 

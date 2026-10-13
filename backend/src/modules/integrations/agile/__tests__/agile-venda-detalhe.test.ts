@@ -94,6 +94,22 @@ describe("mapSaleItemRow guarda quem lancou", () => {
   });
 });
 
+describe("mapSaleItemRow guarda quem cancelou o item e o motivo", () => {
+  const item = (over = {}) => payload({ itens: [{ ...itemBase, ...over }] }).itens[0];
+  test("com nomes, sem nada e so espacos", () => {
+    const r = mapSaleItemRow(item({ situacao_da_venda: "CANCELADA", func_cancelou: " Carla ", motivo_cancelamento: " Cliente desistiu " }));
+    expect(r).toMatchObject({ saleStatus: "CANCELADA", cancelledBy: "Carla", cancelReason: "Cliente desistiu" });
+    expect(mapSaleItemRow(item())).toMatchObject({ cancelledBy: null, cancelReason: null });
+    expect(mapSaleItemRow(item({ func_cancelou: "   ", motivo_cancelamento: "" }))).toMatchObject({ cancelledBy: null, cancelReason: null });
+  });
+
+  test("texto absurdo do item e truncado, nao recusado", () => {
+    const p = payload({ itens: [{ ...itemBase, func_cancelou: "n".repeat(500), motivo_cancelamento: "m".repeat(5000) }] });
+    expect(p.itens[0].func_cancelou).toHaveLength(120);
+    expect(p.itens[0].motivo_cancelamento).toHaveLength(500);
+  });
+});
+
 describe("agruparPorDia.vendasMesa", () => {
   test("todas as vendas de mesa, inclusive cancelada, sem duplicata e sem outro modo", () => {
     const { vendasMesa } = agruparPorDia(payload({

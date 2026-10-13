@@ -70,7 +70,10 @@ const itemSchema = z.object({
   categoria_produto: z.string().nullable().optional(),
   qtd: z.number().nonnegative().default(0),
   vl_tot: money.default(0),
-  func_lancou: textoCurto(120) // quem lancou o item; opcional (agente antigo nao manda)
+  func_lancou: textoCurto(120), // quem lancou o item; opcional (agente antigo nao manda)
+  // Item cancelado: quem cancelou e por que. Opcionais pelo mesmo motivo.
+  func_cancelou: textoCurto(120),
+  motivo_cancelamento: textoCurto(500)
 });
 
 export const agileSyncPayloadSchema = z.object({

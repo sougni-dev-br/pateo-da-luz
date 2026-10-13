@@ -1,13 +1,16 @@
 import { prisma } from "../../../config/database.js";
 import {
   montarCancelamentos,
+  montarItensCancelados,
   montarVendasPorPessoa,
   type ItemAnalise,
+  type ItemCanceladoAnalise,
   type Periodo,
   type VendaAnalise
 } from "./agile-analise.report.js";
 
 const UM_DIA_MS = 24 * 60 * 60 * 1000;
+const LOTE_VENDAS = 2000;
 
 // "Do dia inicial ate o fim do dia final", como intervalo [de, ate). As linhas sao
 // gravadas as 12:00 UTC, mas o intervalo nao pode depender disso: igualdade de
@@ -44,4 +47,55 @@ export async function obterVendasPorPessoa(periodo: Periodo) {
     totalAmount: Number(l.totalAmount)
   }));
   return montarVendasPorPessoa(itens, periodo);
+}
+
+// Itens cancelados DENTRO de venda paga. O item guarda o status proprio (saleStatus), mas
+// nao a situacao da venda: por isso cruza com AgileSale. Item de venda inteira cancelada
+// ja aparece em "Cancelamentos" (contaria duas vezes) e item cuja venda nao foi gravada
+// fica de fora, em vez de entrar com hora inventada.
+export async function obterItensCancelados(periodo: Periodo) {
+  const { de, ate } = intervaloDoPeriodo(periodo);
+  const [canceladas, recebidos] = await Promise.all([
+    prisma.agileSaleItem.findMany({
+      where: { movementDate: { gte: de, lt: ate }, saleStatus: "CANCELADA" },
+      select: {
+        saleId: true, movementDate: true, productName: true, productGroup: true, quantity: true,
+        totalAmount: true, launchedBy: true, cancelledBy: true, cancelReason: true
+      }
+    }),
+    prisma.agileSaleItem.aggregate({
+      where: { movementDate: { gte: de, lt: ate }, saleStatus: "RECEBIDA" },
+      _sum: { totalAmount: true }
+    })
+  ]);
+
+  const valorItensRecebidos = Number(recebidos._sum.totalAmount ?? 0);
+  if (canceladas.length === 0) return montarItensCancelados([], valorItensRecebidos, periodo);
+
+  const ids = [...new Set(canceladas.map((i) => i.saleId))];
+  const horaDaVenda = new Map<string, string | null>();
+  const vendasGravadas = new Set<string>();
+  for (let i = 0; i < ids.length; i += LOTE_VENDAS) {
+    const vendas = await prisma.agileSale.findMany({
+      where: { saleId: { in: ids.slice(i, i + LOTE_VENDAS) } },
+      select: { saleId: true, saleStatus: true, saleHour: true }
+    });
+    for (const v of vendas) {
+      vendasGravadas.add(v.saleId);
+      if (v.saleStatus === "RECEBIDA") horaDaVenda.set(v.saleId, v.saleHour);
+    }
+  }
+
+  const itens: ItemCanceladoAnalise[] = canceladas
+    .filter((i) => horaDaVenda.has(i.saleId))
+    .map((i) => ({
+      ...i,
+      saleHour: horaDaVenda.get(i.saleId) ?? null,
+      quantity: Number(i.quantity),
+      totalAmount: Number(i.totalAmount)
+    }));
+  // Item de venda inteira cancelada e outro relatorio; so o item cuja venda NAO foi gravada
+  // e que fica de fora sem explicacao, e por isso e contado e avisado na tela.
+  const itensSemVenda = canceladas.filter((i) => !vendasGravadas.has(i.saleId)).length;
+  return montarItensCancelados(itens, valorItensRecebidos, periodo, itensSemVenda);
 }

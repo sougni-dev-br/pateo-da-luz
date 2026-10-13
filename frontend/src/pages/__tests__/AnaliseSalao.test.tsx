@@ -1,13 +1,14 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import type { AnaliseCancelamentos, AnaliseVendasPorPessoa } from "../../api/client";
+import type { AnaliseCancelamentos, AnaliseItensCancelados, AnaliseVendasPorPessoa } from "../../api/client";
 
 vi.mock("../../api/client", () => ({
   getAnaliseCancelamentos: vi.fn(),
+  getAnaliseItensCancelados: vi.fn(),
   getAnaliseVendasPorPessoa: vi.fn()
 }));
 
-import { getAnaliseCancelamentos, getAnaliseVendasPorPessoa } from "../../api/client";
+import { getAnaliseCancelamentos, getAnaliseItensCancelados, getAnaliseVendasPorPessoa } from "../../api/client";
 import { SessionContext, type SessionContextValue } from "../../context/SessionContext";
 import { HideValuesProvider } from "../../design-system";
 import { AnaliseSalao } from "../AnaliseSalao";
@@ -37,6 +38,21 @@ function cancelamentos(over: Partial<AnaliseCancelamentos> = {}): AnaliseCancela
   };
 }
 
+function itensCancelados(over: Partial<AnaliseItensCancelados> = {}): AnaliseItensCancelados {
+  const linha = (pessoa: string, itens: number, valor: number) => ({ pessoa, itens, vendas: itens, valor, participacao: 0.5 });
+  return {
+    periodo: PERIODO,
+    cobertura: { itensCancelados: 12, itensSemVenda: 0, primeiroDia: "2026-09-14", ultimoDia: "2026-10-13" },
+    resumo: { itens: 12, vendasAfetadas: 9, valorCancelado: 640, valorItensRecebidos: 9000, taxaValor: 0.0664, semQuemCancelou: 0, semMotivo: 12, mesmaPessoa: 5, comOsDoisNomes: 12 },
+    porQuemLancou: [linha("Helena Fictícia", 8, 400), linha("Igor Fictício", 4, 240)],
+    porQuemCancelou: [linha("Júlia Fictícia", 12, 640)],
+    porProduto: [{ produto: "BUFFET PROMO 15", grupo: "Buffet", linhas: 3, quantidade: 14, valor: 500 }],
+    porHora: [{ hora: "13", itens: 7, valor: 400 }],
+    maiores: [{ saleId: "1", data: "2026-10-02", hora: "13:11", produto: "BUFFET PROMO 15", quantidade: 14, valor: 500, quemLancou: "Helena Fictícia", quemCancelou: "Júlia Fictícia", motivo: null }],
+    ...over
+  };
+}
+
 const vendasPessoa: AnaliseVendasPorPessoa = {
   periodo: PERIODO,
   cobertura: { itensComPessoa: 50, itensSemPessoa: 0 },
@@ -59,6 +75,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(getAnaliseCancelamentos).mockResolvedValue(cancelamentos());
   vi.mocked(getAnaliseVendasPorPessoa).mockResolvedValue(vendasPessoa);
+  vi.mocked(getAnaliseItensCancelados).mockResolvedValue(itensCancelados());
 });
 
 describe("Análise do Salão — cancelamentos", () => {
@@ -153,5 +170,74 @@ describe("Análise do Salão — período e abas", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Vendas por pessoa" }));
     expect(await screen.findByText(/Nenhum item com o funcionário que o lançou/)).toBeTruthy();
     expect(screen.getByText(/Há 12 itens sem essa informação/)).toBeTruthy();
+  });
+});
+
+describe("Análise do Salão — itens cancelados", () => {
+  async function abrirAba() {
+    renderizar();
+    await screen.findByText("Bruno Fictício");
+    fireEvent.click(screen.getByRole("tab", { name: "Itens cancelados" }));
+  }
+
+  test("a aba busca o relatório certo e mostra quem lançou, quem cancelou e o produto", async () => {
+    await abrirAba();
+    expect(await screen.findByText("Igor Fictício", { selector: "td" })).toBeTruthy();
+    expect(getAnaliseItensCancelados).toHaveBeenCalledTimes(1);
+    expect(screen.getAllByText("Júlia Fictícia", { selector: "td" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("BUFFET PROMO 15").length).toBeGreaterThan(0);
+    expect(screen.getByText("em 9 vendas pagas")).toBeTruthy();
+  });
+
+  test("explica que a venda inteira cancelada fica na outra aba", async () => {
+    await abrirAba();
+    expect(await screen.findByText(/A venda inteira cancelada fica na aba Cancelamentos/)).toBeTruthy();
+  });
+
+  test("avisa quando nenhum item tem motivo", async () => {
+    await abrirAba();
+    expect(await screen.findByText(/Nenhum item cancelado tem motivo registrado/)).toBeTruthy();
+  });
+
+  test("quem cancelou ainda não importado: avisa e não mostra a tabela de quem cancelou", async () => {
+    vi.mocked(getAnaliseItensCancelados).mockResolvedValue(itensCancelados({
+      resumo: { ...itensCancelados().resumo, semQuemCancelou: 12, mesmaPessoa: 0, comOsDoisNomes: 0 },
+      porQuemCancelou: [{ pessoa: "(não informado)", itens: 12, vendas: 9, valor: 640, participacao: 1 }]
+    }));
+    await abrirAba();
+    expect(await screen.findByText(/Ainda não temos quem cancelou cada item/)).toBeTruthy();
+    expect(screen.queryByText("Quem cancelou")).toBeNull();
+    expect(screen.queryByText("Quem lançou também cancelou")).toBeNull();
+  });
+
+  test("parte sem quem cancelou: aviso leve e a tabela continua", async () => {
+    vi.mocked(getAnaliseItensCancelados).mockResolvedValue(itensCancelados({ resumo: { ...itensCancelados().resumo, semQuemCancelou: 4 } }));
+    await abrirAba();
+    expect(await screen.findByText(/4 de 12 itens ainda estão sem quem cancelou/)).toBeTruthy();
+    expect(screen.getByText("Quem cancelou")).toBeTruthy();
+  });
+
+  test("sem item cancelado no período: mensagem simples, sem zeros", async () => {
+    vi.mocked(getAnaliseItensCancelados).mockResolvedValue(itensCancelados({
+      cobertura: { itensCancelados: 0, itensSemVenda: 0, primeiroDia: null, ultimoDia: null },
+      resumo: { itens: 0, vendasAfetadas: 0, valorCancelado: 0, valorItensRecebidos: 0, taxaValor: 0, semQuemCancelou: 0, semMotivo: 0, mesmaPessoa: 0, comOsDoisNomes: 0 },
+      porQuemLancou: [], porQuemCancelou: [], porProduto: [], porHora: [], maiores: []
+    }));
+    await abrirAba();
+    expect(await screen.findByText(/Nenhum item cancelado em vendas pagas neste período/)).toBeTruthy();
+  });
+
+  test("itens descartados por falta da venda são avisados, não somem calados", async () => {
+    vi.mocked(getAnaliseItensCancelados).mockResolvedValue(itensCancelados({
+      cobertura: { itensCancelados: 12, itensSemVenda: 3, primeiroDia: "2026-09-14", ultimoDia: "2026-10-13" }
+    }));
+    await abrirAba();
+    expect(await screen.findByText(/3 itens cancelados ficaram de fora porque a venda deles não foi importada/)).toBeTruthy();
+  });
+
+  test("o aviso de motivo é informativo e o KPI de quem lançou e cancelou é neutro", async () => {
+    await abrirAba();
+    expect(await screen.findByText("5 de 12")).toBeTruthy();
+    expect(screen.getByText(/corrigiu o próprio lançamento/)).toBeTruthy();
   });
 });

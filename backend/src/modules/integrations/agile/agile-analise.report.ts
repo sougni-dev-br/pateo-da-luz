@@ -26,6 +26,20 @@ export type ItemAnalise = {
   totalAmount: number;
 };
 
+export type ItemCanceladoAnalise = {
+  saleId: string;
+  movementDate: Date;
+  // Hora da VENDA (o item nao tem hora propria).
+  saleHour: string | null;
+  productName: string;
+  productGroup: string | null;
+  quantity: number;
+  totalAmount: number;
+  launchedBy: string | null;
+  cancelledBy: string | null;
+  cancelReason: string | null;
+};
+
 const SITUACAO_RECEBIDA = "RECEBIDA";
 const NAO_INFORMADO = "(não informado)";
 const SEM_GRUPO = "(sem grupo)";
@@ -176,5 +190,97 @@ export function montarVendasPorPessoa(itens: ItemAnalise[], periodo: Periodo) {
       itensSemPessoa
     },
     pessoas
+  };
+}
+
+// Itens cancelados DENTRO de vendas que foram pagas (a venda inteira cancelada e outro
+// relatorio: montarCancelamentos). `valorItensRecebidos` e o valor dos itens que ficaram
+// na conta no mesmo periodo e serve de denominador da taxa.
+export function montarItensCancelados(
+  itens: ItemCanceladoAnalise[],
+  valorItensRecebidos: number,
+  periodo: Periodo,
+  // Itens cancelados que ficaram de fora porque a venda deles nao foi gravada em AgileSale.
+  itensSemVenda = 0
+) {
+  const valorCancelado = itens.reduce((s, i) => s + i.totalAmount, 0);
+  const nome = (n: string | null) => limpar(n) || NAO_INFORMADO;
+
+  const porPessoa = (campo: "launchedBy" | "cancelledBy") => {
+    const mapa = new Map<string, { itens: number; valor: number; vendas: Set<string> }>();
+    for (const i of itens) {
+      const k = nome(i[campo]);
+      const atual = mapa.get(k) ?? { itens: 0, valor: 0, vendas: new Set<string>() };
+      atual.itens += 1;
+      atual.valor += i.totalAmount;
+      atual.vendas.add(i.saleId);
+      mapa.set(k, atual);
+    }
+    return [...mapa.entries()]
+      .map(([pessoa, x]) => ({ pessoa, itens: x.itens, vendas: x.vendas.size, valor: round2(x.valor), participacao: razao(x.valor, valorCancelado) }))
+      // "(nao informado)" sempre por ultimo: nao e uma pessoa, e ninguem deve le-lo como o
+      // funcionario que mais cancela so porque o agente ainda nao mandou o nome.
+      .sort((a, b) => Number(a.pessoa === NAO_INFORMADO) - Number(b.pessoa === NAO_INFORMADO) || b.valor - a.valor || a.pessoa.localeCompare(b.pessoa));
+  };
+
+  const produtos = new Map<string, { grupo: string; linhas: number; quantidade: number; valor: number }>();
+  for (const i of itens) {
+    const k = limpar(i.productName) || "(sem nome)";
+    const atual = produtos.get(k) ?? { grupo: limpar(i.productGroup) || SEM_GRUPO, linhas: 0, quantidade: 0, valor: 0 };
+    atual.linhas += 1;
+    atual.quantidade += i.quantity;
+    atual.valor += i.totalAmount;
+    produtos.set(k, atual);
+  }
+
+  const horas = new Map<string, { itens: number; valor: number }>();
+  for (const i of itens) {
+    const k = i.saleHour ? i.saleHour.slice(0, 2) : SEM_HORA;
+    const atual = horas.get(k) ?? { itens: 0, valor: 0 };
+    horas.set(k, { itens: atual.itens + 1, valor: atual.valor + i.totalAmount });
+  }
+
+  const comOsDoisNomes = itens.filter((i) => limpar(i.launchedBy) !== "" && limpar(i.cancelledBy) !== "");
+  const dias = [...new Set(itens.map((i) => toCalendarDateKey(i.movementDate)))].sort();
+
+  return {
+    periodo,
+    cobertura: { itensCancelados: itens.length, itensSemVenda, primeiroDia: dias[0] ?? null, ultimoDia: dias[dias.length - 1] ?? null },
+    resumo: {
+      itens: itens.length,
+      vendasAfetadas: new Set(itens.map((i) => i.saleId)).size,
+      valorCancelado: round2(valorCancelado),
+      valorItensRecebidos: round2(valorItensRecebidos),
+      taxaValor: razao(valorCancelado, valorCancelado + valorItensRecebidos),
+      // Itens sem "quem cancelou": linhas gravadas antes de o agente enviar o campo.
+      semQuemCancelou: itens.filter((i) => limpar(i.cancelledBy) === "").length,
+      semMotivo: itens.filter((i) => limpar(i.cancelReason) === "").length,
+      // Lancou e cancelou o mesmo item: so conta quando os dois nomes existem.
+      mesmaPessoa: comOsDoisNomes.filter((i) => limpar(i.launchedBy) === limpar(i.cancelledBy)).length,
+      comOsDoisNomes: comOsDoisNomes.length
+    },
+    porQuemLancou: porPessoa("launchedBy"),
+    porQuemCancelou: porPessoa("cancelledBy"),
+    porProduto: [...produtos.entries()]
+      .map(([produto, x]) => ({ produto, grupo: x.grupo, linhas: x.linhas, quantidade: x.quantidade, valor: round2(x.valor) }))
+      .sort((a, b) => b.valor - a.valor || a.produto.localeCompare(b.produto))
+      .slice(0, MAX_MAIORES),
+    porHora: [...horas.entries()]
+      .map(([hora, x]) => ({ hora, itens: x.itens, valor: round2(x.valor) }))
+      .sort((a, b) => (a.hora === SEM_HORA ? 1 : b.hora === SEM_HORA ? -1 : a.hora.localeCompare(b.hora))),
+    maiores: [...itens]
+      .sort((a, b) => b.totalAmount - a.totalAmount || a.saleId.localeCompare(b.saleId))
+      .slice(0, MAX_MAIORES)
+      .map((i) => ({
+        saleId: i.saleId,
+        data: toCalendarDateKey(i.movementDate),
+        hora: i.saleHour,
+        produto: limpar(i.productName),
+        quantidade: i.quantity,
+        valor: round2(i.totalAmount),
+        quemLancou: nome(i.launchedBy),
+        quemCancelou: nome(i.cancelledBy),
+        motivo: limpar(i.cancelReason) || null
+      }))
   };
 }
