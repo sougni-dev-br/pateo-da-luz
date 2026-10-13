@@ -63,8 +63,33 @@ describe("lojas e preços por canal", () => {
     db.deliveryStore.findMany.mockResolvedValue([{ id: "s1", platform: "IFOOD", nickname: "Pateo da Luz" }]);
     const r = await request(app).get("/dishes/delivery-stores");
     expect(r.status).toBe(200);
-    expect(r.body).toEqual([{ id: "s1", platform: "IFOOD", nickname: "Pateo da Luz" }]);
+    expect(r.body[0]).toEqual({ id: "s1", platform: "IFOOD", nickname: "Pateo da Luz" });
     expect(db.deliveryStore.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { active: true } }));
+  });
+
+  test("a Keeta, que não tem loja cadastrada, aparece como loja única para poder ter preço", async () => {
+    db.deliveryStore.findMany.mockResolvedValue([{ id: "s1", platform: "IFOOD", nickname: "Pateo da Luz" }]);
+    const r = await request(app).get("/dishes/delivery-stores");
+    expect(r.body).toEqual([
+      { id: "s1", platform: "IFOOD", nickname: "Pateo da Luz" },
+      { id: "plataforma:KEETA", platform: "KEETA", nickname: "Loja única" }
+    ]);
+    db.deliveryStore.findMany.mockResolvedValue([{ id: "k1", platform: "KEETA", nickname: "Keeta Frei Caneca" }]);
+    expect((await request(app).get("/dishes/delivery-stores")).body).toHaveLength(1); // já há loja Keeta: sem a pseudo
+  });
+
+  test("lança preço na Keeta sem loja: canal KEETA, sem deliveryStoreId, e não duplica", async () => {
+    const r = await request(app).post("/dishes/d1/listings").send({ deliveryStoreId: "plataforma:KEETA", price: 70 });
+    expect(r.status).toBe(200);
+    expect(db.dishListing.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ channel: "KEETA", deliveryStoreId: null, externalItemId: "manual:d1", price: 70 })
+    });
+    expect(db.dishListing.count).toHaveBeenCalledWith({ where: { dishId: "d1", channel: "KEETA", deliveryStoreId: null } });
+
+    db.dishListing.count.mockResolvedValue(1);
+    expect((await request(app).post("/dishes/d1/listings").send({ deliveryStoreId: "plataforma:KEETA", price: 70 })).status).toBe(409);
+    // Só plataforma sem loja pode ser lançada assim.
+    expect((await request(app).post("/dishes/d1/listings").send({ deliveryStoreId: "plataforma:IFOOD", price: 70 })).status).toBe(400);
   });
 
   test("lança o preço de uma loja: canal da plataforma, chave manual, e deixa versão no histórico", async () => {

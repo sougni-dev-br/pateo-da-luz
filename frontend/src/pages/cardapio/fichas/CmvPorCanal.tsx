@@ -18,7 +18,7 @@ import {
   type RazoesLiquidas,
   type ResumoDaColuna
 } from "../../../lib/cmvPorCanal";
-import { faixaDeCmv } from "../../../lib/fichaTecnica";
+import { faixaDeCmv, rotuloDoCanal } from "../../../lib/fichaTecnica";
 import { formatPercent } from "../../../utils/format";
 
 type Props = {
@@ -41,11 +41,18 @@ const OPCOES_DE_MODO: Array<{ valor: ModoDeAgrupamento; rotulo: string; titulo: 
 type BaseDoPreco = "liquido" | "tabela";
 
 const OPCOES_DE_BASE: Array<{ valor: BaseDoPreco; rotulo: string; titulo: string }> = [
-  { valor: "liquido", rotulo: "Líquido da 99", titulo: "Na 99, o preço que chega ao caixa (média da loja nos pedidos recentes). Salão, iFood e Keeta seguem pelo preço de tabela." },
+  { valor: "liquido", rotulo: "Líquido das plataformas", titulo: "Em 99, iFood e Keeta, o preço que chega ao caixa (média medida de cada loja). O salão não tem desconto de plataforma." },
   { valor: "tabela", rotulo: "Preço de tabela", titulo: "O preço anunciado, em todos os lugares." }
 ];
 
 const percentual = (razao: number) => `${Math.round(razao * 100)}%`;
+
+/** "2026-07-31", "2026-08-31" → " (31/07 a 31/08)". */
+const periodo = (de?: string, ate?: string) => {
+  if (!de || !ate) return "";
+  const dia = (iso: string) => iso.slice(5).split("-").reverse().join("/");
+  return ` (${dia(de)} a ${dia(ate)})`;
+};
 
 const TEXTO_DO_ESTADO: Record<Exclude<Celula["estado"], "ok">, { curto: string; longo: string }> = {
   "nao-vende": { curto: "—", longo: "O prato não é vendido aqui." },
@@ -112,9 +119,10 @@ export function CmvPorCanal({ pratos, carregando, onAbrirPrato }: Props) {
 
   const razoesPorLoja = useMemo<RazoesLiquidas | undefined>(() => {
     if (base !== "liquido" || !razoes) return undefined;
-    return Object.fromEntries(razoes.lojas.filter((loja) => loja.razao != null).map((loja) => [loja.deliveryStoreId, loja.razao as number]));
+    const lojas = (razoes.canais ?? [{ lojas: razoes.lojas }]).flatMap((canal) => canal.lojas);
+    return Object.fromEntries(lojas.filter((loja) => loja.razao != null).map((loja) => [loja.deliveryStoreId, loja.razao as number]));
   }, [base, razoes]);
-  const temLiquido = Boolean(razoes && razoes.lojas.some((loja) => loja.razao != null));
+  const temLiquido = Boolean(razoes && (razoes.canais ?? [{ lojas: razoes.lojas }]).some((canal) => canal.lojas.some((loja) => loja.razao != null)));
 
   const ativos = useMemo(() => pratos.filter((prato) => prato.isActive), [pratos]);
   const colunas = useMemo(() => montarColunas(ativos, modo), [ativos, modo]);
@@ -179,22 +187,36 @@ export function CmvPorCanal({ pratos, carregando, onAbrirPrato }: Props) {
       <p className="ft-nota">
         CMV = custo da ficha ÷ preço do lugar. Bom até {CMV_BOM}% · atenção até {CMV_ALTO}% · alto acima disso.
         {razoesPorLoja
-          ? " Na 99 o preço é o líquido estimado: o que chega ao caixa depois do desconto bancado pela loja, comissão, taxa de pagamento e frete grátis. Salão, iFood e Keeta seguem pelo preço de tabela."
+          ? " Na 99, no iFood e na Keeta o preço é o líquido estimado: o que chega ao caixa depois do desconto, da comissão, das taxas e do frete grátis. O salão não tem desconto de plataforma."
           : " É sobre o preço de tabela: nas plataformas o líquido que entra é menor, então o CMV real é maior."}
         {modo === "canal" && " Onde a plataforma tem várias lojas com preços diferentes, vale o pior CMV."}
       </p>
       {razoesPorLoja && razoes && (
-        <p className="ft-nota" aria-label="Quanto da tabela chega ao caixa na 99">
-          Na 99, nos últimos {razoes.dias} dias, chegou ao caixa{" "}
-          {razoes.lojas.filter((loja) => loja.razao != null).map((loja, indice, lista) => (
-            <span key={loja.deliveryStoreId}>
-              <strong>{percentual(loja.razao as number)}</strong> do preço de tabela na {loja.storeName}
-              {loja.base === "plataforma" ? " (poucos pedidos: média da 99)" : ""}
-              {indice < lista.length - 1 ? "; " : "."}
-            </span>
-          ))}{" "}
-          É a média da loja: prato com oferta pesada recebe menos, e sem oferta, mais.
-        </p>
+        <div className="ft-cmv-bases" aria-label="Quanto do preço chega ao caixa em cada plataforma">
+          {(razoes.canais ?? []).map((canal) => {
+            const lojas = canal.lojas.filter((loja) => loja.razao != null);
+            if (lojas.length === 0) return null;
+            return (
+              <p key={canal.channel} className="ft-nota">
+                <strong>{rotuloDoCanal(canal.channel)}</strong>
+                {canal.fonte === "tabela"
+                  ? ` · nos últimos ${razoes.dias} dias, sobre o preço de tabela do pedido: `
+                  : ` · sobre o faturamento lançado${periodo(canal.referencia.de, canal.referencia.ate)}, não sobre a tabela: `}
+                {lojas.map((loja, indice) => (
+                  <span key={loja.deliveryStoreId}>
+                    {loja.storeName} <strong>{percentual(loja.razao as number)}</strong>
+                    {loja.base === "plataforma" && canal.lojas.length > 1 ? " (média da plataforma)" : ""}
+                    {indice < lojas.length - 1 ? "; " : "."}
+                  </span>
+                ))}
+              </p>
+            );
+          })}
+          <p className="ft-nota">
+            É a média de cada loja: prato com oferta pesada recebe menos, e sem oferta, mais. No iFood e na Keeta o dado vem do faturamento
+            lançado do portal; se o bruto de lá já vem com o desconto da loja, o líquido real é menor que o estimado.
+          </p>
+        </div>
       )}
 
       {linhas.length === 0 ? (
