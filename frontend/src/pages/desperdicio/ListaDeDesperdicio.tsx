@@ -1,7 +1,8 @@
 import { Camera, Trash2 } from "lucide-react";
 import type { WasteEntry } from "../../api/client";
 import { IconButton, Money, StatusBadge, Table } from "../../design-system";
-import { formatDate, formatNumber } from "../../utils/format";
+import { formatDate } from "../../utils/format";
+import { formatarQuantidade } from "./quantidade";
 import { BotaoAnexarFoto } from "./FotoDoDesperdicio";
 
 /** Foto é prova do momento: depois de uns dias "Anexar foto" em toda linha só vira ruído. */
@@ -61,7 +62,9 @@ export function ListaDeDesperdicio({ itens, veCusto, usuarioId, podeLancar, pode
                   {cancelado && <small className="waste-sub">Motivo do cancelamento: {item.cancelReason}</small>}
                 </Table.Td>
                 <Table.Td data-col="quantidade" align="right" style={{ whiteSpace: "nowrap" }}>
-                  {formatNumber(item.quantity)} {item.unit ?? ""}
+                  {item.enteredQuantity != null && item.enteredUnit
+                    ? <>{formatarQuantidade(item.enteredQuantity)} {item.enteredUnit}<small className="waste-sub">= {formatarQuantidade(item.quantity)} {item.unit ?? ""}</small></>
+                    : <>{formatarQuantidade(item.quantity)} {item.unit ?? ""}</>}
                 </Table.Td>
                 <Table.Td data-col="motivo"><StatusBadge tone="neutral">{item.reasonLabel}</StatusBadge></Table.Td>
                 {veCusto && (

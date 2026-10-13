@@ -1,18 +1,20 @@
 import { Check } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { WasteInput, WasteProductHit, WasteReason } from "../../api/client";
-import { Button, TextField, Textarea } from "../../design-system";
+import { Button, Select, TextField, Textarea } from "../../design-system";
 import { hojeLocalIso } from "../../lib/datas";
+import { normalizarUnidade } from "../../lib/fichaTecnica";
 import { BuscaProdutoDesperdicio, type ModoDoItem } from "./BuscaProdutoDesperdicio";
 import { SeletorDeFoto } from "./FotoDoDesperdicio";
 import { MOTIVOS, erroDaQuantidade } from "./motivos";
+import { previaDaConversao, unidadesDoLancamento } from "./quantidade";
 
-type Valores = { modo: ModoDoItem; produto: WasteProductHit | null; quantidade: string; motivo: WasteReason | ""; dia: string; observacao: string };
+type Valores = { modo: ModoDoItem; produto: WasteProductHit | null; quantidade: string; unidade: string; motivo: WasteReason | ""; dia: string; observacao: string };
 
-const valoresVazios = (modo: ModoDoItem = "INSUMO", dia = hojeLocalIso()): Valores => ({ modo, produto: null, quantidade: "", motivo: "", dia, observacao: "" });
+const valoresVazios = (modo: ModoDoItem = "INSUMO", dia = hojeLocalIso()): Valores => ({ modo, produto: null, quantidade: "", unidade: "", motivo: "", dia, observacao: "" });
 
 // ids estáveis: ligam cada erro ao seu campo (aria-describedby) e permitem levar o foco ao primeiro inválido.
-const ID = { busca: "waste-busca", quantidade: "waste-quantidade", data: "waste-data", motivos: "waste-motivos", observacao: "waste-observacao" } as const;
+const ID = { busca: "waste-busca", quantidade: "waste-quantidade", unidade: "waste-unidade", data: "waste-data", motivos: "waste-motivos", observacao: "waste-observacao" } as const;
 
 type Props = {
   /** Devolve `true` quando o lançamento foi registrado (o formulário limpa); `false` mantém o que a pessoa digitou. */
@@ -62,7 +64,7 @@ export function FormularioDeDesperdicio({ onSalvar }: Props) {
     }
     const dados: WasteInput = {
       ...(valores.modo === "PRATO" ? { dishId: valores.produto.id } : { productId: valores.produto.id }),
-      quantity: valores.quantidade, reason: valores.motivo, occurredOn: valores.dia, notes: valores.observacao,
+      quantity: valores.quantidade, ...(valores.unidade ? { unit: valores.unidade } : {}), reason: valores.motivo, occurredOn: valores.dia, notes: valores.observacao,
     };
     setSalvando(true);
     try {
@@ -78,6 +80,13 @@ export function FormularioDeDesperdicio({ onSalvar }: Props) {
     }
   }
 
+  const conversoes = valores.produto?.conversions ?? [];
+  const opcoesDeUnidade = valores.produto ? unidadesDoLancamento(valores.produto.unit, conversoes).map((u) => ({ value: u, label: u })) : [];
+  const previa = valores.produto
+    ? previaDaConversao({ quantidade: valores.quantidade, unidade: valores.unidade, unidadeDoEstoque: valores.produto.unit, conversoes })
+    : null;
+  const origemDoPeso = valores.produto?.embalagemInferida && normalizarUnidade(valores.unidade) === normalizarUnidade(valores.produto.unit) ? valores.produto.embalagemInferida : null;
+
   const resumoDosErros = tentou && invalidos.length > 0 ? `Falta preencher: ${invalidos.map(([campo]) => ({ produto: valores.modo === "PRATO" ? "prato" : "produto", quantidade: "quantidade", data: "data", motivo: "motivo", observacao: "observação" })[campo]).join(", ")}.` : null;
 
   return (
@@ -91,7 +100,7 @@ export function FormularioDeDesperdicio({ onSalvar }: Props) {
             type="button"
             aria-pressed={valores.modo === modo}
             className={valores.modo === modo ? "waste-mode waste-mode-on" : "waste-mode"}
-            onClick={() => { if (valores.modo !== modo) mudar({ modo, produto: null }); }}
+            onClick={() => { if (valores.modo !== modo) mudar({ modo, produto: null, unidade: "" }); }}
           >
             {rotulo}
           </button>
@@ -108,7 +117,8 @@ export function FormularioDeDesperdicio({ onSalvar }: Props) {
           idDoErro="waste-erro-produto"
           invalido={Boolean(mostrar("produto"))}
           onSelecionar={(produto) => {
-            mudar({ produto });
+            // Começa na unidade do estoque do item; a pessoa troca para g, ml... se for o caso.
+            mudar({ produto, unidade: produto ? normalizarUnidade(produto.unit) : "" });
             // Escolhido o item, a próxima coisa a preencher é a quantidade.
             if (produto) window.requestAnimationFrame(() => document.getElementById(ID.quantidade)?.focus());
           }}
@@ -119,13 +129,24 @@ export function FormularioDeDesperdicio({ onSalvar }: Props) {
       <div className="waste-row">
         <TextField
           id={ID.quantidade}
-          label={`Quantidade${valores.produto?.unit ? ` (${valores.produto.unit})` : ""}`}
+          label="Quantidade"
           inputMode="decimal"
           value={valores.quantidade}
           onChange={(event) => mudar({ quantidade: event.target.value })}
           error={mostrar("quantidade") ?? undefined}
           placeholder="0,0"
           autoComplete="off"
+          containerClassName="waste-area-qtd"
+        />
+        <Select
+          id={ID.unidade}
+          label="Unidade"
+          value={valores.unidade}
+          options={opcoesDeUnidade}
+          placeholder={valores.produto ? undefined : "—"}
+          disabled={opcoesDeUnidade.length <= 1}
+          onChange={(event) => mudar({ unidade: event.target.value })}
+          containerClassName="waste-area-un"
         />
         <TextField
           id={ID.data}
@@ -135,8 +156,14 @@ export function FormularioDeDesperdicio({ onSalvar }: Props) {
           max={hoje}
           onChange={(event) => mudar({ dia: event.target.value })}
           error={mostrar("data") ?? undefined}
+          containerClassName="waste-area-data"
         />
       </div>
+      {(previa || origemDoPeso) && (
+        <p className={previa?.tipo === "SO_ESTOQUE" ? "waste-hint waste-hint--aviso" : "waste-hint"} role="status">
+          {previa?.texto}{previa?.tipo === "CONVERTE" && valores.produto?.embalagemInferida ? ` · ${valores.produto.embalagemInferida}` : ""}{!previa && origemDoPeso ? origemDoPeso : ""}
+        </p>
+      )}
 
       <fieldset className="waste-field waste-reasons" aria-describedby={mostrar("motivo") ? "waste-erro-motivo" : undefined}>
         <legend className="waste-label">Motivo</legend>

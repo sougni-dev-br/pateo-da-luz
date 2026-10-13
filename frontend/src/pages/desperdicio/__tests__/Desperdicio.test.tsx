@@ -41,6 +41,7 @@ const lancamento = (parcial: Partial<WasteEntry> = {}): WasteEntry => ({
   id: "w1", kind: "INSUMO", productId: "p1", dishId: null, productName: "Arroz", productCode: null, quantity: 2, unit: "KG",
   reason: "SPOILED", reasonLabel: "Estragado", occurredOn: "2026-10-13", sectorName: null, notes: null,
   createdAt: new Date().toISOString(), cancelledAt: null, cancelReason: null, hasPhoto: false, hasCost: true, registeredById: "u1",
+  enteredQuantity: null, enteredUnit: null,
   totalCost: 15, unitCost: 7.5, costSource: "ULTIMA_COMPRA", ...parcial,
 });
 
@@ -61,7 +62,7 @@ async function escolher(busca: RegExp, termo: string, resultado: string) {
 }
 
 async function preencherInsumo() {
-  vi.mocked(searchWasteProducts).mockResolvedValue([{ id: "p1", name: "Salmão fresco", code: "S1", unit: "KG", sectorName: null }]);
+  vi.mocked(searchWasteProducts).mockResolvedValue([{ id: "p1", name: "Salmão fresco", code: "S1", unit: "KG", sectorName: null, conversions: [], embalagemInferida: null }]);
   await escolher(/buscar produto/i, "salm", "Salmão fresco");
   fireEvent.change(screen.getByLabelText(/Quantidade/), { target: { value: "1" } });
   fireEvent.click(screen.getByRole("button", { name: "Vencido" }));
@@ -72,7 +73,7 @@ const arquivoDeFoto = () => new File(["x"], "foto.jpg", { type: "image/jpeg" });
 
 describe("Desperdicio: insumo ou prato pronto", () => {
   test("insumo vai com productId e usa a busca de produtos", async () => {
-    vi.mocked(searchWasteProducts).mockResolvedValue([{ id: "p1", name: "Salmão fresco", code: "S1", unit: "KG", sectorName: "Câmara fria" }]);
+    vi.mocked(searchWasteProducts).mockResolvedValue([{ id: "p1", name: "Salmão fresco", code: "S1", unit: "KG", sectorName: "Câmara fria", conversions: [], embalagemInferida: null }]);
     render(<Desperdicio />);
 
     await escolher(/buscar produto/i, "salm", "Salmão fresco");
@@ -87,12 +88,13 @@ describe("Desperdicio: insumo ou prato pronto", () => {
   });
 
   test("prato pronto troca a busca e envia dishId", async () => {
-    vi.mocked(searchWasteDishes).mockResolvedValue([{ id: "d1", name: "Lasanha", code: null, unit: "KG", sectorName: "Massas" }]);
+    vi.mocked(searchWasteDishes).mockResolvedValue([{ id: "d1", name: "Lasanha", code: null, unit: "KG", sectorName: "Massas", conversions: [], embalagemInferida: null }]);
     render(<Desperdicio />);
 
     fireEvent.click(screen.getByRole("button", { name: "Prato pronto" }));
     await escolher(/buscar prato/i, "las", "Lasanha");
-    expect(screen.getByLabelText("Quantidade (KG)")).toBeInTheDocument();
+    // A unidade do prato (KG, o rendimento da ficha) vem escolhida, ao lado da quantidade.
+    expect(screen.getByLabelText("Unidade")).toHaveValue("KG");
     fireEvent.change(screen.getByLabelText(/Quantidade/), { target: { value: "3" } });
     fireEvent.click(screen.getByRole("button", { name: "Sobra de produção" }));
     registrar();
@@ -112,7 +114,7 @@ describe("Desperdicio: insumo ou prato pronto", () => {
   });
 
   test("trocar de modo descarta a escolha do outro tipo, inclusive as sugestões", async () => {
-    vi.mocked(searchWasteProducts).mockResolvedValue([{ id: "p1", name: "Salmão fresco", code: "S1", unit: "KG", sectorName: null }]);
+    vi.mocked(searchWasteProducts).mockResolvedValue([{ id: "p1", name: "Salmão fresco", code: "S1", unit: "KG", sectorName: null, conversions: [], embalagemInferida: null }]);
     render(<Desperdicio />);
 
     await escolher(/buscar produto/i, "salm", "Salmão fresco");
@@ -123,7 +125,7 @@ describe("Desperdicio: insumo ou prato pronto", () => {
   });
 
   test("depois de salvar a busca volta vazia, sem o texto nem as sugestões anteriores", async () => {
-    vi.mocked(searchWasteDishes).mockResolvedValue([{ id: "d1", name: "Lasanha", code: null, unit: "KG", sectorName: "Massas" }]);
+    vi.mocked(searchWasteDishes).mockResolvedValue([{ id: "d1", name: "Lasanha", code: null, unit: "KG", sectorName: "Massas", conversions: [], embalagemInferida: null }]);
     render(<Desperdicio />);
 
     fireEvent.click(screen.getByRole("button", { name: "Prato pronto" }));
@@ -152,14 +154,14 @@ describe("Desperdicio: validação e foco", () => {
   });
 
   test("escolhido o produto, o foco vai para a quantidade", async () => {
-    vi.mocked(searchWasteProducts).mockResolvedValue([{ id: "p1", name: "Salmão fresco", code: "S1", unit: "KG", sectorName: null }]);
+    vi.mocked(searchWasteProducts).mockResolvedValue([{ id: "p1", name: "Salmão fresco", code: "S1", unit: "KG", sectorName: null, conversions: [], embalagemInferida: null }]);
     render(<Desperdicio />);
     await escolher(/buscar produto/i, "salm", "Salmão fresco");
     await waitFor(() => expect(screen.getByLabelText(/Quantidade/)).toHaveFocus());
   });
 
   test("'Trocar' devolve o foco ao campo de busca", async () => {
-    vi.mocked(searchWasteProducts).mockResolvedValue([{ id: "p1", name: "Salmão fresco", code: "S1", unit: "KG", sectorName: null }]);
+    vi.mocked(searchWasteProducts).mockResolvedValue([{ id: "p1", name: "Salmão fresco", code: "S1", unit: "KG", sectorName: null, conversions: [], embalagemInferida: null }]);
     render(<Desperdicio />);
     await escolher(/buscar produto/i, "salm", "Salmão fresco");
     fireEvent.click(screen.getByRole("button", { name: "Trocar produto" }));
@@ -416,5 +418,80 @@ describe("Desperdicio: aviso por WhatsApp", () => {
     expect(await screen.findByText("Não foi possível carregar a configuração do aviso por WhatsApp.")).toBeInTheDocument();
     fireEvent.click(screen.getAllByRole("button", { name: "Tentar de novo" })[0]);
     expect(await screen.findByText(/Aviso por WhatsApp · desligado/)).toBeInTheDocument();
+  });
+});
+
+describe("Desperdicio: unidade da quantidade (g, ml, kg...) como na ficha técnica", () => {
+  // ARROZ BRANCO T1 CAMIL PACOTE 5KG, estocado em UN; o peso 5 KG é lido do nome.
+  const arroz = {
+    id: "p9", name: "ARROZ BRANCO T1 CAMIL PACOTE 5KG", code: "364", unit: "UN", sectorName: "ESTOQUE",
+    conversions: [{ fromUnit: "KG", toUnit: "UN", factor: 0.2, inferida: true }, { fromUnit: "G", toUnit: "UN", factor: 0.0002, inferida: true }],
+    embalagemInferida: "1 UN = 5 KG (lido do nome do produto)",
+  };
+
+  async function escolherArroz() {
+    vi.mocked(searchWasteProducts).mockResolvedValue([arroz]);
+    render(<Desperdicio />);
+    await escolher(/buscar produto/i, "arroz", "ARROZ BRANCO T1 CAMIL PACOTE 5KG");
+  }
+
+  test("a unidade do estoque vem escolhida e as que convertem aparecem na lista", async () => {
+    await escolherArroz();
+    const unidade = screen.getByLabelText("Unidade");
+    expect(unidade).toHaveValue("UN");
+    expect([...(unidade as HTMLSelectElement).options].map((o) => o.value)).toEqual(["UN", "KG", "G"]);
+    expect(unidade).toBeEnabled();
+  });
+
+  test("500 g mostra a conta na hora e envia 500 G (o servidor converte)", async () => {
+    await escolherArroz();
+    fireEvent.change(screen.getByLabelText("Unidade"), { target: { value: "G" } });
+    fireEvent.change(screen.getByLabelText("Quantidade"), { target: { value: "500" } });
+
+    expect(await screen.findByText(/500 G = 0,1 UN · 1 UN = 5 KG \(lido do nome do produto\)/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Vencido" }));
+    registrar();
+
+    await waitFor(() => expect(createWasteEntry).toHaveBeenCalled());
+    expect(vi.mocked(createWasteEntry).mock.calls[0][0]).toMatchObject({ productId: "p9", quantity: "500", unit: "G", reason: "EXPIRED" });
+  });
+
+  test("na unidade do estoque explica de onde vem o peso, sem conta", async () => {
+    await escolherArroz();
+    expect(screen.getByText("1 UN = 5 KG (lido do nome do produto)")).toBeInTheDocument();
+  });
+
+  test("item sem peso nem volume só aceita a unidade do estoque e diz como mudar isso", async () => {
+    vi.mocked(searchWasteProducts).mockResolvedValue([{ id: "p2", name: "Guardanapo", code: "G1", unit: "UN", sectorName: null, conversions: [], embalagemInferida: null }]);
+    render(<Desperdicio />);
+    await escolher(/buscar produto/i, "guar", "Guardanapo");
+
+    expect(screen.getByLabelText("Unidade")).toBeDisabled();
+    expect(screen.getByLabelText("Unidade")).toHaveValue("UN");
+    expect(screen.getByText(/Este item só aceita UN/)).toBeInTheDocument();
+  });
+
+  test("trocar de produto volta para a unidade do estoque do novo (não herda o G do anterior)", async () => {
+    await escolherArroz();
+    fireEvent.change(screen.getByLabelText("Unidade"), { target: { value: "G" } });
+    fireEvent.click(screen.getByRole("button", { name: "Trocar produto" }));
+
+    vi.mocked(searchWasteProducts).mockResolvedValue([{ id: "p1", name: "Salmão fresco", code: "S1", unit: "KG", sectorName: null, conversions: [], embalagemInferida: null }]);
+    await escolher(/buscar produto/i, "salm", "Salmão fresco");
+    expect(screen.getByLabelText("Unidade")).toHaveValue("KG");
+    expect([...(screen.getByLabelText("Unidade") as HTMLSelectElement).options].map((o) => o.value)).toEqual(["KG", "G"]);
+  });
+
+  test("a lista mostra o que foi digitado e o equivalente no estoque", async () => {
+    vi.mocked(getWasteEntries).mockResolvedValue({ ...periodoVazio, items: [lancamento({ id: "w5", productName: "ARROZ BRANCO T1 CAMIL PACOTE 5KG", quantity: 0.1, unit: "UN", enteredQuantity: 500, enteredUnit: "G" })] });
+    render(<Desperdicio />);
+    expect(await screen.findByText(/500 G/)).toBeInTheDocument();
+    expect(screen.getByText("= 0,1 UN")).toBeInTheDocument();
+  });
+
+  test("quantidade muito pequena aparece com todas as casas, não como zero", async () => {
+    vi.mocked(getWasteEntries).mockResolvedValue({ ...periodoVazio, items: [lancamento({ id: "w6", productName: "Sal grosso 25 kg", quantity: 0.00004, unit: "UN", enteredQuantity: 1, enteredUnit: "G" })] });
+    render(<Desperdicio />);
+    expect(await screen.findByText("= 0,00004 UN")).toBeInTheDocument();
   });
 });
