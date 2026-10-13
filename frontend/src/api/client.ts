@@ -4203,7 +4203,27 @@ export type DishNetRatios = {
   channel: "NOVENTA_NOVE";
   dias: number;
   plataforma: { razao: number | null; pedidos: number };
-  lojas: Array<{ deliveryStoreId: string; storeName: string; razao: number | null; pedidos: number; base: "loja" | "plataforma" }>;
+  lojas: DishNetRatioStore[];
+  /** As três plataformas (99, iFood, Keeta), cada uma com a fonte da razão. Ausente em backend antigo. */
+  canais?: DishNetRatioChannel[];
+};
+
+export type DishNetRatioStore = {
+  /** Id da loja; "plataforma:KEETA" para plataforma sem loja cadastrada. */
+  deliveryStoreId: string;
+  storeName: string;
+  razao: number | null;
+  pedidos: number;
+  base: "loja" | "plataforma";
+};
+
+export type DishNetRatioChannel = {
+  channel: string;
+  /** "tabela": líquido ÷ preço de tabela do pedido (99). "faturamento": líquido ÷ faturamento bruto lançado (iFood, Keeta). */
+  fonte: "tabela" | "faturamento";
+  referencia: { pedidos?: number; faturamento?: number; de?: string; ate?: string };
+  plataforma: { razao: number | null };
+  lojas: DishNetRatioStore[];
 };
 
 export function getDishNetRatios(dias?: number) {

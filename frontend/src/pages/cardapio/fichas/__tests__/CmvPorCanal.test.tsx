@@ -88,17 +88,33 @@ describe("CMV por canal (tela)", () => {
         { deliveryStoreId: "s-Frei Caneca", storeName: "Frei Caneca", razao: 0.5, pedidos: 60, base: "loja" },
         { deliveryStoreId: "s-Pizzaria", storeName: "Pizzaria", razao: 0.4, pedidos: 40, base: "loja" },
       ],
+      canais: [
+        {
+          channel: "NOVENTA_NOVE", fonte: "tabela", referencia: { pedidos: 100 }, plataforma: { razao: 0.5 },
+          lojas: [
+            { deliveryStoreId: "s-Frei Caneca", storeName: "Frei Caneca", razao: 0.5, pedidos: 60, base: "loja" },
+            { deliveryStoreId: "s-Pizzaria", storeName: "Pizzaria", razao: 0.4, pedidos: 40, base: "loja" },
+          ],
+        },
+        {
+          channel: "IFOOD", fonte: "faturamento", referencia: { de: "2026-07-31", ate: "2026-08-31" }, plataforma: { razao: 0.6 },
+          lojas: [{ deliveryStoreId: "s-Pateo da Luz", storeName: "Pateo da Luz", razao: 0.6, pedidos: 0, base: "loja" }],
+        },
+      ],
     });
     mostrar([FILE]);
     const file = () => within(screen.getByRole("table")).getByRole("button", { name: "Filé" }).closest("tr")!;
     // 99, pior loja: Pizzaria 60 × 0,4 = 24 líquido → 24/24 = 100%.
     await waitFor(() => expect(within(file()).getByText(/^100(,0)?%$/)).toBeInTheDocument());
-    expect(within(file()).getByText(/líq\./)).toBeInTheDocument();
-    expect(screen.getByText(/chegou ao caixa/)).toBeInTheDocument();
+    expect(within(file()).getAllByText(/líq\./)).toHaveLength(2); // 99 e iFood
+    expect(screen.getByText(/sobre o preço de tabela do pedido/)).toBeInTheDocument();
+    expect(screen.getByText(/sobre o faturamento lançado \(31\/07 a 31\/08\)/)).toBeInTheDocument();
+    // iFood: 120 × 0,60 = 72 de líquido → 24 / 72 = 33,3%
+    expect(within(file()).getByText(/^33,3%$/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("radio", { name: "Preço de tabela" }));
     expect(within(file()).getByText(/^40(,0)?%$/)).toBeInTheDocument(); // 24/60
-    expect(within(file()).queryByText(/líq\./)).toBeNull();
+    expect(within(file()).queryAllByText(/líq\./)).toHaveLength(0);
   });
 
   test("sem a razão da 99 não há alternância e o CMV é sobre a tabela", async () => {

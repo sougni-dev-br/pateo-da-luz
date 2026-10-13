@@ -63,16 +63,17 @@ export function PrecosPorCanal({ prato, canEdit, onEditarPrato, onMudou, notific
     getDishNetRatios()
       .then((resposta) => {
         if (!vivo) return;
-        setRazoes(new Map(resposta.lojas.filter((loja) => loja.razao != null).map((loja) => [loja.deliveryStoreId, loja.razao as number])));
+        const lojas = (resposta.canais ?? [{ lojas: resposta.lojas }]).flatMap((canal) => canal.lojas);
+        setRazoes(new Map(lojas.filter((loja) => loja.razao != null).map((loja) => [loja.deliveryStoreId, loja.razao as number])));
       })
       .catch(() => { if (vivo) setRazoes(new Map()); });
     return () => { vivo = false; };
   }, [prato.id]);
 
-  // Líquido estimado só para a loja da 99 com razão medida; o resto (iFood, Keeta) não tem esse dado ainda.
+  // Líquido estimado: o preço da loja × a razão medida dela (99: sobre a tabela; iFood e Keeta: sobre o faturamento lançado).
   const liquidoDa = (listagem: DishListing): number | null => {
-    const razao = listagem.deliveryStoreId ? razoes.get(listagem.deliveryStoreId) : undefined;
-    return razao != null && listagem.channel === "NOVENTA_NOVE" ? listagem.price * razao : null;
+    const razao = razoes.get(listagem.deliveryStoreId ?? `plataforma:${listagem.channel}`);
+    return razao != null ? listagem.price * razao : null;
   };
   const comLiquido = listagens.some((listagem) => liquidoDa(listagem) != null);
 
@@ -102,7 +103,7 @@ export function PrecosPorCanal({ prato, canEdit, onEditarPrato, onMudou, notific
               <th scope="col">Loja</th>
               <th scope="col" className="ft-num">Preço</th>
               <th scope="col" className="ft-num">CMV</th>
-              {comLiquido && <th scope="col" className="ft-num" title="O que chega ao caixa na 99: tabela × a média da loja nos pedidos recentes">Líquido (99)</th>}
+              {comLiquido && <th scope="col" className="ft-num" title="O que chega ao caixa: o preço × a média medida da loja">Líquido estimado</th>}
               {comLiquido && <th scope="col" className="ft-num">CMV sobre o líquido</th>}
               {podeEditar && <th scope="col"><span className="ft-so-leitor">Ações</span></th>}
             </tr>
@@ -116,7 +117,7 @@ export function PrecosPorCanal({ prato, canEdit, onEditarPrato, onMudou, notific
                   {prato.salePriceDefault != null ? <Money value={prato.salePriceDefault} /> : "—"}
                 </td>
                 <td className="ft-num" data-rotulo="CMV"><CmvDoPreco custo={custo} preco={prato.salePriceDefault} /></td>
-                {comLiquido && <td className="ft-num" data-rotulo="Líquido (99)">—</td>}
+                {comLiquido && <td className="ft-num" data-rotulo="Líquido estimado">—</td>}
                 {comLiquido && <td className="ft-num" data-rotulo="CMV sobre o líquido">—</td>}
                 {podeEditar && (
                   <td className="ft-acoes-linha">
@@ -137,7 +138,7 @@ export function PrecosPorCanal({ prato, canEdit, onEditarPrato, onMudou, notific
                 <td className="ft-num" data-rotulo="Preço"><Money value={listagem.price} /></td>
                 <td className="ft-num" data-rotulo="CMV"><CmvDoPreco custo={custo} preco={listagem.price} /></td>
                 {comLiquido && (
-                  <td className="ft-num" data-rotulo="Líquido (99)">
+                  <td className="ft-num" data-rotulo="Líquido estimado">
                     {liquidoDa(listagem) != null ? <Money value={liquidoDa(listagem) as number} /> : "—"}
                   </td>
                 )}
@@ -181,8 +182,8 @@ export function PrecosPorCanal({ prato, canEdit, onEditarPrato, onMudou, notific
         </div>
       )}
       <p className="ft-nota">
-        O CMV é o custo da ficha sobre o preço de cada linha. Na 99 o líquido é o que chega ao caixa depois do desconto bancado pela
-        loja, da comissão e do frete grátis (média da loja nos pedidos recentes); iFood e Keeta ainda são só sobre a tabela.
+        O CMV é o custo da ficha sobre o preço de cada linha. O líquido estimado é o que chega ao caixa depois do desconto, da comissão e
+        das taxas, pela média medida de cada loja (na 99, sobre a tabela dos pedidos; no iFood e na Keeta, sobre o faturamento lançado).
         Cada loja pode ter o seu preço.
       </p>
 
@@ -223,7 +224,7 @@ function DialogoDePreco({ prato, listagem, onFechar, onSalvo, notificar }: {
   }, [listagem]);
 
   // Uma loja, um preço por prato: as que já têm preço (importado ou lançado) não entram na escolha.
-  const jaTem = new Set(prato.listings.map((item) => item.deliveryStoreId).filter(Boolean));
+  const jaTem = new Set(prato.listings.map((item) => item.deliveryStoreId ?? `plataforma:${item.channel}`));
   const opcoes = (lojas ?? [])
     .filter((loja) => !jaTem.has(loja.id))
     .map((loja) => ({ value: loja.id, label: `${rotuloDoCanal(loja.platform)} · ${loja.nickname}` }));
