@@ -17,7 +17,7 @@ import { useSession } from "../../context/SessionContext";
 import { Button, EmptyState, TextField, Textarea } from "../../design-system";
 import { hojeLocalIso } from "../../lib/datas";
 import { hasPermission } from "../../lib/permissions";
-import { formatNumber } from "../../utils/format";
+import { formatarQuantidade } from "./quantidade";
 import type { ModoDoItem } from "./BuscaProdutoDesperdicio";
 import { ConfiguracaoDoAlerta } from "./ConfiguracaoDoAlerta";
 import { VisualizadorDeFoto } from "./FotoDoDesperdicio";
@@ -211,7 +211,7 @@ export function Desperdicio() {
         open={cancelando !== null}
         onOpenChange={(aberto) => { if (!aberto && !cancelandoAgora) fecharCancelamento(); }}
         title="Cancelar lançamento"
-        description={cancelando ? `${cancelando.productName} · ${formatNumber(cancelando.quantity)} ${cancelando.unit ?? ""} · ${cancelando.reasonLabel}` : undefined}
+        description={cancelando ? `${cancelando.productName} · ${cancelando.enteredQuantity != null && cancelando.enteredUnit ? `${formatarQuantidade(cancelando.enteredQuantity)} ${cancelando.enteredUnit}` : `${formatarQuantidade(cancelando.quantity)} ${cancelando.unit ?? ""}`} · ${cancelando.reasonLabel}` : undefined}
         size="sm"
       >
         <Textarea

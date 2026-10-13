@@ -4,6 +4,8 @@
 // do estoque e entrou no consumo (CMV = inicial + compras − final). Nada aqui baixa
 // estoque nem entra no DRE — somar de novo contaria a mesma perda duas vezes.
 
+import { normalizarUnidade, resolveUnitFactor, type UnitConversion } from "../../shared/unidades/conversao.js";
+
 export const WASTE_REASONS = [
   { value: "EXPIRED", label: "Vencido" },
   { value: "SPOILED", label: "Estragado" },
@@ -31,7 +33,10 @@ export type LancamentoValido = {
   /** Insumo OU prato pronto: exatamente um dos dois vem preenchido. */
   productId: string | null;
   dishId: string | null;
+  /** Quantidade como foi digitada, na unidade de `unit` (ainda não convertida). */
   quantity: number;
+  /** Unidade em que a pessoa digitou (G, ML, KG...), normalizada; null = a do estoque do item. */
+  unit: string | null;
   reason: WasteReasonValue;
   occurredOn: string;
   notes: string | null;
@@ -71,6 +76,9 @@ export function validarLancamento(entrada: Record<string, unknown>, hoje: string
   const quantity = lerQuantidade(entrada.quantity);
   if (quantity == null) return { ok: false, erro: "Informe uma quantidade maior que zero." };
 
+  const unidadeDigitada = String(entrada.unit ?? "").trim();
+  if (unidadeDigitada && !/^[A-Za-zÀ-ú.]{1,8}$/.test(unidadeDigitada)) return { ok: false, erro: "Unidade inválida." };
+
   const reason = String(entrada.reason ?? "");
   if (!REASON_VALUES.has(reason)) return { ok: false, erro: "Escolha o motivo do desperdício." };
 
@@ -85,7 +93,37 @@ export function validarLancamento(entrada: Record<string, unknown>, hoje: string
   if (notes && notes.length > MAX_OBSERVACAO) return { ok: false, erro: `Observação muito longa (máximo ${MAX_OBSERVACAO}).` };
   if (exigeObservacao(reason) && !notes) return { ok: false, erro: "Descreva na observação o que aconteceu." };
 
-  return { ok: true, valor: { productId: productId || null, dishId: dishId || null, quantity, reason: reason as WasteReasonValue, occurredOn, notes } };
+  return { ok: true, valor: { productId: productId || null, dishId: dishId || null, quantity, unit: unidadeDigitada ? normalizarUnidade(unidadeDigitada) : null, reason: reason as WasteReasonValue, occurredOn, notes } };
+}
+
+/** A coluna é DECIMAL(16,6): 1 g de uma embalagem de 25 kg (0,00004) ainda cabe. */
+const CASAS_DA_QUANTIDADE = 1_000_000;
+
+export type ResultadoDaConversao =
+  | { ok: true; quantidade: number; fator: number }
+  | { ok: false; erro: string };
+
+/**
+ * O que se digita (500 G) vira a unidade do estoque do item (0,1 UN). Usa a mesma regra da ficha
+ * técnica: conversões cadastradas no produto, o peso lido do nome da embalagem e física de massa e
+ * volume. Sem conversão o lançamento é recusado: gravar "500 UN" no lugar de "500 G" seria um
+ * desperdício mil vezes maior que o real.
+ */
+export function converterQuantidade(
+  quantidadeDigitada: number,
+  unidadeDigitada: string | null,
+  unidadeDoEstoque: string | null,
+  conversoes: UnitConversion[]
+): ResultadoDaConversao {
+  const base = normalizarUnidade(unidadeDoEstoque);
+  const digitada = normalizarUnidade(unidadeDigitada) || base;
+  const fator = resolveUnitFactor(digitada, base, conversoes);
+  if (fator == null) {
+    return { ok: false, erro: `Não sei converter ${digitada} para ${base || "a unidade do estoque"} neste item. Lance em ${base || "a unidade do estoque"} ou informe o peso/volume do item na ficha técnica.` };
+  }
+  const quantidade = Math.round(quantidadeDigitada * fator * CASAS_DA_QUANTIDADE) / CASAS_DA_QUANTIDADE;
+  if (!(quantidade > 0)) return { ok: false, erro: "Quantidade pequena demais para a unidade do estoque deste item." };
+  return { ok: true, quantidade, fator };
 }
 
 /** Custo ausente ou zero não vira R$ 0,00: fica sem valor para não esconder a falta de custo. */

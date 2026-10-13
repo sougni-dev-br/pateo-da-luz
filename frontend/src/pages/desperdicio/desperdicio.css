@@ -23,7 +23,20 @@
 .waste-error { margin: 0; color: var(--danger, #b3261e); font-size: 13px; }
 .waste-ok { margin: 0; color: var(--success, #1b6e3c); font-size: 13px; font-weight: 600; }
 
-.waste-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.waste-row {
+  display: grid; gap: 12px;
+  grid-template-columns: minmax(0, 1fr) 120px minmax(0, 1fr);
+  grid-template-areas: "qtd un data";
+}
+.waste-area-qtd { grid-area: qtd; }
+.waste-area-un { grid-area: un; }
+.waste-area-data { grid-area: data; }
+/* Celular: quantidade e unidade lado a lado (como na ficha técnica), a data embaixo. */
+@media (max-width: 560px) {
+  .waste-row { grid-template-columns: minmax(0, 1fr) 110px; grid-template-areas: "qtd un" "data data"; }
+}
+.waste-hint { margin: -6px 0 0; font-size: 13px; color: var(--ink-soft); }
+.waste-hint--aviso { color: var(--ink); background: var(--paper-soft); border: 1px solid var(--line); border-radius: var(--radius-md); padding: 8px 10px; margin-top: 0; }
 
 /* Botão de enviar: no celular fica fixo no pé da tela, para não sumir atrás de 8 motivos e da foto. */
 .waste-submit { display: grid; gap: 8px; }

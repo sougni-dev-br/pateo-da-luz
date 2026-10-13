@@ -3897,8 +3897,13 @@ model WasteEntry {
   product        Product?    @relation(fields: [productId], references: [id], onDelete: Restrict)
   dishId         String?
   dish           Dish?       @relation(fields: [dishId], references: [id], onDelete: Restrict)
-  quantity       Decimal     @db.Decimal(14, 4)
+  // Quantidade na unidade do estoque do item (a que a conferência e o custo usam). 6 casas: 1 g de uma
+  // embalagem de 25 kg é 0,00004 e não pode arredondar para zero.
+  quantity       Decimal     @db.Decimal(16, 6)
   unit           String?
+  // O que a pessoa digitou (500 G), antes de converter. Só para mostrar e auditar.
+  enteredQuantity Decimal?   @db.Decimal(14, 4)
+  enteredUnit    String?
   reason         WasteReason
   occurredOn     DateTime    @db.Date
   sectorId       String?

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { WASTE_REASONS, calcularValor, exigeObservacao, resumirDesperdicio, validarLancamento, type LinhaDeDesperdicio } from "../waste.js";
+import { WASTE_REASONS, calcularValor, converterQuantidade, exigeObservacao, resumirDesperdicio, validarLancamento, type LinhaDeDesperdicio } from "../waste.js";
 
 const HOJE = "2026-10-14";
 
@@ -108,4 +108,76 @@ describe("resumirDesperdicio", () => {
 
 test("todo motivo tem rótulo", () => {
   for (const m of WASTE_REASONS) expect(m.label.length).toBeGreaterThan(2);
+});
+
+describe("converterQuantidade: o que se digita (g, ml, kg...) vira a unidade do estoque", () => {
+  // Arroz "PACOTE 5KG" estocado em UN: 1 UN = 5 KG (lido do nome) = 5000 G.
+  const arroz = [
+    { fromUnit: "KG", toUnit: "UN", factor: 0.2, inferida: true },
+    { fromUnit: "G", toUnit: "UN", factor: 0.0002, inferida: true },
+  ];
+
+  test("500 g de um pacote de 5 kg são 0,1 UN", () => {
+    expect(converterQuantidade(500, "G", "UN", arroz)).toEqual({ ok: true, quantidade: 0.1, fator: 0.0002 });
+  });
+
+  test("a própria unidade do estoque não converte nada", () => {
+    expect(converterQuantidade(2, "UN", "UN", arroz)).toEqual({ ok: true, quantidade: 2, fator: 1 });
+    expect(converterQuantidade(2, null, "UN", arroz)).toEqual({ ok: true, quantidade: 2, fator: 1 });
+  });
+
+  test("aceita as grafias que o sistema já trata como a mesma unidade (gr, kgs, und)", () => {
+    expect(converterQuantidade(1, "kgs", "UN", arroz)).toMatchObject({ ok: true, quantidade: 0.2 });
+    expect(converterQuantidade(3, "und", "UN", arroz)).toMatchObject({ ok: true, quantidade: 3 });
+  });
+
+  test("massa e volume convertem entre si por física, sem cadastro", () => {
+    expect(converterQuantidade(250, "G", "KG", [])).toEqual({ ok: true, quantidade: 0.25, fator: 0.001 });
+    expect(converterQuantidade(1.5, "L", "ML", [])).toEqual({ ok: true, quantidade: 1500, fator: 1000 });
+  });
+
+  test("unidade sem conversão é recusada com a explicação, em vez de gravar número errado", () => {
+    const r = converterQuantidade(500, "G", "UN", []);
+    expect(r).toMatchObject({ ok: false });
+    expect(r.ok === false && r.erro).toMatch(/G.*UN/);
+    expect(r.ok === false && r.erro).toMatch(/ficha técnica/i);
+  });
+
+  test("g para ml não converte (grandezas diferentes)", () => {
+    expect(converterQuantidade(100, "ML", "KG", []).ok).toBe(false);
+  });
+
+  test("1 g de uma embalagem de 25 kg ainda é um número gravável (6 casas)", () => {
+    const grande = [{ fromUnit: "G", toUnit: "UN", factor: 1 / 25000 }];
+    const r = converterQuantidade(1, "G", "UN", grande);
+    expect(r).toMatchObject({ ok: true, quantidade: 0.00004 });
+  });
+
+  test("quantidade tão pequena que arredondaria para zero é recusada", () => {
+    const enorme = [{ fromUnit: "G", toUnit: "UN", factor: 1e-9 }];
+    expect(converterQuantidade(1, "G", "UN", enorme)).toMatchObject({ ok: false, erro: expect.stringMatching(/pequena/i) });
+  });
+
+  test("arredonda em 6 casas sem dízima", () => {
+    const terco = [{ fromUnit: "G", toUnit: "UN", factor: 1 / 3 }];
+    expect(converterQuantidade(1, "G", "UN", terco)).toMatchObject({ ok: true, quantidade: 0.333333 });
+  });
+});
+
+describe("validarLancamento: unidade informada", () => {
+  const base = { productId: "p1", quantity: "500", reason: "EXPIRED", occurredOn: "2026-10-13", notes: "" };
+  const HOJE = "2026-10-14";
+
+  test("sem unidade, vale a do estoque (unit nulo)", () => {
+    expect(validarLancamento(base, HOJE)).toMatchObject({ ok: true, valor: { unit: null } });
+  });
+
+  test("guarda a unidade informada normalizada", () => {
+    expect(validarLancamento({ ...base, unit: " gr " }, HOJE)).toMatchObject({ ok: true, valor: { unit: "G" } });
+  });
+
+  test("recusa unidade absurda (texto longo ou com símbolos)", () => {
+    expect(validarLancamento({ ...base, unit: "x".repeat(20) }, HOJE).ok).toBe(false);
+    expect(validarLancamento({ ...base, unit: "<b>g</b>" }, HOJE).ok).toBe(false);
+  });
 });
