@@ -21,6 +21,7 @@
 .waste-field { display: grid; gap: 6px; margin: 0; padding: 0; border: 0; min-width: 0; }
 .waste-label { padding: 0; font-size: 13px; font-weight: 400; color: var(--muted); }
 .waste-error { margin: 0; color: var(--danger, #b3261e); font-size: 13px; }
+.waste-ok { margin: 0; color: var(--success, #1b6e3c); font-size: 13px; font-weight: 600; }
 
 .waste-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
@@ -121,7 +122,7 @@
 .waste-group ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 .waste-group-row { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; }
 .waste-group-row span { min-width: 0; overflow-wrap: anywhere; }
-.waste-group-row strong { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.waste-group-row strong { flex: none; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .waste-bar { height: 6px; margin-top: 4px; background: var(--paper-soft); border-radius: 999px; overflow: hidden; }
 .waste-bar span { display: block; height: 100%; background: var(--gold); border-radius: inherit; }
 
@@ -132,7 +133,9 @@
 }
 .waste-load-error span { font-size: 13px; color: var(--ink-soft); }
 
-/* Lista: tabela no computador */
+/* Lista: tabela no computador. O corte para cartões olha a largura da ÁREA da lista (que muda com o menu
+   lateral e com as colunas de valor/ações), não a da janela. */
+.waste-list { container: wastelist / inline-size; min-width: 0; }
 .waste-table-wrap { overflow-x: auto; min-width: 0; background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius-md); }
 .waste-table-wrap:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .waste-sub { display: block; margin-top: 2px; font-size: 12px; color: var(--ink-soft); font-weight: 400; }
@@ -168,24 +171,34 @@
 }
 
 /* Celular: cada lançamento vira um cartão (nome, quantidade, motivo e valor à vista, sem rolar para o lado). */
-@media (max-width: 640px) {
+@container wastelist (max-width: 720px) {
   .waste-table-wrap { overflow: visible; background: transparent; border: 0; }
   .waste-table, .waste-table tbody { display: block; width: 100%; }
   /* O cabeçalho some da vista, mas continua para o leitor de tela. */
   .waste-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  /* Áreas explícitas: item e botão de cancelar em cima (o botão sempre no canto), o resto embaixo. */
   .waste-table tr {
-    display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px;
+    display: grid; align-items: center; gap: 8px 12px;
+    grid-template-columns: auto auto 1fr auto;
+    grid-template-areas: "item item item acoes" "qtd mot data valor";
     margin-bottom: 10px; padding: 12px 14px;
     background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius-md);
   }
-  .waste-table td { display: block; width: auto; padding: 0; border: 0; text-align: left; background: transparent !important; }
-  .waste-table td[data-col="item"] { order: 1; flex: 1 1 100%; }
-  .waste-table td[data-col="quantidade"] { order: 2; font-weight: 600; }
-  .waste-table td[data-col="motivo"] { order: 3; }
-  .waste-table td[data-col="data"] { order: 4; font-size: 13px; color: var(--ink-soft); }
-  .waste-table td[data-col="valor"] { order: 5; margin-left: auto; font-weight: 600; }
-  .waste-table td[data-col="acoes"] { order: 6; margin-left: auto; width: auto; }
-  .waste-table td[data-col="valor"] ~ td[data-col="acoes"] { margin-left: 0; }
+  .waste-table td { display: block; width: auto; min-width: 0; padding: 0; border: 0; text-align: left; background: transparent !important; }
+  .waste-table td[data-col="item"] { grid-area: item; align-self: start; }
+  .waste-table td[data-col="acoes"] { grid-area: acoes; align-self: start; justify-self: end; min-height: 44px; }
+  .waste-table td[data-col="quantidade"] { grid-area: qtd; font-weight: 600; }
+  .waste-table td[data-col="motivo"] { grid-area: mot; }
+  .waste-table td[data-col="data"] { grid-area: data; font-size: 13px; color: var(--ink-soft); }
+  .waste-table td[data-col="valor"] { grid-area: valor; justify-self: end; font-weight: 600; text-align: right; }
+}
+
+/* Celular: a segunda linha não cabe inteira, então desce a data e o valor. */
+@container wastelist (max-width: 460px) {
+  .waste-table tr {
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas: "item item acoes" "qtd mot mot" "data data valor";
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
