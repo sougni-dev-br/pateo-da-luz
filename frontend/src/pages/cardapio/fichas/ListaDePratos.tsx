@@ -95,6 +95,8 @@ function subtituloDoPrato(prato: DishListItem, filtroDeCardapio: FiltroDaLista["
   }
 
   partes.push(prato.itemsCount === 0 ? "sem ingredientes" : `${prato.itemsCount} ingrediente${prato.itemsCount === 1 ? "" : "s"}`);
+  // Vendido nos dois: as quantidades do a la carte não valem para o delivery, e a ficha dele precisa das próprias.
+  if (prato.alsoMenu && (prato.alsoItemsCount ?? 0) === 0 && prato.itemsCount > 0) partes.push("falta a ficha do delivery");
   return partes.join(" · ");
 }
 

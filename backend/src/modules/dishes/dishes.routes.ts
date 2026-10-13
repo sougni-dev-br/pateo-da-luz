@@ -7,7 +7,7 @@ import { calculateDishCost } from "./dish-cost.js";
 import { parseBody } from "../../shared/validate-body.js";
 import { normalizeText } from "../../shared/utils/normalize-text.js";
 import { linhasDeConversaoInformada, normalizarUnidade } from "../../shared/unidades/conversao.js";
-import { carregarDetalhe, categoriaResumida, conversoesDaFicha, textoDaEmbalagemInferida, toCostItem, type ItemComProduto } from "./dish-detail.js";
+import { carregarDetalhe, categoriaResumida, conversoesDaFicha, separarItensPorCardapio, textoDaEmbalagemInferida, toCostItem, type ItemComProduto } from "./dish-detail.js";
 import { auditLog, requestIp, requireRole } from "../security/security-utils.js";
 import { MENUS, registrarRotasDeCategoria } from "./dish-categories.js";
 import { registrarRevisao } from "./dish-revisions.js";
@@ -62,7 +62,9 @@ const dishBodySchema = z.object({
   /** Outro cardápio onde o mesmo prato também é vendido; vazio = só no principal. */
   alsoMenu: z.enum(MENUS).nullish().transform((valor) => valor ?? null),
   alsoCategoryId: textoOpcional,
-  items: dishItemsSchema.optional()
+  items: dishItemsSchema.optional(),
+  /** Quantidades do OUTRO cardápio (o delivery) do prato vendido nos dois: a do a la carte não vale para o delivery. */
+  alsoItems: dishItemsSchema.optional()
 });
 
 const ehCodigoDuplicado = (error: unknown) =>
@@ -95,10 +97,11 @@ async function primeiroProdutoInvalido(items: Array<{ productId: string }>) {
  */
 type ItemValidado = z.infer<typeof dishItemsSchema>[number];
 
-function itemParaGravar(dishId: string, item: ItemValidado, index: number) {
+function itemParaGravar(dishId: string, item: ItemValidado, index: number, menu: string) {
   return {
     id: crypto.randomUUID(),
     dishId,
+    menu,
     productId: item.productId,
     quantity: item.quantity,
     unit: item.unit,
@@ -166,10 +169,17 @@ dishesRouter.get("/", async (request, response) => {
 
   const result = dishes.map((dish) => {
     const salePrice = dish.salePriceDefault ? Number(dish.salePriceDefault) : null;
+    const { principais, doOutro } = separarItensPorCardapio(dish);
     const custo = calculateDishCost({
       yieldQty: Number(dish.yieldQty),
       salePrice,
-      items: dish.items.map((item) => toCostItem(item))
+      items: principais.map((item) => toCostItem(item))
+    });
+    // O outro cardápio (delivery) tem as próprias quantidades; sem elas o CMV de lá não pode sair da ficha do a la carte.
+    const custoDoOutro = calculateDishCost({
+      yieldQty: Number(dish.yieldQty),
+      salePrice: null,
+      items: doOutro.map((item) => toCostItem(item))
     });
     const cost = custo.totalCost;
     const margemBruta = custo.margemBruta;
@@ -189,7 +199,10 @@ dishesRouter.get("/", async (request, response) => {
       yieldUnit: dish.yieldUnit,
       notes: dish.notes,
       isActive: dish.isActive,
-      itemsCount: dish.items.length,
+      itemsCount: principais.length,
+      alsoItemsCount: doOutro.length,
+      alsoCustoPorcao: custoDoOutro.costPerServing,
+      alsoCustoIncompleto: custoDoOutro.hasUnresolvedUnit || custoDoOutro.hasMissingCost,
       listingsCount: precosNosCanais.length,
       listingPriceMin: precosNosCanais.length ? Math.min(...precosNosCanais) : null,
       listingPriceMax: precosNosCanais.length ? Math.max(...precosNosCanais) : null,
@@ -272,6 +285,18 @@ async function validarSegundoCardapio(
   return ruim ? { erro: ruim } : { alsoMenu, alsoCategoryId };
 }
 
+/**
+ * Prato vendido nos dois cardápios: o salão é o principal e o delivery tem as próprias quantidades, que são obrigatórias —
+ * as da ficha do a la carte não valem para ele. Devolve a mensagem de erro, ou null quando está tudo certo.
+ */
+function exigirQuantidadesDoOutro(menu: string, alsoMenu: string, quantidadesDoOutro: number): string | null {
+  if (menu !== "CARDAPIO") return "O prato vendido nos dois cardápios tem o cardápio do salão como principal.";
+  if (quantidadesDoOutro === 0) {
+    return `Informe as quantidades do ${alsoMenu === "DELIVERY" ? "delivery" : "salão"}: as do a la carte não valem para ele.`;
+  }
+  return null;
+}
+
 dishesRouter.post("/", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
@@ -301,6 +326,19 @@ dishesRouter.post("/", async (request, response) => {
     return;
   }
 
+  // Vendido nos dois: as quantidades do delivery são obrigatórias (as do a la carte não valem para ele).
+  const alsoItems = body.alsoItems ?? [];
+  const exigencia = segundo.alsoMenu ? exigirQuantidadesDoOutro(menu, segundo.alsoMenu, alsoItems.length) : null;
+  if (exigencia) {
+    response.status(400).json({ message: exigencia });
+    return;
+  }
+  const invalidoNoOutro = await primeiroProdutoInvalido(alsoItems);
+  if (invalidoNoOutro) {
+    response.status(400).json({ message: invalidoNoOutro });
+    return;
+  }
+
   const id = crypto.randomUUID();
   try {
     const dish = await prisma.$transaction(async (tx) => {
@@ -320,8 +358,12 @@ dishesRouter.post("/", async (request, response) => {
         }
       });
 
-      if (items.length > 0) {
-        await tx.dishItem.createMany({ data: items.map((item, index) => itemParaGravar(id, item, index)) });
+      const paraGravar = [
+        ...items.map((item, index) => itemParaGravar(id, item, index, menu)),
+        ...(segundo.alsoMenu ? alsoItems.map((item, index) => itemParaGravar(id, item, index, segundo.alsoMenu as string)) : [])
+      ];
+      if (paraGravar.length > 0) {
+        await tx.dishItem.createMany({ data: paraGravar });
       }
 
       // Cada gravacao deixa uma versao no historico, na mesma transacao: ficha e historico nunca divergem.
@@ -356,6 +398,11 @@ dishesRouter.put("/:id", async (request, response) => {
     response.status(404).json({ message: "Prato não encontrado." });
     return;
   }
+  const invalidoNoOutro = body.alsoItems ? await primeiroProdutoInvalido(body.alsoItems) : null;
+  if (invalidoNoOutro) {
+    response.status(400).json({ message: invalidoNoOutro });
+    return;
+  }
   const menu = body.menu ?? atual.menu;
   const categoriaRuim = await categoriaIncompativel(prisma, body.categoryId, menu);
   if (categoriaRuim) {
@@ -366,6 +413,16 @@ dishesRouter.put("/:id", async (request, response) => {
   if ("erro" in segundo) {
     response.status(400).json({ message: segundo.erro });
     return;
+  }
+
+  // Vendido nos dois: as quantidades do delivery são obrigatórias, enviadas agora ou já gravadas.
+  if (segundo.alsoMenu) {
+    const jaGravadas = body.alsoItems ? body.alsoItems.length : await prisma.dishItem.count({ where: { dishId: id, menu: segundo.alsoMenu } });
+    const exigencia = exigirQuantidadesDoOutro(menu, segundo.alsoMenu, jaGravadas);
+    if (exigencia) {
+      response.status(400).json({ message: exigencia });
+      return;
+    }
   }
 
   try {
@@ -389,10 +446,18 @@ dishesRouter.put("/:id", async (request, response) => {
         }
       });
 
+      // Cada cardápio tem a sua lista: regrava só a que veio. As quantidades do outro cardápio ficam guardadas
+      // mesmo que o prato deixe de ser vendido lá (voltam se ele voltar), mas só contam enquanto o segundo cardápio existe.
       if (body.items) {
-        await tx.dishItem.deleteMany({ where: { dishId: id } });
+        await tx.dishItem.deleteMany({ where: { dishId: id, menu } });
         if (body.items.length > 0) {
-          await tx.dishItem.createMany({ data: body.items.map((item, index) => itemParaGravar(id, item, index)) });
+          await tx.dishItem.createMany({ data: body.items.map((item, index) => itemParaGravar(id, item, index, menu)) });
+        }
+      }
+      if (body.alsoItems && segundo.alsoMenu) {
+        await tx.dishItem.deleteMany({ where: { dishId: id, menu: segundo.alsoMenu } });
+        if (body.alsoItems.length > 0) {
+          await tx.dishItem.createMany({ data: body.alsoItems.map((item, index) => itemParaGravar(id, item, index, segundo.alsoMenu as string)) });
         }
       }
 
@@ -440,7 +505,7 @@ dishesRouter.post("/bulk", async (request, response) => {
   }
 
   const ids = [...new Set(body.ids)];
-  const pratos = await prisma.dish.findMany({ where: { id: { in: ids } }, select: { id: true, menu: true, categoryId: true } });
+  const pratos = await prisma.dish.findMany({ where: { id: { in: ids } }, select: { id: true, menu: true, categoryId: true, alsoMenu: true, alsoCategoryId: true } });
   if (pratos.length !== ids.length) {
     response.status(404).json({ message: "Algum prato escolhido não existe mais. Atualize a lista." });
     return;
@@ -498,29 +563,43 @@ dishesRouter.post("/bulk", async (request, response) => {
     }
 
     // Também vender no outro cardápio. O prato que já é principal naquele cardápio não tem "outro": fica de fora e é contado.
+    // O prato vendido nos dois tem sempre o salão como principal e o delivery como segundo cardápio.
     let nosDois = 0;
     let jaNoCardapio = 0;
+    let semQuantidadesNoDelivery = 0;
     if (body.alsoMenu === null) {
       await tx.dish.updateMany({ where: { id: { in: ids } }, data: { alsoMenu: null, alsoCategoryId: null } });
     } else if (body.alsoMenu) {
-      const elegiveis = pratos.filter((prato) => (body.menu ?? prato.menu) !== body.alsoMenu).map((prato) => prato.id);
+      const alvo = body.alsoMenu;
+      const finalDe = (prato: (typeof pratos)[number]) => body.menu ?? prato.menu;
+      const elegiveis = pratos.filter((prato) => finalDe(prato) !== alvo);
       nosDois = elegiveis.length;
       jaNoCardapio = ids.length - elegiveis.length;
-      if (elegiveis.length > 0) {
-        await tx.dish.updateMany({ where: { id: { in: elegiveis } }, data: { alsoMenu: body.alsoMenu } });
-        if (body.alsoCategoryId !== undefined) {
-          await tx.dish.updateMany({ where: { id: { in: elegiveis } }, data: { alsoCategoryId: body.alsoCategoryId } });
+
+      for (const prato of elegiveis) {
+        if (alvo === "DELIVERY") {
+          // Principal salão, segundo delivery: a categoria do segundo só vale se for do delivery.
+          const categoriaDoSegundo = body.alsoCategoryId !== undefined ? body.alsoCategoryId : prato.alsoMenu === "DELIVERY" ? prato.alsoCategoryId : null;
+          await tx.dish.update({ where: { id: prato.id }, data: { alsoMenu: "DELIVERY", alsoCategoryId: categoriaDoSegundo } });
         } else {
-          // Sem categoria escolhida: a que o prato tinha só vale se for do cardápio certo.
-          await tx.dish.updateMany({
-            where: { id: { in: elegiveis }, alsoCategory: { is: { menu: { not: body.alsoMenu } } } },
-            data: { alsoCategoryId: null }
+          // Prato do delivery que também sai no salão: o salão vira o principal e o delivery (com a categoria e as quantidades
+          // que ele já tinha) vira o segundo cardápio. A categoria escolhida é a do salão.
+          const categoriaDoSalao = body.alsoCategoryId !== undefined ? body.alsoCategoryId : null;
+          await tx.dish.update({
+            where: { id: prato.id },
+            data: { menu: "CARDAPIO", categoryId: categoriaDoSalao, alsoMenu: "DELIVERY", alsoCategoryId: prato.menu === "DELIVERY" ? prato.categoryId : null }
           });
         }
       }
+
+      // As quantidades do a la carte não valem para o delivery: quem ainda não tem as do delivery precisa informá-las.
+      if (elegiveis.length > 0) {
+        const comQuantidades = await tx.dishItem.groupBy({ by: ["dishId"], where: { dishId: { in: elegiveis.map((prato) => prato.id) }, menu: "DELIVERY" } });
+        semQuantidadesNoDelivery = elegiveis.length - comQuantidades.length;
+      }
     }
 
-    return { atualizados: atualizados.count, categoriasLimpas, nosDois, jaNoCardapio };
+    return { atualizados: atualizados.count, categoriasLimpas, nosDois, jaNoCardapio, semQuantidadesNoDelivery };
   });
 
   await auditLog({ userId: user.id, action: "BULK_UPDATE", entity: "Dish", newValue: { ids: ids.length, menu: body.menu, categoryId: body.categoryId, alsoMenu: body.alsoMenu, alsoCategoryId: body.alsoCategoryId } });
