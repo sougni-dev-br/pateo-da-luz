@@ -7,7 +7,7 @@ import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
 import { auditLog, getSessionUser, requestIp } from "../security/security-utils.js";
 import { empresaDoCiclo } from "../suppliers/supplier-cycle-company.js";
 import { getNextPurchaseNumber } from "../cards/cards.service.js";
-import { REIMBURSEMENT_SOURCE, ReimbursementError, motivoParaNaoFechar } from "./reimbursement-rules.js";
+import { REIMBURSEMENT_SOURCE, ReimbursementError, itensVistosDesatualizados, lerItensVistos, motivoParaNaoFechar } from "./reimbursement-rules.js";
 import { reabrirReembolso } from "./reimbursement.service.js";
 
 // Reembolsos a funcionario. O acesso (ver, conferir, fechar/reabrir = aprovar) vem
@@ -101,49 +101,87 @@ reimbursementsRouter.get("/:id", async (request, response) => {
   response.json(report);
 });
 
-async function exigirAberto(id: string, response: Response) {
-  const [report] = await prisma.$queryRaw<Array<{ status: string }>>`SELECT "status" FROM "ReimbursementReport" WHERE "id" = ${id}`;
-  if (!report) {
-    response.status(404).json({ message: "Reembolso nao encontrado." });
-    return false;
-  }
-  if (report.status !== "OPEN") {
-    response.status(409).json({ message: "Reembolso fechado. Reabra para conferir de novo." });
-    return false;
-  }
-  return true;
-}
+const RECARREGUE = "O valor ou a data de alguma compra mudou depois que esta tela foi aberta. A tela foi atualizada: confira de novo com o comprovante.";
 
-// Conferir = bater a compra com o comprovante. Fechar exige tudo conferido.
+// Conferir = bater a compra com o comprovante. A tela manda o valor e a data que
+// mostrava; se a compra mudou desde entao, nada e marcado (409) e a tela recarrega.
 reimbursementsRouter.patch("/:id/items/:itemId", async (request, response) => {
   const user = await usuario(request, response);
   if (!user) return;
-  if (typeof request.body?.checked !== "boolean") {
+  const checked = request.body?.checked;
+  if (typeof checked !== "boolean") {
     response.status(400).json({ message: "Informe se a compra foi conferida." });
     return;
   }
-  if (!(await exigirAberto(request.params.id, response))) return;
-
-  const updated = await prisma.$executeRaw`
-    UPDATE "ReimbursementReportItem" SET "checked" = ${request.body.checked}, "updatedAt" = CURRENT_TIMESTAMP
-    WHERE "id" = ${request.params.itemId} AND "reportId" = ${request.params.id}
-  `;
-  if (updated === 0) {
-    response.status(404).json({ message: "Compra nao encontrada neste reembolso." });
+  const vistos = checked ? lerItensVistos([{ id: request.params.itemId, ...request.body?.seen }]) : [];
+  if (!vistos) {
+    response.status(409).json({ message: RECARREGUE });
     return;
   }
-  await auditLog({ userId: user.id, action: "CHECK_REIMBURSEMENT_ITEM", entity: "ReimbursementReportItem", entityId: request.params.itemId, newValue: { checked: request.body.checked }, ...auditMeta(request) });
-  response.json({ id: request.params.itemId, checked: request.body.checked });
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      const [report] = await tx.$queryRaw<Array<{ status: string }>>`
+        SELECT "status" FROM "ReimbursementReport" WHERE "id" = ${request.params.id} FOR UPDATE
+      `;
+      if (!report) throw new ReimbursementError("Reembolso nao encontrado.", 404);
+      if (report.status !== "OPEN") throw new ReimbursementError("Reembolso fechado. Reabra para conferir de novo.", 409);
+      const atuais = await tx.$queryRaw<Array<{ id: string; amount: string; purchaseDate: Date }>>`
+        SELECT "id", "amount"::text AS "amount", "purchaseDate" FROM "ReimbursementReportItem"
+        WHERE "id" = ${request.params.itemId} AND "reportId" = ${request.params.id}
+      `;
+      if (atuais.length === 0) throw new ReimbursementError("Compra nao encontrada neste reembolso.", 404);
+      if (checked && itensVistosDesatualizados(vistos, atuais.map((a) => ({ ...a, amount: Number(a.amount) }))).length > 0) {
+        throw new ReimbursementError(RECARREGUE, 409);
+      }
+      await tx.$executeRaw`
+        UPDATE "ReimbursementReportItem" SET "checked" = ${checked}, "updatedAt" = CURRENT_TIMESTAMP
+        WHERE "id" = ${request.params.itemId}
+      `;
+    });
+  } catch (error) {
+    if (responderErro(response, error)) return;
+    throw error;
+  }
+  await auditLog({ userId: user.id, action: "CHECK_REIMBURSEMENT_ITEM", entity: "ReimbursementReportItem", entityId: request.params.itemId, newValue: { checked, seen: vistos[0] ?? null }, ...auditMeta(request) });
+  response.json({ id: request.params.itemId, checked });
 });
 
 reimbursementsRouter.post("/:id/check-all", async (request, response) => {
   const user = await usuario(request, response);
   if (!user) return;
-  if (!(await exigirAberto(request.params.id, response))) return;
-  const count = await prisma.$executeRaw`
-    UPDATE "ReimbursementReportItem" SET "checked" = true, "updatedAt" = CURRENT_TIMESTAMP
-    WHERE "reportId" = ${request.params.id} AND "checked" = false
-  `;
+  const vistos = lerItensVistos(request.body?.items);
+  if (!vistos) {
+    response.status(409).json({ message: RECARREGUE });
+    return;
+  }
+
+  let count = 0;
+  try {
+    count = await prisma.$transaction(async (tx) => {
+      const [report] = await tx.$queryRaw<Array<{ status: string }>>`
+        SELECT "status" FROM "ReimbursementReport" WHERE "id" = ${request.params.id} FOR UPDATE
+      `;
+      if (!report) throw new ReimbursementError("Reembolso nao encontrado.", 404);
+      if (report.status !== "OPEN") throw new ReimbursementError("Reembolso fechado. Reabra para conferir de novo.", 409);
+      const pendentes = await tx.$queryRaw<Array<{ id: string; amount: string; purchaseDate: Date }>>`
+        SELECT "id", "amount"::text AS "amount", "purchaseDate" FROM "ReimbursementReportItem"
+        WHERE "reportId" = ${request.params.id} AND "checked" = false
+      `;
+      // Tudo ou nada: se uma compra pendente nao bate com o que a tela mostrava, nenhuma e marcada.
+      if (itensVistosDesatualizados(vistos, pendentes.map((a) => ({ ...a, amount: Number(a.amount) }))).length > 0) {
+        throw new ReimbursementError(RECARREGUE, 409);
+      }
+      if (pendentes.length === 0) return 0;
+      return tx.$executeRaw`
+        UPDATE "ReimbursementReportItem" SET "checked" = true, "updatedAt" = CURRENT_TIMESTAMP
+        WHERE "id" IN (${Prisma.join(pendentes.map((pendente) => pendente.id))})
+      `;
+    });
+  } catch (error) {
+    if (responderErro(response, error)) return;
+    throw error;
+  }
   await auditLog({ userId: user.id, action: "CHECK_ALL_REIMBURSEMENT_ITEMS", entity: "ReimbursementReport", entityId: request.params.id, newValue: { count }, ...auditMeta(request) });
   response.json({ id: request.params.id, checked: count });
 });

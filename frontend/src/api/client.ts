@@ -8237,14 +8237,19 @@ export function getReimbursement(id: string) {
   return request<ReimbursementDetail>(`/reimbursements/${id}`);
 }
 
-export function checkReimbursementItem(reportId: string, itemId: string, checked: boolean) {
+/** O valor e a data que a tela mostrava: o servidor recusa conferir se a compra mudou desde então. */
+export type ReimbursementItemSeen = { amount: number; purchaseDate: string };
+
+export function checkReimbursementItem(reportId: string, itemId: string, checked: boolean, seen: ReimbursementItemSeen) {
   return request<{ id: string; checked: boolean }>(`/reimbursements/${reportId}/items/${itemId}`, {
-    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ checked })
+    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ checked, seen })
   });
 }
 
-export function checkAllReimbursementItems(reportId: string) {
-  return request<{ id: string; checked: number }>(`/reimbursements/${reportId}/check-all`, { method: "POST" });
+export function checkAllReimbursementItems(reportId: string, items: Array<ReimbursementItemSeen & { id: string }>) {
+  return request<{ id: string; checked: number }>(`/reimbursements/${reportId}/check-all`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items })
+  });
 }
 
 export function closeReimbursement(reportId: string, payload: { paymentMethodId: string; dueDate: string; notes?: string }) {

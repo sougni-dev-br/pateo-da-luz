@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decidirSincronizacao, ehCategoriaFuncionario, motivoParaNaoFechar } from "../reimbursement-rules.js";
+import { decidirSincronizacao, ehCategoriaFuncionario, itensVistosDesatualizados, lerItensVistos, motivoParaNaoFechar } from "../reimbursement-rules.js";
 
 const d = (s: string) => new Date(`${s}T12:00:00Z`);
 const aberto = { reportStatus: "OPEN", payeeId: "pessoa-a", amount: 120.5, purchaseDate: d("2026-10-03") };
@@ -103,5 +103,41 @@ describe("fechar o reembolso", () => {
   it("exige vencimento valido", () => {
     expect(motivoParaNaoFechar({ ...pronto, vencimento: null })).toMatch(/vencimento/);
     expect(motivoParaNaoFechar({ ...pronto, vencimento: new Date("x") })).toMatch(/vencimento/);
+  });
+});
+
+describe("conferir o que a tela mostrava", () => {
+  const atuais = [
+    { id: "i1", amount: 15.52, purchaseDate: d("2026-09-24") },
+    { id: "i2", amount: 30, purchaseDate: d("2026-10-08") }
+  ];
+
+  it("confere quando valor e data batem com o que a tela mostrou", () => {
+    expect(itensVistosDesatualizados([
+      { id: "i1", amount: 15.52, purchaseDate: "2026-09-24" },
+      { id: "i2", amount: 30, purchaseDate: "2026-10-08T00:00:00.000Z" }
+    ], atuais)).toEqual([]);
+  });
+
+  it("recusa a compra editada depois que a tela foi aberta (valor antigo na tela)", () => {
+    expect(itensVistosDesatualizados([
+      { id: "i1", amount: 15.41, purchaseDate: "2026-09-24" },
+      { id: "i2", amount: 30, purchaseDate: "2026-10-08" }
+    ], atuais)).toEqual(["i1"]);
+  });
+
+  it("recusa quando a data mudou", () => {
+    expect(itensVistosDesatualizados([{ id: "i2", amount: 30, purchaseDate: "2026-10-07" }], [atuais[1]])).toEqual(["i2"]);
+  });
+
+  it("recusa compra que entrou no reembolso e a tela nem mostrou", () => {
+    expect(itensVistosDesatualizados([{ id: "i1", amount: 15.52, purchaseDate: "2026-09-24" }], atuais)).toEqual(["i2"]);
+  });
+
+  it("le a lista enviada pela tela e recusa formato quebrado (tela antiga sem os valores)", () => {
+    expect(lerItensVistos([{ id: "i1", amount: "15.52", purchaseDate: "2026-09-24" }])).toEqual([{ id: "i1", amount: 15.52, purchaseDate: "2026-09-24" }]);
+    expect(lerItensVistos(undefined)).toBeNull();
+    expect(lerItensVistos([{ id: "i1" }])).toBeNull();
+    expect(lerItensVistos([{ id: "i1", amount: 1, purchaseDate: "ontem" }])).toBeNull();
   });
 });
