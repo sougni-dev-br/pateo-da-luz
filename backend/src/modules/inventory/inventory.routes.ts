@@ -11,6 +11,7 @@ import { userHasPermission } from "../security/menu-permissions.js";
 import { parseDecimalInput } from "../../shared/utils/parse-decimal.js";
 import { converterItemDeCompra } from "../../shared/unidades/conversao.js";
 import { cancelamentoDeveCancelarBase, podeReaproveitarBase, reaberturaDeveSoltarBase } from "./base-oficial.js";
+import { mensagemDeTipoMigrado } from "./tipos-de-movimento.js";
 import { classificarItemDaConferencia, ordenarConferencia, resumirConferencia } from "./conferencia.js";
 import { correcoesDaRevisao, modoDeEdicao } from "./edicao-inventario.js";
 import { escolherCusto, temCustoDoSistema, validarCustoInformado, type CandidatosDoCusto, type CustoDoItem } from "./custo-inventario.js";
@@ -4535,6 +4536,7 @@ async function calcularConferencia(inventoryId: string) {
     anteriorData: Date | null;
     anteriorCodigo: string | null;
     compras: Prisma.Decimal | null;
+    desperdicio: Prisma.Decimal | null;
     custoCompras: Prisma.Decimal | null;
     custoBase: Prisma.Decimal | null;
     mediana: number | null;
@@ -4601,18 +4603,39 @@ async function calcularConferencia(inventoryId: string) {
         AND COALESCE(p."receivedAt", p."purchaseDate")::date > a.dia
         AND COALESCE(p."receivedAt", p."purchaseDate")::date <= atual.dia
       GROUP BY pi."productId"
+    ),
+    -- Desperdicio registrado no mesmo intervalo das compras (depois da contagem anterior,
+    -- ate o dia desta). So explica consumo: nao entra na conta do CMV, que ja o contem.
+    desperdicio AS (
+      SELECT w."productId", SUM(w."quantity") AS quantidade
+      FROM "WasteEntry" w
+      JOIN anterior a ON a."productId" = w."productId"
+      CROSS JOIN atual
+      WHERE w."cancelledAt" IS NULL
+        AND w."occurredOn" > a.dia
+        AND w."occurredOn" <= atual.dia
+        -- So conta o que foi lancado na unidade em que o item foi contado: somar KG com G, ou UN
+        -- com CX, "explicaria" consumo com uma quantidade que nao e comparavel. Sem par, fica de fora.
+        AND EXISTS (
+          SELECT 1 FROM alvo
+          WHERE alvo."productId" = w."productId"
+            AND UPPER(COALESCE(alvo."unit", '')) = UPPER(COALESCE(w."unit", ''))
+        )
+      GROUP BY w."productId"
     )
     SELECT alvo."id" AS "itemId", alvo."productId", alvo."productCode", alvo."productName",
            alvo."sectorName", alvo."unit", alvo."countedQuantity" AS contado,
            quem."name" AS "contadoPor", alvo."countedAt" AS "contadoEm",
            anterior."countedQuantity" AS anterior, anterior.dia AS "anteriorData", anterior."code" AS "anteriorCodigo",
-           compras.quantidade AS compras, compras.custo AS "custoCompras", base."unitCost" AS "custoBase",
+           compras.quantidade AS compras, desperdicio.quantidade AS desperdicio,
+           compras.custo AS "custoCompras", base."unitCost" AS "custoBase",
            historico.mediana, historico.menor, historico.maior, historico.observacoes,
            alvo."reviewReason" AS motivo, alvo."reviewNote" AS "observacaoDaConferencia",
            alvo."reviewedAt" AS "conferidoEm", revisor."name" AS "conferidoPor", alvo."recountSessionId" AS "recontagemId"
     FROM alvo
     LEFT JOIN anterior ON anterior."productId" = alvo."productId"
     LEFT JOIN compras ON compras."productId" = alvo."productId"
+    LEFT JOIN desperdicio ON desperdicio."productId" = alvo."productId"
     LEFT JOIN historico ON historico."productId" = alvo."productId"
     LEFT JOIN "User" quem ON quem."id" = alvo."countedByUserId"
     LEFT JOIN "User" revisor ON revisor."id" = alvo."reviewedByUserId"
@@ -4638,6 +4661,7 @@ async function calcularConferencia(inventoryId: string) {
       contado: numero(row.contado),
       anterior: numero(row.anterior),
       compras,
+      desperdicio: numero(row.desperdicio) ?? 0,
       custoUnitario,
       historico: {
         mediana: numero(row.mediana),
@@ -5468,6 +5492,11 @@ inventoryRouter.post("/movements", async (request, response) => {
 
   if (!productId || quantity <= 0) {
     response.status(400).json({ message: "Produto e quantidade sao obrigatorios." });
+    return;
+  }
+  const migrado = mensagemDeTipoMigrado(type);
+  if (migrado) {
+    response.status(400).json({ message: migrado });
     return;
   }
   if (requiresMovementNotes(type) && !notes) {
