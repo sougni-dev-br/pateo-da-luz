@@ -17,8 +17,13 @@ export type Coluna = {
 
 export type EstadoDaCelula = "ok" | "nao-vende" | "sem-ficha" | "incompleta" | "sem-preco";
 
+/** Razão líquido ÷ tabela por loja da plataforma (0,46 = chega 46% do preço de tabela), pelo id da loja. */
+export type RazoesLiquidas = Record<string, number>;
+
 export type Celula = {
   estado: EstadoDaCelula;
+  /** O preço desta célula já é o líquido estimado (tabela × razão da loja), não o de tabela. */
+  sobreLiquido: boolean;
   /** Com várias lojas na mesma plataforma, é o pior (maior) CMV entre elas. */
   cmv: number | null;
   preco: number | null;
@@ -51,13 +56,19 @@ export const ROTULO_DO_SALAO = "Salão (a la carte)";
 const rotuloDaColuna = (canal: string, loja: string | null) =>
   canal === "SALAO" ? ROTULO_DO_SALAO : loja ? `${loja}` : rotuloDoCanal(canal);
 
-type Venda = { canal: string; loja: string | null; preco: number };
+type Venda = { canal: string; loja: string | null; preco: number; sobreLiquido: boolean };
 
 /** Onde o prato tem preço: o do salão (se é vendido lá) e o de cada loja com listagem ativa. */
-function vendasDoPrato(prato: DishListItem): Venda[] {
-  const vendas: Venda[] = (prato.canais ?? []).map((canal) => ({ canal: canal.channel, loja: canal.storeName, preco: canal.price }));
+function vendasDoPrato(prato: DishListItem, razoes?: RazoesLiquidas): Venda[] {
+  const vendas: Venda[] = (prato.canais ?? []).map((canal) => {
+    // Com a razão da loja, o preço vira o que chega ao caixa: o CMV passa a ser sobre o líquido.
+    const razao = canal.deliveryStoreId ? razoes?.[canal.deliveryStoreId] : undefined;
+    return razao != null && razao > 0
+      ? { canal: canal.channel, loja: canal.storeName, preco: canal.price * razao, sobreLiquido: true }
+      : { canal: canal.channel, loja: canal.storeName, preco: canal.price, sobreLiquido: false };
+  });
   if (menusDoPrato(prato).includes("CARDAPIO") && prato.salePriceDefault != null && prato.salePriceDefault > 0) {
-    vendas.push({ canal: "SALAO", loja: null, preco: prato.salePriceDefault });
+    vendas.push({ canal: "SALAO", loja: null, preco: prato.salePriceDefault, sobreLiquido: false });
   }
   return vendas;
 }
@@ -81,12 +92,12 @@ export function montarColunas(pratos: DishListItem[], modo: ModoDeAgrupamento): 
   );
 }
 
-const celulaVazia = (estado: EstadoDaCelula): Celula => ({ estado, cmv: null, preco: null, precoMin: null, precoMax: null, lojas: 0 });
+const celulaVazia = (estado: EstadoDaCelula): Celula => ({ estado, sobreLiquido: false, cmv: null, preco: null, precoMin: null, precoMax: null, lojas: 0 });
 
 function celulaDe(prato: DishListItem, vendas: Venda[]): Celula {
   if (vendas.length === 0) return celulaVazia("nao-vende");
   const precos = vendas.map((venda) => venda.preco);
-  const base: Celula = { ...celulaVazia("ok"), precoMin: Math.min(...precos), precoMax: Math.max(...precos), lojas: vendas.length };
+  const base: Celula = { ...celulaVazia("ok"), sobreLiquido: vendas.every((venda) => venda.sobreLiquido), precoMin: Math.min(...precos), precoMax: Math.max(...precos), lojas: vendas.length };
 
   if (prato.itemsCount === 0) return { ...base, estado: "sem-ficha" };
   // Custo parcial subestima o CMV: melhor mostrar "parcial" do que um número bonito e errado.
@@ -97,9 +108,9 @@ function celulaDe(prato: DishListItem, vendas: Venda[]): Celula {
 }
 
 /** Uma linha por prato; cada coluna diz o CMV dele naquele lugar. `nao-vende` onde o prato não está. */
-export function montarMatriz(pratos: DishListItem[], colunas: Coluna[], modo: ModoDeAgrupamento): LinhaDaMatriz[] {
+export function montarMatriz(pratos: DishListItem[], colunas: Coluna[], modo: ModoDeAgrupamento, razoes?: RazoesLiquidas): LinhaDaMatriz[] {
   return pratos.map((prato) => {
-    const vendas = vendasDoPrato(prato);
+    const vendas = vendasDoPrato(prato, razoes);
     const celulas: Record<string, Celula> = {};
     const salaoSemPreco = menusDoPrato(prato).includes("CARDAPIO") && !vendas.some((venda) => venda.canal === "SALAO");
 

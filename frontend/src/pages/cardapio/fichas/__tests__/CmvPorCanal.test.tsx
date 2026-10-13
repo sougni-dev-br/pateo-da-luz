@@ -1,6 +1,13 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { AppUser, DishListItem } from "../../../../api/client";
+
+vi.mock("../../../../api/client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../../api/client")>()),
+  getDishNetRatios: vi.fn(),
+}));
+
+import { getDishNetRatios } from "../../../../api/client";
 import { SessionContext, type SessionContextValue } from "../../../../context/SessionContext";
 import { HideValuesProvider } from "../../../../design-system";
 import { CmvPorCanal } from "../CmvPorCanal";
@@ -33,6 +40,10 @@ function mostrar(pratos: DishListItem[]) {
     </SessionContext.Provider>
   );
 }
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(getDishNetRatios).mockRejectedValue(new Error("sem dados"));
+});
 afterEach(cleanup);
 
 describe("CMV por canal (tela)", () => {
@@ -68,6 +79,32 @@ describe("CMV por canal (tela)", () => {
     fireEvent.click(screen.getByRole("switch", { name: "Incluir pratos sem ficha" }));
     expect(screen.getByRole("button", { name: "Pudim" })).toBeInTheDocument();
     expect(screen.getAllByText("Sem ficha").length).toBeGreaterThan(0);
+  });
+
+  test("com a razão da 99, o CMV da 99 passa a ser sobre o líquido, e dá para voltar à tabela", async () => {
+    vi.mocked(getDishNetRatios).mockResolvedValue({
+      channel: "NOVENTA_NOVE", dias: 60, plataforma: { razao: 0.5, pedidos: 100 },
+      lojas: [
+        { deliveryStoreId: "s-Frei Caneca", storeName: "Frei Caneca", razao: 0.5, pedidos: 60, base: "loja" },
+        { deliveryStoreId: "s-Pizzaria", storeName: "Pizzaria", razao: 0.4, pedidos: 40, base: "loja" },
+      ],
+    });
+    mostrar([FILE]);
+    const file = () => within(screen.getByRole("table")).getByRole("button", { name: "Filé" }).closest("tr")!;
+    // 99, pior loja: Pizzaria 60 × 0,4 = 24 líquido → 24/24 = 100%.
+    await waitFor(() => expect(within(file()).getByText(/^100(,0)?%$/)).toBeInTheDocument());
+    expect(within(file()).getByText(/líq\./)).toBeInTheDocument();
+    expect(screen.getByText(/chegou ao caixa/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("radio", { name: "Preço de tabela" }));
+    expect(within(file()).getByText(/^40(,0)?%$/)).toBeInTheDocument(); // 24/60
+    expect(within(file()).queryByText(/líq\./)).toBeNull();
+  });
+
+  test("sem a razão da 99 não há alternância e o CMV é sobre a tabela", async () => {
+    mostrar([FILE]);
+    await waitFor(() => expect(getDishNetRatios).toHaveBeenCalled());
+    expect(screen.queryByRole("radio", { name: "Preço de tabela" })).toBeNull();
   });
 
   test("abrir um prato leva à ficha dele", () => {

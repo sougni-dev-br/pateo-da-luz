@@ -5,12 +5,13 @@ import type { AppUser, DishDetail, DishListing } from "../../../../api/client";
 vi.mock("../../../../api/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../../../api/client")>()),
   getDishDeliveryStores: vi.fn(),
+  getDishNetRatios: vi.fn(),
   createDishListing: vi.fn(),
   updateDishListing: vi.fn(),
   deleteDishListing: vi.fn(),
 }));
 
-import { createDishListing, deleteDishListing, getDishDeliveryStores, updateDishListing } from "../../../../api/client";
+import { createDishListing, deleteDishListing, getDishDeliveryStores, getDishNetRatios, updateDishListing } from "../../../../api/client";
 import { SessionContext, type SessionContextValue } from "../../../../context/SessionContext";
 import { HideValuesProvider } from "../../../../design-system";
 import { PrecosPorCanal } from "../PrecosPorCanal";
@@ -60,6 +61,10 @@ beforeEach(() => {
     { id: "s-ifood", platform: "IFOOD", nickname: "Pateo da Luz" },
     { id: "s-ifood2", platform: "IFOOD", nickname: "Pateo da Luz Pizzaria" },
   ]);
+  vi.mocked(getDishNetRatios).mockResolvedValue({
+    channel: "NOVENTA_NOVE", dias: 60, plataforma: { razao: 0.45, pedidos: 500 },
+    lojas: [{ deliveryStoreId: "s-99", storeName: "Pateo Frei Caneca", razao: 0.5, pedidos: 300, base: "loja" }],
+  });
   vi.mocked(createDishListing).mockResolvedValue({ id: "nova" });
   vi.mocked(updateDishListing).mockResolvedValue({ id: "lifood" });
   vi.mocked(deleteDishListing).mockResolvedValue({ ok: true });
@@ -77,6 +82,24 @@ describe("preços por canal", () => {
     expect(within(ifood).getByText(/^25(,0)?%$/)).toBeInTheDocument(); // 24 / 96
     const noventa = screen.getByText("Pateo Frei Caneca").closest("tr")!;
     expect(within(noventa).getByText("da plataforma")).toBeInTheDocument(); // preço da 99 não se edita aqui
+  });
+
+  test("na 99 mostra o líquido estimado e o CMV sobre ele; nas outras plataformas, só a tabela", async () => {
+    mostrar(prato());
+    // 109,90 × 0,50 = 54,95 de líquido → CMV 24 / 54,95 = 43,7%
+    const noventa = (await screen.findByText("Pateo Frei Caneca")).closest("tr")!;
+    expect(await within(noventa).findByText(/54,95/)).toBeInTheDocument();
+    expect(within(noventa).getByText(/^43,7%$/)).toBeInTheDocument();
+    expect(within(noventa).getByText(/^21,8%$/)).toBeInTheDocument(); // sobre a tabela: 24 / 109,90
+    const ifood = screen.getByText("Pateo da Luz").closest("tr")!;
+    expect(within(ifood).getAllByText("—").length).toBeGreaterThanOrEqual(2);
+  });
+
+  test("sem a razão medida, a coluna do líquido não aparece", async () => {
+    vi.mocked(getDishNetRatios).mockRejectedValue(new Error("falhou"));
+    mostrar(prato());
+    await screen.findByText("Pateo Frei Caneca");
+    expect(screen.queryByText("Líquido (99)")).toBeNull();
   });
 
   test("prato só do salão e sem preço de loja não mostra a seção", () => {
