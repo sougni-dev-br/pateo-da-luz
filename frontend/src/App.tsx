@@ -28,6 +28,7 @@ import {
   ScrollText,
   Shield,
   ShoppingCart,
+  Trash2,
   Truck,
   Users as UsersIcon,
   WalletCards,
@@ -107,6 +108,7 @@ const PainelEventos = lazy(() => import("./pages/operacao/eventos/PainelEventos"
 const Plaquinhas = lazy(() => import("./pages/cardapio/plaquinhas/Plaquinhas").then((module) => ({ default: module.Plaquinhas })));
 const DRE = lazy(() => import("./pages/DRE").then((module) => ({ default: module.DRE })));
 const SupplierCycles = lazy(() => import("./pages/SupplierCycles").then((module) => ({ default: module.SupplierCycles })));
+const Desperdicio = lazy(() => import("./pages/desperdicio/Desperdicio").then((module) => ({ default: module.Desperdicio })));
 const Reimbursements = lazy(() => import("./pages/Reimbursements").then((module) => ({ default: module.Reimbursements })));
 const TaxPayments = lazy(() => import("./pages/TaxPayments").then((module) => ({ default: module.TaxPayments })));
 const Notifications = lazy(() => import("./pages/Notifications").then((module) => ({ default: module.Notifications })));
@@ -170,6 +172,7 @@ const sections = [
   { id: "inventory", label: "Visão Geral", icon: Warehouse, showInSidebar: true, group: "Estoque", path: "/estoque/visao-geral", matchers: ["/estoque/visao-geral"] },
   { id: "products", label: "Produtos", icon: Package, showInSidebar: true, group: "Estoque", path: "/estoque/produtos", matchers: ["/estoque/produtos"] },
   { id: "inventory-movements", label: "Movimentações", icon: Truck, showInSidebar: true, group: "Estoque", path: "/estoque/movimentacoes", matchers: ["/estoque/movimentacoes"] },
+  { id: "inventory-waste", label: "Desperdício", icon: Trash2, showInSidebar: true, group: "Estoque", path: "/estoque/desperdicio", matchers: ["/estoque/desperdicio"], description: "Perdas de insumo por motivo, setor e produto" },
   { id: "inventory-counting", label: "Contagem de Estoque", icon: ClipboardList, showInSidebar: true, group: "Estoque", path: "/estoque/contagens", matchers: ["/estoque/contagens", "/estoque/contagens/:sessionId/lancar"] },
   { id: "inventory-official", label: "Inventário", icon: FileSpreadsheet, showInSidebar: true, group: "Estoque", path: "/estoque/inventario", matchers: ["/estoque/inventario"] },
   // Tela auxiliar do fluxo Contagem -> Pedido de compra. Nao aparece no menu e a permissao
@@ -217,7 +220,7 @@ const logoPath = "/logo-pateo-luz.png";
 
 function fallbackSectionAllowedForUser(permissionId: string, user: AppUser) {
   if (user.role === "ESTOQUISTA") {
-    return ["inventory", "inventory-counting", "requisitions", "purchase-orders"].includes(permissionId);
+    return ["inventory", "inventory-counting", "inventory-waste", "requisitions", "purchase-orders"].includes(permissionId);
   }
 
   if (user.role === "VISUALIZACAO") {
@@ -750,6 +753,7 @@ export function App() {
               <Route path="/estoque/planejamento-compra" element={<PurchasePlanning />} />
               <Route path="/inventory/counts/:agendaId" element={<Navigate to="/estoque/contagens" replace />} />
               <Route path="/estoque/requisicoes" element={<Requisitions user={user} />} />
+              <Route path="/estoque/desperdicio" element={<Desperdicio />} />
               <Route path="/cardapio/fichas-tecnicas" element={<FichasTecnicas />} />
               <Route path="/cardapio/plaquinhas" element={<Plaquinhas />} />
               <Route path="/operacao/eventos" element={<PainelEventos />} />

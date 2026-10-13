@@ -518,6 +518,7 @@ model Product {
   stockCountSessionItems    StockCountSessionItem[]
   operationalInventoryItems OperationalInventoryItem[]
   dishItems                 DishItem[]
+  wasteEntries              WasteEntry[]
   createdAt                 DateTime                   @default(now())
   updatedAt                 DateTime                   @updatedAt
 
@@ -1698,6 +1699,7 @@ model Dish {
   items            DishItem[]
   listings         DishListing[]
   revisions        DishRevision[]
+  wasteEntries     WasteEntry[]
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
 
@@ -3868,4 +3870,74 @@ model EventSettings {
   /// Lugares do salão no almoço, contando o giro. Vazio enquanto não for informado.
   lunchCapacity Int?
   updatedAt     DateTime @updatedAt
+}
+
+enum WasteReason {
+  EXPIRED
+  SPOILED
+  BREAKAGE
+  PREPARATION_ERROR
+  PRODUCTION_LEFTOVER
+  CUSTOMER_RETURN
+  CONTAMINATION
+  OTHER
+}
+
+// Desperdício de insumo. É uma decomposição do CMV (o produto já saiu do estoque
+// e entrou no consumo), por isso NÃO mexe em InventoryStock, no DRE nem em
+// período financeiro: registrar aqui não baixa nem soma nada na contabilidade.
+// Custo e setor ficam gravados como estavam no dia do lançamento.
+model WasteEntry {
+  id             String      @id @default(cuid())
+  // Insumo (productId) OU prato pronto (dishId), nunca os dois: CHECK na migration.
+  // Prato pronto = sobra de buffet, prato devolvido; vale ao custo da ficha técnica.
+  productId      String?
+  // Restrict (e não o SetNull padrão de relação opcional): apagar o item não pode deixar o
+  // lançamento sem insumo e sem prato, que o CHECK da migration proíbe.
+  product        Product?    @relation(fields: [productId], references: [id], onDelete: Restrict)
+  dishId         String?
+  dish           Dish?       @relation(fields: [dishId], references: [id], onDelete: Restrict)
+  quantity       Decimal     @db.Decimal(14, 4)
+  unit           String?
+  reason         WasteReason
+  occurredOn     DateTime    @db.Date
+  sectorId       String?
+  unitCost       Decimal?    @db.Decimal(14, 4)
+  totalCost      Decimal?    @db.Decimal(14, 2)
+  costSource     String?
+  notes          String?
+  registeredById String
+  cancelledAt    DateTime?
+  cancelledById  String?
+  cancelReason   String?
+  createdAt      DateTime    @default(now())
+  photo          WasteEntryPhoto?
+
+  @@index([occurredOn])
+  @@index([productId, occurredOn])
+  @@index([dishId, occurredOn])
+}
+
+// Configuração do desperdício (linha única). O aviso por WhatsApp sai uma vez por dia, quando o
+// valor do dia chega ao limite; `lastAlertDay` guarda esse dia e fecha a corrida entre dois lançamentos.
+model WasteSettings {
+  id              String    @id @default("singleton")
+  dailyAlertValue Decimal?  @db.Decimal(14, 2)
+  lastAlertDay    DateTime? @db.Date
+  updatedAt       DateTime  @updatedAt
+}
+
+// Foto do desperdício (uma por lançamento), JPEG reduzido na tela. Apagada 90 dias depois para o
+// banco não crescer com imagens; o lançamento fica.
+model WasteEntryPhoto {
+  id        String     @id @default(cuid())
+  entryId   String     @unique
+  entry     WasteEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  mimeType  String
+  size      Int
+  sha256    String
+  content   Bytes
+  createdAt DateTime   @default(now())
+
+  @@index([createdAt])
 }

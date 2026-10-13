@@ -892,3 +892,15 @@
     min-height: 44px;
   }
 }
+
+/* Desperdício registrado entre as duas contagens: fica fora da conta (já está no consumo). */
+.conf-conta__desperdicio {
+  display: grid;
+  gap: 2px;
+  padding-left: 12px;
+  border-left: 1px dashed var(--line-strong, var(--line));
+}
+.conf-conta__desperdicio small {
+  font-size: 11px;
+  color: var(--muted);
+}

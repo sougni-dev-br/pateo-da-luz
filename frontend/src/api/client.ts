@@ -1800,6 +1800,8 @@ export type ItemDaConferencia = {
   anteriorData: string | null;
   anteriorCodigo: string | null;
   compras: number;
+  /** Desperdicio registrado no periodo (0 = nenhum). Explica consumo; nao muda a conta do CMV. */
+  desperdicio: number;
   disponivel: number | null;
   consumo: number | null;
   custoUnitario: number | null;
@@ -3718,6 +3720,19 @@ export function getCmvRealBases() {
 
 export function getCmvPeriods() {
   return request<CmvPeriod[]>("/monthly/cmv-real");
+}
+
+export type DesperdicioDoCiclo = {
+  dataInicial: string;
+  dataFinal: string;
+  total: { lancamentos: number; valor: number; semCusto: number };
+  porMotivo: Array<{ chave: string; nome: string; lancamentos: number; valor: number; semCusto: number }>;
+  /** Em % do CMV do ciclo (ex.: 3 = 3%); `null` sem desperdício ou sem CMV. Ordem de grandeza: usa o ultimo custo conhecido. */
+  percentualDoCmv: number | null;
+};
+
+export function getDesperdicioDoCiclo(id: string) {
+  return request<DesperdicioDoCiclo>(`/monthly/cmv-real/${id}/desperdicio`);
 }
 
 export function getCmvPeriod(id: string) {
@@ -8384,4 +8399,95 @@ export function closeReimbursement(reportId: string, payload: { paymentMethodId:
 
 export function reopenReimbursement(reportId: string) {
   return request<ReimbursementDetail>(`/reimbursements/${reportId}/reopen`, { method: "POST" });
+}
+
+// ── Desperdício de insumo ──
+
+export type WasteReason = "EXPIRED" | "SPOILED" | "BREAKAGE" | "PREPARATION_ERROR" | "PRODUCTION_LEFTOVER" | "CUSTOMER_RETURN" | "CONTAMINATION" | "OTHER";
+
+export type WasteProductHit = { id: string; name: string; code: string | null; unit: string | null; sectorName: string | null };
+
+export type WasteEntry = {
+  id: string;
+  kind: "INSUMO" | "PRATO";
+  productId: string | null;
+  dishId: string | null;
+  productName: string;
+  productCode: string | null;
+  quantity: number;
+  unit: string | null;
+  reason: WasteReason;
+  reasonLabel: string;
+  occurredOn: string;
+  sectorName: string | null;
+  notes: string | null;
+  createdAt: string;
+  cancelledAt: string | null;
+  cancelReason: string | null;
+  hasPhoto: boolean;
+  /** O lançamento tem custo conhecido (não é o valor): sem custo, não entra no total nem no aviso do dia. */
+  hasCost: boolean;
+  registeredById: string;
+  // Só chegam para quem tem "Custos do estoque".
+  unitCost?: number | null;
+  totalCost?: number | null;
+  costSource?: string | null;
+};
+
+export type WasteInput = { productId?: string; dishId?: string; quantity: string; reason: WasteReason; occurredOn: string; notes: string };
+
+export type WasteGroup = { chave: string; nome: string; lancamentos: number; valor: number | null; semCusto: number };
+export type WasteSummary = {
+  from: string;
+  to: string;
+  total: { lancamentos: number; valor: number | null; semCusto: number };
+  porMotivo: WasteGroup[];
+  porSetor: WasteGroup[];
+  porProduto: WasteGroup[];
+};
+
+export function searchWasteProducts(search: string) {
+  return request<WasteProductHit[]>(`/waste/products${toQueryString({ search })}`);
+}
+
+export function searchWasteDishes(search: string) {
+  return request<WasteProductHit[]>(`/waste/dishes${toQueryString({ search })}`);
+}
+
+export function createWasteEntry(payload: WasteInput) {
+  return request<WasteEntry>("/waste", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+}
+
+export function getWasteEntries(filters: { from: string; to: string; reason?: string }) {
+  return request<{ from: string; to: string; truncated: boolean; items: WasteEntry[] }>(`/waste${toQueryString(filters)}`);
+}
+
+export function getWasteSummary(filters: { from: string; to: string }) {
+  return request<WasteSummary>(`/waste/summary${toQueryString(filters)}`);
+}
+
+export function cancelWasteEntry(id: string, reason: string) {
+  return request<{ ok: boolean }>(`/waste/${id}/cancel`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason }) });
+}
+
+export type WasteSettings = { dailyAlertValue: number | null; activeRecipients: number };
+
+export function getWasteSettings() {
+  return request<WasteSettings>("/waste/settings");
+}
+
+export function saveWasteSettings(dailyAlertValue: string) {
+  return request<{ dailyAlertValue: number | null }>("/waste/settings", {
+    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dailyAlertValue }),
+  });
+}
+
+export function uploadWastePhoto(id: string, foto: Blob) {
+  const formData = new FormData();
+  formData.append("photo", foto, "foto.jpg");
+  return request<{ ok: boolean }>(`/waste/${id}/photo`, { method: "POST", body: formData });
+}
+
+export function getWastePhoto(id: string) {
+  return fetchBlob(`/waste/${id}/photo`);
 }

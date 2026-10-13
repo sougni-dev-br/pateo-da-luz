@@ -40,6 +40,9 @@ export const menuCatalog = [
   // a regra ficar presa ao cargo. Nao tem rota propria: e aplicado no payload de
   // /inventory/stocks e /inventory/movements via userHasPermission.
   { id: "inventory-costs", label: "Custos do estoque", group: "Estoque" },
+  // Desperdicio de insumo: quem lanca ve e cria; cancelar pede "excluir". O valor em R$ so
+  // aparece para quem tem "inventory-costs" (aplicado no payload, como em /inventory/movements).
+  { id: "inventory-waste", label: "Desperdicio", group: "Estoque" },
   { id: "requisitions", label: "Requisições", group: "Estoque" },
   { id: "suppliers", label: "Fornecedores", group: "Cadastros" },
   { id: "companies", label: "Empresas", group: "Cadastros" },
@@ -427,6 +430,7 @@ function menuFromRequest(request: Request): MenuId | null {
   if (path.startsWith("/cards")) return "cards";
   if (path.startsWith("/imports/suppliers") || path.startsWith("/imports/products") || path.startsWith("/imports/payment-methods") || path.startsWith("/imports/small-expense-types") || path.startsWith("/imports/catalog")) return "catalog-imports";
   if (path.startsWith("/imports") || path.startsWith("/import-conflicts")) return "import";
+  if (path.startsWith("/waste")) return "inventory-waste";
   if (path.startsWith("/inventory/requisitions")) return "requisitions";
   if (path.startsWith("/inventory/stocks")) return "inventory";
   if (path.startsWith("/inventory/movements")) return "inventory-movements";
@@ -501,6 +505,8 @@ function actionFromRequest(request: Request, menuId: MenuId): PermissionAction {
   if (menuId === "users" && method === "POST") return "create";
   if (menuId === "users" && (method === "PUT" || method === "PATCH")) return "edit";
 
+  // O limite do aviso de desperdício e configuração do módulo: administrar, não lançar.
+  if (menuId === "inventory-waste" && path.startsWith("/waste/settings")) return "admin";
   // Valor da diária vale para todo lançamento novo: configuração do módulo, não registro do dia.
   if (menuId === "extras" && path.startsWith("/extras/settings") && method !== "GET" && method !== "HEAD") return "admin";
   if (menuId === "events" && path.startsWith("/events/settings") && method !== "GET" && method !== "HEAD") return "admin";
