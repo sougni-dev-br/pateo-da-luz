@@ -361,9 +361,9 @@ describe("leitura", () => {
   });
 
   test("categorias trazem quantos pratos ativos cada uma tem", async () => {
-    db.dishCategory.findMany.mockResolvedValue([{ id: "c1", name: "A la carte", sortOrder: 0, isActive: true, notes: null, _count: { dishes: 12 } }]);
+    db.dishCategory.findMany.mockResolvedValue([{ id: "c1", name: "A la carte", sortOrder: 0, isActive: true, notes: null, _count: { dishes: 12, alsoDishes: 2 } }]);
     const r = await request(app).get("/dishes/categories");
-    expect(r.body).toEqual([expect.objectContaining({ name: "A la carte", dishesCount: 12 })]);
+    expect(r.body).toEqual([expect.objectContaining({ name: "A la carte", dishesCount: 14 })]);
     expect(r.body[0]._count).toBeUndefined();
   });
 });
