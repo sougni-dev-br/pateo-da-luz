@@ -90,7 +90,7 @@ import { rotuloDoStatusDaRotina } from "./inventory/routine";
 import { RoutineWeekSection } from "./inventory/RoutineWeekSection";
 import { formatDate, formatNumber } from "../utils/format";
 import { currentMonthPeriod } from "../utils/period";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
 type InventoryProps = {
   user: AppUser;
@@ -130,6 +130,7 @@ import {
   movementSignedQuantity,
   movementTypeLabel,
   movementTypes,
+  movementTypesForForm,
   operationalStatusLabels,
   operationalTone,
   operationalTypeLabels,
@@ -3672,12 +3673,13 @@ export function Inventory({
           <label>Buscar produto<input list="movement-products" value={movementSearch} onBlur={findMovementProduct} onChange={(event) => setMovementSearch(event.target.value)} placeholder="Código ou nome" /><datalist id="movement-products">{products.map((product) => <option key={product.id} value={product.externalCode ? `${product.externalCode} - ${product.name}` : product.name} />)}</datalist></label>
           <Button variant="secondary" leadingIcon={<Search size={16} />} onClick={findMovementProduct}>Buscar</Button>
           <label>Produto<select value={movementForm.productId} onChange={(event) => selectMovementProduct(event.target.value)}><option value="">Selecione o produto</option>{products.map((product) => <option key={product.id} value={product.id}>{product.externalCode ? `${product.externalCode} - ` : ""}{product.name}</option>)}</select></label>
-          <label>Tipo<select value={movementForm.type} onChange={(event) => setMovementForm({ ...movementForm, type: event.target.value })}>{movementTypes.filter((type) => canViewCosts || type.value !== "PURCHASE_IN").map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}</select></label>
+          <label>Tipo<select value={movementForm.type} onChange={(event) => setMovementForm({ ...movementForm, type: event.target.value })}>{movementTypesForForm.filter((type) => canViewCosts || type.value !== "PURCHASE_IN").map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}</select></label>
           <label>Quantidade<input inputMode="decimal" value={movementForm.quantity} onChange={(event) => setMovementForm({ ...movementForm, quantity: sanitizeQuantityInput(event.target.value) })} /></label>
           <label>Unidade<input value={movementForm.unit} onChange={(event) => setMovementForm({ ...movementForm, unit: event.target.value })} /></label>
           <label className={sensitiveMovementTypes.includes(movementForm.type) && !movementForm.notes.trim() ? "field-error" : ""}>Motivo/observação<input value={movementForm.notes} onChange={(event) => setMovementForm({ ...movementForm, notes: event.target.value })} /></label>
           <Button className="large-action" onClick={submitMovement}>Salvar movimentação</Button>
         </div>
+        <p className="muted-text">Quebra, perda e produto vencido agora se registram em <Link to="/estoque/desperdicio">Desperdício</Link>, com motivo e valor.</p>
         {movementForm.productId && (
           <Alert tone="success">
             {(() => {
