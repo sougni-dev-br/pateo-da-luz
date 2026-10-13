@@ -8,6 +8,7 @@ vi.mock("../../../config/database.js", () => ({
     dish: { findMany: vi.fn() },
     wasteEntry: { create: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn() },
     inventorySector: { findMany: vi.fn() },
+    user: { findMany: vi.fn() },
     wasteSettings: { findUnique: vi.fn(), upsert: vi.fn() },
     $queryRaw: vi.fn(),
   },
@@ -162,6 +163,67 @@ describe("GET /waste/summary", () => {
     const r = await request(app).get("/waste/summary");
     expect(r.body.total).toEqual({ lancamentos: 2, valor: null, semCusto: 0 });
     expect(r.body.porMotivo.every((g: { valor: unknown; semCusto: number }) => g.valor === null && g.semCusto === 0)).toBe(true);
+  });
+});
+
+describe("GET /waste/analysis", () => {
+  const ontem = new Date(`${hoje}T00:00:00.000Z`);
+  const linha = (extra: Record<string, unknown>) =>
+    entradaGravada({ id: "w", productId: "p1", reason: "EXPIRED", sectorId: "s1", totalCost: 100, quantity: 2, unit: "KG", occurredOn: ontem, registeredById: "u1", photo: null, ...extra });
+
+  beforeEach(() => {
+    db.user.findMany.mockResolvedValue([{ id: "u1", name: "Ana" }]);
+    db.wasteEntry.findMany.mockResolvedValue([linha({}), linha({ id: "w2", reason: "SPOILED", totalCost: 50 })]);
+    // Faturamento por dia e compras do período usam SQL próprio: distingue pelo texto da consulta.
+    db.$queryRaw.mockImplementation(async (partes: TemplateStringsArray) => {
+      const sql = partes.join("?");
+      if (sql.includes("RevenueEntry")) return [{ dia: hoje, liquido: 5000, pessoas: 100 }];
+      if (sql.includes("PurchaseItem")) return [{ id: "p1", quantidade: 40 }];
+      return [];
+    });
+  });
+
+  test("quem vê custos recebe valor, comparação, faturamento e taxa de perda sobre o comprado", async () => {
+    const r = await request(app).get(`/waste/analysis?from=${hoje}&to=${hoje}`);
+    expect(r.status).toBe(200);
+    expect(r.body.total).toMatchObject({ lancamentos: 2, valor: 150 });
+    expect(r.body.anterior).toHaveProperty("valor");
+    expect(r.body.faturamento).toMatchObject({ liquido: 5000, pessoas: 100, percentual: 3, porPessoa: 1.5 });
+    expect(r.body.porProduto[0]).toMatchObject({ nome: "Salmão", quantidade: 4, comprado: 40, taxaDePerda: 10 });
+    expect(r.body.porPessoa).toEqual([{ id: "u1", nome: "Ana", lancamentos: 2 }]);
+  });
+
+  test("a consulta de compras usa a unidade gravada no lançamento (que pode vir da unidade de medida)", async () => {
+    await request(app).get(`/waste/analysis?from=${hoje}&to=${hoje}`);
+    const chamada = db.$queryRaw.mock.calls.find((c: [TemplateStringsArray, ...unknown[]]) => c[0].join("?").includes("PurchaseItem"));
+    expect(chamada.slice(1)).toEqual(expect.arrayContaining([["p1"], ["KG"]]));
+  });
+
+  test("lê só lançamentos ativos, nos dois períodos", async () => {
+    await request(app).get(`/waste/analysis?from=${hoje}&to=${hoje}`);
+    const consultas = db.wasteEntry.findMany.mock.calls.map((c: Array<{ where: { cancelledAt: unknown } }>) => c[0].where.cancelledAt);
+    expect(consultas).toEqual([null, null]);
+  });
+
+  test("sem permissão de custo: contagens, sem faturamento, sem compras e sem consultar valores", async () => {
+    podeVerCusto = false;
+    const r = await request(app).get(`/waste/analysis?from=${hoje}&to=${hoje}`);
+    expect(r.status).toBe(200);
+    expect(r.body.total).toEqual({ lancamentos: 2, valor: null, semCusto: 0 });
+    expect(r.body.faturamento).toBeNull();
+    expect(r.body.porProduto[0]).toMatchObject({ valor: null, comprado: null, taxaDePerda: null });
+    const sqls = db.$queryRaw.mock.calls.map((c: [TemplateStringsArray]) => c[0].join("?"));
+    expect(sqls.some((q: string) => q.includes("RevenueEntry") || q.includes("PurchaseItem"))).toBe(false);
+  });
+
+  test.each([["from=2026-13-01&to=2026-13-02"], ["from=2026-10-10&to=2026-10-01"], ["from=2020-01-01&to=2026-10-01"]])("período inválido (%s) é 400", async (consulta) => {
+    const r = await request(app).get(`/waste/analysis?${consulta}`);
+    expect(r.status).toBe(400);
+  });
+
+  test("sem sessão é 401", async () => {
+    vi.mocked(getSessionUser).mockResolvedValue(null as never);
+    expect((await request(app).get("/waste/analysis")).status).toBe(401);
   });
 });
 

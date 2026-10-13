@@ -1,0 +1,127 @@
+/* Desperdício: leitura do período (indicadores, o que fazer, tendência, de onde vem, confiança). */
+
+.waste-head { display: grid; gap: 12px; }
+.waste-head .ds-tabs { justify-self: start; }
+.waste-section-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
+.waste-section-head h2, .waste-section-head h3 { margin: 0; }
+.waste-section-head h3:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+
+/* A largura da ÁREA decide o layout (muda com o menu lateral), não a da janela. */
+.waste-report { container: wastereport / inline-size; }
+
+/* Período */
+.waste-period { display: grid; gap: 12px; }
+.waste-period-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.waste-period-chips .waste-chip { min-height: 40px; padding: 0 14px; }
+
+/* Indicadores */
+.waste-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin: 0; }
+.waste-kpis > div {
+  display: grid; align-content: start; gap: 4px; min-width: 0; padding: 14px 16px;
+  background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius-md);
+}
+.waste-kpis dt { font-size: 13px; color: var(--ink-soft); }
+.waste-kpis dd { margin: 0; font-size: 26px; font-weight: 700; line-height: 1.15; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.waste-kpi-principal { background: var(--paper-soft) !important; border-color: var(--line-strong, var(--line)) !important; }
+.waste-kpi-principal dd { font-size: 32px; }
+.waste-kpi-sub { font-size: 12px; color: var(--ink-soft); line-height: 1.4; }
+
+/* Variação: a cor segue o efeito (subir desperdício é ruim), e há sempre seta e texto — nunca só a cor. */
+.waste-delta { display: inline-flex; align-items: center; gap: 3px; width: fit-content; font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.waste-delta--ruim { color: var(--danger, #b3261e); }
+.waste-delta--bom { color: var(--success, #1b6e3c); }
+.waste-delta--neutro { color: var(--ink-soft); font-weight: 400; }
+
+/* O que fazer */
+.waste-reading { display: grid; gap: 10px; padding: 16px; background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius-md); }
+.waste-reading h3 { margin: 0; font-size: 15px; }
+.waste-reading ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.waste-reading-item { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; padding: 12px 14px; background: var(--paper-soft); border-left: 4px solid var(--line-strong, var(--line)); border-radius: 0 var(--radius-md) var(--radius-md) 0; }
+.waste-reading-item > svg { margin-top: 2px; flex: none; }
+.waste-reading-item strong { display: block; font-size: 14px; line-height: 1.4; }
+.waste-reading-item p { margin: 4px 0 0; font-size: 13px; line-height: 1.5; color: var(--ink-soft); }
+.waste-reading-item .waste-reading-action { color: var(--ink); }
+.waste-reading-action span { font-weight: 600; }
+.waste-reading-item--danger { border-left-color: var(--danger, #b3261e); }
+.waste-reading-item--danger > svg { color: var(--danger, #b3261e); }
+.waste-reading-item--warn { border-left-color: var(--warning, #b26a00); }
+.waste-reading-item--warn > svg { color: var(--warning, #b26a00); }
+.waste-reading-item--ok { border-left-color: var(--success, #1b6e3c); }
+.waste-reading-item--ok > svg { color: var(--success, #1b6e3c); }
+.waste-reading-item--info { border-left-color: var(--ink-soft); }
+.waste-reading-item--info > svg { color: var(--ink-soft); }
+
+/* Cartões de análise */
+.waste-card { display: grid; align-content: start; gap: 12px; min-width: 0; padding: 16px; background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius-md); }
+.waste-card h3 { margin: 0; font-size: 15px; }
+.waste-card-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.waste-two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 340px); gap: 12px; align-items: start; }
+.waste-trend { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 12px; align-items: start; }
+@container wastereport (max-width: 760px) {
+  .waste-two, .waste-trend { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Por dia (barras) */
+.waste-bars { display: flex; align-items: stretch; gap: 2px; height: 150px; padding-top: 6px; border-bottom: 1px solid var(--line); }
+.waste-bar-col { display: flex; flex: 1 1 0; min-width: 0; align-items: flex-end; }
+.waste-bar-fill { display: block; width: 100%; background: color-mix(in srgb, var(--ink) 38%, var(--paper)); border-radius: 2px 2px 0 0; }
+.waste-bar-fill--pico { background: var(--ink); }
+.waste-bar-col:hover .waste-bar-fill { background: var(--ink); }
+.waste-bars-axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+
+/* Por dia da semana */
+.waste-weekdays { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.waste-weekdays li { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 10px; font-size: 13px; }
+.waste-weekday-name { color: var(--ink-soft); }
+.waste-weekday-track { height: 8px; background: var(--paper-soft); border-radius: 999px; overflow: hidden; }
+.waste-weekday-track span { display: block; height: 100%; background: color-mix(in srgb, var(--ink) 55%, var(--paper)); border-radius: inherit; }
+.waste-weekday-value { min-width: 70px; text-align: right; font-variant-numeric: tabular-nums; }
+
+/* De onde vem: ranking clicável */
+.waste-rank { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.waste-rank-row {
+  display: grid; gap: 6px; width: 100%; padding: 10px 12px; text-align: left; font: inherit; color: inherit;
+  background: transparent; border: 1px solid transparent; border-radius: var(--radius-md); cursor: pointer;
+}
+.waste-rank-row:hover { background: var(--paper-soft); }
+.waste-rank-row:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+.waste-rank-row--ativa { background: var(--paper-soft); border-color: var(--ink); }
+.waste-rank-top { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; }
+.waste-rank-name { min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
+.waste-rank-value { flex: none; font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+.waste-bar { display: block; height: 6px; background: var(--paper-soft); border-radius: 999px; overflow: hidden; }
+.waste-bar span { display: block; height: 100%; background: var(--gold); border-radius: inherit; }
+.waste-rank-meta { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 12px; color: var(--ink-soft); }
+
+/* Confiança do registro */
+.waste-checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.waste-check { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; font-size: 13px; line-height: 1.45; }
+.waste-check > svg { margin-top: 2px; }
+.waste-check--ok > svg { color: var(--success, #1b6e3c); }
+.waste-check--atencao > svg { color: var(--warning, #b26a00); }
+
+/* Lançamentos: busca e recortes */
+.waste-lancamentos { display: grid; gap: 12px; }
+.waste-listbar { display: grid; gap: 10px; }
+.waste-listbar .ds-text-field { max-width: 420px; }
+.waste-active-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.waste-filter-chip { display: inline-flex; align-items: center; gap: 2px; padding: 0 2px 0 12px; min-height: 36px; font-size: 13px; background: var(--paper-soft); border: 1px solid var(--line-strong, var(--line)); border-radius: 999px; }
+.waste-filter-chip button { display: grid; place-items: center; width: 32px; height: 32px; background: transparent; border: 0; border-radius: 999px; cursor: pointer; color: var(--ink-soft); }
+.waste-filter-chip button:hover { background: var(--line); }
+.waste-filter-chip button:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+
+@media (max-width: 560px) {
+  /* Dois por linha: os quatro indicadores cabem em duas telas em vez de quatro; o principal ocupa a linha toda. */
+  .waste-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .waste-kpi-principal { grid-column: 1 / -1; }
+  .waste-kpis > div { padding: 12px; }
+  .waste-kpis dd { font-size: 22px; }
+  .waste-kpi-principal dd { font-size: 28px; }
+  .waste-bars { height: 120px; }
+}
+
+.waste-reading-more { margin-top: 2px; }
+.waste-reading-more summary { display: flex; align-items: center; min-height: 44px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.waste-reading-more summary:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.waste-reading-more ul { margin-top: 6px; }
+.waste-bars-max { color: var(--ink-soft); }
