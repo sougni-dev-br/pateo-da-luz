@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { Prisma } from "@prisma/client";
+import { prisma } from "../../config/database.js";
 import { normalizeText } from "../../shared/utils/normalize-text.js";
 import { employeeToSupplierDraft, onlyDigits } from "../suppliers/employee-supplier.js";
 import { nextSupplierCode } from "../suppliers/supplier-code.js";
@@ -43,7 +44,14 @@ export async function validarQuemPagou(tx: Tx, payeeId: string, fornecedorDaComp
  * na observacao financeira) — o mesmo que "Fornecedores > A partir de funcionario".
  * Assim a lista de quem pagou tem todos os funcionarios ativos sem cadastro manual.
  */
-export async function fornecedorDoFuncionario(tx: Tx, employeeId: string): Promise<string> {
+export async function fornecedorDoFuncionario(employeeId: string): Promise<string> {
+  // Transacao propria, travada pelo CPF: dois cliques (ou duas pessoas) lancando a
+  // primeira compra do mesmo funcionario ao mesmo tempo criariam dois fornecedores com
+  // o mesmo CPF — e com isso dois reembolsos abertos e dois titulos para a pessoa.
+  return prisma.$transaction((tx) => achaOuCriaFornecedorDoFuncionario(tx, employeeId));
+}
+
+async function achaOuCriaFornecedorDoFuncionario(tx: Tx, employeeId: string): Promise<string> {
   const employee = await tx.employee.findFirst({
     where: { id: employeeId, isActive: true, deletedAt: null },
     select: {
@@ -55,16 +63,18 @@ export async function fornecedorDoFuncionario(tx: Tx, employeeId: string): Promi
   if (!employee) throw new ReimbursementError("Funcionario nao encontrado ou desligado.");
   const cpf = onlyDigits(employee.cpf);
   if (cpf.length !== 11) throw new ReimbursementError("O funcionario esta sem CPF valido no cadastro. Corrija em Funcionarios antes de lancar o reembolso.");
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`fornecedor-cpf:${cpf}`}))`;
 
-  const [existente] = await tx.$queryRaw<Array<{ id: string; isActive: boolean }>>`
-    SELECT "id", "isActive" FROM "Supplier"
+  const [existente] = await tx.$queryRaw<Array<{ id: string; name: string; isActive: boolean }>>`
+    SELECT "id", "name", "isActive" FROM "Supplier"
     WHERE regexp_replace(COALESCE("document", ''), '[^0-9]', '', 'g') = ${cpf}
     ORDER BY "isActive" DESC, "createdAt" ASC
     LIMIT 1
   `;
   if (existente) {
+    // Inativado por alguem, de proposito ou nao: reativar em silencio esconderia a decisao.
     if (!existente.isActive) {
-      await tx.$executeRaw`UPDATE "Supplier" SET "isActive" = true, "updatedAt" = CURRENT_TIMESTAMP WHERE "id" = ${existente.id}`;
+      throw new ReimbursementError(`O fornecedor ${existente.name}, deste funcionario, esta inativo. Reative em Cadastros > Fornecedores e lance de novo.`);
     }
     return existente.id;
   }

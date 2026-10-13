@@ -231,6 +231,9 @@ export function Purchases({ user }: { user: AppUser }) {
   const [units, setUnits] = useState<UnitMeasure[]>([]);
   const [creditCards, setCreditCards] = useState<CreditCard[]>([]);
   const [reimbursementPayees, setReimbursementPayees] = useState<ReimbursementPayee[]>([]);
+  // Quem pagou numa compra antiga pode não estar mais na lista (desligado, fornecedor criado
+  // depois de abrir a tela): guarda o nome que veio da compra para o campo não ficar em branco.
+  const [savedPayee, setSavedPayee] = useState<ReimbursementPayee | null>(null);
   const [openCardStatement, setOpenCardStatement] = useState<CreditCardStatement | null>(null);
   const [smallExpenseTypes, setSmallExpenseTypes] = useState<SmallExpenseType[]>([]);
   const [filters, setFilters] = useState({
@@ -557,7 +560,9 @@ export function Purchases({ user }: { user: AppUser }) {
   // e o titulo nasce quando o reembolso for fechado (Financeiro > Reembolsos).
   const usesReimbursement = selectedPaymentMethod?.type === "REIMBURSEMENT";
   const semParcelasProprias = usesCreditCard || usesReimbursement;
-  const selectedPayee = reimbursementPayees.find((payee) => payee.id === form.reimbursementPayeeId) ?? null;
+  useEffect(() => { if (!editingId) setSavedPayee(null); }, [editingId]);
+  const selectedPayee = reimbursementPayees.find((payee) => payee.id === form.reimbursementPayeeId)
+    ?? (savedPayee?.id === form.reimbursementPayeeId ? savedPayee : null);
   const selectedPaymentMethodAllowsInstallments = formaPermiteParcelamento(selectedPaymentMethod);
   const totalAmount = useMemo(() => items.reduce((sum, item) => sum + Number(item.totalPrice || 0), 0), [items]);
   const installmentTotal = useMemo(() => installments.reduce((sum, installment) => sum + Number(installment.amount || 0), 0), [installments]);
@@ -1198,6 +1203,7 @@ export function Purchases({ user }: { user: AppUser }) {
         amount: String(installment.amount ?? "")
       }));
       setForm(nextForm);
+      setSavedPayee(data.reimbursementPayeeId ? { id: data.reimbursementPayeeId, name: data.reimbursementPayeeName ?? "Cadastro atual" } : null);
       setShowNoInvoiceReason(nextShowNoInvoiceReason);
       setShowExtraNotes(nextShowExtraNotes);
       setShowPaymentNotes(nextShowPaymentNotes);
@@ -2867,6 +2873,9 @@ export function Purchases({ user }: { user: AppUser }) {
                             <select value={form.reimbursementPayeeId}
                               onChange={(event) => setForm({ ...form, reimbursementPayeeId: event.target.value })}>
                               <option value="">Selecione</option>
+                              {savedPayee && !reimbursementPayees.some((payee) => payee.id === savedPayee.id) && (
+                                <option value={savedPayee.id}>{savedPayee.name}</option>
+                              )}
                               {reimbursementPayees.map((payee) => <option key={payee.id} value={payee.id}>{payee.name}</option>)}
                             </select>
                           </label>
