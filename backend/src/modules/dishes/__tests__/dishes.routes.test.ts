@@ -301,8 +301,8 @@ describe("leitura", () => {
     notes: null, isActive: true, createdAt: new Date(), updatedAt: new Date(),
     items: [{ id: "i1", productId: "p1", product: produto, quantity: 100, unit: "G", wasteFactor: 0, notes: null, sortOrder: 0 }],
     listings: [
-      { id: "l1", channel: "NOVENTA_NOVE", price: 49.9, isActive: true, externalName: "Risoto", lastSeenAt: new Date(), deliveryStore: { nickname: "Pateo Frei Caneca", platform: "NOVENTA_NOVE" } },
-      { id: "l2", channel: "NOVENTA_NOVE", price: 60.9, isActive: true, externalName: "Risoto", lastSeenAt: new Date(), deliveryStore: null }
+      { id: "l1", channel: "NOVENTA_NOVE", price: 49.9, isActive: true, externalItemId: "9001", externalName: "Risoto", lastSeenAt: new Date(), deliveryStore: { nickname: "Pateo Frei Caneca", platform: "NOVENTA_NOVE" } },
+      { id: "l2", channel: "NOVENTA_NOVE", price: 60.9, isActive: true, externalItemId: "manual:d1", externalName: "Risoto", lastSeenAt: new Date(), deliveryStore: null }
     ]
   };
 
@@ -324,8 +324,8 @@ describe("leitura", () => {
     const r = await request(app).get("/dishes/d1");
     expect(r.status).toBe(200);
     expect(r.body.listings).toEqual([
-      expect.objectContaining({ storeName: "Pateo Frei Caneca", price: 49.9 }),
-      expect.objectContaining({ storeName: null, price: 60.9 })
+      expect.objectContaining({ storeName: "Pateo Frei Caneca", price: 49.9, manual: false }),
+      expect.objectContaining({ storeName: null, price: 60.9, manual: true })
     ]);
   });
 

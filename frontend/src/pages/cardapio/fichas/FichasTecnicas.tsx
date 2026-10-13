@@ -328,6 +328,8 @@ export function FichasTecnicas() {
           onAlternarAtivo={() => void alternarAtivo()}
           onImprimir={() => imprimir([folhaDoPrato(detalheDoSelecionado)])}
           onFechar={voltar}
+          onPrecosMudaram={() => { void abrirDetalhe(detalheDoSelecionado.id); void carregar(); }}
+          notificar={notificar}
         />
       );
     }
