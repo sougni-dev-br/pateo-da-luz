@@ -48,12 +48,19 @@ export type EntradaConferencia = {
   compras: number;
   custoUnitario: number | null;
   historico: HistoricoDeContagem;
+  /**
+   * Desperdício registrado no período, na unidade de estoque. Só explica consumo: nunca
+   * cria estoque nem perdoa contagem impossível (a perda já está dentro do CMV).
+   */
+  desperdicio?: number;
 };
 
 export type ResultadoConferencia = {
   classe: ClasseConferencia;
   disponivel: number | null;
   consumo: number | null;
+  /** Desperdício registrado no período (0 quando não há). Informativo: não muda a conta do CMV. */
+  desperdicio: number;
   /** Valor em R$ que ordena a lista. O que ele mede depende da classe (ver `impactoDe`). */
   impacto: number | null;
   motivo: string;
@@ -131,6 +138,35 @@ function historicoServe(h: HistoricoDeContagem): h is { mediana: number; menor: 
 }
 
 export function classificarItemDaConferencia(e: EntradaConferencia): ResultadoConferencia {
+  const desperdicio = e.desperdicio != null && e.desperdicio > 0 ? e.desperdicio : 0;
+  const base = classificarSemDesperdicio(e);
+  if (desperdicio === 0 || base.disponivel == null) return { ...base, desperdicio };
+
+  const u = e.unidade;
+  const tolerancia = Math.max(TOLERANCIA_ABSOLUTA, base.disponivel * TOLERANCIA_RELATIVA);
+  // Zerou o que havia: o desperdício registrado EXPLICA, mas não libera. Quem lança desperdício pode ser
+  // quem contou; deixar o lançamento limpar o alerta tiraria da aprovação a conferência humana (com
+  // nome e motivo). O item segue suspeito e o texto diz o que o desperdício cobre, para decidir rápido.
+  if (base.classe === "ZERADO_SUSPEITO") {
+    const nota = desperdicio > base.disponivel + tolerancia
+      ? ` Atenção: ${qtd(desperdicio, u)} de desperdício registrado é mais que o disponível; confira os lançamentos.`
+      : desperdicio >= base.disponivel - tolerancia
+        ? ` Há ${qtd(desperdicio, u)} de desperdício registrado no período, que cobre o que havia: confirme e marque como conferido.`
+        : ` Há ${qtd(desperdicio, u)} de desperdício registrado no período, que cobre só parte.`;
+    return { ...base, desperdicio, motivo: `${base.motivo}${nota}` };
+  }
+  if (base.classe === "COERENTE") {
+    // Desperdício maior que o consumo não fecha a conta: sinal de lançamento errado, que a frase não pode esconder.
+    const cabeNoConsumo = desperdicio <= Math.max(base.consumo ?? 0, 0) + tolerancia;
+    const nota = cabeNoConsumo
+      ? `Inclui ${qtd(desperdicio, u)} de desperdício registrado.`
+      : `Atenção: ${qtd(desperdicio, u)} de desperdício registrado é mais que o consumo; confira os lançamentos.`;
+    return { ...base, desperdicio, motivo: `${base.motivo} ${nota}` };
+  }
+  return { ...base, desperdicio };
+}
+
+function classificarSemDesperdicio(e: EntradaConferencia): Omit<ResultadoConferencia, "desperdicio"> & { desperdicio?: number } {
   const u = e.unidade;
 
   if (e.contado == null) {

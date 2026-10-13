@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { resumoDeDesperdicioDoCiclo } from "../waste/waste.service.js";
 import { parseDate } from "../../shared/utils/parse-date.js";
 import { auditLog, requestIp, requireAdmin, requireRole } from "../security/security-utils.js";
 import {
@@ -143,6 +144,36 @@ cmvRealRouter.get("/:id/pdf", async (request, response) => {
   } catch (error) {
     response.status(400).json({ message: error instanceof Error ? error.message : "Erro ao gerar PDF do CMV." });
   }
+});
+
+// Quanto do consumo do ciclo foi desperdicio registrado. Leitura: o desperdicio ja esta dentro
+// do CMV (inicial + compras - final), entao nunca e somado nem subtraido dele. Fica fora do
+// getCmvPeriod para nao entrar no calculo nem no congelamento do periodo fechado.
+cmvRealRouter.get("/:id/desperdicio", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "VISUALIZACAO"]);
+  if (!user) return;
+  // O CMV de referência é o que a tela mostra: calculado ao vivo se o ciclo está aberto, congelado se
+  // fechado. A coluna gravada só muda ao salvar e ficaria velha (a proporção sairia errada).
+  let periodo: Awaited<ReturnType<typeof getCmvPeriod>>;
+  try {
+    periodo = await getCmvPeriod(request.params.id);
+  } catch {
+    response.status(404).json({ message: "Apuracao de CMV nao encontrada." });
+    return;
+  }
+  const de = new Date(periodo.dataInicial).toISOString().slice(0, 10);
+  const ate = new Date(periodo.dataFinal).toISOString().slice(0, 10);
+  const resumo = await resumoDeDesperdicioDoCiclo(de, ate);
+  const cmv = Number(periodo.cmvReal);
+  response.json({
+    dataInicial: de,
+    dataFinal: ate,
+    ...resumo,
+    // Valorizado ao ultimo custo conhecido (insumo) ou ao custo da ficha tecnica (prato pronto):
+    // a proporcao e uma ordem de grandeza, nao uma segunda apuracao.
+    percentualDoCmv: cmv > 0 && resumo.total.valor > 0 ? Math.round((resumo.total.valor / cmv) * 10000) / 100 : null,
+    porMotivo: resumo.porMotivo.slice(0, 5)
+  });
 });
 
 cmvRealRouter.get("/:id", async (request, response) => {

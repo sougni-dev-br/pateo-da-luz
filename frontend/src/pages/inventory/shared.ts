@@ -137,6 +137,11 @@ export const movementTypes = [
   { value: "PURCHASE_IN", label: "Entrada manual" }
 ];
 
+// Quebra e perda deixaram de ser movimentacao: sao desperdicio, com motivo, setor e valor
+// (modulo Desperdicio). Os rotulos continuam acima para o historico antigo.
+export const wasteMovementTypes = ["BREAKAGE", "LOSS"];
+export const movementTypesForForm = movementTypes.filter((type) => !wasteMovementTypes.includes(type.value));
+
 // Rotulo para o historico. A lista mostrava o codigo cru ("MANUAL_OUT").
 // Aqui o PURCHASE_IN e so "Entrada": alem da manual, as compras tambem geram.
 // ADJUSTMENT nao existe no formulario — e o ajuste que o sistema cria sozinho
