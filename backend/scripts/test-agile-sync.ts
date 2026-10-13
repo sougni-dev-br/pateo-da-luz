@@ -10,6 +10,7 @@
 //
 // Requer AGILE_INGEST_TOKEN definido no .env local.
 
+import { SITUACAO_CANCELADA, SITUACAO_RECEBIDA } from "../src/modules/integrations/agile/agile-situacao.js";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import "dotenv/config";
@@ -132,9 +133,9 @@ async function main() {
     if (!vendasUnicas.has(v.nrseqvenda)) vendasUnicas.set(v.nrseqvenda, v);
   }
   const duplicatas = vendas.length - vendasUnicas.size;
-  const recebidas = Array.from(vendasUnicas.values()).filter((v) => v.situacao_da_venda === "RECEBIDA");
+  const recebidas = Array.from(vendasUnicas.values()).filter((v) => v.situacao_da_venda === SITUACAO_RECEBIDA);
   const brutoRecebidas = recebidas.reduce((sum, v) => sum + v.vl_total, 0);
-  const canceladas = Array.from(vendasUnicas.values()).filter((v) => v.situacao_da_venda !== "RECEBIDA").length;
+  const canceladas = Array.from(vendasUnicas.values()).filter((v) => v.situacao_da_venda === SITUACAO_CANCELADA).length;
   console.log("\n→ Totais brutos dos CSVs (após dedupe por nrseqvenda):");
   console.log(`   Linhas duplicadas descartadas: ${duplicatas}`);
   console.log(`   Vendas RECEBIDAs             : ${recebidas.length}`);

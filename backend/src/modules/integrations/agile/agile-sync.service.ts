@@ -1,3 +1,4 @@
+import { ehCancelada, ehRecebida } from "./agile-situacao.js";
 import crypto from "node:crypto";
 import { assertPeriodWritableForDate } from "../../cmv-real/cmv-real.service.js";
 import { isPeriodLockedError } from "../../cmv-real/period-locked-error.js";
@@ -25,9 +26,8 @@ import type {
 const CHANNEL = REVENUE_CHANNEL_SALON;
 const SOURCE_PLATFORM = "AGILE_PDV";
 
-// O CSV usa "RECEBIDA" para venda válida e "CANCELADA" para cancelada.
-// Só faturamos as recebidas — canceladas viram contador de aviso.
-const SITUACAO_RECEBIDA = "RECEBIDA";
+// Só faturamos as RECEBIDAS — canceladas viram contador de aviso. Comanda em aberto não é nenhuma das
+// duas e não entra em nada (ver agile-situacao.ts).
 
 // Turnos: o Agile grava "Almoço" e "Jantar" (com acento). O comparador é
 // case+accent insensitive porque já vi variação em outros exports.
@@ -270,9 +270,9 @@ export function agruparPorDia(payload: AgileSyncPayload): {
     }
     vendasMesa.push(venda);
     const agg = pegar(venda.dt_movimento, venda.dia_da_semana);
-    if (venda.situacao_da_venda === SITUACAO_RECEBIDA) {
+    if (ehRecebida(venda.situacao_da_venda)) {
       agg.vendasRecebidas.set(venda.nrseqvenda, venda);
-    } else {
+    } else if (ehCancelada(venda.situacao_da_venda)) {
       agg.vendasCanceladas += 1;
     }
   }
@@ -283,7 +283,7 @@ export function agruparPorDia(payload: AgileSyncPayload): {
       naoMesa.pagamentos += 1;
       continue;
     }
-    if (pgto.situacao_da_venda !== SITUACAO_RECEBIDA) continue;
+    if (!ehRecebida(pgto.situacao_da_venda)) continue;
     const agg = pegar(pgto.dt_movimento, null);
     agg.pagamentos.push(pgto);
   }
