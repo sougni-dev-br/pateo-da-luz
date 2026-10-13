@@ -4132,6 +4132,11 @@ export type DishListItem = {
   itemsCount: number;
   /** Quantas listagens ativas o prato tem nos canais (hoje, o cardapio da 99). */
   listingsCount: number;
+  /** Prato nos dois cardápios: quantas quantidades o outro cardápio (o delivery) tem. As do a la carte não valem para ele. */
+  alsoItemsCount?: number;
+  /** Custo por porção calculado com as quantidades do outro cardápio. */
+  alsoCustoPorcao?: number;
+  alsoCustoIncompleto?: boolean;
   /** O preço em cada loja (listagens ativas): base do CMV por canal. */
   canais?: Array<{ channel: string; deliveryStoreId: string | null; storeName: string | null; price: number }>;
   listingPriceMin: number | null;
@@ -4163,6 +4168,9 @@ export type DishListing = {
 export type DishDetail = Omit<DishListItem, "listingsCount" | "listingPriceMin" | "listingPriceMax"> & {
   notes: string | null;
   items: DishIngredient[];
+  /** Quantidades do outro cardápio (o delivery) do prato vendido nos dois. */
+  alsoItems?: DishIngredient[];
+  alsoCusto?: { calculatedCost: number; custoPorcao: number; custoIncompleto: boolean; itemsCount: number };
   listings: DishListing[];
   createdAt: string;
   updatedAt: string;
@@ -4271,6 +4279,9 @@ export type DishRevisionSnapshot = {
   cmvPercentual: number | null;
   custoIncompleto: boolean;
   items: Array<{ productId: string; productName: string; quantity: number; unit: string; wasteFactor: number; itemCost: number | null }>;
+  /** Quantidades do delivery (prato vendido nos dois). */
+  alsoItems?: Array<{ productId: string; productName: string; quantity: number; unit: string; wasteFactor: number; itemCost: number | null }>;
+  alsoCustoPorcao?: number | null;
 };
 
 /** Uma versão da ficha: quem gravou, quando, e a foto do prato naquele momento. */
@@ -4299,7 +4310,7 @@ export function bulkUpdateDishes(payload: {
   /** Categoria no segundo cardápio; null limpa. */
   alsoCategoryId?: string | null;
 }) {
-  return request<{ atualizados: number; categoriasLimpas: number; nosDois?: number; jaNoCardapio?: number }>("/dishes/bulk", {
+  return request<{ atualizados: number; categoriasLimpas: number; nosDois?: number; jaNoCardapio?: number; semQuantidadesNoDelivery?: number }>("/dishes/bulk", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)

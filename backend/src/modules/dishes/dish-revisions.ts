@@ -7,6 +7,15 @@ export type AcaoDaRevisao = "CRIADA" | "ALTERADA" | "INATIVADA" | "REATIVADA";
  * O que a versão guarda. Fica em JSON de propósito: a ficha de hoje e a de ontem apontam para os
  * mesmos produtos, mas o custo, o nome e a categoria mudam — a foto do momento é o que vale no histórico.
  */
+const itemDoSnapshot = (item: DetalheDoPrato["items"][number]) => ({
+  productId: item.productId,
+  productName: item.productName,
+  quantity: item.quantity,
+  unit: item.unit,
+  wasteFactor: item.wasteFactor,
+  itemCost: item.itemCost
+});
+
 export function montarSnapshot(detalhe: DetalheDoPrato) {
   return {
     name: detalhe.name,
@@ -29,14 +38,10 @@ export function montarSnapshot(detalhe: DetalheDoPrato) {
     custoPorcao: detalhe.custoPorcao,
     cmvPercentual: detalhe.cmvPercentual,
     custoIncompleto: detalhe.custoIncompleto,
-    items: detalhe.items.map((item) => ({
-      productId: item.productId,
-      productName: item.productName,
-      quantity: item.quantity,
-      unit: item.unit,
-      wasteFactor: item.wasteFactor,
-      itemCost: item.itemCost
-    }))
+    items: detalhe.items.map(itemDoSnapshot),
+    // Vendido nos dois: as quantidades do delivery e o custo por porção delas.
+    alsoItems: detalhe.alsoItems.map(itemDoSnapshot),
+    alsoCustoPorcao: detalhe.alsoItems.length > 0 ? detalhe.alsoCusto.custoPorcao : null
   };
 }
 

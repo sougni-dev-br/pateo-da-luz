@@ -386,7 +386,10 @@ describe("prato vendido nos dois cardápios (formulário)", () => {
     const dois = trocarOndeVende(base, "AMBOS");
     expect(dois).toMatchObject({ menu: "CARDAPIO", categoryId: "c-salao", alsoMenu: "DELIVERY", alsoCategoryId: "" });
     expect(ondeVende(dois)).toBe("AMBOS");
-    expect(trocarOndeVende({ ...base, menu: "DELIVERY" }, "AMBOS").alsoMenu).toBe("CARDAPIO");
+    // Prato só do delivery que passa a sair no salão: o salão vira o principal e o delivery, com a categoria que tinha, o segundo.
+    expect(trocarOndeVende({ ...base, menu: "DELIVERY", categoryId: "c-delivery" }, "AMBOS")).toMatchObject({
+      menu: "CARDAPIO", categoryId: "", alsoMenu: "DELIVERY", alsoCategoryId: "c-delivery"
+    });
   });
 
   it("sair de 'nos dois' mantém o cardápio escolhido com a categoria dele", () => {
@@ -398,6 +401,25 @@ describe("prato vendido nos dois cardápios (formulário)", () => {
   it("trocar de cardápio solto limpa a categoria do outro lado; escolher o mesmo não muda nada", () => {
     expect(trocarOndeVende(base, "DELIVERY")).toMatchObject({ menu: "DELIVERY", categoryId: "", alsoMenu: null });
     expect(trocarOndeVende(base, "CARDAPIO")).toBe(base);
+  });
+
+  it("vendido nos dois, as quantidades do delivery são obrigatórias (as do a la carte não valem)", () => {
+    const dois = { ...base, alsoMenu: "DELIVERY" as const };
+    const item = (tempId: string, quantity: string) => ({ ...ingrediente({ quantity }), tempId, productId: tempId, productName: tempId, notes: "" });
+    expect(validarFicha(dois, [item("a", "200")], []).semQuantidadesDoOutro).toMatch(/quantidades do delivery/);
+    expect(temErros(validarFicha(dois, [item("a", "200")], []))).toBe(true);
+    expect(temErros(validarFicha(dois, [item("a", "200")], [item("b", "150")]))).toBe(false);
+    // As linhas do delivery também são validadas.
+    expect(validarFicha(dois, [item("a", "200")], [item("b", "")]).itens.b).toMatchObject({ campo: "quantity" });
+    // Prato de um cardápio só não exige nada do outro.
+    expect(temErros(validarFicha(base, [item("a", "200")], []))).toBe(false);
+  });
+
+  it("o payload leva as quantidades do delivery só quando o prato é vendido nos dois", () => {
+    const item = (productId: string, quantity: string) => ({ ...ingrediente({ quantity }), tempId: productId, productId, productName: productId, notes: "" });
+    const dois = montarPayloadDaFicha({ ...base, alsoMenu: "DELIVERY" }, [item("a", "200")], {}, [item("b", "120")]);
+    expect(dois).toMatchObject({ items: [{ productId: "a", quantity: 200 }], alsoItems: [{ productId: "b", quantity: 120 }] });
+    expect(montarPayloadDaFicha(base, [item("a", "200")], {}, [item("b", "120")])).not.toHaveProperty("alsoItems");
   });
 
   it("o payload leva o segundo cardápio e a categoria dele; sem segundo cardápio não leva categoria", () => {
