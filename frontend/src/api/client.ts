@@ -2253,6 +2253,13 @@ export type ProdutoDaRevisaoDeEmbalagem = {
   linhas: LinhaDaRevisaoDeEmbalagem[];
 };
 
+/** Preco normal por unidade de contagem (mediana das compras que nao parecem embalagem, 12 meses). */
+export function getPrecosNormais(productIds: string[]) {
+  return request<{ precos: Record<string, { precoNormal: number | null; unidade: string; compras: number }> }>(
+    `/purchases/embalagens/precos-normais?ids=${encodeURIComponent(productIds.join(","))}`
+  );
+}
+
 export function getRevisaoDeEmbalagens() {
   return request<{ produtos: ProdutoDaRevisaoDeEmbalagem[] }>("/purchases/embalagens/revisao");
 }

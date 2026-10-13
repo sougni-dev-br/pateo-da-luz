@@ -21,7 +21,7 @@ import { composicaoParaTela } from "../payroll/salario-combinado-folha.js";
 import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
 import { gravarConversaoDoItemDeCompra, recordPurchaseInventoryEntry } from "../inventory/inventory.routes.js";
 import { detectarEmbalagem, normalizarUnidade } from "../../shared/unidades/conversao.js";
-import { fatorSugeridoPeloPreco, linhasSuspeitas, pareceEmbalagem, precoDeReferencia, validarEmbalagem } from "./revisao-embalagem.js";
+import { fatorSugeridoPeloPreco, linhasSuspeitas, pareceEmbalagem, precoDeReferencia, precoNormal, validarEmbalagem } from "./revisao-embalagem.js";
 import { removeCardStatementItemsForPurchase, syncCardStatementItemForPurchase, syncCardStatementItemsForPurchase } from "../cards/cards.service.js";
 import { addPurchaseToCycle, findOrCreateOpenCycle, updatePurchaseInCycle } from "../suppliers/supplier-billing-cycle.service.js";
 import { REIMBURSEMENT_PAYMENT_TYPE, REIMBURSEMENT_SOURCE, ReimbursementError, ehCategoriaFuncionario } from "../reimbursements/reimbursement-rules.js";
@@ -2064,10 +2064,54 @@ purchaseRouter.get("/embalagens/revisao", async (request, response) => {
   }
 });
 
+// Preco normal por unidade de contagem dos produtos da nota que esta sendo
+// lancada: a tela avisa quando a linha custa 10x ou mais (pacote lancado como
+// unidade) antes de salvar, em vez de o erro aparecer so no inventario.
+purchaseRouter.get("/embalagens/precos-normais", async (request, response) => {
+  const user = await requireMenuPermission(request, response);
+  if (!user) return;
+  const ids = String(request.query.ids ?? "").split(",").map((id) => id.trim()).filter(Boolean).slice(0, 300);
+  if (!ids.length) {
+    response.json({ precos: {} });
+    return;
+  }
+  try {
+    const linhas = await prisma.$queryRaw<Array<{ productId: string; unidadeDeContagem: string | null; preco: Prisma.Decimal | null }>>`
+      SELECT pi."productId", COALESCE(pr."stockUnit", pr."unit") AS "unidadeDeContagem",
+             COALESCE(pi."convertedUnitPrice", pi."totalPrice" / NULLIF(pi."quantity", 0)) AS preco
+      FROM "PurchaseItem" pi
+      JOIN "Purchase" p ON p."id" = pi."purchaseId"
+      JOIN "Product" pr ON pr."id" = pi."productId"
+      WHERE pi."productId" IN (${Prisma.join(ids)})
+        AND p."status" = 'ACTIVE' AND pi."totalPrice" > 0 AND pi."quantity" > 0
+        AND COALESCE(p."receivedAt", p."purchaseDate") >= CURRENT_DATE - INTERVAL '12 months'
+    `;
+    const porProduto = new Map<string, { unidade: string; precos: number[] }>();
+    for (const linha of linhas) {
+      const atual = porProduto.get(linha.productId) ?? { unidade: normalizarUnidade(linha.unidadeDeContagem) || "UN", precos: [] };
+      atual.precos.push(Number(linha.preco ?? 0));
+      porProduto.set(linha.productId, atual);
+    }
+    const precos = Object.fromEntries([...porProduto.entries()].map(([productId, { unidade, precos: lista }]) => [
+      productId,
+      { precoNormal: precoNormal(lista), unidade, compras: lista.length }
+    ]));
+    response.json({ precos });
+  } catch (error) {
+    response.status(500).json({ message: error instanceof Error ? error.message : "Erro ao buscar precos de referencia." });
+  }
+});
+
 purchaseRouter.post("/embalagens/aplicar", async (request, response) => {
   const user = await requireMenuPermission(request, response);
   if (!user) return;
   const pedidos = Array.isArray(request.body?.itens) ? request.body.itens as Array<Record<string, unknown>> : [];
+  // Registra a chegada do pedido: em 08/10 a aplicacao falhou duas vezes sem
+  // deixar rastro nenhum, e sem o motivo nao havia como diagnosticar.
+  await auditLog({
+    userId: user.id, action: "REVIEW_PURCHASE_ITEM_PACKAGING_REQUESTED", entity: "PurchaseItem", entityId: null,
+    newValue: { linhas: pedidos.length, itens: pedidos.slice(0, 50) } as Prisma.InputJsonValue
+  });
   if (!pedidos.length) {
     response.status(400).json({ message: "Nenhuma linha para aplicar." });
     return;
@@ -2133,7 +2177,12 @@ purchaseRouter.post("/embalagens/aplicar", async (request, response) => {
     }
     response.json({ aplicados: resultado });
   } catch (error) {
-    response.status(400).json({ message: error instanceof Error ? error.message : "Erro ao aplicar a embalagem." });
+    const message = error instanceof Error ? error.message : "Erro ao aplicar a embalagem.";
+    await auditLog({
+      userId: user.id, action: "REVIEW_PURCHASE_ITEM_PACKAGING_FAILED", entity: "PurchaseItem", entityId: null,
+      newValue: { message, itens: pedidos.slice(0, 50) } as Prisma.InputJsonValue
+    }).catch(() => undefined);
+    response.status(400).json({ message });
   }
 });
 

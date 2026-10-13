@@ -16,6 +16,9 @@ export function RevisaoEmbalagens({ onFechar, onAplicado }: Props) {
   const [produtos, setProdutos] = useState<ProdutoDaRevisaoDeEmbalagem[] | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(true);
+  // Resultado da ultima aplicacao, no topo: o cartao some quando da certo, e o
+  // erro precisa ficar visivel (em 08/10 a falha nao deixou rastro).
+  const [resultado, setResultado] = useState<{ tom: "ok" | "erro"; texto: string } | null>(null);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -47,12 +50,23 @@ export function RevisaoEmbalagens({ onFechar, onAplicado }: Props) {
         </div>
       </header>
 
+      {resultado && (
+        <p className={`emb-resultado emb-resultado--${resultado.tom}`} role={resultado.tom === "erro" ? "alert" : "status"}>
+          {resultado.texto}
+          <button type="button" className="icon-button" aria-label="Fechar aviso" onClick={() => setResultado(null)}><X size={14} /></button>
+        </p>
+      )}
       {carregando && !produtos && <p className="emb-estado" role="status"><Loader2 size={16} className="spin" aria-hidden="true" /> Procurando compras suspeitas…</p>}
       {erro && <p className="emb-estado emb-estado--erro" role="alert">{erro}</p>}
       {produtos && produtos.length === 0 && <p className="emb-estado">Nenhuma compra suspeita. Tudo certo com as embalagens.</p>}
 
       {produtos?.map((produto) => (
-        <ProdutoDaRevisao key={produto.productId} produto={produto} onAplicado={() => { void carregar(); onAplicado?.(); }} />
+        <ProdutoDaRevisao
+          key={produto.productId}
+          produto={produto}
+          onResultado={setResultado}
+          onAplicado={() => { void carregar(); onAplicado?.(); }}
+        />
       ))}
     </section>
   );
@@ -71,7 +85,13 @@ function embalagemInicial(produto: ProdutoDaRevisaoDeEmbalagem): { unidade: stri
   return { unidade, fator: fator ? String(fator) : "" };
 }
 
-function ProdutoDaRevisao({ produto, onAplicado }: { produto: ProdutoDaRevisaoDeEmbalagem; onAplicado: () => void }) {
+type ProdutoProps = {
+  produto: ProdutoDaRevisaoDeEmbalagem;
+  onAplicado: () => void;
+  onResultado: (resultado: { tom: "ok" | "erro"; texto: string }) => void;
+};
+
+function ProdutoDaRevisao({ produto, onAplicado, onResultado }: ProdutoProps) {
   const inicial = useMemo(() => embalagemInicial(produto), [produto]);
   const [unidade, setUnidade] = useState(inicial.unidade);
   const [fator, setFator] = useState(inicial.fator);
@@ -94,10 +114,20 @@ function ProdutoDaRevisao({ produto, onAplicado }: { produto: ProdutoDaRevisaoDe
     setEnviando(true);
     setErro(null);
     try {
-      await aplicarEmbalagens(itens);
+      const { aplicados } = await aplicarEmbalagens(itens);
+      const avulsos = itens.filter((i) => i.avulso).length;
+      onResultado({
+        tom: "ok",
+        texto: avulsos === itens.length
+          ? `${produto.produto}: ${avulsos} compra(s) confirmadas como avulsas.`
+          : `${produto.produto}: embalagem aplicada em ${aplicados.length - avulsos} compra(s). O custo no inventário já usa a quantidade nova.`
+      });
       onAplicado();
     } catch (error) {
-      setErro(error instanceof Error ? error.message : "Não foi possível aplicar.");
+      const status = error && typeof error === "object" && "status" in error ? ` (erro ${(error as { status: number }).status})` : "";
+      const texto = `${produto.produto}: não foi possível aplicar${status}. ${error instanceof Error ? error.message : ""}`.trim();
+      setErro(texto);
+      onResultado({ tom: "erro", texto });
     } finally {
       setEnviando(false);
     }

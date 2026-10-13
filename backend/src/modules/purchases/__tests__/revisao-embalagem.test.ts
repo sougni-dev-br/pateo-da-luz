@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { fatorSugeridoPeloPreco, linhasSuspeitas, pareceEmbalagem, precoDeReferencia, validarEmbalagem } from "../revisao-embalagem";
+import { fatorSugeridoPeloPreco, linhasSuspeitas, pareceEmbalagem, precoDeReferencia, precoNormal, validarEmbalagem } from "../revisao-embalagem";
 
 // Precos reais da porta-forminha (abr–out/2026): avulso a centavos, pacote de 50 a reais.
 const forminha = [
@@ -53,5 +53,21 @@ describe("validarEmbalagem", () => {
     expect(validarEmbalagem({ unidade: "UN", fator: 50 }, "UN").ok).toBe(false);
     expect(validarEmbalagem({ unidade: "PCT", fator: 1 }, "UN").ok).toBe(false);
     expect(validarEmbalagem({ unidade: "", fator: 50 }, "UN").ok).toBe(false);
+  });
+});
+
+describe("precoNormal", () => {
+  test("forminha: mediana das avulsas, os pacotes nao puxam", () => {
+    expect(precoNormal(forminha.map((l) => l.precoUnitario))).toBeCloseTo(0.0704, 4);
+  });
+
+  test("produto sem embalagem: mediana de todas", () => {
+    expect(precoNormal([7.5, 8, 9])).toBe(8);
+    expect(precoNormal([7.5, 8])).toBe(7.75);
+  });
+
+  test("sem compra, sem regua", () => {
+    expect(precoNormal([])).toBeNull();
+    expect(precoNormal([0, -1])).toBeNull();
   });
 });

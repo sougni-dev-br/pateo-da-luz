@@ -67,3 +67,18 @@ export function validarEmbalagem(entrada: { avulso?: unknown; unidade?: unknown;
   if (fator > 100000) return { ok: false, erro: "Fator acima de 100.000: confira." };
   return { ok: true, avulso: false, unidade, fator };
 }
+
+/**
+ * Preco normal por unidade de contagem, para avisar na hora de lancar a nota.
+ * A mediana das compras que NAO parecem embalagem (abaixo de 10x a mais
+ * barata): uma compra avulsa muito barata sozinha nao vira a regua, e os
+ * pacotes lancados como unidade nao puxam o normal para cima.
+ */
+export function precoNormal(precos: readonly number[]): number | null {
+  const validos = precos.filter((p) => Number.isFinite(p) && p > 0).sort((a, b) => a - b);
+  if (!validos.length) return null;
+  const menor = validos[0];
+  const normais = validos.filter((p) => !pareceEmbalagem(p, menor));
+  const meio = Math.floor(normais.length / 2);
+  return normais.length % 2 ? normais[meio] : (normais[meio - 1] + normais[meio]) / 2;
+}

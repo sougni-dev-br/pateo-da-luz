@@ -30,3 +30,26 @@ export function previaDaConversao(produto: ProdutoComEmbalagens | undefined, uni
   if (fator == null || !Number.isFinite(fator) || fator <= 0) return { tipo: "sem_conversao", unidade: contagem };
   return { tipo: "converte", quantidade: quantidade * fator, unidade: contagem, fator };
 }
+
+export const RAZAO_DE_AVISO = 10;
+
+export type AvisoDePreco = { precoPorUnidade: number; precoNormal: number; unidade: string };
+
+/**
+ * Linha que provavelmente e pacote/caixa lancado como unidade: o preco por
+ * unidade de contagem fica 10x ou mais acima do normal do produto. Com
+ * embalagem escolhida (PCT com conversao), compara o preco ja dividido.
+ */
+export function avisoDePreco(
+  produto: ProdutoComEmbalagens | undefined,
+  unidadeDaNota: string,
+  precoUnitario: number,
+  referencia: { precoNormal: number | null; unidade: string } | undefined
+): AvisoDePreco | null {
+  if (!produto || !referencia?.precoNormal || !(precoUnitario > 0)) return null;
+  const previa = previaDaConversao(produto, unidadeDaNota, 1);
+  if (previa?.tipo === "sem_conversao") return null;
+  const precoPorUnidade = previa?.tipo === "converte" ? precoUnitario / previa.fator : precoUnitario;
+  if (precoPorUnidade < referencia.precoNormal * RAZAO_DE_AVISO) return null;
+  return { precoPorUnidade, precoNormal: referencia.precoNormal, unidade: referencia.unidade };
+}
