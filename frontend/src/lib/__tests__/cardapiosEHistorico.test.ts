@@ -285,3 +285,20 @@ describe("histórico: preço por loja", () => {
     expect(descreverMudancas(snap(), snap({ canais: [canal("Pateo da Luz", 90)] }))).toEqual(["Gravada sem mudanças na ficha"]);
   });
 });
+
+describe("histórico: quantidades do delivery", () => {
+  const itemDelivery = (quantity: number) => ({ productId: "p1", productName: "FILE", quantity, unit: "G", wasteFactor: 0, itemCost: 10 });
+
+  it("mudança de quantidade no delivery aparece marcada, separada da do salão", () => {
+    const antes = snap({ alsoMenu: "DELIVERY", alsoItems: [itemDelivery(200)] });
+    const depois = snap({ alsoMenu: "DELIVERY", alsoItems: [itemDelivery(250)] });
+    expect(descreverMudancas(antes, depois)).toEqual([expect.stringMatching(/^Delivery · FILE: 200 G → 250 G$/)]);
+  });
+
+  it("ingrediente novo e que saiu no delivery também são marcados", () => {
+    const antes = snap({ alsoMenu: "DELIVERY", alsoItems: [] });
+    const depois = snap({ alsoMenu: "DELIVERY", alsoItems: [itemDelivery(250)] });
+    expect(descreverMudancas(antes, depois)).toEqual(["Delivery · + FILE: 250 G"]);
+    expect(descreverMudancas(depois, antes)).toEqual(["Delivery · − FILE saiu da ficha"]);
+  });
+});

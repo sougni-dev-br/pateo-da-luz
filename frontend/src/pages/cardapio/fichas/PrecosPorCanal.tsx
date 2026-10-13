@@ -52,6 +52,14 @@ export function PrecosPorCanal({ prato, canEdit, onEditarPrato, onMudou, notific
   const listagens = ordenar(prato.listings);
   const podeEditar = canEdit && prato.isActive;
   const custo = prato.items.length > 0 && !prato.custoIncompleto ? prato.custoPorcao : null;
+  // O delivery tem as próprias quantidades quando o prato é vendido nos dois: sem elas não há CMV de lá
+  // (as do a la carte não valem). Prato só do delivery, ou ainda não marcado nos dois, usa a ficha que tem.
+  const temFichaPropriaDoDelivery = prato.alsoMenu === "DELIVERY";
+  const itensDoDelivery = prato.alsoItems?.length ?? 0;
+  const custoDoDelivery = temFichaPropriaDoDelivery
+    ? itensDoDelivery > 0 && !prato.alsoCusto?.custoIncompleto ? prato.alsoCusto?.custoPorcao ?? null : null
+    : custo;
+  const faltaQuantidadeDoDelivery = temFichaPropriaDoDelivery && itensDoDelivery === 0;
 
   const [dialogo, setDialogo] = useState<{ listagem: DishListing | null } | null>(null);
   const [removendo, setRemovendo] = useState<string | null>(null);
@@ -136,14 +144,20 @@ export function PrecosPorCanal({ prato, canEdit, onEditarPrato, onMudou, notific
                   {!listagem.isActive && <StatusBadge tone="neutral" className="ft-etiqueta">Pausado</StatusBadge>}
                 </td>
                 <td className="ft-num" data-rotulo="Preço"><Money value={listagem.price} /></td>
-                <td className="ft-num" data-rotulo="CMV"><CmvDoPreco custo={custo} preco={listagem.price} /></td>
+                <td className="ft-num" data-rotulo="CMV">
+                  {faltaQuantidadeDoDelivery
+                    ? <span className="ft-sem-valor" title="Informe as quantidades do delivery: as do a la carte não valem para ele.">falta delivery</span>
+                    : <CmvDoPreco custo={custoDoDelivery} preco={listagem.price} />}
+                </td>
                 {comLiquido && (
                   <td className="ft-num" data-rotulo="Líquido estimado">
                     {liquidoDa(listagem) != null ? <Money value={liquidoDa(listagem) as number} /> : "—"}
                   </td>
                 )}
                 {comLiquido && (
-                  <td className="ft-num" data-rotulo="CMV sobre o líquido"><CmvDoPreco custo={custo} preco={liquidoDa(listagem)} /></td>
+                  <td className="ft-num" data-rotulo="CMV sobre o líquido">
+                    {faltaQuantidadeDoDelivery ? "—" : <CmvDoPreco custo={custoDoDelivery} preco={liquidoDa(listagem)} />}
+                  </td>
                 )}
                 {podeEditar && (
                   <td className="ft-acoes-linha">

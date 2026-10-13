@@ -383,12 +383,21 @@ export type ErrosDaFicha = {
   name?: string;
   salePriceDefault?: string;
   yieldQty?: string;
-  /** Por `tempId` do ingrediente; `campo` diz qual entrada corrigir. */
+  /** Por `tempId` do ingrediente (de qualquer das duas listas); `campo` diz qual entrada corrigir. */
   itens: Record<string, ErroDoItem>;
+  /** Prato nos dois cardápios sem nenhuma quantidade do delivery: as do a la carte não valem para ele. */
+  semQuantidadesDoOutro?: string;
 };
 
-export function validarFicha(campos: CamposDaFicha, itens: ItemDaFicha[]): ErrosDaFicha {
+/**
+ * `itensDoOutro` são as quantidades do outro cardápio (o delivery), obrigatórias quando o prato é vendido nos dois:
+ * a quantidade do a la carte não é a do delivery.
+ */
+export function validarFicha(campos: CamposDaFicha, itens: ItemDaFicha[], itensDoOutro: ItemDaFicha[] = []): ErrosDaFicha {
   const erros: ErrosDaFicha = { itens: {} };
+  if (campos.alsoMenu && itensDoOutro.length === 0) {
+    erros.semQuantidadesDoOutro = "Informe as quantidades do delivery: as do a la carte não valem para ele.";
+  }
 
   if (!campos.name.trim()) erros.name = "Informe o nome do prato.";
 
@@ -400,7 +409,7 @@ export function validarFicha(campos: CamposDaFicha, itens: ItemDaFicha[]): Erros
   const rendimento = lerNumero(campos.yieldQty);
   if (!Number.isFinite(rendimento) || rendimento <= 0) erros.yieldQty = "O rendimento precisa ser maior que zero.";
 
-  for (const item of itens) {
+  for (const item of [...itens, ...(campos.alsoMenu ? itensDoOutro : [])]) {
     const quantidade = lerNumero(item.quantity);
     if (!Number.isFinite(quantidade) || quantidade <= 0) {
       erros.itens[item.tempId] = { campo: "quantity", mensagem: "Informe a quantidade (maior que zero)." };
@@ -428,7 +437,13 @@ export const ondeVende = (campos: Pick<CamposDaFicha, "menu" | "alsoMenu">): Ond
 export function trocarOndeVende(campos: CamposDaFicha, novo: OndeVende): CamposDaFicha {
   const atual = ondeVende(campos);
   if (novo === atual) return campos;
-  if (novo === "AMBOS") return { ...campos, alsoMenu: OUTRO_CARDAPIO[campos.menu], alsoCategoryId: "" };
+  // O prato nos dois cardápios tem o salão como principal e o delivery como segundo: um prato só do delivery que passa
+  // a sair também no salão troca de lugar (com a categoria que tinha, que passa a ser a do delivery).
+  if (novo === "AMBOS") {
+    return campos.menu === "DELIVERY"
+      ? { ...campos, menu: "CARDAPIO", categoryId: "", alsoMenu: "DELIVERY", alsoCategoryId: campos.categoryId }
+      : { ...campos, alsoMenu: "DELIVERY", alsoCategoryId: "" };
+  }
   if (campos.alsoMenu) {
     // Era nos dois: fica o cardápio escolhido, com a categoria que ele já tinha.
     return novo === campos.menu
@@ -439,16 +454,25 @@ export function trocarOndeVende(campos: CamposDaFicha, novo: OndeVende): CamposD
 }
 
 export function temErros(erros: ErrosDaFicha): boolean {
-  return Boolean(erros.name || erros.salePriceDefault || erros.yieldQty || Object.keys(erros.itens).length > 0);
+  return Boolean(erros.name || erros.salePriceDefault || erros.yieldQty || erros.semQuantidadesDoOutro || Object.keys(erros.itens).length > 0);
 }
 
 /** O que o backend espera: números de verdade, unidade normalizada e perda como fração. */
 export function montarPayloadDaFicha(
   campos: CamposDaFicha,
   itens: ItemDaFicha[],
-  opcoes: { id?: string; isActive?: boolean } = {}
+  opcoes: { id?: string; isActive?: boolean } = {},
+  itensDoOutro: ItemDaFicha[] = []
 ): Record<string, unknown> {
   const preco = lerNumero(campos.salePriceDefault);
+  const paraOBanco = (lista: ItemDaFicha[]) => lista.map((item, indice) => ({
+    productId: item.productId,
+    quantity: lerNumero(item.quantity),
+    unit: normalizarUnidade(item.unit) || item.unit.trim(),
+    wasteFactor: percentualParaFracao(item.wasteFactor),
+    notes: item.notes.trim() || null,
+    sortOrder: indice
+  }));
   return {
     ...(opcoes.id ? { id: opcoes.id } : {}),
     name: campos.name.trim(),
@@ -462,14 +486,9 @@ export function montarPayloadDaFicha(
     yieldUnit: campos.yieldUnit.trim().toUpperCase() || "UN",
     notes: campos.notes.trim(),
     ...(opcoes.isActive === undefined ? {} : { isActive: opcoes.isActive }),
-    items: itens.map((item, indice) => ({
-      productId: item.productId,
-      quantity: lerNumero(item.quantity),
-      unit: normalizarUnidade(item.unit) || item.unit.trim(),
-      wasteFactor: percentualParaFracao(item.wasteFactor),
-      notes: item.notes.trim() || null,
-      sortOrder: indice
-    }))
+    items: paraOBanco(itens),
+    // As quantidades do delivery só vão quando o prato é vendido nos dois cardápios.
+    ...(campos.alsoMenu ? { alsoItems: paraOBanco(itensDoOutro) } : {})
   };
 }
 

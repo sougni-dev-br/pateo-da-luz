@@ -10,7 +10,7 @@ vi.mock("../../../config/database.js", () => {
   const prisma: Record<string, unknown> = {
     dish: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), count: vi.fn() },
     dishRevision: { create: vi.fn(), findMany: vi.fn() },
-    dishItem: { createMany: vi.fn(), deleteMany: vi.fn() },
+    dishItem: { createMany: vi.fn(), deleteMany: vi.fn(), count: vi.fn(), groupBy: vi.fn() },
     dishCategory: { findMany: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), count: vi.fn() },
     product: { findMany: vi.fn(), findUnique: vi.fn() },
     productUnitConversion: { findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
@@ -160,7 +160,7 @@ describe("editar prato", () => {
     const r = await request(app).put("/dishes/d1").send(pratoValido);
     expect(r.status).toBe(200);
     expect(db.$transaction).toHaveBeenCalledTimes(1);
-    expect(db.dishItem.deleteMany).toHaveBeenCalledWith({ where: { dishId: "d1" } });
+    expect(db.dishItem.deleteMany).toHaveBeenCalledWith({ where: { dishId: "d1", menu: "CARDAPIO" } });
     expect(db.dishItem.createMany).toHaveBeenCalledTimes(1);
   });
 

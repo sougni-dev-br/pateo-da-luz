@@ -227,7 +227,10 @@ export function FichasTecnicas() {
     const limpas = resposta.categoriasLimpas > 0 ? ` ${resposta.categoriasLimpas} ficaram sem categoria, por ser de outro cardápio.` : "";
     const nosDois = resposta.nosDois ? ` ${resposta.nosDois} passaram a ser vendidos nos dois cardápios.` : "";
     const jaEram = resposta.jaNoCardapio ? ` ${resposta.jaNoCardapio} já eram desse cardápio e ficaram como estão.` : "";
-    notificar("success", `${resposta.atualizados} prato${resposta.atualizados === 1 ? "" : "s"} organizado${resposta.atualizados === 1 ? "" : "s"}.${nosDois}${jaEram}${limpas}`);
+    const semDelivery = resposta.semQuantidadesNoDelivery
+      ? ` Atenção: ${resposta.semQuantidadesNoDelivery} ficaram sem as quantidades do delivery (as do a la carte não valem para ele): abra cada um e informe.`
+      : "";
+    notificar("success", `${resposta.atualizados} prato${resposta.atualizados === 1 ? "" : "s"} organizado${resposta.atualizados === 1 ? "" : "s"}.${nosDois}${jaEram}${limpas}${semDelivery}`);
     sairDaSelecao();
   }
 

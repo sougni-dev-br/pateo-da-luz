@@ -15,7 +15,7 @@ vi.mock("../../../../api/client", async (importOriginal) => ({
   getDishNetRatios: vi.fn().mockResolvedValue({ channel: "NOVENTA_NOVE", dias: 60, plataforma: { razao: null, pedidos: 0 }, lojas: [] }),
 }));
 
-import { bulkUpdateDishes, getDishCategories, getDishDetail, getDishRevisions, getDishes, saveDish, saveDishCategory } from "../../../../api/client";
+import { bulkUpdateDishes, getDishCategories, getDishDetail, getDishRevisions, getDishes, saveDish, saveDishCategory, searchDishProducts } from "../../../../api/client";
 import { SessionContext, type SessionContextValue } from "../../../../context/SessionContext";
 import { HideValuesProvider } from "../../../../design-system";
 import { FichasTecnicas } from "../FichasTecnicas";
@@ -183,10 +183,24 @@ describe("formulário: cardápio e categoria", () => {
     expect([...doDelivery.options].map((o) => o.textContent)).toEqual(["Sem categoria", "Pizzas"]);
     fireEvent.change(doDelivery, { target: { value: "pizzas" } });
 
+    // As quantidades do a la carte não valem para o delivery: sem as do delivery, não salva.
+    fireEvent.click(screen.getByRole("button", { name: "Criar prato" }));
+    expect(await screen.findByText(/Informe as quantidades do delivery/)).toBeInTheDocument();
+    expect(saveDish).not.toHaveBeenCalled();
+
+    vi.mocked(searchDishProducts).mockResolvedValue([
+      { id: "p-farinha", externalCode: "9", name: "FARINHA", unit: "KG", averageCost: 5, conversions: [], embalagemInferida: null },
+    ]);
+    fireEvent.change(screen.getByRole("combobox", { name: /ficha do delivery/ }), { target: { value: "far" } });
+    fireEvent.click(await screen.findByRole("option", { name: /FARINHA/ }));
+    fireEvent.change(screen.getByLabelText("Unidade de FARINHA"), { target: { value: "G" } });
+    fireEvent.change(screen.getByLabelText("Quantidade de FARINHA"), { target: { value: "400" } });
+
     fireEvent.click(screen.getByRole("button", { name: "Criar prato" }));
     await waitFor(() => expect(saveDish).toHaveBeenCalledTimes(1));
     expect(vi.mocked(saveDish).mock.calls[0][0]).toMatchObject({
-      name: "Filé", menu: "CARDAPIO", categoryId: "fresca", alsoMenu: "DELIVERY", alsoCategoryId: "pizzas"
+      name: "Filé", menu: "CARDAPIO", categoryId: "fresca", alsoMenu: "DELIVERY", alsoCategoryId: "pizzas",
+      items: [], alsoItems: [{ productId: "p-farinha", quantity: 400, unit: "G" }]
     });
   });
 
