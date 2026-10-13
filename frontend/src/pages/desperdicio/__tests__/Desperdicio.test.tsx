@@ -366,12 +366,28 @@ describe("Desperdicio: aviso por WhatsApp", () => {
 
     fireEvent.click(await screen.findByText(/Aviso por WhatsApp/));
     const campo = await screen.findByLabelText(/Avisar quando o desperdício do dia chegar a/);
-    expect(campo).toHaveValue("500");
+    // O valor volta formatado em centavos ("500,00"), como será gravado e lido.
+    expect(campo).toHaveValue("500,00");
     fireEvent.change(campo, { target: { value: "800" } });
     fireEvent.click(screen.getByRole("button", { name: /salvar limite/i }));
 
     await waitFor(() => expect(saveWasteSettings).toHaveBeenCalledWith("800"));
-    expect(await screen.findByText(/Limite do aviso salvo: R\$\s?800,00 por dia\./)).toBeInTheDocument();
+    // O resultado aparece no próprio cartão (status), não no aviso global que rola a página para o topo.
+    const resultado = await screen.findByText(/Limite do aviso salvo: R\$\s?800,00 por dia\./);
+    expect(resultado).toHaveAttribute("role", "status");
+    expect(resultado.closest("details")).not.toBeNull();
+    expect(campo).toHaveValue("800,00");
+  });
+
+  test("erro ao salvar o limite aparece no cartão, como alerta", async () => {
+    vi.mocked(getWasteSettings).mockResolvedValue({ dailyAlertValue: 500, activeRecipients: 2 });
+    vi.mocked(saveWasteSettings).mockRejectedValue(new Error("Informe um limite maior que zero."));
+    render(<Desperdicio />);
+    fireEvent.click(await screen.findByText(/Aviso por WhatsApp/));
+    fireEvent.click(await screen.findByRole("button", { name: /salvar limite/i }));
+    const erro = await screen.findByText("Informe um limite maior que zero.");
+    expect(erro).toHaveAttribute("role", "alert");
+    expect(erro.closest("details")).not.toBeNull();
   });
 
   test("'1.500' é recusado antes de gravar R$ 1,50 sem ninguém perceber", async () => {

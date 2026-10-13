@@ -4,18 +4,18 @@ import { getWasteSettings, saveWasteSettings, type WasteSettings } from "../../a
 import { Button, TextField } from "../../design-system";
 import { pareceMilhar } from "./motivos";
 
-type Props = { onMensagem: (tom: "success" | "error", texto: string) => void };
-
-const formatoLimite = (valor: number | null) => (valor == null ? "" : String(valor).replace(".", ","));
+const formatoLimite = (valor: number | null) => (valor == null ? "" : valor.toFixed(2).replace(".", ","));
 const reais = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
 /** Limite diário do aviso por WhatsApp. Só aparece para quem administra o módulo. */
-export function ConfiguracaoDoAlerta({ onMensagem }: Props) {
+export function ConfiguracaoDoAlerta() {
   const [config, setConfig] = useState<WasteSettings | null>(null);
   const [falhouAoLer, setFalhouAoLer] = useState(false);
   const [limite, setLimite] = useState("");
   const [erroDoCampo, setErroDoCampo] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
+  // O resultado fica aqui, junto do campo: o aviso global rolaria a página para o topo, longe de onde o admin está.
+  const [resultado, setResultado] = useState<{ tom: "ok" | "erro"; texto: string } | null>(null);
 
   const carregar = useCallback(() => {
     let atual = true;
@@ -47,14 +47,15 @@ export function ConfiguracaoDoAlerta({ onMensagem }: Props) {
       return;
     }
     setErroDoCampo(null);
+    setResultado(null);
     setSalvando(true);
     try {
       const salvo = await saveWasteSettings(limite);
       setConfig((atual) => (atual ? { ...atual, dailyAlertValue: salvo.dailyAlertValue } : atual));
       setLimite(formatoLimite(salvo.dailyAlertValue));
-      onMensagem("success", salvo.dailyAlertValue == null ? "Aviso de desperdício desligado." : `Limite do aviso salvo: ${reais.format(salvo.dailyAlertValue)} por dia.`);
+      setResultado({ tom: "ok", texto: salvo.dailyAlertValue == null ? "Aviso de desperdício desligado." : `Limite do aviso salvo: ${reais.format(salvo.dailyAlertValue)} por dia.` });
     } catch (falha) {
-      onMensagem("error", falha instanceof Error ? falha.message : "Não foi possível salvar o limite.");
+      setResultado({ tom: "erro", texto: falha instanceof Error ? falha.message : "Não foi possível salvar o limite." });
     } finally {
       setSalvando(false);
     }
@@ -81,6 +82,7 @@ export function ConfiguracaoDoAlerta({ onMensagem }: Props) {
           </p>
         )}
         <Button type="submit" variant="secondary" disabled={salvando}>{salvando ? "Salvando…" : "Salvar limite"}</Button>
+        {resultado && <p className={resultado.tom === "erro" ? "waste-error" : "waste-ok"} role={resultado.tom === "erro" ? "alert" : "status"}>{resultado.texto}</p>}
       </form>
     </details>
   );

@@ -24,6 +24,7 @@ type Props = {
 /** Lançamentos do período. Tabela no computador; cartões no celular (as colunas que importam não ficam fora da tela). */
 export function ListaDeDesperdicio({ itens, veCusto, usuarioId, podeLancar, podeCancelar, anexandoEm, onAnexar, onVerFoto, onCancelar }: Props) {
   return (
+    <div className="waste-list">
     <div className="waste-table-wrap" role="region" aria-label="Lançamentos de desperdício" tabIndex={0}>
       <Table noScroll className="waste-table">
         <Table.Head>
@@ -80,6 +81,7 @@ export function ListaDeDesperdicio({ itens, veCusto, usuarioId, podeLancar, pode
           })}
         </Table.Body>
       </Table>
+    </div>
     </div>
   );
 }
