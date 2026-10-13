@@ -2,6 +2,7 @@ import { prisma } from "../../../../config/database.js";
 import { getSales, getSettlements, getMaintenanceFees, IfoodApiException } from "./ifood-financial-api.js";
 import { hasValidCredential } from "./ifood-http-client.js";
 import { assertPeriodWritableForDate } from "../../../cmv-real/cmv-real.service.js";
+import { isPeriodLockedError } from "../../../cmv-real/period-locked-error.js";
 import { upsertReceivableFromIfoodSettlement } from "../../../receivables/receivable.service.js";
 
 // Sync real do iFood: chama Financial API e persiste em IfoodSale/Settlement/Fee.
@@ -175,7 +176,7 @@ async function syncStoreSettlements(store: { id: string; externalId: string; nic
 // parametro, e nao pelo retorno, porque runStep() exige Promise<number> — e o dia nao
 // gravado precisa chegar ao mesmo lugar que os outros erros do sync, nao a um console
 // que ninguem le.
-async function reflectSalesIntoRevenueEntries(store: { id: string; companyId: string | null; nickname: string }, year: number, month: number, bloqueios: string[]): Promise<number> {
+export async function reflectSalesIntoRevenueEntries(store: { id: string; companyId: string | null; nickname: string }, year: number, month: number, bloqueios: string[]): Promise<number> {
   if (!store.companyId) return 0;
   const sales = await prisma.ifoodSale.findMany({
     where: { deliveryStoreId: store.id, competenceYear: year, competenceMonth: month },
@@ -207,7 +208,11 @@ async function reflectSalesIntoRevenueEntries(store: { id: string; companyId: st
   for (const dateKey of [...byDate.keys()]) {
     try {
       await assertPeriodWritableForDate(byDate.get(dateKey)!.dateObj, "Sincronizacao do iFood");
-    } catch {
+    } catch (error: unknown) {
+      // So a TRAVA vira "dia pulado". Qualquer outro erro (banco fora, timeout) sobe: o passo
+      // do faturamento fica registrado como falha no resultado do sync, em vez de o dia deixar de
+      // ser gravado sob a etiqueta falsa "periodo fechado" (13/10/2026, mesmo defeito no sync do PDV).
+      if (!isPeriodLockedError(error)) throw error;
       bloqueios.push(dateKey);
       byDate.delete(dateKey);
     }
