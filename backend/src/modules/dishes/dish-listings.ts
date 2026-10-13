@@ -28,6 +28,10 @@ const alterarSchema = z.object({
   isActive: z.boolean().optional()
 });
 
+/** Plataforma sem lojas cadastradas (a Keeta é uma loja só): vira uma "loja" pseudo, com este prefixo no id. */
+const PREFIXO_PLATAFORMA = "plataforma:";
+const PLATAFORMAS_SEM_LOJA = ["KEETA"] as const;
+
 const ehUnico = (error: unknown) => error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
 
 export function registrarRotasDeListagem(router: Router) {
@@ -38,7 +42,11 @@ export function registrarRotasDeListagem(router: Router) {
       select: { id: true, platform: true, nickname: true },
       orderBy: [{ platform: "asc" }, { nickname: "asc" }]
     });
-    response.json(lojas);
+    // Plataforma sem nenhuma loja cadastrada (Keeta) entra como uma loja só, para poder ter preço.
+    const semLoja = PLATAFORMAS_SEM_LOJA
+      .filter((plataforma) => !lojas.some((loja) => loja.platform === plataforma))
+      .map((plataforma) => ({ id: `${PREFIXO_PLATAFORMA}${plataforma}`, platform: plataforma, nickname: "Loja única" }));
+    response.json([...lojas, ...semLoja]);
   });
 
   router.post("/:id/listings", async (request, response) => {
@@ -48,15 +56,28 @@ export function registrarRotasDeListagem(router: Router) {
     if (!body) return;
 
     const dishId = request.params.id;
-    const [prato, loja] = await Promise.all([
+    const daPlataforma = body.deliveryStoreId.startsWith(PREFIXO_PLATAFORMA) ? body.deliveryStoreId.slice(PREFIXO_PLATAFORMA.length) : null;
+    const [prato, lojaDoBanco] = await Promise.all([
       prisma.dish.findUnique({ where: { id: dishId }, select: { id: true, name: true } }),
-      prisma.deliveryStore.findUnique({ where: { id: body.deliveryStoreId }, select: { id: true, platform: true, nickname: true, active: true } })
+      daPlataforma
+        ? Promise.resolve(null)
+        : prisma.deliveryStore.findUnique({ where: { id: body.deliveryStoreId }, select: { id: true, platform: true, nickname: true, active: true } })
     ]);
     if (!prato) return void response.status(404).json({ message: "Prato não encontrado." });
+
+    // Plataforma sem lojas cadastradas: a listagem fica ligada à plataforma, sem loja.
+    if (daPlataforma && !(PLATAFORMAS_SEM_LOJA as readonly string[]).includes(daPlataforma)) {
+      return void response.status(400).json({ message: "A loja escolhida não existe ou está inativa." });
+    }
+    const loja = daPlataforma
+      ? { id: null as string | null, platform: daPlataforma, nickname: "Loja única", active: true }
+      : lojaDoBanco && { ...lojaDoBanco, id: lojaDoBanco.id as string | null };
     if (!loja || !loja.active) return void response.status(400).json({ message: "A loja escolhida não existe ou está inativa." });
 
     // Uma loja, um preço por prato: se a loja já tem este prato (importado da 99 ou lançado antes), edita-se o que existe.
-    const jaTem = await prisma.dishListing.count({ where: { dishId, deliveryStoreId: loja.id } });
+    const jaTem = await prisma.dishListing.count({
+      where: { dishId, ...(loja.id ? { deliveryStoreId: loja.id } : { channel: loja.platform, deliveryStoreId: null }) }
+    });
     if (jaTem > 0) {
       return void response.status(409).json({ message: `${loja.nickname} já tem preço para este prato.` });
     }
