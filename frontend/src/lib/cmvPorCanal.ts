@@ -17,6 +17,10 @@ export type Coluna = {
 
 export type EstadoDaCelula = "ok" | "nao-vende" | "sem-ficha" | "incompleta" | "sem-preco";
 
+/** Chave da loja nas razões: o id dela, ou "plataforma:KEETA" para a plataforma sem loja cadastrada. */
+export const chaveDaLoja = (canal: { channel: string; deliveryStoreId: string | null }) =>
+  canal.deliveryStoreId ?? `plataforma:${canal.channel}`;
+
 /** Razão líquido ÷ tabela por loja da plataforma (0,46 = chega 46% do preço de tabela), pelo id da loja. */
 export type RazoesLiquidas = Record<string, number>;
 
@@ -62,7 +66,7 @@ type Venda = { canal: string; loja: string | null; preco: number; sobreLiquido: 
 function vendasDoPrato(prato: DishListItem, razoes?: RazoesLiquidas): Venda[] {
   const vendas: Venda[] = (prato.canais ?? []).map((canal) => {
     // Com a razão da loja, o preço vira o que chega ao caixa: o CMV passa a ser sobre o líquido.
-    const razao = canal.deliveryStoreId ? razoes?.[canal.deliveryStoreId] : undefined;
+    const razao = razoes?.[chaveDaLoja(canal)];
     return razao != null && razao > 0
       ? { canal: canal.channel, loja: canal.storeName, preco: canal.price * razao, sobreLiquido: true }
       : { canal: canal.channel, loja: canal.storeName, preco: canal.price, sobreLiquido: false };

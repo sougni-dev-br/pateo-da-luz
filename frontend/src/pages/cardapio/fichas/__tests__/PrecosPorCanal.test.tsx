@@ -95,11 +95,33 @@ describe("preços por canal", () => {
     expect(within(ifood).getAllByText("—").length).toBeGreaterThanOrEqual(2);
   });
 
+  test("iFood e Keeta também têm líquido estimado, pela razão medida de cada um (Keeta sem loja cadastrada)", async () => {
+    vi.mocked(getDishNetRatios).mockResolvedValue({
+      channel: "NOVENTA_NOVE", dias: 60, plataforma: { razao: 0.45, pedidos: 500 }, lojas: [],
+      canais: [
+        { channel: "IFOOD", fonte: "faturamento", referencia: {}, plataforma: { razao: 0.6 }, lojas: [{ deliveryStoreId: "s-ifood", storeName: "Pateo da Luz", razao: 0.6, pedidos: 0, base: "loja" }] },
+        { channel: "KEETA", fonte: "faturamento", referencia: {}, plataforma: { razao: 0.78 }, lojas: [{ deliveryStoreId: "plataforma:KEETA", storeName: "Keeta (loja única)", razao: 0.78, pedidos: 0, base: "plataforma" }] },
+      ],
+    });
+    mostrar(prato({
+      listings: [
+        listagem({ id: "lifood", channel: "IFOOD", deliveryStoreId: "s-ifood", storeName: "Pateo da Luz", manual: true, price: 100 }),
+        listagem({ id: "lkeeta", channel: "KEETA", deliveryStoreId: null, storeName: null, manual: true, price: 100 }),
+      ],
+    }));
+    const ifood = (await screen.findByText("Pateo da Luz")).closest("tr")!;
+    expect(await within(ifood).findByText(/60,00/)).toBeInTheDocument(); // 100 × 0,60
+    expect(within(ifood).getByText(/^40(,0)?%$/)).toBeInTheDocument(); // 24 / 60
+    const keeta = screen.getByText("Sem loja").closest("tr")!;
+    expect(within(keeta).getByText(/78,00/)).toBeInTheDocument(); // 100 × 0,78
+    expect(within(keeta).getByText(/^30,8%$/)).toBeInTheDocument(); // 24 / 78
+  });
+
   test("sem a razão medida, a coluna do líquido não aparece", async () => {
     vi.mocked(getDishNetRatios).mockRejectedValue(new Error("falhou"));
     mostrar(prato());
     await screen.findByText("Pateo Frei Caneca");
-    expect(screen.queryByText("Líquido (99)")).toBeNull();
+    expect(screen.queryByText("Líquido estimado")).toBeNull();
   });
 
   test("prato só do salão e sem preço de loja não mostra a seção", () => {
