@@ -202,7 +202,7 @@ describe("histórico da ficha", () => {
       "Nome: “Risoto” → “Risoto de camarão”",
       "Vendido em: Cardápio → Delivery",
       "Categoria: Sem categoria → Massas › Fresca",
-      expect.stringMatching(/Preço de venda: R\$\s80,00 → R\$\s89,90/),
+      expect.stringMatching(/Preço no salão: R\$\s80,00 → R\$\s89,90/),
       "Rendimento: 1 UN → 2 PORÇÃO",
       "Observações alteradas",
       "Prato inativado"
@@ -264,5 +264,24 @@ describe("histórico: prato nos dois cardápios", () => {
       "Categoria no outro cardápio: Sem categoria → Pratos executivos › Carnes"
     ]));
     expect(descreverMudancas(depois, depois)).toEqual(["Gravada sem mudanças na ficha"]);
+  });
+});
+
+describe("histórico: preço por loja", () => {
+  const canal = (loja: string, preco: number, c = "IFOOD") => ({ canal: c, loja, preco });
+
+  it("descreve preço novo, alterado e removido por loja, com o nome da plataforma", () => {
+    const antes = snap({ canais: [canal("Pateo da Luz", 90), canal("Pizzaria", 50)] });
+    const depois = snap({ canais: [canal("Pateo da Luz", 96), canal("Frei Caneca", 109.9, "NOVENTA_NOVE")] });
+    const frases = descreverMudancas(antes, depois);
+    expect(frases).toEqual(expect.arrayContaining([
+      expect.stringMatching(/^Preço em Pateo da Luz \(iFood\): .*90,00.* → .*96,00/),
+      expect.stringMatching(/^Preço em Frei Caneca \(99 Food\): .*109,90/),
+      "Preço em Pizzaria (iFood) removido"
+    ]));
+  });
+
+  it("versão antiga, sem os preços das lojas, não inventa mudança", () => {
+    expect(descreverMudancas(snap(), snap({ canais: [canal("Pateo da Luz", 90)] }))).toEqual(["Gravada sem mudanças na ficha"]);
   });
 });

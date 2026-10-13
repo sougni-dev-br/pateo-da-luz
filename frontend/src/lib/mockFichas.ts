@@ -132,9 +132,12 @@ function detalhe(prato: PratoMock) {
     ...resumo(prato),
     items: conta.itens,
     listings: (prato.listings ?? []).map(([loja, preco], indice) => ({
-      id: `${prato.id}-l${indice}`, channel: "NOVENTA_NOVE", storeName: loja, externalName: prato.name, price: preco, isActive: true,
-      lastSeenAt: "2026-10-07T04:00:00.000Z"
-    }))
+      id: `${prato.id}-l${indice}`, channel: "NOVENTA_NOVE", deliveryStoreId: `mock-99-${indice}`, manual: false, storeName: loja,
+      externalName: prato.name, price: preco, isActive: true, lastSeenAt: "2026-10-07T04:00:00.000Z"
+    })).concat(prato.id === "d-camarao-alho"
+      // Um preço lançado à mão (iFood), para a demonstração mostrar as duas origens.
+      ? [{ id: "d-camarao-alho-ifood", channel: "IFOOD", deliveryStoreId: "mock-ifood-1", manual: true, storeName: "Pateo da Luz", externalName: prato.name, price: 39.9, isActive: true, lastSeenAt: "2026-10-07T04:00:00.000Z" }]
+      : [])
   };
 }
 
@@ -189,6 +192,13 @@ export function mockFichas(url: string, method = "GET"): unknown | undefined {
   if (resto.endsWith("/revisions")) return revisoesDe(resto.split("/")[0]);
   if (resto === "") return PRATOS.map(resumo);
   if (resto === "categories") return CATEGORIAS;
+  if (resto === "delivery-stores") {
+    return [
+      { id: "mock-ifood-1", platform: "IFOOD", nickname: "Pateo da Luz" },
+      { id: "mock-ifood-2", platform: "IFOOD", nickname: "Pateo da Luz Pizzaria" },
+      { id: "mock-keeta-1", platform: "KEETA", nickname: "Pateo Frei Caneca" }
+    ];
+  }
   if (resto === "products/search") {
     const termo = busca.trim().toLowerCase();
     return PRODUTOS
