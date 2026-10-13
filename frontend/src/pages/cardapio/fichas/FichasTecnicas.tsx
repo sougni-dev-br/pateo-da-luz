@@ -225,7 +225,9 @@ export function FichasTecnicas() {
     const resposta = await bulkUpdateDishes({ ids: [...selecionados], ...escolha });
     await carregar();
     const limpas = resposta.categoriasLimpas > 0 ? ` ${resposta.categoriasLimpas} ficaram sem categoria, por ser de outro cardápio.` : "";
-    notificar("success", `${resposta.atualizados} prato${resposta.atualizados === 1 ? "" : "s"} organizado${resposta.atualizados === 1 ? "" : "s"}.${limpas}`);
+    const nosDois = resposta.nosDois ? ` ${resposta.nosDois} passaram a ser vendidos nos dois cardápios.` : "";
+    const jaEram = resposta.jaNoCardapio ? ` ${resposta.jaNoCardapio} já eram desse cardápio e ficaram como estão.` : "";
+    notificar("success", `${resposta.atualizados} prato${resposta.atualizados === 1 ? "" : "s"} organizado${resposta.atualizados === 1 ? "" : "s"}.${nosDois}${jaEram}${limpas}`);
     sairDaSelecao();
   }
 
