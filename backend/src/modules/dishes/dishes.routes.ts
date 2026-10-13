@@ -141,7 +141,7 @@ dishesRouter.get("/", async (request, response) => {
     include: {
       category: { include: { parent: { select: { id: true, name: true } } } },
       alsoCategory: { include: { parent: { select: { id: true, name: true } } } },
-      listings: { where: { isActive: true }, select: { price: true } },
+      listings: { where: { isActive: true }, select: { price: true, channel: true, deliveryStoreId: true, deliveryStore: { select: { nickname: true } } } },
       items: {
         include: {
           product: {
@@ -190,6 +190,13 @@ dishesRouter.get("/", async (request, response) => {
       listingsCount: precosNosCanais.length,
       listingPriceMin: precosNosCanais.length ? Math.min(...precosNosCanais) : null,
       listingPriceMax: precosNosCanais.length ? Math.max(...precosNosCanais) : null,
+      // O preço em cada loja: a tela de CMV por canal calcula o CMV de cada prato em cada lugar.
+      canais: dish.listings.map((listing) => ({
+        channel: listing.channel,
+        deliveryStoreId: listing.deliveryStoreId,
+        storeName: listing.deliveryStore?.nickname ?? null,
+        price: Number(listing.price)
+      })),
       calculatedCost: cost,
       custoPorcao: custo.costPerServing,
       margemBruta,
