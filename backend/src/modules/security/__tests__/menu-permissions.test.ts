@@ -77,3 +77,29 @@ describe("menuDoFavorito — itens do menu que herdam permissão", () => {
     expect(menuDoFavorito("qualquer")).toBeNull();
   });
 });
+
+describe("resolvePermissionContext — desperdício", () => {
+  // Prefixo de topo sem mapeamento ficaria público (requireMenuAccess deixa passar o que não resolve).
+  it("toda rota de /waste cai no módulo inventory-waste", async () => {
+    expect(await ctx("GET", "/waste")).toEqual({ menuId: "inventory-waste", action: "view" });
+    expect(await ctx("GET", "/WASTE/summary/")).toEqual({ menuId: "inventory-waste", action: "view" });
+    expect(await ctx("GET", "/waste/dishes")).toEqual({ menuId: "inventory-waste", action: "view" });
+    expect(await ctx("POST", "/waste")).toEqual({ menuId: "inventory-waste", action: "create" });
+  });
+
+  it("foto: enviar é criar, ver é ver, apagar é excluir", async () => {
+    expect(await ctx("POST", "/waste/abc/photo")).toEqual({ menuId: "inventory-waste", action: "create" });
+    expect(await ctx("GET", "/waste/abc/photo")).toEqual({ menuId: "inventory-waste", action: "view" });
+    expect(await ctx("DELETE", "/waste/abc/photo")).toEqual({ menuId: "inventory-waste", action: "delete" });
+  });
+
+  it("cancelar pede excluir", async () => {
+    expect(await ctx("POST", "/waste/abc/cancel")).toEqual({ menuId: "inventory-waste", action: "delete" });
+  });
+
+  it("o limite do aviso exige administrar, inclusive para ler", async () => {
+    expect(await ctx("GET", "/waste/settings")).toEqual({ menuId: "inventory-waste", action: "admin" });
+    expect(await ctx("PUT", "/waste/settings")).toEqual({ menuId: "inventory-waste", action: "admin" });
+    expect(await ctx("PUT", "/WASTE/Settings/")).toEqual({ menuId: "inventory-waste", action: "admin" });
+  });
+});

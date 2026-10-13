@@ -3,6 +3,7 @@ import { env } from "./config/env.js";
 import { initBaileys } from "./modules/notifications/baileys.service.js";
 import { startNoventaNoveCronScheduler } from "./modules/integrations/delivery/noventa-nove/noventa-nove-cron.service.js";
 import { iniciarExpurgoFichas } from "./modules/payroll/ficha-cadastral-expurgo.js";
+import { iniciarExpurgoFotosDeDesperdicio } from "./modules/waste/waste-photo-expurgo.js";
 
 app.listen(env.port, () => {
   console.log(`CMV Loja backend running on http://localhost:${env.port}`);
@@ -34,4 +35,7 @@ app.listen(env.port, () => {
 
   // LGPD: ficha cadastral cancelada ou vencida some 90 dias depois (dados e fotos). Uma vez por dia.
   iniciarExpurgoFichas();
+
+  // Fotos de desperdício com mais de 90 dias saem; o lançamento fica. Uma vez por dia.
+  iniciarExpurgoFotosDeDesperdicio();
 });
