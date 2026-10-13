@@ -356,7 +356,10 @@ export async function reflectSalesIntoRevenueEntries(
     },
     select: { orderDate: true, grossAmount: true, promotionAmount: true, netAmount: true, channel: true }
   });
-  if (sales.length === 0) return { count: 0, bloqueados: [] };
+  // Mes sem NENHUMA venda faturada nao encerra a funcao: os lancamentos antigos do mes precisam ser
+  // zerados la embaixo (estorno total, reprocessamento). Aqui e seguro seguir com a lista vazia
+  // porque o sync do 99Food nunca apaga NoventaNoveSale — um vazio e fato do banco, nao falha de
+  // busca. (No iFood, que apaga e recria, a zeragem do mes vazio exige confirmacao do chamador.)
 
   // Agrega por dia (venda + estorno do mesmo dia se cancelam no líquido).
   // Acumula tambem o LIQUIDO que a plataforma informa por pedido. Ate 09/2026 o
