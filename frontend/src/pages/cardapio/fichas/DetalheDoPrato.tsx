@@ -67,6 +67,22 @@ function Metrica({ rotulo, children, destaque, ajuda }: { rotulo: string; childr
   );
 }
 
+/** Prato vendido nos dois cardápios sem as quantidades do delivery: as do a la carte não valem para ele. */
+function AvisoDoDelivery({ prato, canEdit, onEditar }: Pick<Props, "prato" | "canEdit" | "onEditar">) {
+  if (!prato.alsoMenu || (prato.alsoItems?.length ?? 0) > 0) return null;
+  return (
+    <Alert tone="warning" title="Faltam as quantidades do delivery">
+      As quantidades da ficha são as do a la carte e não valem para o delivery, então o CMV do delivery não é calculado.
+      {canEdit && prato.isActive && (
+        <>
+          {" "}
+          <button type="button" className="ft-link" onClick={onEditar}>Informar as quantidades do delivery</button>
+        </>
+      )}
+    </Alert>
+  );
+}
+
 function Aviso({ prato, canEdit, onEditar }: Pick<Props, "prato" | "canEdit" | "onEditar">) {
   const situacao = situacaoDaFicha(prato);
   const pendentes = prato.items.filter((item) => item.itemCost == null);
@@ -115,14 +131,13 @@ function Aviso({ prato, canEdit, onEditar }: Pick<Props, "prato" | "canEdit" | "
   return null;
 }
 
-function Ingredientes({ prato }: { prato: DishDetail }) {
-  if (prato.items.length === 0) return null;
-  const total = prato.calculatedCost;
+function Ingredientes({ titulo, idBase, itens, total, rendimento }: { titulo: string; idBase: string; itens: DishIngredient[]; total: number; rendimento: { qtd: number; unidade: string } }) {
+  if (itens.length === 0) return null;
 
   return (
-    <section className="ft-secao" aria-labelledby="ft-ingredientes">
-      <h3 id="ft-ingredientes" className="ft-secao-titulo">
-        Ingredientes <span className="ft-secao-n">{prato.items.length}</span>
+    <section className="ft-secao" aria-labelledby={`ft-ingredientes-${idBase}`}>
+      <h3 id={`ft-ingredientes-${idBase}`} className="ft-secao-titulo">
+        {titulo} <span className="ft-secao-n">{itens.length}</span>
       </h3>
       <div className="ft-tabela-rolagem">
         <table className="ft-tabela ft-tabela--ingredientes">
@@ -135,7 +150,7 @@ function Ingredientes({ prato }: { prato: DishDetail }) {
             </tr>
           </thead>
           <tbody>
-            {prato.items.map((item: DishIngredient) => {
+            {itens.map((item: DishIngredient) => {
               const parte = item.itemCost != null && total > 0 ? (item.itemCost / total) * 100 : null;
               return (
                 <tr key={item.id} className={item.itemCost == null ? "ft-linha-alerta" : undefined}>
@@ -171,7 +186,7 @@ function Ingredientes({ prato }: { prato: DishDetail }) {
           </tbody>
           <tfoot>
             <tr>
-              <th scope="row" colSpan={2}>Custo da receita{prato.yieldQty !== 1 ? ` (rende ${formatarQuantidade(prato.yieldQty)} ${prato.yieldUnit})` : ""}</th>
+              <th scope="row" colSpan={2}>Custo da receita{rendimento.qtd !== 1 ? ` (rende ${formatarQuantidade(rendimento.qtd)} ${rendimento.unidade})` : ""}</th>
               <td className="ft-num"><strong><Money value={total} /></strong></td>
               <td />
             </tr>
@@ -221,6 +236,7 @@ export function DetalheDoPrato({ prato, canEdit, onEditar, onCopiar, onAlternarA
       </header>
 
       <Aviso prato={prato} canEdit={canEdit} onEditar={onEditar} />
+      <AvisoDoDelivery prato={prato} canEdit={canEdit} onEditar={onEditar} />
 
       <section className="ft-resumo-ficha" aria-label="Resumo do prato">
         <div className={`ft-hero ft-hero--${mostraCmv ? (prato.custoIncompleto ? "warning" : faixa?.tom ?? "neutro") : "neutro"}`}>
@@ -249,7 +265,22 @@ export function DetalheDoPrato({ prato, canEdit, onEditar, onCopiar, onAlternarA
         </div>
       </section>
 
-      <Ingredientes prato={prato} />
+      <Ingredientes
+        titulo={prato.alsoMenu ? "Ingredientes no a la carte" : "Ingredientes"}
+        idBase="salao"
+        itens={prato.items}
+        total={prato.calculatedCost}
+        rendimento={{ qtd: prato.yieldQty, unidade: prato.yieldUnit }}
+      />
+      {prato.alsoMenu && (
+        <Ingredientes
+          titulo="Ingredientes no delivery"
+          idBase="delivery"
+          itens={prato.alsoItems ?? []}
+          total={prato.alsoCusto?.calculatedCost ?? 0}
+          rendimento={{ qtd: prato.yieldQty, unidade: prato.yieldUnit }}
+        />
+      )}
       <PrecosPorCanal prato={prato} canEdit={canEdit} onEditarPrato={onEditar} onMudou={onPrecosMudaram} notificar={notificar} />
       <HistoricoDaFicha pratoId={prato.id} versao={prato.updatedAt} />
 

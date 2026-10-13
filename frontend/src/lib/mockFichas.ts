@@ -18,7 +18,7 @@ const lidoDoNome = (kg: number): DishUnitConversion[] => [
 type ItemMock = [produto: string, quantidade: number, unidade: string, perda?: number];
 type PratoMock = {
   id: string; name: string; code?: string; category?: string; menu?: "CARDAPIO" | "DELIVERY"; alsoMenu?: "CARDAPIO" | "DELIVERY"; alsoCategory?: string; price?: number | null; yieldQty?: number; yieldUnit?: string;
-  notes?: string; active?: boolean; items?: ItemMock[]; listings?: Array<[loja: string, preco: number]>;
+  notes?: string; active?: boolean; items?: ItemMock[]; /** Quantidades do delivery (prato nos dois cardápios). */ alsoItems?: ItemMock[]; listings?: Array<[loja: string, preco: number]>;
 };
 
 const PRODUTOS: Produto[] = [
@@ -42,7 +42,7 @@ const PRATOS: PratoMock[] = [
     listings: [[LOJAS[0], 79.9], [LOJAS[1], 74.9]] },
   { id: "d-frango", name: "Frango grelhado com arroz e purê", code: "PRAT-002", category: "A la carte", price: 59.9, items: [["p-frango", 220, "G", 0.1], ["p-batata", 180, "G", 0.15]],
     listings: [[LOJAS[0], 59.9], [LOJAS[1], 84.9]] },
-  { id: "d-camarao-alho", menu: "DELIVERY", alsoMenu: "CARDAPIO", alsoCategory: "A la carte", name: "Camarão ao alho (porção)", category: "Pratos executivos", price: 34.9, items: [["p-camarao", 400, "G", 0.03]] },
+  { id: "d-camarao-alho", menu: "CARDAPIO", alsoMenu: "DELIVERY", alsoCategory: "Pratos executivos", name: "Camarão ao alho (porção)", category: "A la carte", price: 59.9, items: [["p-camarao", 400, "G", 0.03]], alsoItems: [["p-camarao", 250, "G", 0.03]] },
   { id: "d-funghi", name: "Risoto de funghi", category: "Risotos", price: 69.9, yieldQty: 2, yieldUnit: "PORÇÃO", items: [["p-arroz", 240, "G"], ["p-parmesao", 40, "G"], ["p-sem-custo", 1, "UN"]] },
   { id: "d-pao", name: "Pão da casa (fornada)", category: "Buffet", price: null, yieldQty: 20, yieldUnit: "UN", items: [["p-farinha", 1, "KG"], ["p-azeite", 50, "ML"]] },
   { id: "d-antigo", name: "Prato antigo desativado", category: "A la carte", price: 45, active: false, items: [["p-cebola", 100, "G"]] },
@@ -77,9 +77,9 @@ const CATEGORIAS = CATEGORIAS_MOCK.map((categoria) => ({
 
 const produtoPorId = (id: string) => PRODUTOS.find((produto) => produto.id === id)!;
 
-function calcular(prato: PratoMock) {
+function calcular(prato: PratoMock, lista: ItemMock[] | undefined = prato.items) {
   const rendimento = prato.yieldQty ?? 1;
-  const itens = (prato.items ?? []).map(([produtoId, quantidade, unidade, perda = 0], indice) => {
+  const itens = (lista ?? []).map(([produtoId, quantidade, unidade, perda = 0], indice) => {
     const produto = produtoPorId(produtoId);
     const fator = fatorConversao(unidade, produto.unit, produto.conversions);
     const semCusto = produto.cost === 0;
@@ -119,7 +119,8 @@ function resumo(prato: PratoMock) {
   return {
     id: prato.id, code: prato.code ?? null, name: prato.name, menu: prato.menu ?? "CARDAPIO", category: nomeDaCategoria(prato), alsoMenu: prato.alsoMenu ?? null, alsoCategory: nomeDaCategoria(prato, prato.alsoCategory), salePriceDefault: prato.price ?? null,
     yieldQty: prato.yieldQty ?? 1, yieldUnit: prato.yieldUnit ?? "UN", notes: prato.notes ?? null, isActive: prato.active !== false,
-    itemsCount: conta.itens.length, listingsCount: precos.length + (prato.id === "d-camarao-alho" ? 1 : 0),
+    itemsCount: conta.itens.length, alsoItemsCount: calcular(prato, prato.alsoItems).itens.length,
+    alsoCustoPorcao: calcular(prato, prato.alsoItems).custoPorcao, alsoCustoIncompleto: calcular(prato, prato.alsoItems).incompleto, listingsCount: precos.length + (prato.id === "d-camarao-alho" ? 1 : 0),
     canais: [
       ...(prato.listings ?? []).map(([loja, preco], indice) => ({ channel: "NOVENTA_NOVE", deliveryStoreId: `mock-99-${indice}`, storeName: loja, price: preco })),
       ...(prato.id === "d-camarao-alho" ? [{ channel: "IFOOD", deliveryStoreId: "mock-ifood-1", storeName: "Pateo da Luz", price: 39.9 }] : [])
@@ -135,6 +136,11 @@ function detalhe(prato: PratoMock) {
   return {
     ...resumo(prato),
     items: conta.itens,
+    alsoItems: calcular(prato, prato.alsoItems).itens,
+    alsoCusto: {
+      calculatedCost: calcular(prato, prato.alsoItems).custoTotal, custoPorcao: calcular(prato, prato.alsoItems).custoPorcao,
+      custoIncompleto: calcular(prato, prato.alsoItems).incompleto, itemsCount: calcular(prato, prato.alsoItems).itens.length
+    },
     listings: (prato.listings ?? []).map(([loja, preco], indice) => ({
       id: `${prato.id}-l${indice}`, channel: "NOVENTA_NOVE", deliveryStoreId: `mock-99-${indice}`, manual: false, storeName: loja,
       externalName: prato.name, price: preco, isActive: true, lastSeenAt: "2026-10-07T04:00:00.000Z"

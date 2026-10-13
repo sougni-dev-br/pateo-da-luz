@@ -7,6 +7,9 @@ type Props = {
   /** Produtos que já estão na ficha: aparecem marcados, sem impedir de repetir. */
   jaNaFicha: Set<string>;
   onEscolher: (produto: DishProductSearchResult) => void;
+  /** Id do campo: o prato nos dois cardápios tem duas buscas na mesma tela. */
+  idDoCampo?: string;
+  rotulo?: string;
 };
 
 const ESPERA_DA_DIGITACAO_MS = 250;
@@ -16,7 +19,7 @@ const ESPERA_DA_DIGITACAO_MS = 250;
  * Respostas fora de ordem são descartadas: a busca por "arr" não pode sobrescrever
  * a de "arroz" só porque chegou depois.
  */
-export function BuscaDeIngrediente({ jaNaFicha, onEscolher }: Props) {
+export function BuscaDeIngrediente({ jaNaFicha, onEscolher, idDoCampo = "ft-busca-ingrediente", rotulo = "Buscar produto para adicionar à ficha" }: Props) {
   const [texto, setTexto] = useState("");
   const [resultados, setResultados] = useState<DishProductSearchResult[]>([]);
   const [buscando, setBuscando] = useState(false);
@@ -108,14 +111,14 @@ export function BuscaDeIngrediente({ jaNaFicha, onEscolher }: Props) {
       <label className="ft-busca ft-busca--grande">
         <Search size={16} aria-hidden />
         <input
-          id="ft-busca-ingrediente"
+          id={idDoCampo}
           type="text"
           role="combobox"
           aria-expanded={mostrarLista}
           aria-controls={mostrarLista ? idDaLista : undefined}
           aria-autocomplete="list"
           aria-activedescendant={mostrarLista && resultados.length > 0 ? idDaOpcao(indiceAtivo) : undefined}
-          aria-label="Buscar produto para adicionar à ficha"
+          aria-label={rotulo}
           placeholder="Buscar produto para adicionar (nome ou código)"
           value={texto}
           autoComplete="off"
