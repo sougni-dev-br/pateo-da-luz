@@ -13,6 +13,7 @@ vi.mock("../../../../api/client", async (importOriginal) => ({
   saveDishCategory: vi.fn(),
   saveDishProductConversion: vi.fn(),
   searchDishProducts: vi.fn(),
+  getDishNetRatios: vi.fn().mockResolvedValue({ channel: "NOVENTA_NOVE", dias: 60, plataforma: { razao: null, pedidos: 0 }, lojas: [] }),
 }));
 
 import {
