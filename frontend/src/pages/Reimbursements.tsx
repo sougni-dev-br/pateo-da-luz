@@ -71,10 +71,22 @@ export function Reimbursements() {
     try {
       setRows(await getReimbursements(statusFilter || undefined));
     } catch (error) {
-      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao carregar reembolsos." });
+      // No recarregamento automático (voltar para a aba) a falha não vira aviso: sem rede,
+      // cada troca de aba mostraria um erro. A lista que estava na tela continua.
+      if (!silencioso) setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao carregar reembolsos." });
     } finally {
       setLoading(false);
     }
+  }
+
+  // Cada busca do reembolso aberto ganha um número; só a última vale. Sem isto, um
+  // recarregamento que saiu antes de um clique chegava depois e desfazia na tela a
+  // conferência recém-gravada (ou trocava o reembolso aberto por outro).
+  const detailReq = useRef(0);
+  async function carregarDetalhe(id: string) {
+    const n = ++detailReq.current;
+    const next = await getReimbursement(id);
+    if (n === detailReq.current) setDetail(next);
   }
 
   useEffect(() => { void loadList(); }, [statusFilter]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -82,12 +94,14 @@ export function Reimbursements() {
   // Uma compra editada em outra aba muda o valor do reembolso no servidor na hora, mas
   // esta tela só buscava ao abrir: quem voltava para ela via o valor antigo. Ao voltar
   // para a aba, recarrega a lista e o reembolso aberto (se não estiver no meio de fechar).
-  const recarregarRef = useRef<() => void>(() => undefined);
-  recarregarRef.current = () => {
+  // focus e visibilitychange disparam juntos ao trocar de aba: um recarregamento basta.
+  const ultimoRecarregamento = useRef(0);
+  const recarregarRef = useRef<(forcar?: boolean) => void>(() => undefined);
+  recarregarRef.current = (forcar = false) => {
+    if (!forcar && Date.now() - ultimoRecarregamento.current < 1500) return;
+    ultimoRecarregamento.current = Date.now();
     void loadList(true);
-    if (detail && !busy && !closeForm) {
-      getReimbursement(detail.id).then(setDetail).catch(() => undefined);
-    }
+    if (detail && !busy && !closeForm) carregarDetalhe(detail.id).catch(() => undefined);
   };
   useEffect(() => {
     const aoVoltar = () => { if (document.visibilityState === "visible") recarregarRef.current(); };
@@ -112,7 +126,7 @@ export function Reimbursements() {
   async function openDetail(id: string) {
     setCloseForm(null);
     try {
-      setDetail(await getReimbursement(id));
+      await carregarDetalhe(id);
     } catch (error) {
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao abrir o reembolso." });
     }
@@ -120,25 +134,33 @@ export function Reimbursements() {
 
   async function run(action: () => Promise<ReimbursementDetail | null>, success: string) {
     setBusy(true);
+    const n = ++detailReq.current;
+    const aberto = detail?.id;
     try {
       const next = await action();
-      if (next) setDetail(next);
+      if (next && n === detailReq.current) setDetail(next);
       setNotice({ tone: "success", message: success });
       void loadList();
     } catch (error) {
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "Não foi possível concluir." });
+      // A recusa mais comum é "a compra mudou desde que a tela abriu": traz o valor atual.
+      if (aberto) carregarDetalhe(aberto).catch(() => undefined);
+      void loadList(true);
     } finally {
       setBusy(false);
     }
   }
 
-  const toggleItem = (itemId: string, checked: boolean) => detail && run(async () => {
-    await checkReimbursementItem(detail.id, itemId, checked);
+  // Manda o valor e a data que a pessoa está vendo: se a compra mudou, o servidor recusa.
+  const visto = (item: ReimbursementDetail["items"][number]) => ({ amount: Number(item.amount), purchaseDate: item.purchaseDate.slice(0, 10) });
+
+  const toggleItem = (item: ReimbursementDetail["items"][number], checked: boolean) => detail && run(async () => {
+    await checkReimbursementItem(detail.id, item.id, checked, visto(item));
     return getReimbursement(detail.id);
   }, checked ? "Compra conferida." : "Conferência removida.");
 
   const checkAll = () => detail && run(async () => {
-    await checkAllReimbursementItems(detail.id);
+    await checkAllReimbursementItems(detail.id, detail.items.filter((item) => !item.checked).map((item) => ({ id: item.id, ...visto(item) })));
     return getReimbursement(detail.id);
   }, "Todas as compras conferidas.");
 
@@ -175,7 +197,7 @@ export function Reimbursements() {
           ]}
           containerClassName="cycles-filter-select"
         />
-        <Button variant="secondary" leadingIcon={<RefreshCw size={14} />} disabled={loading} onClick={() => recarregarRef.current()}>
+        <Button variant="secondary" leadingIcon={<RefreshCw size={14} />} disabled={loading} onClick={() => recarregarRef.current(true)}>
           Atualizar
         </Button>
         {!loading && rows.length > 0 && (
@@ -297,7 +319,7 @@ export function Reimbursements() {
                         aria-label={`Conferida: ${item.storeName} em ${formatDate(item.purchaseDate)}`}
                         checked={item.checked}
                         disabled={!canCheck || busy || detail.status !== "OPEN"}
-                        onChange={(event) => toggleItem(item.id, event.target.checked)}
+                        onChange={(event) => toggleItem(item, event.target.checked)}
                       />
                     </Table.Td>
                     <Table.Td style={{ whiteSpace: "nowrap" }}>{formatDate(item.purchaseDate)}</Table.Td>
@@ -322,7 +344,7 @@ export function Reimbursements() {
                     aria-label={`Conferida: ${item.storeName} em ${formatDate(item.purchaseDate)}`}
                     checked={item.checked}
                     disabled={!canCheck || busy || detail.status !== "OPEN"}
-                    onChange={(event) => toggleItem(item.id, event.target.checked)}
+                    onChange={(event) => toggleItem(item, event.target.checked)}
                   />
                   <span style={{ flex: 1, minWidth: 0 }}>
                     <strong style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.storeName}</strong>
