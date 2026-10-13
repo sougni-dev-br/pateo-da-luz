@@ -5117,12 +5117,32 @@ export type AnaliseItensCancelados = {
   }>;
 };
 
+export type AnaliseDescontos = {
+  periodo: AnalisePeriodo;
+  cobertura: { vendasComDado: number; vendasSemDado: number; primeiroDia: string | null; ultimoDia: string | null };
+  resumo: {
+    vendasRecebidas: number; vendasComDesconto: number; taxaVendas: number; valorDescontos: number; valorSubtotal: number;
+    percentualSobreSubtotal: number; descontoMedio: number; acimaDe50: number; semPessoa: number; semTipo: number;
+  };
+  porTipo: Array<{ tipo: string; vendas: number; valor: number; participacao: number; percentualMedio: number }>;
+  porPessoa: Array<{ pessoa: string; vendas: number; valor: number; participacao: number; percentualMedio: number }>;
+  porTurno: Array<{ turno: string; vendas: number; vendasComDesconto: number; taxa: number; valor: number }>;
+  maiores: Array<{
+    saleId: string; data: string; hora: string | null; turno: string; pessoas: number; subtotal: number; desconto: number;
+    percentual: number; tipo: string; pessoa: string;
+  }>;
+};
+
 function queryPeriodo({ inicio, fim }: AnalisePeriodo) {
   return `inicio=${encodeURIComponent(inicio)}&fim=${encodeURIComponent(fim)}`;
 }
 
 export function getAnaliseCancelamentos(periodo: AnalisePeriodo, signal?: AbortSignal) {
   return request<AnaliseCancelamentos>(`/integrations/agile/analise/cancelamentos?${queryPeriodo(periodo)}`, { signal });
+}
+
+export function getAnaliseDescontos(periodo: AnalisePeriodo, signal?: AbortSignal) {
+  return request<AnaliseDescontos>(`/integrations/agile/analise/descontos?${queryPeriodo(periodo)}`, { signal });
 }
 
 export function getAnaliseItensCancelados(periodo: AnalisePeriodo, signal?: AbortSignal) {

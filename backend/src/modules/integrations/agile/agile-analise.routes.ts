@@ -2,7 +2,7 @@ import { Router, type NextFunction, type Request, type Response } from "express"
 import { z } from "zod";
 import { getSessionUser, type SessionUser } from "../../security/security-utils.js";
 import { userHasPermission } from "../../security/menu-permissions.js";
-import { obterCancelamentos, obterItensCancelados, obterVendasPorPessoa } from "./agile-analise.service.js";
+import { obterCancelamentos, obterDescontos, obterItensCancelados, obterVendasPorPessoa } from "./agile-analise.service.js";
 
 export const agileAnaliseRouter = Router();
 
@@ -86,5 +86,16 @@ agileAnaliseRouter.get("/itens-cancelados", exigirAnaliseSalao, async (request, 
   } catch (error: unknown) {
     console.error("Falha ao montar o relatório de itens cancelados", error);
     response.status(500).json({ message: "Não foi possível gerar o relatório de itens cancelados." });
+  }
+});
+
+agileAnaliseRouter.get("/descontos", exigirAnaliseSalao, async (request, response) => {
+  const periodo = lerPeriodo(request, response);
+  if (!periodo) return;
+  try {
+    response.json(await obterDescontos(periodo));
+  } catch (error: unknown) {
+    console.error("Falha ao montar o relatório de descontos", error);
+    response.status(500).json({ message: "Não foi possível gerar o relatório de descontos." });
   }
 });

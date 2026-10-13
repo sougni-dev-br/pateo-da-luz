@@ -57,6 +57,33 @@ describe("texto livre do PDV e truncado, nunca recusado", () => {
   });
 });
 
+describe("desconto da venda", () => {
+  const venda = (over = {}) => payload({ vendas: [{ ...vendaBase, ...over }] }).vendas[0];
+
+  test("guarda subtotal, desconto e o tipo do desconto", () => {
+    const r = mapSaleRow(venda({ vl_subtotal_itens: 195.8, vl_desconto: 82, desconto: " DESCONTO PRATO DUO APP " }));
+    expect(r).toMatchObject({ subtotalAmount: 195.8, discountAmount: 82, discountLabel: "DESCONTO PRATO DUO APP" });
+  });
+
+  test("venda sem desconto: valor zero e tipo null (agente antigo nao manda o tipo)", () => {
+    expect(mapSaleRow(venda({ vl_subtotal_itens: 100 }))).toMatchObject({ subtotalAmount: 100, discountAmount: 0, discountLabel: null });
+    expect(mapSaleRow(venda({ desconto: "   " })).discountLabel).toBeNull();
+  });
+
+  test("tipo absurdo e truncado, nao recusado", () => {
+    expect(venda({ desconto: "d".repeat(900) }).desconto).toHaveLength(120);
+  });
+
+  test("campo de texto que chega com tipo errado (numero, booleano) vira null: nao derruba o lote", () => {
+    for (const estranho of [0, 12.5, true, false]) {
+      expect(() => payload({ vendas: [{ ...vendaBase, desconto: estranho, func_cancelou: estranho, hora: estranho }] })).not.toThrow();
+      const v = payload({ vendas: [{ ...vendaBase, desconto: estranho }] }).vendas[0];
+      expect(v.desconto).toBeNull();
+    }
+    expect(() => payload({ itens: [{ ...itemBase, func_lancou: 7, func_cancelou: 7, motivo_cancelamento: 7 }] })).not.toThrow();
+  });
+});
+
 describe("mapSaleRow", () => {
   const venda = (over = {}) => payload({ vendas: [{ ...vendaBase, ...over }] }).vendas[0];
 

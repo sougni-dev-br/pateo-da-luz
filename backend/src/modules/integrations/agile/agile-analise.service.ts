@@ -1,12 +1,14 @@
 import { prisma } from "../../../config/database.js";
 import {
   montarCancelamentos,
+  montarDescontos,
   montarItensCancelados,
   montarVendasPorPessoa,
   type ItemAnalise,
   type ItemCanceladoAnalise,
   type Periodo,
-  type VendaAnalise
+  type VendaAnalise,
+  type VendaDescontoAnalise
 } from "./agile-analise.report.js";
 
 const UM_DIA_MS = 24 * 60 * 60 * 1000;
@@ -98,4 +100,30 @@ export async function obterItensCancelados(periodo: Periodo) {
   // e que fica de fora sem explicacao, e por isso e contado e avisado na tela.
   const itensSemVenda = canceladas.filter((i) => !vendasGravadas.has(i.saleId)).length;
   return montarItensCancelados(itens, valorItensRecebidos, periodo, itensSemVenda);
+}
+
+// Descontos das vendas PAGAS. Decimal null (linha anterior ao agente novo) segue como null
+// ate o relatorio: converter para 0 aqui apagaria a diferenca entre "sem desconto" e "sem dado".
+export async function obterDescontos(periodo: Periodo) {
+  const { de, ate } = intervaloDoPeriodo(periodo);
+  const linhas = await prisma.agileSale.findMany({
+    where: { movementDate: { gte: de, lt: ate }, saleStatus: "RECEBIDA" },
+    select: {
+      saleId: true, movementDate: true, shift: true, saleHour: true, people: true, totalAmount: true,
+      subtotalAmount: true, discountAmount: true, discountLabel: true, cancelledBy: true
+    }
+  });
+  const vendas: VendaDescontoAnalise[] = linhas.map((l) => ({
+    saleId: l.saleId,
+    movementDate: l.movementDate,
+    shift: l.shift,
+    saleHour: l.saleHour,
+    people: l.people,
+    totalAmount: Number(l.totalAmount),
+    subtotalAmount: l.subtotalAmount === null ? null : Number(l.subtotalAmount),
+    discountAmount: l.discountAmount === null ? null : Number(l.discountAmount),
+    discountLabel: l.discountLabel,
+    registeredBy: l.cancelledBy
+  }));
+  return montarDescontos(vendas, periodo);
 }

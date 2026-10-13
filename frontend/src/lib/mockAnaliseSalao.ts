@@ -1,4 +1,4 @@
-import type { AnaliseCancelamentos, AnaliseItensCancelados, AnaliseVendasPorPessoa } from "../api/client";
+import type { AnaliseCancelamentos, AnaliseDescontos, AnaliseItensCancelados, AnaliseVendasPorPessoa } from "../api/client";
 
 // Dados de demonstração da tela "Análise do Salão" (modo ?mock-user=1, só em dev local).
 // Tudo fictício: nomes, valores e proporções inventados para exercitar a interface.
@@ -81,6 +81,38 @@ function itensCancelados(periodo: { inicio: string; fim: string }): AnaliseItens
   };
 }
 
+function descontos(periodo: { inicio: string; fim: string }): AnaliseDescontos {
+  return {
+    periodo,
+    cobertura: { vendasComDado: 10490, vendasSemDado: 0, primeiroDia: periodo.inicio, ultimoDia: periodo.fim },
+    resumo: {
+      vendasRecebidas: 10490, vendasComDesconto: 590, taxaVendas: 0.0562, valorDescontos: 36840.5, valorSubtotal: 1980400,
+      percentualSobreSubtotal: 0.0186, descontoMedio: 62.44, acimaDe50: 41, semPessoa: 0, semTipo: 0
+    },
+    porTipo: [
+      { tipo: "POR VALOR", vendas: 262, valor: 15210.0, participacao: 0.413, percentualMedio: 0.31 },
+      { tipo: "DESCONTO PRATO DUO APP", vendas: 238, valor: 13900.5, participacao: 0.377, percentualMedio: 0.43 },
+      { tipo: "DESCONTO 30%", vendas: 48, valor: 4310.0, participacao: 0.117, percentualMedio: 0.3 },
+      { tipo: "DESCONTO 10%", vendas: 24, valor: 1900.0, participacao: 0.052, percentualMedio: 0.1 },
+      { tipo: "DESCONTO 50%", vendas: 18, valor: 1520.0, participacao: 0.041, percentualMedio: 0.5 }
+    ],
+    porPessoa: [
+      { pessoa: "Gustavo Fictício", vendas: 250, valor: 15800.0, participacao: 0.429, percentualMedio: 0.33 },
+      { pessoa: "Helena Fictícia", vendas: 180, valor: 11200.5, participacao: 0.304, percentualMedio: 0.31 },
+      { pessoa: "Igor Fictício", vendas: 110, valor: 6840.0, participacao: 0.186, percentualMedio: 0.28 },
+      { pessoa: "Júlia Fictícia", vendas: 50, valor: 3000.0, participacao: 0.081, percentualMedio: 0.4 }
+    ],
+    porTurno: [
+      { turno: "Almoço", vendas: 6020, vendasComDesconto: 380, taxa: 0.0631, valor: 22100.0 },
+      { turno: "Jantar", vendas: 4470, vendasComDesconto: 210, taxa: 0.047, valor: 14740.5 }
+    ],
+    maiores: [
+      { saleId: "8001", data: periodo.fim, hora: "20:15", turno: "Jantar", pessoas: 6, subtotal: 1240.0, desconto: 1220.0, percentual: 0.984, tipo: "POR VALOR", pessoa: "Helena Fictícia" },
+      { saleId: "8002", data: periodo.inicio, hora: "13:40", turno: "Almoço", pessoas: 4, subtotal: 640.0, desconto: 320.0, percentual: 0.5, tipo: "DESCONTO 50%", pessoa: "Gustavo Fictício" }
+    ]
+  };
+}
+
 function vendasPorPessoa(periodo: { inicio: string; fim: string }): AnaliseVendasPorPessoa {
   const pessoa = (nome: string, valor: number, vendas: number, itens: number, mix: Array<[string, number]>) => ({
     pessoa: nome,
@@ -111,6 +143,7 @@ export function mockAnaliseSalao(url: string): unknown | undefined {
   const path = new URL(url, "http://localhost").pathname;
   if (path.endsWith("/integrations/agile/analise/cancelamentos")) return cancelamentos(periodoDaUrl(url));
   if (path.endsWith("/integrations/agile/analise/itens-cancelados")) return itensCancelados(periodoDaUrl(url));
+  if (path.endsWith("/integrations/agile/analise/descontos")) return descontos(periodoDaUrl(url));
   if (path.endsWith("/integrations/agile/analise/vendas-por-pessoa")) return vendasPorPessoa(periodoDaUrl(url));
   return undefined;
 }

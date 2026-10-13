@@ -1489,8 +1489,17 @@ model AgileSale {
   people          Int      @default(0)
   // vl_total. Numa venda CANCELADA e o valor que se perdeu (o subtotal vem zerado).
   totalAmount     Decimal  @default(0) @db.Decimal(14, 2)
+  // Em venda CANCELADA e quem cancelou. Em venda RECEBIDA COM desconto, o PDV usa o mesmo
+  // campo (func_cancelou) para quem registrou o desconto: nas amostras, 74 de 74 vendas com
+  // desconto o trazem. Hipotese a confirmar com a equipe do salao.
   cancelledBy     String?
   cancelReason    String?
+  // Desconto da venda: vl_subtotal_itens, vl_desconto e o tipo (texto "desconto" do PDV).
+  // NULL = a linha foi gravada antes de o agente enviar; a analise trata como "sem dado",
+  // nunca como zero (zero diria "nenhum desconto" por falta de informacao).
+  subtotalAmount  Decimal? @db.Decimal(14, 2)
+  discountAmount  Decimal? @db.Decimal(14, 2)
+  discountLabel   String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 

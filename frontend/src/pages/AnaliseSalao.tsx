@@ -1,26 +1,30 @@
 import { useEffect, useState } from "react";
 import {
   getAnaliseCancelamentos,
+  getAnaliseDescontos,
   getAnaliseItensCancelados,
   getAnaliseVendasPorPessoa,
   type AnaliseCancelamentos,
+  type AnaliseDescontos,
   type AnaliseItensCancelados,
   type AnalisePeriodo,
   type AnaliseVendasPorPessoa
 } from "../api/client";
 import { Alert, PageHeader, Select, Tabs, TextField } from "../design-system";
 import { CancelamentosPanel } from "./analise-salao/CancelamentosPanel";
+import { DescontosPanel } from "./analise-salao/DescontosPanel";
 import { ItensCanceladosPanel } from "./analise-salao/ItensCanceladosPanel";
 import { VendasPorPessoaPanel } from "./analise-salao/VendasPorPessoaPanel";
 import { PRESETS, periodoDoPreset, periodoValido, type PresetPeriodo } from "./analise-salao/periodo";
 import "./AnaliseSalao.css";
 
-type Aba = "cancelamentos" | "itens" | "vendas";
+type Aba = "cancelamentos" | "itens" | "descontos" | "vendas";
 type Preset = PresetPeriodo | "personalizado";
 
 const ABAS = [
   { value: "cancelamentos", label: "Cancelamentos" },
   { value: "itens", label: "Itens cancelados" },
+  { value: "descontos", label: "Descontos" },
   { value: "vendas", label: "Vendas por pessoa" }
 ];
 const OPCOES_PERIODO = [...PRESETS, { value: "personalizado", label: "Personalizado" }];
@@ -32,6 +36,7 @@ export function AnaliseSalao() {
   const [periodo, setPeriodo] = useState<AnalisePeriodo>(() => periodoDoPreset("ultimos30", new Date()));
   const [cancelamentos, setCancelamentos] = useState<AnaliseCancelamentos | null>(null);
   const [itensCancelados, setItensCancelados] = useState<AnaliseItensCancelados | null>(null);
+  const [descontos, setDescontos] = useState<AnaliseDescontos | null>(null);
   const [vendas, setVendas] = useState<AnaliseVendasPorPessoa | null>(null);
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
@@ -47,13 +52,16 @@ export function AnaliseSalao() {
     // enquanto o novo carrega.
     if (aba === "cancelamentos") setCancelamentos(null);
     else if (aba === "itens") setItensCancelados(null);
+    else if (aba === "descontos") setDescontos(null);
     else setVendas(null);
 
     const pedido = aba === "cancelamentos"
       ? getAnaliseCancelamentos(periodo, controller.signal).then(setCancelamentos)
       : aba === "itens"
         ? getAnaliseItensCancelados(periodo, controller.signal).then(setItensCancelados)
-        : getAnaliseVendasPorPessoa(periodo, controller.signal).then(setVendas);
+        : aba === "descontos"
+          ? getAnaliseDescontos(periodo, controller.signal).then(setDescontos)
+          : getAnaliseVendasPorPessoa(periodo, controller.signal).then(setVendas);
 
     pedido
       .catch((e: unknown) => {
@@ -105,6 +113,7 @@ export function AnaliseSalao() {
         </div>
         {valido && !carregando && !erro && aba === "cancelamentos" && cancelamentos && <CancelamentosPanel dados={cancelamentos} />}
         {valido && !carregando && !erro && aba === "itens" && itensCancelados && <ItensCanceladosPanel dados={itensCancelados} />}
+        {valido && !carregando && !erro && aba === "descontos" && descontos && <DescontosPanel dados={descontos} />}
         {valido && !carregando && !erro && aba === "vendas" && vendas && <VendasPorPessoaPanel dados={vendas} />}
       </div>
     </div>

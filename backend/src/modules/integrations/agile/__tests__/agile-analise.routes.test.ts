@@ -38,7 +38,7 @@ beforeEach(() => {
   ]);
 });
 
-const URLS = ["/analise/cancelamentos", "/analise/vendas-por-pessoa", "/analise/itens-cancelados"];
+const URLS = ["/analise/cancelamentos", "/analise/vendas-por-pessoa", "/analise/itens-cancelados", "/analise/descontos"];
 
 describe.each(URLS)("%s — acesso", (url) => {
   test("sem sessao: 401", async () => {
@@ -162,6 +162,50 @@ describe("GET /analise/itens-cancelados", () => {
     db.agileSaleItem.findMany.mockRejectedValue(new Error("postgres://secreto"));
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     const r = await request(app).get("/analise/itens-cancelados?inicio=2026-10-01&fim=2026-10-07");
+    spy.mockRestore();
+    expect(r.status).toBe(500);
+    expect(JSON.stringify(r.body)).not.toContain("secreto");
+  });
+});
+
+describe("GET /analise/descontos", () => {
+  const dec = (v: string) => ({ toString: () => v });
+  const vendaDesc = (over = {}) => ({
+    saleId: "1", movementDate: new Date("2026-10-01T12:00:00Z"), shift: "Jantar", saleHour: "20:10", people: 2,
+    subtotalAmount: dec("200"), discountAmount: dec("60"), totalAmount: dec("160"), discountLabel: "DESCONTO 30%", cancelledBy: "Ana", ...over
+  });
+
+  beforeEach(() => {
+    db.agileSale.findMany.mockResolvedValue([vendaDesc(), vendaDesc({ saleId: "2", discountAmount: dec("0"), totalAmount: dec("220"), discountLabel: null, cancelledBy: null })]);
+  });
+
+  test("consulta so vendas RECEBIDAS no intervalo pedido", async () => {
+    await request(app).get("/analise/descontos?inicio=2026-10-01&fim=2026-10-07");
+    const where = db.agileSale.findMany.mock.calls[0][0].where;
+    expect(where.saleStatus).toBe("RECEBIDA");
+    expect(where.movementDate.gte.toISOString()).toBe("2026-10-01T00:00:00.000Z");
+    expect(where.movementDate.lt.toISOString()).toBe("2026-10-08T00:00:00.000Z");
+  });
+
+  test("devolve o relatorio com Decimal convertido, e quem registrou vem de cancelledBy", async () => {
+    const r = await request(app).get("/analise/descontos?inicio=2026-10-01&fim=2026-10-07");
+    expect(r.status).toBe(200);
+    expect(r.body.resumo).toMatchObject({ vendasRecebidas: 2, vendasComDesconto: 1, valorDescontos: 60, valorSubtotal: 400 });
+    expect(r.body.porPessoa[0]).toMatchObject({ pessoa: "Ana", vendas: 1, valor: 60 });
+    expect(r.body.porTipo[0].tipo).toBe("DESCONTO 30%");
+  });
+
+  test("linha antiga (subtotal e desconto null) vira 'sem dado', nunca zero", async () => {
+    db.agileSale.findMany.mockResolvedValue([vendaDesc({ subtotalAmount: null, discountAmount: null })]);
+    const r = await request(app).get("/analise/descontos?inicio=2026-10-01&fim=2026-10-07");
+    expect(r.body.cobertura).toMatchObject({ vendasComDado: 0, vendasSemDado: 1 });
+    expect(r.body.resumo.vendasRecebidas).toBe(0);
+  });
+
+  test("falha do banco: 500 com mensagem generica", async () => {
+    db.agileSale.findMany.mockRejectedValue(new Error("postgres://secreto"));
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const r = await request(app).get("/analise/descontos?inicio=2026-10-01&fim=2026-10-07");
     spy.mockRestore();
     expect(r.status).toBe(500);
     expect(JSON.stringify(r.body)).not.toContain("secreto");

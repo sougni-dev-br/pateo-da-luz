@@ -40,7 +40,24 @@ export type ItemCanceladoAnalise = {
   cancelReason: string | null;
 };
 
+export type VendaDescontoAnalise = {
+  saleId: string;
+  movementDate: Date;
+  shift: string;
+  saleHour: string | null;
+  people: number;
+  // null = linha gravada antes de o agente enviar o desconto (sem dado, nao zero).
+  subtotalAmount: number | null;
+  discountAmount: number | null;
+  totalAmount: number;
+  discountLabel: string | null;
+  // Quem registrou o desconto (campo func_cancelou do PDV; hipotese a confirmar).
+  registeredBy: string | null;
+};
+
 const SITUACAO_RECEBIDA = "RECEBIDA";
+const SEM_TIPO = "(tipo não informado)";
+const LIMITE_DESCONTO_ALTO = 0.5;
 const NAO_INFORMADO = "(não informado)";
 const SEM_GRUPO = "(sem grupo)";
 const SEM_HORA = "—";
@@ -281,6 +298,91 @@ export function montarItensCancelados(
         quemLancou: nome(i.launchedBy),
         quemCancelou: nome(i.cancelledBy),
         motivo: limpar(i.cancelReason) || null
+      }))
+  };
+}
+
+// Descontos nas vendas PAGAS. A base do percentual e o subtotal dos itens: no PDV,
+// vl_total = subtotal + servico - desconto (conferido em 74 de 74 vendas com desconto).
+// Linha com subtotal/desconto null e "sem dado": fica fora das contas e e contada a parte,
+// porque tratar como zero diria "nenhum desconto" onde so falta a informacao.
+export function montarDescontos(vendas: VendaDescontoAnalise[], periodo: Periodo) {
+  const comDado = vendas.filter((v) => v.subtotalAmount !== null && v.discountAmount !== null);
+  const comDesconto = comDado.filter((v) => (v.discountAmount ?? 0) > 0);
+  const subtotal = (v: VendaDescontoAnalise) => v.subtotalAmount ?? 0;
+  const desconto = (v: VendaDescontoAnalise) => v.discountAmount ?? 0;
+  const valorDescontos = comDesconto.reduce((s, v) => s + desconto(v), 0);
+  const valorSubtotal = comDado.reduce((s, v) => s + subtotal(v), 0);
+
+  const agrupar = (chave: (v: VendaDescontoAnalise) => string) => {
+    const mapa = new Map<string, { vendas: number; valor: number; subtotal: number }>();
+    for (const v of comDesconto) {
+      const k = chave(v);
+      const atual = mapa.get(k) ?? { vendas: 0, valor: 0, subtotal: 0 };
+      mapa.set(k, { vendas: atual.vendas + 1, valor: atual.valor + desconto(v), subtotal: atual.subtotal + subtotal(v) });
+    }
+    return [...mapa.entries()].map(([nome, x]) => ({
+      nome,
+      vendas: x.vendas,
+      valor: round2(x.valor),
+      participacao: razao(x.valor, valorDescontos),
+      percentualMedio: razao(x.valor, x.subtotal)
+    }));
+  };
+  const ordenar = <T extends { nome: string; valor: number }>(linhas: T[], semNome: string) =>
+    linhas.sort((a, b) => Number(a.nome === semNome) - Number(b.nome === semNome) || b.valor - a.valor || a.nome.localeCompare(b.nome));
+
+  const turnos = new Map<string, { vendas: number; vendasComDesconto: number; valor: number }>();
+  for (const v of comDado) {
+    const k = v.shift.trim();
+    const atual = turnos.get(k) ?? { vendas: 0, vendasComDesconto: 0, valor: 0 };
+    const tem = desconto(v) > 0;
+    turnos.set(k, { vendas: atual.vendas + 1, vendasComDesconto: atual.vendasComDesconto + (tem ? 1 : 0), valor: atual.valor + (tem ? desconto(v) : 0) });
+  }
+
+  const dias = [...new Set(comDado.map((v) => toCalendarDateKey(v.movementDate)))].sort();
+
+  return {
+    periodo,
+    cobertura: {
+      vendasComDado: comDado.length,
+      vendasSemDado: vendas.length - comDado.length,
+      primeiroDia: dias[0] ?? null,
+      ultimoDia: dias[dias.length - 1] ?? null
+    },
+    resumo: {
+      vendasRecebidas: comDado.length,
+      vendasComDesconto: comDesconto.length,
+      taxaVendas: razao(comDesconto.length, comDado.length),
+      valorDescontos: round2(valorDescontos),
+      valorSubtotal: round2(valorSubtotal),
+      percentualSobreSubtotal: razao(valorDescontos, valorSubtotal),
+      descontoMedio: comDesconto.length > 0 ? round2(valorDescontos / comDesconto.length) : 0,
+      // Desconto que come mais da metade da conta merece olhar individual.
+      // Subtotal zero com desconto (item lancado a zero) tambem entra: o desconto passa da conta inteira.
+      acimaDe50: comDesconto.filter((v) => subtotal(v) <= 0 || desconto(v) / subtotal(v) > LIMITE_DESCONTO_ALTO).length,
+      semPessoa: comDesconto.filter((v) => limpar(v.registeredBy) === "").length,
+      semTipo: comDesconto.filter((v) => limpar(v.discountLabel) === "").length
+    },
+    porTipo: ordenar(agrupar((v) => limpar(v.discountLabel) || SEM_TIPO), SEM_TIPO).map(({ nome, ...x }) => ({ tipo: nome, ...x })),
+    porPessoa: ordenar(agrupar((v) => limpar(v.registeredBy) || NAO_INFORMADO), NAO_INFORMADO).map(({ nome, ...x }) => ({ pessoa: nome, ...x })),
+    porTurno: [...turnos.entries()]
+      .map(([turno, x]) => ({ turno, vendas: x.vendas, vendasComDesconto: x.vendasComDesconto, taxa: razao(x.vendasComDesconto, x.vendas), valor: round2(x.valor) }))
+      .sort((a, b) => a.turno.localeCompare(b.turno)),
+    maiores: [...comDesconto]
+      .sort((a, b) => desconto(b) - desconto(a) || a.saleId.localeCompare(b.saleId))
+      .slice(0, MAX_MAIORES)
+      .map((v) => ({
+        saleId: v.saleId,
+        data: toCalendarDateKey(v.movementDate),
+        hora: v.saleHour,
+        turno: v.shift.trim(),
+        pessoas: v.people,
+        subtotal: round2(subtotal(v)),
+        desconto: round2(desconto(v)),
+        percentual: razao(desconto(v), subtotal(v)),
+        tipo: limpar(v.discountLabel) || SEM_TIPO,
+        pessoa: limpar(v.registeredBy) || NAO_INFORMADO
       }))
   };
 }

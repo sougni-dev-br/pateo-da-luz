@@ -1,14 +1,15 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import type { AnaliseCancelamentos, AnaliseItensCancelados, AnaliseVendasPorPessoa } from "../../api/client";
+import type { AnaliseCancelamentos, AnaliseDescontos, AnaliseItensCancelados, AnaliseVendasPorPessoa } from "../../api/client";
 
 vi.mock("../../api/client", () => ({
   getAnaliseCancelamentos: vi.fn(),
+  getAnaliseDescontos: vi.fn(),
   getAnaliseItensCancelados: vi.fn(),
   getAnaliseVendasPorPessoa: vi.fn()
 }));
 
-import { getAnaliseCancelamentos, getAnaliseItensCancelados, getAnaliseVendasPorPessoa } from "../../api/client";
+import { getAnaliseCancelamentos, getAnaliseDescontos, getAnaliseItensCancelados, getAnaliseVendasPorPessoa } from "../../api/client";
 import { SessionContext, type SessionContextValue } from "../../context/SessionContext";
 import { HideValuesProvider } from "../../design-system";
 import { AnaliseSalao } from "../AnaliseSalao";
@@ -53,6 +54,25 @@ function itensCancelados(over: Partial<AnaliseItensCancelados> = {}): AnaliseIte
   };
 }
 
+function descontos(over: Partial<AnaliseDescontos> = {}): AnaliseDescontos {
+  return {
+    periodo: PERIODO,
+    cobertura: { vendasComDado: 100, vendasSemDado: 0, primeiroDia: "2026-09-14", ultimoDia: "2026-10-13" },
+    resumo: {
+      vendasRecebidas: 100, vendasComDesconto: 6, taxaVendas: 0.06, valorDescontos: 480, valorSubtotal: 12000,
+      percentualSobreSubtotal: 0.04, descontoMedio: 80, acimaDe50: 2, semPessoa: 0, semTipo: 0
+    },
+    porTipo: [
+      { tipo: "POR VALOR", vendas: 4, valor: 300, participacao: 0.625, percentualMedio: 0.4 },
+      { tipo: "DESCONTO 30%", vendas: 2, valor: 180, participacao: 0.375, percentualMedio: 0.3 }
+    ],
+    porPessoa: [{ pessoa: "Kátia Fictícia", vendas: 6, valor: 480, participacao: 1, percentualMedio: 0.04 }],
+    porTurno: [{ turno: "Jantar", vendas: 60, vendasComDesconto: 6, taxa: 0.1, valor: 480 }],
+    maiores: [{ saleId: "1", data: "2026-10-02", hora: "20:30", turno: "Jantar", pessoas: 2, subtotal: 100, desconto: 90, percentual: 0.9, tipo: "POR VALOR", pessoa: "Kátia Fictícia" }],
+    ...over
+  };
+}
+
 const vendasPessoa: AnaliseVendasPorPessoa = {
   periodo: PERIODO,
   cobertura: { itensComPessoa: 50, itensSemPessoa: 0 },
@@ -76,6 +96,7 @@ beforeEach(() => {
   vi.mocked(getAnaliseCancelamentos).mockResolvedValue(cancelamentos());
   vi.mocked(getAnaliseVendasPorPessoa).mockResolvedValue(vendasPessoa);
   vi.mocked(getAnaliseItensCancelados).mockResolvedValue(itensCancelados());
+  vi.mocked(getAnaliseDescontos).mockResolvedValue(descontos());
 });
 
 describe("Análise do Salão — cancelamentos", () => {
@@ -239,5 +260,95 @@ describe("Análise do Salão — itens cancelados", () => {
     await abrirAba();
     expect(await screen.findByText("5 de 12")).toBeTruthy();
     expect(screen.getByText(/corrigiu o próprio lançamento/)).toBeTruthy();
+  });
+});
+
+describe("Análise do Salão — descontos", () => {
+  async function abrirAba() {
+    renderizar();
+    await screen.findByText("Bruno Fictício");
+    fireEvent.click(screen.getByRole("tab", { name: "Descontos" }));
+  }
+
+  test("a aba busca o relatório certo e mostra tipo, quem registrou e os maiores", async () => {
+    await abrirAba();
+    expect(await screen.findByText("DESCONTO 30%", { selector: "td" })).toBeTruthy();
+    expect(getAnaliseDescontos).toHaveBeenCalledTimes(1);
+    expect(screen.getAllByText("Kátia Fictícia", { selector: "td" }).length).toBeGreaterThan(0);
+    expect(screen.getByText("6 de 100 vendas")).toBeTruthy();
+  });
+
+  test("avisa quantos descontos passam de 50% do subtotal", async () => {
+    await abrirAba();
+    expect(await screen.findByText(/2 vendas com desconto acima de 50% do subtotal/)).toBeTruthy();
+  });
+
+  test("explica que 'quem registrou' vem do campo do PDV e precisa de confirmação", async () => {
+    await abrirAba();
+    expect(await screen.findByText(/campo de quem cancelou\/registrou do PDV/)).toBeTruthy();
+  });
+
+  test("linhas ainda sem dado de desconto: avisa e nao mostra 'zero descontos'", async () => {
+    vi.mocked(getAnaliseDescontos).mockResolvedValue(descontos({
+      cobertura: { vendasComDado: 0, vendasSemDado: 480, primeiroDia: null, ultimoDia: null },
+      resumo: { vendasRecebidas: 0, vendasComDesconto: 0, taxaVendas: 0, valorDescontos: 0, valorSubtotal: 0, percentualSobreSubtotal: 0, descontoMedio: 0, acimaDe50: 0, semPessoa: 0, semTipo: 0 },
+      porTipo: [], porPessoa: [], porTurno: [], maiores: []
+    }));
+    await abrirAba();
+    expect(await screen.findByText(/Ainda não há dado de desconto neste período/)).toBeTruthy();
+    expect(screen.queryByText("Descontos por tipo")).toBeNull();
+  });
+
+  test("parte do período sem dado: aviso leve e o relatório continua", async () => {
+    vi.mocked(getAnaliseDescontos).mockResolvedValue(descontos({
+      cobertura: { vendasComDado: 100, vendasSemDado: 40, primeiroDia: "2026-09-20", ultimoDia: "2026-10-13" }
+    }));
+    await abrirAba();
+    expect(await screen.findByText(/40 vendas do período ainda não têm dado de desconto/)).toBeTruthy();
+    expect(screen.getByText("Descontos por tipo")).toBeTruthy();
+  });
+
+  test("tipo ou pessoa não informados são avisados", async () => {
+    vi.mocked(getAnaliseDescontos).mockResolvedValue(descontos({ resumo: { ...descontos().resumo, semPessoa: 3, semTipo: 2 } }));
+    await abrirAba();
+    expect(await screen.findByText(/3 descontos sem a pessoa que registrou e 2 sem o tipo/)).toBeTruthy();
+  });
+
+  test("período sem nenhuma venda: não manda 'atualizar o agente'", async () => {
+    vi.mocked(getAnaliseDescontos).mockResolvedValue(descontos({
+      cobertura: { vendasComDado: 0, vendasSemDado: 0, primeiroDia: null, ultimoDia: null },
+      resumo: { vendasRecebidas: 0, vendasComDesconto: 0, taxaVendas: 0, valorDescontos: 0, valorSubtotal: 0, percentualSobreSubtotal: 0, descontoMedio: 0, acimaDe50: 0, semPessoa: 0, semTipo: 0 },
+      porTipo: [], porPessoa: [], porTurno: [], maiores: []
+    }));
+    await abrirAba();
+    expect(await screen.findByText(/Nenhuma venda recebida neste período/)).toBeTruthy();
+    expect(screen.queryByText(/agente do PDV precisa estar atualizado/)).toBeNull();
+  });
+
+  test("só a pessoa faltando: a frase não cita 'sem o tipo' com zero", async () => {
+    vi.mocked(getAnaliseDescontos).mockResolvedValue(descontos({ resumo: { ...descontos().resumo, semPessoa: 3, semTipo: 0 } }));
+    await abrirAba();
+    expect(await screen.findByText(/3 descontos sem a pessoa que registrou\./)).toBeTruthy();
+  });
+
+  test("uma venda acima de 50% usa o singular", async () => {
+    vi.mocked(getAnaliseDescontos).mockResolvedValue(descontos({ resumo: { ...descontos().resumo, acimaDe50: 1 } }));
+    await abrirAba();
+    expect(await screen.findByText(/1 venda com desconto acima de 50% do subtotal/)).toBeTruthy();
+  });
+
+  test("a tabela por pessoa avisa que é volume absoluto, não proporção do que cada um atendeu", async () => {
+    await abrirAba();
+    expect(await screen.findByText(/não considera quantas vendas cada pessoa atendeu/)).toBeTruthy();
+    expect(screen.getByText("Registrado por (campo do PDV)")).toBeTruthy();
+  });
+
+  test("período sem nenhum desconto: mensagem simples", async () => {
+    vi.mocked(getAnaliseDescontos).mockResolvedValue(descontos({
+      resumo: { ...descontos().resumo, vendasComDesconto: 0, taxaVendas: 0, valorDescontos: 0, percentualSobreSubtotal: 0, descontoMedio: 0, acimaDe50: 0 },
+      porTipo: [], porPessoa: [], porTurno: [], maiores: []
+    }));
+    await abrirAba();
+    expect(await screen.findByText(/Nenhuma venda com desconto neste período/)).toBeTruthy();
   });
 });

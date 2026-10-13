@@ -119,7 +119,10 @@ export function mapSaleRow(venda: AgileVenda) {
     people: venda.qtd_pessoas,
     totalAmount: venda.vl_total,
     cancelledBy: limparNome(venda.func_cancelou),
-    cancelReason: limparNome(venda.motivo_cancelamento)
+    cancelReason: limparNome(venda.motivo_cancelamento),
+    subtotalAmount: venda.vl_subtotal_itens,
+    discountAmount: venda.vl_desconto,
+    discountLabel: limparNome(venda.desconto)
   };
 }
 
