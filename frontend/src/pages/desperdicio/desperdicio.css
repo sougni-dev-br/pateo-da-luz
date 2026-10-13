@@ -1,6 +1,6 @@
 /* Desperdício: lançamento rápido (celular primeiro) e leitura do período. */
 
-.waste-page { display: grid; gap: 20px; max-width: 980px; }
+.waste-page { display: grid; gap: 20px; max-width: 1120px; }
 .waste-page h2 { margin: 0; font-size: 17px; }
 
 .waste-intro { margin: 0; max-width: 720px; color: var(--ink-soft); font-size: 14px; line-height: 1.5; }
@@ -120,24 +120,6 @@
 .waste-report { display: grid; gap: 16px; }
 .waste-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
 .waste-filters .ds-text-field { flex: 0 1 160px; min-width: 130px; }
-
-.waste-kpis { display: flex; flex-wrap: wrap; gap: 12px; margin: 0; }
-.waste-kpis > div {
-  display: grid; gap: 4px; flex: 1 1 160px; padding: 14px 16px;
-  background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius-md);
-}
-.waste-kpis dt { font-size: 13px; color: var(--ink-soft); }
-.waste-kpis dd { margin: 0; font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
-
-.waste-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
-.waste-group { padding: 14px 16px; background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius-md); }
-.waste-group h3 { margin: 0 0 10px; font-size: 14px; }
-.waste-group ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
-.waste-group-row { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; }
-.waste-group-row span { min-width: 0; overflow-wrap: anywhere; }
-.waste-group-row strong { flex: none; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.waste-bar { height: 6px; margin-top: 4px; background: var(--paper-soft); border-radius: 999px; overflow: hidden; }
-.waste-bar span { display: block; height: 100%; background: var(--gold); border-radius: inherit; }
 
 .waste-note { margin: 0; font-size: 13px; color: var(--ink-soft); }
 .waste-load-error {
