@@ -55,7 +55,7 @@ function detalhe(base: DishListItem, itens: ReturnType<typeof ingrediente>[], ex
 
 const DETALHES: Record<string, DishDetail> = {
   d1: detalhe(RISOTO, [ingrediente("i1", "CAMARAO DESCASCADO"), ingrediente("i2", "CEBOLA ROXA", { quantity: 30, wasteFactor: 0 })], {
-    listings: [{ id: "l1", channel: "NOVENTA_NOVE", storeName: "Pateo Frei Caneca", externalName: "Risoto", price: 79.9, isActive: true, lastSeenAt: "2026-10-07T04:00:00.000Z" }],
+    listings: [{ id: "l1", channel: "NOVENTA_NOVE", deliveryStoreId: "s1", manual: false, storeName: "Pateo Frei Caneca", externalName: "Risoto", price: 79.9, isActive: true, lastSeenAt: "2026-10-07T04:00:00.000Z" }],
   }),
   d2: detalhe(PURE, []),
   d3: detalhe(FUNGHI, [ingrediente("i3", "ARROZ ARBORIO", { itemCost: null, unitCost: 27, productUnit: "UN", issue: "Sem conversao de G para UN." }), ingrediente("i4", "PARMESAO")]),
@@ -197,15 +197,16 @@ describe("lista de pratos", () => {
 });
 
 describe("ficha do prato", () => {
-  test("mostra custo por porção, CMV, ingredientes e onde é vendido", async () => {
+  test("mostra custo por porção, CMV, ingredientes e o preço em cada canal", async () => {
     await abrir();
     await abrirPrato("Risoto de camarão", "d1");
-    expect(screen.getByText("CMV")).toBeInTheDocument();
+    expect(screen.getAllByText("CMV").length).toBeGreaterThan(0);
     expect(screen.getByText("CAMARAO DESCASCADO")).toBeInTheDocument();
     expect(screen.getByText("+7% de perda")).toBeInTheDocument();
-    expect(screen.getByText("Onde é vendido")).toBeInTheDocument();
-    expect(screen.getByText("1 loja · R$ 79,90")).toBeInTheDocument(); // resumo da seção recolhida
+    expect(screen.getByRole("heading", { name: "Preços por canal" })).toBeInTheDocument();
+    expect(screen.getByText("Salão (a la carte)")).toBeInTheDocument();
     expect(screen.getByText("Pateo Frei Caneca")).toBeInTheDocument();
+    expect(screen.getByText("da plataforma")).toBeInTheDocument(); // o preço da 99 vem do cardápio dela
   });
 
   test("custo parcial lista o ingrediente que ficou fora e o motivo", async () => {
@@ -530,7 +531,7 @@ describe("formulário", () => {
     await abrir();
     fireEvent.click(screen.getAllByRole("button", { name: "Novo prato" })[0]);
     await screen.findByRole("heading", { name: "Novo prato" });
-    fireEvent.change(screen.getByLabelText(/Preço de venda/), { target: { value: "60" } });
+    fireEvent.change(screen.getByLabelText(/Preço no salão/), { target: { value: "60" } });
 
     fireEvent.change(screen.getByRole("combobox", { name: /Buscar produto/ }), { target: { value: "ar" } });
     fireEvent.click(await screen.findByRole("option", { name: /ARROZ/ }));

@@ -4132,8 +4132,11 @@ export type DishListItem = {
 export type DishListing = {
   id: string;
   channel: string;
+  deliveryStoreId: string | null;
   /** Apelido da loja na plataforma; null quando a listagem nao esta ligada a uma loja. */
   storeName: string | null;
+  /** Preço lançado à mão no ERP (iFood, Keeta...); false = veio do cardápio da plataforma (99), que o atualiza. */
+  manual: boolean;
   externalName: string;
   price: number;
   isActive: boolean;
@@ -4178,6 +4181,25 @@ export function saveDish(payload: Record<string, unknown>) {
   );
 }
 
+export type DishDeliveryStore = { id: string; platform: string; nickname: string };
+
+/** Lojas onde o prato pode ter preço (as ativas, de todas as plataformas). */
+export function getDishDeliveryStores() {
+  return request<DishDeliveryStore[]>("/dishes/delivery-stores");
+}
+
+export function createDishListing(dishId: string, payload: { deliveryStoreId: string; price: number }) {
+  return request<{ id: string }>(`/dishes/${dishId}/listings`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(payload) });
+}
+
+export function updateDishListing(dishId: string, listingId: string, payload: { price?: number; isActive?: boolean }) {
+  return request<{ id: string }>(`/dishes/${dishId}/listings/${listingId}`, { method: "PUT", headers: JSON_HEADERS, body: JSON.stringify(payload) });
+}
+
+export function deleteDishListing(dishId: string, listingId: string) {
+  return request<{ ok: boolean }>(`/dishes/${dishId}/listings/${listingId}`, { method: "DELETE" });
+}
+
 export function deactivateDish(id: string) {
   return request<{ ok: boolean }>(`/dishes/${id}`, { method: "DELETE" });
 }
@@ -4194,6 +4216,8 @@ export type DishRevisionSnapshot = {
   yieldUnit: string;
   notes: string | null;
   isActive: boolean;
+  /** Preço em cada loja no momento da versão (só as ativas). */
+  canais?: Array<{ canal: string; loja: string | null; preco: number }>;
   custoPorcao: number;
   cmvPercentual: number | null;
   custoIncompleto: boolean;

@@ -11,6 +11,7 @@ import { carregarDetalhe, categoriaResumida, conversoesDaFicha, textoDaEmbalagem
 import { auditLog, requestIp, requireRole } from "../security/security-utils.js";
 import { MENUS, registrarRotasDeCategoria } from "./dish-categories.js";
 import { registrarRevisao } from "./dish-revisions.js";
+import { registrarRotasDeListagem } from "./dish-listings.js";
 
 export const dishesRouter = Router();
 
@@ -117,6 +118,8 @@ dishesRouter.use(async (request, response, next) => {
 // ──────────────────────────────────────────────
 
 registrarRotasDeCategoria(dishesRouter);
+// Lojas e preços por canal: /delivery-stores precisa vir antes de GET /:id.
+registrarRotasDeListagem(dishesRouter);
 
 // ──────────────────────────────────────────────
 // DISHES
