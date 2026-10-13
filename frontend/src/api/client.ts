@@ -8417,7 +8417,18 @@ export function reopenReimbursement(reportId: string) {
 
 export type WasteReason = "EXPIRED" | "SPOILED" | "BREAKAGE" | "PREPARATION_ERROR" | "PRODUCTION_LEFTOVER" | "CUSTOMER_RETURN" | "CONTAMINATION" | "OTHER";
 
-export type WasteProductHit = { id: string; name: string; code: string | null; unit: string | null; sectorName: string | null };
+export type WasteProductHit = {
+  id: string;
+  name: string;
+  code: string | null;
+  /** Unidade do estoque do item: nela o desperdício é guardado, conferido e valorado. */
+  unit: string | null;
+  sectorName: string | null;
+  /** As conversões da ficha técnica (cadastradas + o peso lido do nome): g, ml, kg e l convertem para `unit`. */
+  conversions: DishUnitConversion[];
+  /** "1 UN = 5 KG (lido do nome do produto)" quando a conversão veio do nome. */
+  embalagemInferida: string | null;
+};
 
 export type WasteEntry = {
   id: string;
@@ -8428,6 +8439,9 @@ export type WasteEntry = {
   productCode: string | null;
   quantity: number;
   unit: string | null;
+  /** O que foi digitado (500 G), quando diferente da unidade do estoque (0,1 UN). */
+  enteredQuantity: number | null;
+  enteredUnit: string | null;
   reason: WasteReason;
   reasonLabel: string;
   occurredOn: string;
@@ -8446,7 +8460,16 @@ export type WasteEntry = {
   costSource?: string | null;
 };
 
-export type WasteInput = { productId?: string; dishId?: string; quantity: string; reason: WasteReason; occurredOn: string; notes: string };
+export type WasteInput = {
+  productId?: string;
+  dishId?: string;
+  /** Como a pessoa digitou, na unidade de `unit`; o servidor converte para a unidade do estoque. */
+  quantity: string;
+  unit?: string;
+  reason: WasteReason;
+  occurredOn: string;
+  notes: string;
+};
 
 export type WasteGroup = { chave: string; nome: string; lancamentos: number; valor: number | null; semCusto: number };
 export type WasteSummary = {
