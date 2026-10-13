@@ -213,7 +213,7 @@ export function percentualParaFracao(texto: string): number {
 
 export type SituacaoDaFicha = "sem-ficha" | "incompleta" | "sem-preco" | "cmv-alto" | "ok";
 
-type PratoParaSituacao = Pick<DishListItem, "itemsCount" | "custoIncompleto" | "salePriceDefault" | "cmvPercentual">;
+type PratoParaSituacao = Pick<DishListItem, "itemsCount" | "custoIncompleto" | "salePriceDefault" | "cmvPercentual"> & { listingsCount?: number };
 
 /**
  * Em que pé está a ficha. A ordem importa: custo parcial subestima o CMV, então
@@ -222,7 +222,8 @@ type PratoParaSituacao = Pick<DishListItem, "itemsCount" | "custoIncompleto" | "
 export function situacaoDaFicha(prato: PratoParaSituacao): SituacaoDaFicha {
   if (prato.itemsCount === 0) return "sem-ficha";
   if (prato.custoIncompleto) return "incompleta";
-  if (prato.salePriceDefault == null) return "sem-preco";
+  // Prato do delivery pode não ter preço no salão e ter o de cada loja: aí o preço existe, só não é um.
+  if (prato.salePriceDefault == null && !(prato.listingsCount && prato.listingsCount > 0)) return "sem-preco";
   if (prato.cmvPercentual != null && prato.cmvPercentual > CMV_ALTO) return "cmv-alto";
   return "ok";
 }
