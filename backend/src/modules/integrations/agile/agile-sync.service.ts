@@ -4,6 +4,7 @@ import { REVENUE_CHANNEL_SALON } from "../../monthly/revenue-channels.js";
 import { prisma } from "../../../config/database.js";
 import { auditLog } from "../../security/security-utils.js";
 import { createCalendarDate } from "../../../shared/utils/calendar-date.js";
+import { obterSaudeAgente } from "./agile-heartbeat.service.js";
 import type { Prisma } from "@prisma/client";
 import type {
   AgileSyncPayload,
@@ -46,6 +47,26 @@ function classificarMeioPagamento(meio: string): "cash" | "pix" | "debit" | "cre
   if (norm.includes("CREDITO")) return "credit";
   return "voucher";
 }
+
+// Só venda de MESA entra no faturamento do Salão. Viagem/delivery/balcão já são
+// contados pelas plataformas de delivery — somar aqui repetiria a dupla contagem de
+// abril/maio de 2026. Compara sem diferenciar caixa nem acento; vazio/ausente é mesa
+// (o contrato antes de o campo existir).
+function normalizarModoVenda(modo: string | null | undefined): string {
+  const norm = (modo ?? "").normalize("NFD").replace(/\p{Diacritic}/gu, "").trim().toLowerCase();
+  return norm === "" ? "mesa" : norm;
+}
+
+export function ehVendaDeMesa(modo: string | null | undefined): boolean {
+  return normalizarModoVenda(modo) === "mesa";
+}
+
+export type ExcluidosPorModo = {
+  vendas: number;
+  pagamentos: number;
+  itens: number;
+  modos: Record<string, number>; // modo normalizado -> vendas excluídas
+};
 
 type DayAggregate = {
   date: string; // YYYY-MM-DD
@@ -133,8 +154,15 @@ async function persistSaleItems(tx: Prisma.TransactionClient, itens: AgileItem[]
   return gravados;
 }
 
-function agruparPorDia(payload: AgileSyncPayload): { dias: Map<string, DayAggregate>; duplicatasNrseqvenda: number } {
+export function agruparPorDia(payload: AgileSyncPayload): {
+  dias: Map<string, DayAggregate>;
+  duplicatasNrseqvenda: number;
+  itensMesa: AgileItem[];
+  naoMesa: ExcluidosPorModo;
+} {
   const dias = new Map<string, DayAggregate>();
+  const naoMesa: ExcluidosPorModo = { vendas: 0, pagamentos: 0, itens: 0, modos: {} };
+  const vendasNaoMesa = new Set<string>();
   // O export do Agile ocasionalmente emite a mesma nrseqvenda em 2+ linhas
   // (bug conhecido do relatório, não do PDV). Deduplicamos silenciosamente
   // e contamos para retornar em `avisos`.
@@ -163,6 +191,14 @@ function agruparPorDia(payload: AgileSyncPayload): { dias: Map<string, DayAggreg
       continue;
     }
     nrseqvendaVistas.add(venda.nrseqvenda);
+    // Antes de pegar(): dia com só venda fora do Salão não pode virar dia zerado.
+    if (!ehVendaDeMesa(venda.modo_venda)) {
+      const modo = normalizarModoVenda(venda.modo_venda);
+      vendasNaoMesa.add(venda.nrseqvenda);
+      naoMesa.vendas += 1;
+      naoMesa.modos[modo] = (naoMesa.modos[modo] ?? 0) + 1;
+      continue;
+    }
     const agg = pegar(venda.dt_movimento, venda.dia_da_semana);
     if (venda.situacao_da_venda === SITUACAO_RECEBIDA) {
       agg.vendasRecebidas.set(venda.nrseqvenda, venda);
@@ -172,12 +208,23 @@ function agruparPorDia(payload: AgileSyncPayload): { dias: Map<string, DayAggreg
   }
 
   for (const pgto of payload.pagamentos) {
+    // O pagamento acompanha a venda: se a venda ficou fora do Salão, ele também.
+    if (vendasNaoMesa.has(pgto.nrseqvenda) || !ehVendaDeMesa(pgto.modo_venda)) {
+      naoMesa.pagamentos += 1;
+      continue;
+    }
     if (pgto.situacao_da_venda !== SITUACAO_RECEBIDA) continue;
     const agg = pegar(pgto.dt_movimento, null);
     agg.pagamentos.push(pgto);
   }
 
-  return { dias, duplicatasNrseqvenda };
+  const itensMesa = payload.itens.filter((item) => {
+    const fora = vendasNaoMesa.has(item.nrseqvenda) || !ehVendaDeMesa(item.modo_venda);
+    if (fora) naoMesa.itens += 1;
+    return !fora;
+  });
+
+  return { dias, duplicatasNrseqvenda, itensMesa, naoMesa };
 }
 
 type DayEntryPayload = {
@@ -328,7 +375,7 @@ function round2(value: number): number {
 }
 
 export async function importAgileSync(payload: AgileSyncPayload): Promise<AgileSyncReport> {
-  const { dias: agregados, duplicatasNrseqvenda } = agruparPorDia(payload);
+  const { dias: agregados, duplicatasNrseqvenda, itensMesa, naoMesa } = agruparPorDia(payload);
   const dias = Array.from(agregados.values())
     .map(calcularDia)
     .sort((a, b) => a.date.getTime() - b.date.getTime());
@@ -341,6 +388,33 @@ export async function importAgileSync(payload: AgileSyncPayload): Promise<AgileS
   );
   if (duplicatasNrseqvenda > 0) {
     avisos.push(`${duplicatasNrseqvenda} linha(s) duplicada(s) por nrseqvenda foram deduplicadas.`);
+  }
+
+  // Venda que não é de mesa NÃO entra no Salão (nem o pagamento, nem o item). Fica
+  // registrado, porque é faturamento que o PDV mandou e o ERP não somou aqui: se for
+  // delivery/viagem de verdade, quem o conta são as plataformas; se for um modo novo
+  // que deveria ser Salão, alguém precisa ver isto e decidir.
+  if (naoMesa.vendas > 0 || naoMesa.pagamentos > 0 || naoMesa.itens > 0) {
+    const porModo = Object.entries(naoMesa.modos).map(([modo, qtd]) => `${modo}: ${qtd}`).join(", ");
+    avisos.push(
+      `${naoMesa.vendas} venda(s) com modo diferente de "mesa" ficaram fora do Salao (${porModo || "sem modo informado"}); ` +
+      `${naoMesa.pagamentos} pagamento(s) e ${naoMesa.itens} item(ns) junto.`
+    );
+    await auditLog({
+      userId: null,
+      action: "AGILE_SYNC_NON_TABLE_SALES_EXCLUDED",
+      entity: "RevenueEntry",
+      entityId: null,
+      newValue: {
+        batchId,
+        periodo: `${payload.periodoInicio}..${payload.periodoFim}`,
+        vendas: naoMesa.vendas,
+        pagamentos: naoMesa.pagamentos,
+        itens: naoMesa.itens,
+        modos: naoMesa.modos,
+        motivo: "modo_venda diferente de mesa nao compoe o faturamento do Salao"
+      }
+    });
   }
 
   // O sync grava faturamento; um mes travado ou periodo de CMV fechado nao pode ser
@@ -541,7 +615,7 @@ export async function importAgileSync(payload: AgileSyncPayload): Promise<AgileS
       totalTickets += dia.tickets;
     }
 
-    itensGravados = await persistSaleItems(tx, payload.itens);
+    itensGravados = await persistSaleItems(tx, itensMesa);
 
     await tx.$executeRaw`
       UPDATE "RevenueImportBatch"
@@ -607,6 +681,18 @@ export async function importAgileSync(payload: AgileSyncPayload): Promise<AgileS
   };
 }
 
+// O aviso do agente é um extra do /status: se a leitura falhar (ex.: código novo no ar
+// antes da migration da tabela de heartbeat), o resto do status precisa continuar
+// chegando à tela em vez de virar 500.
+async function obterSaudeAgenteOuNulo() {
+  try {
+    return await obterSaudeAgente();
+  } catch (error: unknown) {
+    console.error("Falha ao ler heartbeat do agente do Agile PDV", error);
+    return undefined;
+  }
+}
+
 export async function getAgileSyncStatus(): Promise<AgileSyncStatus> {
   // Fonte primária: RevenueImportBatch com importFileId prefixado 'agile-sync-'.
   // Fonte de fallback: se o batch nao for encontrado (dados legados,
@@ -658,6 +744,7 @@ export async function getAgileSyncStatus(): Promise<AgileSyncStatus> {
     ultimoBatchId: ultimoBatch[0]?.id ?? null,
     ultimoPeriodoFim,
     diasImportadosUltimoBatch: ultimoBatch[0]?.importedRows ?? 0,
-    totalRegistrosSalaoAgile: Number(total[0]?.count ?? 0)
+    totalRegistrosSalaoAgile: Number(total[0]?.count ?? 0),
+    agente: await obterSaudeAgenteOuNulo()
   };
 }
