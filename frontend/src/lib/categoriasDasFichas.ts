@@ -27,14 +27,42 @@ export function caminhoDaCategoria(categoria: Pick<DishCategoryRef, "name" | "pa
 /** Valor do filtro para os pratos que ainda não têm categoria (hoje, a maioria dos importados da 99). */
 export const FILTRO_SEM_CATEGORIA = "sem-categoria";
 
-/** O filtro por categoria principal inclui as subcategorias dela. */
-export function categoriaCombina(prato: Pick<DishListItem, "category">, categoriaId: string): boolean {
-  if (categoriaId === FILTRO_SEM_CATEGORIA) return !prato.category;
-  return prato.category?.id === categoriaId || prato.category?.parentId === categoriaId;
+type PratoComCardapios = Pick<DishListItem, "menu" | "category" | "alsoMenu" | "alsoCategory">;
+
+export const OUTRO_CARDAPIO: Record<DishMenu, DishMenu> = { CARDAPIO: "DELIVERY", DELIVERY: "CARDAPIO" };
+
+/** Cardápios em que o prato é vendido: o principal e, se houver, o outro (uma ficha só). */
+export function menusDoPrato(prato: Pick<DishListItem, "menu" | "alsoMenu">): DishMenu[] {
+  return prato.alsoMenu && prato.alsoMenu !== prato.menu ? [prato.menu, prato.alsoMenu] : [prato.menu];
 }
 
-export function cardapioCombina(prato: Pick<DishListItem, "menu">, filtro: FiltroDeCardapio): boolean {
-  return filtro === "todos" || prato.menu === filtro;
+/** A categoria que o prato tem NAQUELE cardápio (null = sem categoria ou não é vendido lá). */
+export function categoriaNoCardapio(prato: Pick<DishListItem, "menu" | "category" | "alsoMenu" | "alsoCategory">, menu: DishMenu) {
+  if (prato.menu === menu) return prato.category;
+  return prato.alsoMenu === menu ? prato.alsoCategory ?? null : null;
+}
+
+/** "Cardápio", "Delivery" ou "Cardápio e delivery" quando o mesmo prato sai nos dois. */
+export function rotuloDosCardapios(prato: Pick<DishListItem, "menu" | "alsoMenu">): string {
+  const menus = menusDoPrato(prato);
+  return menus.length === 2 ? `${ROTULO_DO_CARDAPIO.CARDAPIO} e delivery` : ROTULO_DO_CARDAPIO[menus[0]];
+}
+
+/**
+ * O filtro por categoria principal inclui as subcategorias dela. O prato vendido nos dois cardápios tem
+ * uma categoria em cada; "sem categoria" olha o cardápio que a lista está mostrando (ou qualquer um, em "todos").
+ */
+export function categoriaCombina(prato: PratoComCardapios, categoriaId: string, filtro: FiltroDeCardapio = "todos"): boolean {
+  if (categoriaId === FILTRO_SEM_CATEGORIA) {
+    return filtro === "todos"
+      ? menusDoPrato(prato).some((menu) => !categoriaNoCardapio(prato, menu))
+      : !categoriaNoCardapio(prato, filtro);
+  }
+  return [prato.category, prato.alsoCategory].some((categoria) => categoria?.id === categoriaId || categoria?.parentId === categoriaId);
+}
+
+export function cardapioCombina(prato: Pick<DishListItem, "menu" | "alsoMenu">, filtro: FiltroDeCardapio): boolean {
+  return filtro === "todos" || menusDoPrato(prato).includes(filtro);
 }
 
 const porOrdemENome = (a: DishCategory, b: DishCategory) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, "pt-BR");
@@ -61,8 +89,10 @@ export function montarArvore(categorias: DishCategory[], pratos: DishListItem[],
 
   const contagem = new Map<string, number>();
   for (const prato of pratos) {
-    if (!prato.isActive || !prato.category) continue;
-    contagem.set(prato.category.id, (contagem.get(prato.category.id) ?? 0) + 1);
+    if (!prato.isActive) continue;
+    for (const categoria of [prato.category, prato.alsoCategory]) {
+      if (categoria) contagem.set(categoria.id, (contagem.get(categoria.id) ?? 0) + 1);
+    }
   }
 
   return principais.map((categoria) => {
@@ -105,11 +135,12 @@ export function opcoesDeCategoria(categorias: DishCategory[], menu: DishMenu, at
 
 /** Quantos pratos ativos há em cada cardápio, para os contadores do seletor. */
 export function contarPorCardapio(pratos: DishListItem[]): Record<FiltroDeCardapio, number> {
+  // Prato vendido nos dois conta em cada cardápio, mas uma vez só em "todos".
   const ativos = pratos.filter((prato) => prato.isActive);
   return {
     todos: ativos.length,
-    CARDAPIO: ativos.filter((prato) => prato.menu === "CARDAPIO").length,
-    DELIVERY: ativos.filter((prato) => prato.menu === "DELIVERY").length
+    CARDAPIO: ativos.filter((prato) => cardapioCombina(prato, "CARDAPIO")).length,
+    DELIVERY: ativos.filter((prato) => cardapioCombina(prato, "DELIVERY")).length
   };
 }
 
@@ -125,7 +156,7 @@ export function opcoesDoFiltroDeCategoria(
   pratos?: DishListItem[]
 ): SelectOption[] {
   const comNumero = (opcao: SelectOption): SelectOption =>
-    pratos ? { ...opcao, label: `${opcao.label} · ${pratos.filter((prato) => categoriaCombina(prato, opcao.value)).length}` } : opcao;
+    pratos ? { ...opcao, label: `${opcao.label} · ${pratos.filter((prato) => categoriaCombina(prato, opcao.value, filtro)).length}` } : opcao;
   const marcar = (menu: DishMenu) =>
     opcoesDeCategoria(categorias, menu, atualId).map((opcao) => ({
       ...opcao,

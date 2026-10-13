@@ -276,7 +276,7 @@ export function FichasTecnicas() {
   );
   // Os chips seguem a categoria escolhida: "Todos 216" ao lado de "nenhum prato" parecia filtro quebrado.
   const pratosDosChips = useMemo(
-    () => (filtro.categoriaId ? pratosDoSeletor.filter((prato) => categoriaCombina(prato, filtro.categoriaId)) : pratosDoSeletor),
+    () => (filtro.categoriaId ? pratosDoSeletor.filter((prato) => categoriaCombina(prato, filtro.categoriaId, filtro.menu)) : pratosDoSeletor),
     [pratosDoSeletor, filtro.categoriaId]
   );
   const contagemDosChips = useMemo(() => contarPorSituacao(pratosDosChips, filtro.mostrarInativos), [pratosDosChips, filtro.mostrarInativos]);
