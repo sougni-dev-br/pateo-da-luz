@@ -2,7 +2,8 @@
 // e a evolução do custo por porção. A comparação é por produto — nome de ingrediente não é chave.
 
 import type { DishRevision, DishRevisionSnapshot } from "../api/client";
-import { caminhoDaCategoria, ROTULO_DO_CARDAPIO } from "./categoriasDasFichas";
+import type { DishMenu } from "../api/client";
+import { SEM_CATEGORIA, caminhoDaCategoria, rotuloDosCardapios } from "./categoriasDasFichas";
 import { formatarQuantidade } from "./fichaTecnica";
 
 type ItemDaVersao = DishRevisionSnapshot["items"][number];
@@ -40,7 +41,14 @@ export function descreverMudancas(anterior: DishRevisionSnapshot | null, atual: 
   const frases: string[] = [];
 
   if (anterior.name !== atual.name) frases.push(`Nome: “${anterior.name}” → “${atual.name}”`);
-  if (anterior.menu !== atual.menu) frases.push(`Cardápio: ${ROTULO_DO_CARDAPIO[anterior.menu]} → ${ROTULO_DO_CARDAPIO[atual.menu]}`);
+  const dosCardapios = (s: { menu: DishMenu; alsoMenu?: DishMenu | null }) => rotuloDosCardapios(s);
+  if (dosCardapios(anterior) !== dosCardapios(atual)) frases.push(`Vendido em: ${dosCardapios(anterior)} → ${dosCardapios(atual)}`);
+
+  const outraAntes = anterior.alsoCategory ? caminhoDaCategoria(anterior.alsoCategory) : null;
+  const outraDepois = atual.alsoCategory ? caminhoDaCategoria(atual.alsoCategory) : null;
+  if (outraAntes !== outraDepois && (outraAntes || outraDepois)) {
+    frases.push(`Categoria no outro cardápio: ${outraAntes ?? SEM_CATEGORIA} → ${outraDepois ?? SEM_CATEGORIA}`);
+  }
 
   const caminhoAntes = caminhoDaCategoria(anterior.category);
   const caminhoDepois = caminhoDaCategoria(atual.category);

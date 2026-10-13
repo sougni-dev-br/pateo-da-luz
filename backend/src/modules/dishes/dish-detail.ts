@@ -83,6 +83,7 @@ export async function carregarDetalhe(client: ClienteDoBanco, id: string) {
     where: { id },
     include: {
       category: { include: { parent: { select: { id: true, name: true } } } },
+      alsoCategory: { include: { parent: { select: { id: true, name: true } } } },
       listings: {
         include: { deliveryStore: { select: { nickname: true, platform: true } } },
         orderBy: [{ isActive: "desc" }, { price: "asc" }]
@@ -144,6 +145,8 @@ export async function carregarDetalhe(client: ClienteDoBanco, id: string) {
     name: dish.name,
     menu: dish.menu,
     category: categoriaResumida(dish.category),
+    alsoMenu: dish.alsoMenu,
+    alsoCategory: categoriaResumida(dish.alsoCategory),
     salePriceDefault: salePrice,
     yieldQty: Number(dish.yieldQty),
     yieldUnit: dish.yieldUnit,

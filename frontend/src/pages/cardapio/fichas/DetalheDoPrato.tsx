@@ -13,7 +13,7 @@ import {
   situacaoDaFicha
 } from "../../../lib/fichaTecnica";
 import { formatPercent } from "../../../utils/format";
-import { ROTULO_DO_CARDAPIO, caminhoDaCategoria } from "../../../lib/categoriasDasFichas";
+import { ROTULO_DO_CARDAPIO, caminhoDaCategoria, categoriaNoCardapio, menusDoPrato } from "../../../lib/categoriasDasFichas";
 import { HistoricoDaFicha } from "./HistoricoDaFicha";
 
 type Props = {
@@ -249,8 +249,12 @@ export function DetalheDoPrato({ prato, canEdit, onEditar, onCopiar, onAlternarA
         <div className="ft-detalhe-titulos">
           <h2 id="ft-detalhe-titulo" className="ft-detalhe-nome" tabIndex={-1}>{prato.name}</h2>
           <p className="ft-detalhe-meta">
-            <span className={`ft-etiqueta-cardapio${prato.menu === "DELIVERY" ? " ft-etiqueta-cardapio--delivery" : ""}`}>{ROTULO_DO_CARDAPIO[prato.menu]}</span>
-            <span>{caminhoDaCategoria(prato.category)}</span>
+            {menusDoPrato(prato).map((menu) => (
+              <span key={menu} className="ft-detalhe-cardapio">
+                <span className={`ft-etiqueta-cardapio${menu === "DELIVERY" ? " ft-etiqueta-cardapio--delivery" : ""}`}>{ROTULO_DO_CARDAPIO[menu]}</span>
+                <span>{caminhoDaCategoria(categoriaNoCardapio(prato, menu))}</span>
+              </span>
+            ))}
             {prato.code && <span>Código {prato.code}</span>}
             <span>Rende {formatarQuantidade(prato.yieldQty)} {prato.yieldUnit}</span>
             <span>Atualizado em {dataHora(prato.updatedAt)}</span>
