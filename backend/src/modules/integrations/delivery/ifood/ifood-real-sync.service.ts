@@ -177,7 +177,10 @@ async function syncStoreSettlements(store: { id: string; externalId: string; nic
 // parametro, e nao pelo retorno, porque runStep() exige Promise<number> — e o dia nao
 // gravado precisa chegar ao mesmo lugar que os outros erros do sync, nao a um console
 // que ninguem le.
-export async function reflectSalesIntoRevenueEntries(store: { id: string; companyId: string | null; nickname: string }, year: number, month: number, bloqueios: string[]): Promise<number> {
+// `vendasAtualizadas`: o sync do iFood APAGA as vendas do mes e recria a partir da API, entao um mes
+// "sem venda" so e verdade se esse passo terminou sem erro. Sem a confirmacao, mes vazio nao zera nada
+// (o vazio pode ser falha de busca, e zerar o faturamento do mes inteiro destruiria receita).
+export async function reflectSalesIntoRevenueEntries(store: { id: string; companyId: string | null; nickname: string }, year: number, month: number, bloqueios: string[], vendasAtualizadas = false): Promise<number> {
   if (!store.companyId) return 0;
   const sales = await prisma.ifoodSale.findMany({
     where: { deliveryStoreId: store.id, competenceYear: year, competenceMonth: month },
@@ -187,7 +190,7 @@ export async function reflectSalesIntoRevenueEntries(store: { id: string; compan
       promotionAmount: true
     }
   });
-  if (sales.length === 0) return 0;
+  if (sales.length === 0 && !vendasAtualizadas) return 0;
 
   const byDate = new Map<string, { gross: number; discounts: number; count: number; dateObj: Date }>();
   for (const sale of sales) {
@@ -503,13 +506,16 @@ export async function runRealSync(params: {
       }
     }
 
+    const errosAntesDasVendas = errors.length;
     await runStep("sales", () => syncStoreSales(store, params.year, params.month));
+    // Passo de vendas sem erro = o vazio (se houver) e resposta da API, nao falha de busca.
+    const vendasAtualizadas = errors.length === errosAntesDasVendas;
     await runStep("settlements", () => syncStoreSettlements(store, params.year, params.month));
     await runStep("fees", () => syncStoreFees(store, params.year, params.month));
     // Após vendas persistidas, reflete no faturamento oficial do ERP.
     // Não conta como "erro" se não fizer nada — depende de companyId estar setado.
     const bloqueios: string[] = [];
-    await runStep("revenueEntries", () => reflectSalesIntoRevenueEntries(store, params.year, params.month, bloqueios));
+    await runStep("revenueEntries", () => reflectSalesIntoRevenueEntries(store, params.year, params.month, bloqueios, vendasAtualizadas));
     if (bloqueios.length > 0) {
       errors.push(`${bloqueios.length} dia(s) nao gravado(s) por periodo fechado/mes travado: ${bloqueios.join(", ")}`);
     }
