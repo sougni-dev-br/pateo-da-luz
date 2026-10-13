@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 vi.mock("../../../../../config/database.js", () => ({
   prisma: {
     ifoodSale: { findMany: vi.fn() },
-    revenueEntry: { upsert: vi.fn(), updateMany: vi.fn() }
+    revenueEntry: { upsert: vi.fn(), findMany: vi.fn(), updateMany: vi.fn() }
   }
 }));
 vi.mock("../../../../cmv-real/cmv-real.service.js", () => ({ assertPeriodWritableForDate: vi.fn() }));
@@ -29,6 +29,7 @@ beforeEach(() => {
   travada.mockResolvedValue(undefined);
   db.ifoodSale.findMany.mockResolvedValue([venda("2026-08-19"), venda("2026-08-20")]);
   db.revenueEntry.upsert.mockResolvedValue({});
+  db.revenueEntry.findMany.mockResolvedValue([]);
   db.revenueEntry.updateMany.mockResolvedValue({ count: 0 });
 });
 
