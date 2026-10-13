@@ -119,7 +119,11 @@ function resumo(prato: PratoMock) {
   return {
     id: prato.id, code: prato.code ?? null, name: prato.name, menu: prato.menu ?? "CARDAPIO", category: nomeDaCategoria(prato), alsoMenu: prato.alsoMenu ?? null, alsoCategory: nomeDaCategoria(prato, prato.alsoCategory), salePriceDefault: prato.price ?? null,
     yieldQty: prato.yieldQty ?? 1, yieldUnit: prato.yieldUnit ?? "UN", notes: prato.notes ?? null, isActive: prato.active !== false,
-    itemsCount: conta.itens.length, listingsCount: precos.length,
+    itemsCount: conta.itens.length, listingsCount: precos.length + (prato.id === "d-camarao-alho" ? 1 : 0),
+    canais: [
+      ...(prato.listings ?? []).map(([loja, preco], indice) => ({ channel: "NOVENTA_NOVE", deliveryStoreId: `mock-99-${indice}`, storeName: loja, price: preco })),
+      ...(prato.id === "d-camarao-alho" ? [{ channel: "IFOOD", deliveryStoreId: "mock-ifood-1", storeName: "Pateo da Luz", price: 39.9 }] : [])
+    ],
     listingPriceMin: precos.length ? Math.min(...precos) : null, listingPriceMax: precos.length ? Math.max(...precos) : null,
     calculatedCost: conta.custoTotal, custoPorcao: conta.custoPorcao, margemBruta: conta.margem, cmvPercentual: conta.cmv,
     custoIncompleto: conta.incompleto, createdAt: "2026-09-18T12:00:00.000Z", updatedAt: "2026-10-07T15:30:00.000Z"
