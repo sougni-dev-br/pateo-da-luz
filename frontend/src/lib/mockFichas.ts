@@ -196,6 +196,15 @@ export function mockFichas(url: string, method = "GET"): unknown | undefined {
   if (resto.endsWith("/revisions")) return revisoesDe(resto.split("/")[0]);
   if (resto === "") return PRATOS.map(resumo);
   if (resto === "categories") return CATEGORIAS;
+  if (resto === "net-ratios") {
+    return {
+      channel: "NOVENTA_NOVE", dias: 60, plataforma: { razao: 0.46, pedidos: 2416 },
+      lojas: [
+        { deliveryStoreId: "mock-99-0", storeName: "Pateo Frei Caneca", razao: 0.53, pedidos: 901, base: "loja" },
+        { deliveryStoreId: "mock-99-1", storeName: "Pateo da Luz & Pizza", razao: 0.39, pedidos: 1163, base: "loja" }
+      ]
+    };
+  }
   if (resto === "delivery-stores") {
     return [
       { id: "mock-ifood-1", platform: "IFOOD", nickname: "Pateo da Luz" },

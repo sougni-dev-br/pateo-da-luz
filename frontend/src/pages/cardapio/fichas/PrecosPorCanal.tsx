@@ -4,6 +4,7 @@ import {
   createDishListing,
   deleteDishListing,
   getDishDeliveryStores,
+  getDishNetRatios,
   updateDishListing,
   type DishDeliveryStore,
   type DishDetail,
@@ -54,6 +55,26 @@ export function PrecosPorCanal({ prato, canEdit, onEditarPrato, onMudou, notific
 
   const [dialogo, setDialogo] = useState<{ listagem: DishListing | null } | null>(null);
   const [removendo, setRemovendo] = useState<string | null>(null);
+  const [razoes, setRazoes] = useState<Map<string, number>>(new Map());
+
+  // Quanto do preço de tabela da 99 chega ao caixa em cada loja; se não vier, a coluna do líquido some.
+  useEffect(() => {
+    let vivo = true;
+    getDishNetRatios()
+      .then((resposta) => {
+        if (!vivo) return;
+        setRazoes(new Map(resposta.lojas.filter((loja) => loja.razao != null).map((loja) => [loja.deliveryStoreId, loja.razao as number])));
+      })
+      .catch(() => { if (vivo) setRazoes(new Map()); });
+    return () => { vivo = false; };
+  }, [prato.id]);
+
+  // Líquido estimado só para a loja da 99 com razão medida; o resto (iFood, Keeta) não tem esse dado ainda.
+  const liquidoDa = (listagem: DishListing): number | null => {
+    const razao = listagem.deliveryStoreId ? razoes.get(listagem.deliveryStoreId) : undefined;
+    return razao != null && listagem.channel === "NOVENTA_NOVE" ? listagem.price * razao : null;
+  };
+  const comLiquido = listagens.some((listagem) => liquidoDa(listagem) != null);
 
   if (!vendeNoDelivery && listagens.length === 0) return null;
 
@@ -81,6 +102,8 @@ export function PrecosPorCanal({ prato, canEdit, onEditarPrato, onMudou, notific
               <th scope="col">Loja</th>
               <th scope="col" className="ft-num">Preço</th>
               <th scope="col" className="ft-num">CMV</th>
+              {comLiquido && <th scope="col" className="ft-num" title="O que chega ao caixa na 99: tabela × a média da loja nos pedidos recentes">Líquido (99)</th>}
+              {comLiquido && <th scope="col" className="ft-num">CMV sobre o líquido</th>}
               {podeEditar && <th scope="col"><span className="ft-so-leitor">Ações</span></th>}
             </tr>
           </thead>
@@ -93,6 +116,8 @@ export function PrecosPorCanal({ prato, canEdit, onEditarPrato, onMudou, notific
                   {prato.salePriceDefault != null ? <Money value={prato.salePriceDefault} /> : "—"}
                 </td>
                 <td className="ft-num" data-rotulo="CMV"><CmvDoPreco custo={custo} preco={prato.salePriceDefault} /></td>
+                {comLiquido && <td className="ft-num" data-rotulo="Líquido (99)">—</td>}
+                {comLiquido && <td className="ft-num" data-rotulo="CMV sobre o líquido">—</td>}
                 {podeEditar && (
                   <td className="ft-acoes-linha">
                     <button type="button" className="ft-link" onClick={onEditarPrato}>
@@ -111,6 +136,14 @@ export function PrecosPorCanal({ prato, canEdit, onEditarPrato, onMudou, notific
                 </td>
                 <td className="ft-num" data-rotulo="Preço"><Money value={listagem.price} /></td>
                 <td className="ft-num" data-rotulo="CMV"><CmvDoPreco custo={custo} preco={listagem.price} /></td>
+                {comLiquido && (
+                  <td className="ft-num" data-rotulo="Líquido (99)">
+                    {liquidoDa(listagem) != null ? <Money value={liquidoDa(listagem) as number} /> : "—"}
+                  </td>
+                )}
+                {comLiquido && (
+                  <td className="ft-num" data-rotulo="CMV sobre o líquido"><CmvDoPreco custo={custo} preco={liquidoDa(listagem)} /></td>
+                )}
                 {podeEditar && (
                   <td className="ft-acoes-linha">
                     {listagem.manual ? (
@@ -134,7 +167,7 @@ export function PrecosPorCanal({ prato, canEdit, onEditarPrato, onMudou, notific
             ))}
             {listagens.length === 0 && (
               <tr>
-                <td colSpan={podeEditar ? 5 : 4} className="ft-nota">Nenhuma loja do delivery tem preço para este prato ainda.</td>
+                <td colSpan={5 + (comLiquido ? 2 : 0)} className="ft-nota">Nenhuma loja do delivery tem preço para este prato ainda.</td>
               </tr>
             )}
           </tbody>
@@ -148,8 +181,9 @@ export function PrecosPorCanal({ prato, canEdit, onEditarPrato, onMudou, notific
         </div>
       )}
       <p className="ft-nota">
-        O CMV é o custo da ficha sobre o preço de tabela de cada linha. Nas plataformas o desconto costuma ser bancado em boa
-        parte pela loja, então o líquido que entra fica abaixo da tabela e o CMV real é maior. Cada loja pode ter o seu preço.
+        O CMV é o custo da ficha sobre o preço de cada linha. Na 99 o líquido é o que chega ao caixa depois do desconto bancado pela
+        loja, da comissão e do frete grátis (média da loja nos pedidos recentes); iFood e Keeta ainda são só sobre a tabela.
+        Cada loja pode ter o seu preço.
       </p>
 
       {dialogo && (
