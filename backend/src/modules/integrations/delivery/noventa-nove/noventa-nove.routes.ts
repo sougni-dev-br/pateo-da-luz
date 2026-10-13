@@ -20,7 +20,7 @@ import {
 import { fetchAuthorizationPageUrl, testNoventaNoveConnection } from "./noventa-nove-http-client.js";
 import { seedTestMenu } from "./noventa-nove-test-menu.service.js";
 import { importarCardapios } from "./noventa-nove-menu.service.js";
-import { handleWebhook, type WebhookEnvelope } from "./noventa-nove-webhook.service.js";
+import { textoSeguro, handleWebhook, type WebhookEnvelope } from "./noventa-nove-webhook.service.js";
 import { getPainelDono } from "./noventa-nove-insights.service.js";
 
 // Router protegido — usado por telas do ERP com sessão de usuário.
@@ -251,14 +251,16 @@ noventaNovePublicRouter.post("/webhook", async (request, response) => {
     const rawHeader = request.headers["didi-header-sign"];
     const headerSign = Array.isArray(rawHeader) ? rawHeader[0] : (rawHeader ?? null);
     const result = await handleWebhook(envelope, rawBody, headerSign ?? null);
+    // O motivo fica no log do servidor. A resposta e publica (quem chama pode ser qualquer um) e nao
+    // pode carregar detalhe interno: antes ia o motivo da rejeicao, o id da venda e, no erro, a
+    // mensagem crua da excecao.
+    const evento = textoSeguro(result.event, 60);
+    if (!result.handled) console.warn(`[99Food webhook] nao tratado: ${evento} — ${textoSeguro(result.reason, 200)}`);
     // Sempre 200 pra 99 não reentregar em loop; handled=false quando algo
     // interno falhou, mas registramos no log e no NoventaNoveSyncLog.
-    response.status(200).json({ status: "ok", ...result });
+    response.status(200).json({ status: "ok", event: evento, handled: result.handled });
   } catch (error: unknown) {
     console.error("[99Food webhook] unhandled error", error);
-    response.status(200).json({
-      status: "error",
-      message: error instanceof Error ? error.message : "unknown"
-    });
+    response.status(200).json({ status: "error" });
   }
 });
