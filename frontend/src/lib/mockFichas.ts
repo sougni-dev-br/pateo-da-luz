@@ -17,7 +17,7 @@ const lidoDoNome = (kg: number): DishUnitConversion[] => [
 ];
 type ItemMock = [produto: string, quantidade: number, unidade: string, perda?: number];
 type PratoMock = {
-  id: string; name: string; code?: string; category?: string; menu?: "CARDAPIO" | "DELIVERY"; price?: number | null; yieldQty?: number; yieldUnit?: string;
+  id: string; name: string; code?: string; category?: string; menu?: "CARDAPIO" | "DELIVERY"; alsoMenu?: "CARDAPIO" | "DELIVERY"; alsoCategory?: string; price?: number | null; yieldQty?: number; yieldUnit?: string;
   notes?: string; active?: boolean; items?: ItemMock[]; listings?: Array<[loja: string, preco: number]>;
 };
 
@@ -42,7 +42,7 @@ const PRATOS: PratoMock[] = [
     listings: [[LOJAS[0], 79.9], [LOJAS[1], 74.9]] },
   { id: "d-frango", name: "Frango grelhado com arroz e purê", code: "PRAT-002", category: "A la carte", price: 59.9, items: [["p-frango", 220, "G", 0.1], ["p-batata", 180, "G", 0.15]],
     listings: [[LOJAS[0], 59.9], [LOJAS[1], 84.9]] },
-  { id: "d-camarao-alho", menu: "DELIVERY", name: "Camarão ao alho (porção)", category: "Pratos executivos", price: 34.9, items: [["p-camarao", 400, "G", 0.03]] },
+  { id: "d-camarao-alho", menu: "DELIVERY", alsoMenu: "CARDAPIO", alsoCategory: "A la carte", name: "Camarão ao alho (porção)", category: "Pratos executivos", price: 34.9, items: [["p-camarao", 400, "G", 0.03]] },
   { id: "d-funghi", name: "Risoto de funghi", category: "Risotos", price: 69.9, yieldQty: 2, yieldUnit: "PORÇÃO", items: [["p-arroz", 240, "G"], ["p-parmesao", 40, "G"], ["p-sem-custo", 1, "UN"]] },
   { id: "d-pao", name: "Pão da casa (fornada)", category: "Buffet", price: null, yieldQty: 20, yieldUnit: "UN", items: [["p-farinha", 1, "KG"], ["p-azeite", 50, "ML"]] },
   { id: "d-antigo", name: "Prato antigo desativado", category: "A la carte", price: 45, active: false, items: [["p-cebola", 100, "G"]] },
@@ -72,7 +72,7 @@ const idDaCategoria = (nome?: string) => (nome ? `c-${nome.toLowerCase().replace
 const CATEGORIAS = CATEGORIAS_MOCK.map((categoria) => ({
   id: idDaCategoria(categoria.nome)!, name: categoria.nome, sortOrder: categoria.ordem, isActive: true, notes: null as string | null,
   parentId: idDaCategoria(categoria.pai) ?? null, menu: categoria.menu,
-  dishesCount: PRATOS.filter((prato) => prato.category === categoria.nome && prato.active !== false).length
+  dishesCount: PRATOS.filter((prato) => (prato.category === categoria.nome || prato.alsoCategory === categoria.nome) && prato.active !== false).length
 }));
 
 const produtoPorId = (id: string) => PRODUTOS.find((produto) => produto.id === id)!;
@@ -107,9 +107,9 @@ function calcular(prato: PratoMock) {
   };
 }
 
-function nomeDaCategoria(prato: PratoMock) {
-  if (!prato.category) return null;
-  const categoria = CATEGORIAS_MOCK.find((candidata) => candidata.nome === prato.category)!;
+function nomeDaCategoria(prato: PratoMock, nome = prato.category) {
+  if (!nome) return null;
+  const categoria = CATEGORIAS_MOCK.find((candidata) => candidata.nome === nome)!;
   return { id: idDaCategoria(categoria.nome)!, name: categoria.nome, parentId: idDaCategoria(categoria.pai) ?? null, parentName: categoria.pai ?? null, menu: categoria.menu };
 }
 
@@ -117,7 +117,7 @@ function resumo(prato: PratoMock) {
   const conta = calcular(prato);
   const precos = (prato.listings ?? []).map(([, preco]) => preco);
   return {
-    id: prato.id, code: prato.code ?? null, name: prato.name, menu: prato.menu ?? "CARDAPIO", category: nomeDaCategoria(prato), salePriceDefault: prato.price ?? null,
+    id: prato.id, code: prato.code ?? null, name: prato.name, menu: prato.menu ?? "CARDAPIO", category: nomeDaCategoria(prato), alsoMenu: prato.alsoMenu ?? null, alsoCategory: nomeDaCategoria(prato, prato.alsoCategory), salePriceDefault: prato.price ?? null,
     yieldQty: prato.yieldQty ?? 1, yieldUnit: prato.yieldUnit ?? "UN", notes: prato.notes ?? null, isActive: prato.active !== false,
     itemsCount: conta.itens.length, listingsCount: precos.length,
     listingPriceMin: precos.length ? Math.min(...precos) : null, listingPriceMax: precos.length ? Math.max(...precos) : null,

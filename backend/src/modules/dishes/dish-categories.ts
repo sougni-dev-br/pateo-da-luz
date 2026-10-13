@@ -44,9 +44,10 @@ export function registrarRotasDeCategoria(router: Router) {
   router.get("/categories", async (_request, response) => {
     const rows = await prisma.dishCategory.findMany({
       orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-      include: { _count: { select: { dishes: { where: { isActive: true } } } } }
+      include: { _count: { select: { dishes: { where: { isActive: true } }, alsoDishes: { where: { isActive: true } } } } }
     });
-    response.json(rows.map(({ _count, ...category }) => ({ ...category, dishesCount: _count.dishes })));
+    // Prato vendido nos dois cardápios conta nas categorias dos dois.
+    response.json(rows.map(({ _count, ...category }) => ({ ...category, dishesCount: _count.dishes + _count.alsoDishes })));
   });
 
   async function gravar(
@@ -90,8 +91,15 @@ export function registrarRotasDeCategoria(router: Router) {
 
     // Trocar o cardápio de uma categoria arrasta as subcategorias; se ela já tem prato do outro cardápio, não dá.
     if (id && atual && atual.menu !== resolvida.menu) {
+      const emCategoria = { OR: [{ id }, { parentId: id }] };
       const doOutroCardapio = await prisma.dish.count({
-        where: { isActive: true, menu: { not: resolvida.menu }, category: { OR: [{ id }, { parentId: id }] } }
+        where: {
+          isActive: true,
+          OR: [
+            { menu: { not: resolvida.menu }, category: emCategoria },
+            { alsoMenu: { not: resolvida.menu }, alsoCategory: emCategoria }
+          ]
+        }
       });
       if (doOutroCardapio > 0) {
         response.status(409).json({
