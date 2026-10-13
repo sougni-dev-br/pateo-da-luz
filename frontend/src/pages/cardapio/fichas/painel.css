@@ -206,3 +206,41 @@
   .ft-arvore .ft-linha-filha th { padding-left: 0; }
 }
 .ft-p-rodape-cartao { display: flex; justify-content: flex-start; padding-top: 4px; }
+
+/* ════════ CMV por canal (prato × salão, plataforma e loja) ════════ */
+.ft-cmv { display: grid; gap: 16px; min-width: 0; }
+
+.ft-cmv-resumos { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 0; padding: 0; list-style: none; }
+.ft-cmv-resumo {
+  display: grid; gap: 2px; align-content: start; min-width: 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius-md);
+  background: var(--paper); box-shadow: var(--shadow-soft);
+}
+.ft-cmv-resumo-rotulo { color: var(--muted); font-size: var(--fs-xs); font-weight: var(--fw-semibold); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ft-cmv-resumo-valor { font-size: var(--fs-xl); font-weight: var(--fw-bold); color: var(--ink); letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+.ft-cmv-resumo-valor--success { color: var(--success); }
+.ft-cmv-resumo-valor--warning { color: var(--warning); }
+.ft-cmv-resumo-valor--danger { color: var(--danger); }
+.ft-cmv-resumo-valor--vazio { color: var(--muted); }
+.ft-cmv-resumo-nota { color: var(--muted); font-size: var(--fs-2xs); }
+
+.ft-cmv-controles { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; }
+.ft-cmv-busca { flex: 1 1 220px; min-width: 180px; }
+
+.ft-cmv-rolagem { overflow: auto; max-height: 70vh; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--paper); }
+.ft-cmv-tabela { width: 100%; border-collapse: separate; border-spacing: 0; font-size: var(--fs-sm); }
+.ft-cmv-tabela th, .ft-cmv-tabela td { padding: 8px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
+.ft-cmv-tabela thead th { position: sticky; top: 0; z-index: 2; background: var(--paper-soft); color: var(--muted); font-size: var(--fs-xs); font-weight: var(--fw-semibold); white-space: nowrap; }
+.ft-cmv-tabela tbody tr:last-child th, .ft-cmv-tabela tbody tr:last-child td { border-bottom: 0; }
+.ft-cmv-tabela .ft-cmv-prato { position: sticky; left: 0; z-index: 1; min-width: 190px; max-width: 280px; background: var(--paper); font-weight: var(--fw-medium); }
+.ft-cmv-tabela thead .ft-cmv-prato { z-index: 3; background: var(--paper-soft); }
+.ft-cmv-tabela .ft-cmv-lugar { min-width: 112px; text-align: center; white-space: nowrap; }
+.ft-cmv-tabela tbody tr:hover th, .ft-cmv-tabela tbody tr:hover td { background: var(--paper-soft); }
+
+.ft-cmv-abrir { display: block; max-width: 100%; padding: 0; border: 0; background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; }
+.ft-cmv-abrir:hover { text-decoration: underline; }
+.ft-cmv-abrir:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--radius-sm); }
+
+.ft-cmv-celula { display: inline-grid; justify-items: center; gap: 2px; }
+.ft-cmv-preco { color: var(--muted); font-size: var(--fs-2xs); font-variant-numeric: tabular-nums; }
+.ft-cmv-vazio { color: var(--muted); font-size: var(--fs-xs); }
+.ft-cmv-vazio--incompleta, .ft-cmv-vazio--sem-preco { color: var(--warning); }

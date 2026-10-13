@@ -4117,6 +4117,8 @@ export type DishListItem = {
   itemsCount: number;
   /** Quantas listagens ativas o prato tem nos canais (hoje, o cardapio da 99). */
   listingsCount: number;
+  /** O preço em cada loja (listagens ativas): base do CMV por canal. */
+  canais?: Array<{ channel: string; deliveryStoreId: string | null; storeName: string | null; price: number }>;
   listingPriceMin: number | null;
   listingPriceMax: number | null;
   /** Custo do rendimento inteiro. */
