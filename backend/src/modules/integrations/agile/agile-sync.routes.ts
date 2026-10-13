@@ -26,9 +26,11 @@ agileIntegrationRouter.post("/sync", requireAgileToken, async (request, response
     const report = await importAgileSync(parsed.data);
     response.json(report);
   } catch (error: unknown) {
+    // O detalhe (host e porta do banco, por exemplo) fica no log do servidor. O agente so
+    // precisa saber que deve tentar de novo: 5xx e retentavel, e o proximo sync cobre os
+    // ultimos 5 dias.
     console.error("Falha ao importar sync do Agile PDV", error);
-    const message = error instanceof Error ? error.message : "Erro interno na sincronização.";
-    response.status(500).json({ message });
+    response.status(500).json({ message: "Erro interno na sincronização. Tente novamente." });
   }
 });
 
