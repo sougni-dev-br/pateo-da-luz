@@ -1168,6 +1168,7 @@ export type PurchaseDetail = Omit<Purchase, "items"> & {
   creditCardName?: string | null;
   creditCardBankName?: string | null;
   creditCardLast4Digits?: string | null;
+  reimbursementPayeeName?: string | null;
   sourceFile?: string | null;
   importBatchId?: string | null;
   rawRow?: unknown;
