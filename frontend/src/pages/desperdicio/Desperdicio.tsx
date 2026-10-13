@@ -161,8 +161,6 @@ export function Desperdicio() {
 
       {podeLancar && <FormularioDeDesperdicio onSalvar={registrar} />}
 
-      {podeConfigurar && <ConfiguracaoDoAlerta onMensagem={(tom, message) => setNotice({ tone: tom, message })} />}
-
       <section className="waste-report" aria-labelledby="waste-periodo-titulo" aria-busy={carregando}>
         <h2 id="waste-periodo-titulo">Desperdício no período</h2>
         <div className="waste-filters">
@@ -203,6 +201,9 @@ export function Desperdicio() {
           </>
         )}
       </section>
+
+      {/* Configuração é de uso raro: fica depois do relatório, que é o que o admin abre a tela para ler. */}
+      {podeConfigurar && <ConfiguracaoDoAlerta />}
 
       {vendoFoto && <VisualizadorDeFoto lancamentoId={vendoFoto.id} titulo={`${vendoFoto.productName} · ${vendoFoto.reasonLabel}`} onFechar={() => setVendoFoto(null)} />}
 
