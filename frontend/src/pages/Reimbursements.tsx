@@ -1,5 +1,5 @@
-import { CheckCheck, Eye, Lock, RotateCcw } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { CheckCheck, Eye, Lock, RefreshCw, RotateCcw } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   checkAllReimbursementItems,
@@ -65,8 +65,9 @@ export function Reimbursements() {
   const [busy, setBusy] = useState(false);
   const [closeForm, setCloseForm] = useState<{ paymentMethodId: string; dueDate: string; notes: string } | null>(null);
 
-  async function loadList() {
-    setLoading(true);
+  // silencioso: ao voltar para a aba, recarrega sem trocar a lista pelo "Carregando…".
+  async function loadList(silencioso = false) {
+    if (!silencioso) setLoading(true);
     try {
       setRows(await getReimbursements(statusFilter || undefined));
     } catch (error) {
@@ -77,6 +78,26 @@ export function Reimbursements() {
   }
 
   useEffect(() => { void loadList(); }, [statusFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Uma compra editada em outra aba muda o valor do reembolso no servidor na hora, mas
+  // esta tela só buscava ao abrir: quem voltava para ela via o valor antigo. Ao voltar
+  // para a aba, recarrega a lista e o reembolso aberto (se não estiver no meio de fechar).
+  const recarregarRef = useRef<() => void>(() => undefined);
+  recarregarRef.current = () => {
+    void loadList(true);
+    if (detail && !busy && !closeForm) {
+      getReimbursement(detail.id).then(setDetail).catch(() => undefined);
+    }
+  };
+  useEffect(() => {
+    const aoVoltar = () => { if (document.visibilityState === "visible") recarregarRef.current(); };
+    window.addEventListener("focus", aoVoltar);
+    document.addEventListener("visibilitychange", aoVoltar);
+    return () => {
+      window.removeEventListener("focus", aoVoltar);
+      document.removeEventListener("visibilitychange", aoVoltar);
+    };
+  }, []);
   useEffect(() => {
     getPaymentMethods()
       .then((methods) => setPaymentMethods(methods.filter((method) => method.isActive && !naoPagaPessoa(method))))
@@ -154,6 +175,9 @@ export function Reimbursements() {
           ]}
           containerClassName="cycles-filter-select"
         />
+        <Button variant="secondary" leadingIcon={<RefreshCw size={14} />} disabled={loading} onClick={() => recarregarRef.current()}>
+          Atualizar
+        </Button>
         {!loading && rows.length > 0 && (
           <span style={{ fontSize: 13, color: "var(--ink-soft)" }}>
             Em aberto <strong><Money value={totals.aberto} /></strong> · Fechado a pagar <strong><Money value={totals.aPagar} /></strong>
