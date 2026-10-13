@@ -335,8 +335,12 @@ export function FormularioDoPrato({ modo, base, categorias, menuPadrao, onCancel
             );
           })}
           <FormField
-            label="Preço de venda (R$)"
-            hint="Por porção. Em branco, a ficha não calcula margem nem CMV."
+            label={campos.menu === "DELIVERY" && !campos.alsoMenu ? "Preço base (R$)" : "Preço no salão (R$)"}
+            hint={campos.menu === "DELIVERY" && !campos.alsoMenu
+              ? "Por porção. O delivery tem preço por loja: depois de salvar, lance cada um na ficha do prato."
+              : campos.alsoMenu
+                ? "Preço do salão, por porção. O preço de cada loja do delivery é lançado na ficha do prato, depois de salvar."
+                : "Por porção. Em branco, a ficha não calcula margem nem CMV."}
             error={mostrarErros.salePriceDefault}
           >
             <TextField
