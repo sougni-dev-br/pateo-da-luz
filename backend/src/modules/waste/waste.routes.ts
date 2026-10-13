@@ -6,10 +6,12 @@ import { auditLog, getSessionUser, requestIp } from "../security/security-utils.
 import { userHasPermission } from "../security/menu-permissions.js";
 import { todayInSaoPaulo } from "../buffet-plates/buffet-prints.routes.js";
 import { escolherCusto, type CandidatosDoCusto } from "../inventory/custo-inventario.js";
+import { conversoesDoProduto, embalagemDoNome, normalizarUnidade, type ConversaoDoProduto, type UnitConversion } from "../../shared/unidades/conversao.js";
 import {
   SETOR_PRATO_PRONTO,
   WASTE_REASONS,
   calcularValor,
+  converterQuantidade,
   resumirDesperdicio,
   rotuloDoMotivo,
   somarDias,
@@ -123,6 +125,9 @@ function serializar(entrada: EntradaDaLista, setores: Map<string, string>, comCu
     productCode: entrada.product?.externalCode ?? entrada.dish?.code ?? null,
     quantity: Number(entrada.quantity),
     unit: entrada.unit,
+    // O que foi digitado, quando diferente da unidade do estoque (500 G para 0,1 UN).
+    enteredQuantity: entrada.enteredQuantity == null ? null : Number(entrada.enteredQuantity),
+    enteredUnit: entrada.enteredUnit,
     reason: entrada.reason,
     reasonLabel: rotuloDoMotivo(entrada.reason),
     occurredOn: diaDe(entrada.occurredOn),
@@ -142,18 +147,53 @@ function serializar(entrada: EntradaDaLista, setores: Map<string, string>, comCu
 }
 
 
-type ItemDoLancamento = { unit: string | null; sectorId: string | null; unitCost: number | null; costSource: string | null };
+/** O que a conversão precisa de um insumo: nome (a embalagem pode estar nele), unidade e as conversões cadastradas. */
+const SELECT_DE_UNIDADES = {
+  name: true,
+  unit: true,
+  unitMeasure: { select: { code: true } },
+  conversions: { where: { isActive: true }, select: { fromUnit: true, toUnit: true, factor: true } },
+} as const;
+
+type ProdutoComUnidades = {
+  name: string;
+  unit: string | null;
+  unitMeasure: { code: string } | null;
+  conversions: Array<{ fromUnit: string; toUnit: string; factor: Prisma.Decimal | number }>;
+};
+
+/** A unidade em que o desperdício é guardado, contado na conferência e valorado: a mesma nos três. */
+const unidadeDoInsumo = (p: Pick<ProdutoComUnidades, "unit" | "unitMeasure">) => p.unitMeasure?.code ?? p.unit;
+
+/**
+ * As conversões que valem na ficha técnica (cadastradas no produto + o peso lido do nome, "ARROZ 5KG"),
+ * para o desperdício aceitar g, ml, kg e l e converter para a unidade do estoque.
+ */
+function conversoesDoInsumo(p: ProdutoComUnidades): ConversaoDoProduto[] {
+  const cadastradas = p.conversions.map((c) => ({ fromUnit: c.fromUnit, toUnit: c.toUnit, factor: Number(c.factor) }));
+  return conversoesDoProduto(p.name, unidadeDoInsumo(p), cadastradas);
+}
+
+function textoDaEmbalagem(p: ProdutoComUnidades, conversoes: ConversaoDoProduto[]): string | null {
+  if (!conversoes.some((c) => c.inferida)) return null;
+  const embalagem = embalagemDoNome(p.name);
+  const base = normalizarUnidade(unidadeDoInsumo(p));
+  return embalagem ? `1 ${base} = ${embalagem.quantidade.toLocaleString("pt-BR")} ${embalagem.unidade} (lido do nome do produto)` : null;
+}
+
+type ItemDoLancamento = { unit: string | null; sectorId: string | null; unitCost: number | null; costSource: string | null; conversions: UnitConversion[] };
 
 async function itemDoInsumo(productId: string, dia: string): Promise<ItemDoLancamento | { erro: string }> {
   const produto = await prisma.product.findUnique({
     where: { id: productId },
-    select: { id: true, isActive: true, unit: true, unitMeasure: { select: { code: true } }, inventorySectorId: true },
+    select: { id: true, isActive: true, inventorySectorId: true, ...SELECT_DE_UNIDADES },
   });
   if (!produto || !produto.isActive) return { erro: "Produto não encontrado ou inativo." };
-  const unidade = produto.unitMeasure?.code ?? produto.unit;
+  const unidade = unidadeDoInsumo(produto);
   const custo = await custoDoProduto(productId, dia, unidade);
   return {
     unit: unidade,
+    conversions: conversoesDoInsumo(produto),
     sectorId: produto.inventorySectorId,
     unitCost: custo?.valor ?? null,
     costSource: custo ? (custo.detalhe ? `${custo.fonte}: ${custo.detalhe}` : custo.fonte) : null,
@@ -171,6 +211,8 @@ async function itemDoPrato(dishId: string): Promise<ItemDoLancamento | { erro: s
   const custoCompleto = !prato.custoIncompleto && prato.custoPorcao > 0;
   return {
     unit: prato.yieldUnit,
+    // Prato converte só por física (g↔kg, ml↔l): o rendimento da ficha já está em uma dessas ou em porção.
+    conversions: [],
     sectorId: null,
     unitCost: custoCompleto ? prato.custoPorcao : null,
     costSource: custoCompleto ? "FICHA_TECNICA" : null,
@@ -191,7 +233,7 @@ wasteRouter.get("/dishes", async (request, response) => {
     orderBy: { name: "asc" },
     take: MAX_PRODUTOS_NA_BUSCA,
   });
-  response.json(pratos.map((p) => ({ id: p.id, name: p.name, code: p.code, unit: p.yieldUnit, sectorName: p.category?.name ?? SETOR_PRATO_PRONTO })));
+  response.json(pratos.map((p) => ({ id: p.id, name: p.name, code: p.code, unit: p.yieldUnit, sectorName: p.category?.name ?? SETOR_PRATO_PRONTO, conversions: [], embalagemInferida: null })));
 });
 
 // Busca de produto para o lançamento rápido: não exige acesso ao módulo Produtos.
@@ -207,17 +249,23 @@ wasteRouter.get("/products", async (request, response) => {
       isActive: true,
       OR: [{ name: { contains: search, mode: "insensitive" } }, { externalCode: { contains: search, mode: "insensitive" } }],
     },
-    select: { id: true, name: true, externalCode: true, unit: true, unitMeasure: { select: { code: true } }, inventorySector: { select: { name: true } } },
+    select: { id: true, externalCode: true, inventorySector: { select: { name: true } }, ...SELECT_DE_UNIDADES },
     orderBy: { name: "asc" },
     take: MAX_PRODUTOS_NA_BUSCA,
   });
-  response.json(produtos.map((p) => ({
-    id: p.id,
-    name: p.name,
-    code: p.externalCode,
-    unit: p.unitMeasure?.code ?? p.unit,
-    sectorName: p.inventorySector?.name ?? null,
-  })));
+  response.json(produtos.map((p) => {
+    const conversoes = conversoesDoInsumo(p);
+    return {
+      id: p.id,
+      name: p.name,
+      code: p.externalCode,
+      unit: unidadeDoInsumo(p),
+      sectorName: p.inventorySector?.name ?? null,
+      // As mesmas conversões da ficha técnica: a tela oferece só as unidades que convertem.
+      conversions: conversoes,
+      embalagemInferida: textoDaEmbalagem(p, conversoes),
+    };
+  }));
 });
 
 wasteRouter.post("/", async (request, response) => {
@@ -226,11 +274,18 @@ wasteRouter.post("/", async (request, response) => {
 
   const validado = validarLancamento(request.body ?? {}, todayInSaoPaulo());
   if (!validado.ok) return void response.status(400).json({ message: validado.erro });
-  const { productId, dishId, quantity, reason, occurredOn, notes } = validado.valor;
+  const { productId, dishId, quantity: digitada, unit: unidadeDigitada, reason, occurredOn, notes } = validado.valor;
 
   // O custo é do servidor: o cliente não manda valor, e quem lança pode nem ter permissão de ver custo.
   const item = dishId ? await itemDoPrato(dishId) : await itemDoInsumo(productId!, occurredOn);
   if ("erro" in item) return void response.status(404).json({ message: item.erro });
+
+  // A pessoa digita em g, ml, kg...; o servidor guarda na unidade do estoque (a da conferência e do custo),
+  // com a mesma regra da ficha técnica, e mantém o que foi digitado para mostrar e auditar.
+  const conversao = converterQuantidade(digitada, unidadeDigitada, item.unit, item.conversions);
+  if (!conversao.ok) return void response.status(400).json({ message: conversao.erro });
+  const quantity = conversao.quantidade;
+  const informouOutraUnidade = unidadeDigitada != null && normalizarUnidade(unidadeDigitada) !== normalizarUnidade(item.unit);
   const id = crypto.randomUUID();
 
   // O que a resposta precisa e pode falhar sai ANTES de gravar: erro depois do create faria a pessoa
@@ -244,6 +299,8 @@ wasteRouter.post("/", async (request, response) => {
       dishId,
       quantity,
       unit: item.unit,
+      enteredQuantity: informouOutraUnidade ? digitada : null,
+      enteredUnit: informouOutraUnidade ? unidadeDigitada : null,
       reason,
       occurredOn: dateOnly(occurredOn),
       sectorId: item.sectorId,
@@ -259,7 +316,7 @@ wasteRouter.post("/", async (request, response) => {
   // A auditoria é rastro, não condição do registro: se ela falhar, o lançamento (já gravado) é entregue
   // e a falha vai para o log, em vez de um 500 que convida a lançar de novo.
   try {
-    await auditLog({ userId: user.id, action: "CREATE_WASTE_ENTRY", entity: "WasteEntry", entityId: id, newValue: { productId, dishId, quantity, reason, occurredOn, notes }, ...auditMeta(request) });
+    await auditLog({ userId: user.id, action: "CREATE_WASTE_ENTRY", entity: "WasteEntry", entityId: id, newValue: { productId, dishId, quantity, unit: item.unit, enteredQuantity: informouOutraUnidade ? digitada : null, enteredUnit: informouOutraUnidade ? unidadeDigitada : null, reason, occurredOn, notes }, ...auditMeta(request) });
   } catch (falha) {
     console.error("[desperdicio] auditoria do lançamento falhou:", falha instanceof Error ? falha.message : falha);
   }
