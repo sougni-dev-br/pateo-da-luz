@@ -30,18 +30,29 @@ const SO_DELIVERY = prato({ id: "p", name: "Pizza", menu: "DELIVERY", salePriceD
 const SEM_FICHA = prato({ id: "s", name: "Pudim", itemsCount: 0, custoPorcao: 0, cmvPercentual: 0 });
 
 describe("colunas do CMV por canal", () => {
-  it("por canal: salão primeiro, depois 99, iFood e Keeta, só onde há prato", () => {
-    expect(montarColunas([FILE, SO_DELIVERY], "canal").map((c) => c.rotulo)).toEqual(["Salão (a la carte)", "99 Food", "iFood"]);
+  it("por canal: salão primeiro, depois 99, iFood e Keeta — as plataformas aparecem sempre que há prato no delivery, com ou sem preço", () => {
+    expect(montarColunas([FILE, SO_DELIVERY], "canal").map((c) => c.rotulo)).toEqual(["Salão (a la carte)", "99 Food", "iFood", "Keeta"]);
+    // Prato só do salão: não há delivery para mostrar.
+    expect(montarColunas([prato({ id: "s", canais: [] })], "canal").map((c) => c.canal)).toEqual(["SALAO"]);
   });
 
   it("por loja: uma coluna por loja de cada plataforma, na ordem da plataforma e do nome", () => {
     const colunas = montarColunas([FILE, SO_DELIVERY], "loja");
-    expect(colunas.map((c) => c.rotulo)).toEqual(["Salão (a la carte)", "Frei Caneca", "Pizzaria", "Pateo da Luz"]);
-    expect(colunas.map((c) => c.canal)).toEqual(["SALAO", "NOVENTA_NOVE", "NOVENTA_NOVE", "IFOOD"]);
+    // A Keeta não tem preço lançado em nenhum prato: aparece como uma coluna da plataforma.
+    expect(colunas.map((c) => c.rotulo)).toEqual(["Salão (a la carte)", "Frei Caneca", "Pizzaria", "Pateo da Luz", "Keeta"]);
+    expect(colunas.map((c) => c.canal)).toEqual(["SALAO", "NOVENTA_NOVE", "NOVENTA_NOVE", "IFOOD", "KEETA"]);
   });
 
   it("prato só do delivery não cria a coluna do salão", () => {
-    expect(montarColunas([SO_DELIVERY], "canal").map((c) => c.canal)).toEqual(["NOVENTA_NOVE"]);
+    expect(montarColunas([SO_DELIVERY], "canal").map((c) => c.canal)).toEqual(["NOVENTA_NOVE", "IFOOD", "KEETA"]);
+  });
+
+  it("onde o prato do delivery ainda não tem preço, a célula diz 'sem preço' (não 'não vende')", () => {
+    const colunas = montarColunas([SO_DELIVERY], "canal");
+    const [linha] = montarMatriz([SO_DELIVERY], colunas, "canal");
+    expect(linha.celulas.NOVENTA_NOVE.estado).toBe("ok");
+    expect(linha.celulas.IFOOD.estado).toBe("sem-listagem");
+    expect(linha.celulas.KEETA.estado).toBe("sem-listagem");
   });
 });
 
@@ -76,7 +87,8 @@ describe("matriz de CMV", () => {
     expect(porId.i.celulas.SALAO.cmv).toBeNull(); // nunca um número bonito e errado
     expect(porId.n.celulas.SALAO.estado).toBe("sem-preco");
     expect(porId.f.celulas.IFOOD.estado).toBe("ok");
-    expect(porId.p.celulas.IFOOD.estado).toBe("nao-vende");
+    expect(porId.p.celulas.IFOOD.estado).toBe("sem-listagem"); // vendido no delivery, sem preço no iFood
+    expect(porId.i.celulas.IFOOD.estado).toBe("nao-vende"); // só do salão: não há delivery
   });
 
   it("resume cada lugar: CMV médio, quantos pratos e quantos altos", () => {
@@ -148,7 +160,7 @@ describe("CMV sobre o líquido da 99", () => {
     const keeta = prato({ id: "k", name: "Keeta", menu: "DELIVERY", salePriceDefault: null, custoPorcao: 30, canais: [{ channel: "KEETA", deliveryStoreId: null, storeName: null, price: 100 }] });
     const colunas = montarColunas([keeta], "loja");
     const [linha] = montarMatriz([keeta], colunas, "loja", { "plataforma:KEETA": 0.78 });
-    const celula = linha.celulas[colunas[0].chave];
+    const celula = linha.celulas[colunas.find((coluna) => coluna.canal === "KEETA")!.chave];
     expect(celula).toMatchObject({ sobreLiquido: true });
     expect(celula.preco).toBeCloseTo(78);
     expect(celula.cmv).toBeCloseTo(38.46, 1); // 30 / 78
