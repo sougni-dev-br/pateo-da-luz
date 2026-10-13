@@ -1,42 +1,12 @@
-import { Router, type NextFunction, type Request, type Response } from "express";
+import { Router } from "express";
 import { requireRole } from "../../security/security-utils.js";
+import { requireAgileToken } from "./agile-token.middleware.js";
 import { agileSyncPayloadSchema } from "./agile-sync.types.js";
+import { heartbeatPayloadSchema } from "./agile-heartbeat.types.js";
 import { getAgileSyncStatus, importAgileSync } from "./agile-sync.service.js";
+import { registrarHeartbeat } from "./agile-heartbeat.service.js";
 
 export const agileIntegrationRouter = Router();
-
-// O agente que roda na máquina PDVTOUCH não é um usuário — é uma máquina.
-// Autenticamos por header X-Agile-Token contra a env var AGILE_INGEST_TOKEN.
-// Isso vive fora do JWT / requireMenuAccess: qualquer request para /sync
-// que não trouxer o token correto é rejeitada com 401 antes de qualquer trabalho.
-function requireAgileToken(request: Request, response: Response, next: NextFunction) {
-  const expected = process.env.AGILE_INGEST_TOKEN;
-  if (!expected || expected.trim().length < 16) {
-    response.status(503).json({
-      message: "Integração Agile PDV não configurada no servidor. Defina AGILE_INGEST_TOKEN."
-    });
-    return;
-  }
-  const provided = String(request.header("x-agile-token") ?? "").trim();
-  // Comparação constante-no-tempo para não vazar o token via timing attack.
-  const ok = provided.length === expected.length
-    && provided.length > 0
-    && timingSafeEqualString(provided, expected);
-  if (!ok) {
-    response.status(401).json({ message: "Token de integração inválido." });
-    return;
-  }
-  next();
-}
-
-function timingSafeEqualString(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i += 1) {
-    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  }
-  return diff === 0;
-}
 
 agileIntegrationRouter.post("/sync", requireAgileToken, async (request, response) => {
   const parsed = agileSyncPayloadSchema.safeParse(request.body);
@@ -54,6 +24,24 @@ agileIntegrationRouter.post("/sync", requireAgileToken, async (request, response
     console.error("Falha ao importar sync do Agile PDV", error);
     const message = error instanceof Error ? error.message : "Erro interno na sincronização.";
     response.status(500).json({ message });
+  }
+});
+
+// Sinal de vida do agente, enviado ao fim de cada execução (ok ou erro). O corpo de
+// erro é { erro } — contrato combinado com o agente, diferente do { message } do /sync.
+agileIntegrationRouter.post("/heartbeat", requireAgileToken, async (request, response) => {
+  const parsed = heartbeatPayloadSchema.safeParse(request.body);
+  if (!parsed.success) {
+    const primeiro = parsed.error.issues[0];
+    const campo = primeiro?.path.join(".") || "corpo";
+    response.status(400).json({ erro: `Heartbeat inválido (${campo}): ${primeiro?.message ?? "formato incorreto"}` });
+    return;
+  }
+  try {
+    response.json(await registrarHeartbeat(parsed.data));
+  } catch (error: unknown) {
+    console.error("Falha ao registrar heartbeat do Agile PDV", error);
+    response.status(500).json({ erro: "Não foi possível registrar o heartbeat." });
   }
 });
 
