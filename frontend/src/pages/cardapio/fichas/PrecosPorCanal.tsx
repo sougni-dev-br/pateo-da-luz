@@ -25,6 +25,9 @@ type Props = {
   notificar: (tom: "success" | "error", mensagem: string) => void;
 };
 
+/** As plataformas de delivery aparecem sempre na ficha, com ou sem preço lançado: sem isso não há como saber que existem. */
+const PLATAFORMAS_DO_DELIVERY = ["NOVENTA_NOVE", "IFOOD", "KEETA"] as const;
+
 const mensagemDe = (erro: unknown, padrao: string) => (erro instanceof Error && erro.message ? erro.message : padrao);
 
 /** Salão primeiro, depois cada plataforma e cada loja dela. */
@@ -61,7 +64,7 @@ export function PrecosPorCanal({ prato, canEdit, onEditarPrato, onMudou, notific
     : custo;
   const faltaQuantidadeDoDelivery = temFichaPropriaDoDelivery && itensDoDelivery === 0;
 
-  const [dialogo, setDialogo] = useState<{ listagem: DishListing | null } | null>(null);
+  const [dialogo, setDialogo] = useState<{ listagem: DishListing | null; plataforma?: string } | null>(null);
   const [removendo, setRemovendo] = useState<string | null>(null);
   const [razoes, setRazoes] = useState<Map<string, number>>(new Map());
 
@@ -86,6 +89,11 @@ export function PrecosPorCanal({ prato, canEdit, onEditarPrato, onMudou, notific
   const comLiquido = listagens.some((listagem) => liquidoDa(listagem) != null);
 
   if (!vendeNoDelivery && listagens.length === 0) return null;
+
+  // Plataforma sem nenhuma loja com preço para este prato: aparece como uma linha para lançar.
+  const semPreco = vendeNoDelivery
+    ? PLATAFORMAS_DO_DELIVERY.filter((plataforma) => !listagens.some((listagem) => listagem.channel === plataforma))
+    : [];
 
   async function remover(listagem: DishListing) {
     setRemovendo(listagem.id);
@@ -180,11 +188,25 @@ export function PrecosPorCanal({ prato, canEdit, onEditarPrato, onMudou, notific
                 )}
               </tr>
             ))}
-            {listagens.length === 0 && (
-              <tr>
-                <td colSpan={5 + (comLiquido ? 2 : 0)} className="ft-nota">Nenhuma loja do delivery tem preço para este prato ainda.</td>
+            {semPreco.map((plataforma) => (
+              <tr key={`sem-${plataforma}`} className="ft-linha-sem-preco">
+                <th scope="row" data-rotulo="Onde">{rotuloDoCanal(plataforma)}</th>
+                <td data-rotulo="Loja" className="ft-nota">Nenhuma loja com preço</td>
+                <td className="ft-num" data-rotulo="Preço">—</td>
+                <td className="ft-num" data-rotulo="CMV">—</td>
+                {comLiquido && <td className="ft-num" data-rotulo="Líquido estimado">—</td>}
+                {comLiquido && <td className="ft-num" data-rotulo="CMV sobre o líquido">—</td>}
+                {podeEditar && (
+                  <td className="ft-acoes-linha">
+                    {plataforma === "NOVENTA_NOVE" ? (
+                      <span className="ft-nota" title="O preço da 99 vem do cardápio dela, importado.">vem do cardápio da 99</span>
+                    ) : (
+                      <button type="button" className="ft-link" onClick={() => setDialogo({ listagem: null, plataforma })}>Lançar preço</button>
+                    )}
+                  </td>
+                )}
               </tr>
-            )}
+            ))}
           </tbody>
         </table>
       </div>
@@ -205,6 +227,7 @@ export function PrecosPorCanal({ prato, canEdit, onEditarPrato, onMudou, notific
         <DialogoDePreco
           prato={prato}
           listagem={dialogo.listagem}
+          plataforma={dialogo.plataforma}
           onFechar={() => setDialogo(null)}
           onSalvo={() => { setDialogo(null); onMudou(); }}
           notificar={notificar}
@@ -214,8 +237,10 @@ export function PrecosPorCanal({ prato, canEdit, onEditarPrato, onMudou, notific
   );
 }
 
-function DialogoDePreco({ prato, listagem, onFechar, onSalvo, notificar }: {
+function DialogoDePreco({ prato, listagem, plataforma, onFechar, onSalvo, notificar }: {
   prato: DishDetail;
+  /** Veio do "Lançar preço" de uma plataforma: só as lojas dela entram na escolha. */
+  plataforma?: string;
   /** null = preço novo; senão, alteração do preço lançado à mão. */
   listagem: DishListing | null;
   onFechar: () => void;
@@ -240,8 +265,13 @@ function DialogoDePreco({ prato, listagem, onFechar, onSalvo, notificar }: {
   // Uma loja, um preço por prato: as que já têm preço (importado ou lançado) não entram na escolha.
   const jaTem = new Set(prato.listings.map((item) => item.deliveryStoreId ?? `plataforma:${item.channel}`));
   const opcoes = (lojas ?? [])
-    .filter((loja) => !jaTem.has(loja.id))
+    .filter((loja) => !jaTem.has(loja.id) && (!plataforma || loja.platform === plataforma))
     .map((loja) => ({ value: loja.id, label: `${rotuloDoCanal(loja.platform)} · ${loja.nickname}` }));
+
+  // Plataforma com uma loja só (a Keeta): já vem escolhida.
+  useEffect(() => {
+    if (!listagem && !lojaId && opcoes.length === 1) setLojaId(opcoes[0].value);
+  }, [listagem, lojaId, opcoes]);
 
   const valor = lerNumero(preco);
   const precoValido = Number.isFinite(valor) && valor > 0;

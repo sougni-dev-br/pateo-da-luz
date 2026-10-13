@@ -15,7 +15,7 @@ export type Coluna = {
   rotulo: string;
 };
 
-export type EstadoDaCelula = "ok" | "nao-vende" | "sem-ficha" | "incompleta" | "sem-preco" | "falta-delivery";
+export type EstadoDaCelula = "ok" | "nao-vende" | "sem-ficha" | "incompleta" | "sem-preco" | "falta-delivery" | "sem-listagem";
 
 /** Chave da loja nas razões: o id dela, ou "plataforma:KEETA" para a plataforma sem loja cadastrada. */
 export const chaveDaLoja = (canal: { channel: string; deliveryStoreId: string | null }) =>
@@ -91,10 +91,21 @@ export function montarColunas(pratos: DishListItem[], modo: ModoDeAgrupamento): 
     if (menusDoPrato(prato).includes("CARDAPIO")) garantir("SALAO", null);
     for (const venda of vendasDoPrato(prato)) garantir(venda.canal, venda.loja);
   }
+
+  // As plataformas de delivery aparecem sempre (com ou sem preço lançado): sem isso não há como saber que existem.
+  if (pratos.some((prato) => menusDoPrato(prato).includes("DELIVERY"))) {
+    for (const canal of PLATAFORMAS_DO_DELIVERY) {
+      if (![...achadas.values()].some((coluna) => coluna.canal === canal)) {
+        achadas.set(canal, { chave: canal, canal, loja: null, rotulo: rotuloDaColuna(canal, null) });
+      }
+    }
+  }
   return [...achadas.values()].sort(
     (a, b) => ordemDoCanal(a.canal) - ordemDoCanal(b.canal) || (a.loja ?? "").localeCompare(b.loja ?? "", "pt-BR")
   );
 }
+
+const PLATAFORMAS_DO_DELIVERY = ["NOVENTA_NOVE", "IFOOD", "KEETA"];
 
 const celulaVazia = (estado: EstadoDaCelula): Celula => ({ estado, sobreLiquido: false, cmv: null, preco: null, precoMin: null, precoMax: null, lojas: 0 });
 
@@ -137,9 +148,13 @@ export function montarMatriz(pratos: DishListItem[], colunas: Coluna[], modo: Mo
           ? venda.canal === "SALAO"
           : venda.canal === coluna.canal && (modo === "canal" || (venda.loja ?? "") === (coluna.loja ?? ""))
       );
+      // Lugar do delivery onde o prato é vendido mas ainda não tem preço lançado: "sem preço", não "não vende".
+      const semListagem = coluna.canal !== "SALAO" && daColuna.length === 0 && menusDoPrato(prato).includes("DELIVERY");
       celulas[coluna.chave] = coluna.canal === "SALAO" && salaoSemPreco && daColuna.length === 0
         ? celulaVazia("sem-preco")
-        : celulaDe(prato, daColuna);
+        : semListagem
+          ? celulaVazia("sem-listagem")
+          : celulaDe(prato, daColuna);
     }
 
     const cmvs = Object.values(celulas).map((celula) => celula.cmv).filter((valor): valor is number => valor != null);
