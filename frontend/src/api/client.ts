@@ -5075,6 +5075,43 @@ export function getAgileSyncStatus(signal?: AbortSignal) {
   return request<AgileSyncStatus>("/integrations/agile/status", { signal });
 }
 
+// ---- Analise do salao (cancelamentos e vendas por pessoa) -----------------------------
+export type AnalisePeriodo = { inicio: string; fim: string };
+
+export type AnaliseCancelamentos = {
+  periodo: AnalisePeriodo;
+  cobertura: { vendasComDetalhe: number; primeiroDia: string | null; ultimoDia: string | null };
+  resumo: { vendas: number; canceladas: number; taxaCancelamento: number; valorCancelado: number; valorFaturado: number; semMotivo: number };
+  porPessoa: Array<{ pessoa: string; canceladas: number; valor: number; participacao: number }>;
+  porTurno: Array<{ turno: string; vendas: number; canceladas: number; taxa: number; valor: number }>;
+  porHora: Array<{ hora: string; vendas: number; canceladas: number; taxa: number; valor: number }>;
+  porDia: Array<{ data: string; vendas: number; canceladas: number; taxa: number; valor: number }>;
+  maiores: Array<{ saleId: string; data: string; hora: string | null; turno: string; pessoa: string; pessoas: number; valor: number; motivo: string | null }>;
+};
+
+export type AnaliseVendasPorPessoa = {
+  periodo: AnalisePeriodo;
+  cobertura: { itensComPessoa: number; itensSemPessoa: number };
+  resumo: { pessoas: number; valorTotal: number; valorSemPessoa: number; itensSemPessoa: number };
+  pessoas: Array<{
+    pessoa: string; valor: number; participacao: number; itens: number; vendas: number;
+    ticketMedio: number; itensPorVenda: number;
+    mix: Array<{ grupo: string; valor: number; participacao: number }>;
+  }>;
+};
+
+function queryPeriodo({ inicio, fim }: AnalisePeriodo) {
+  return `inicio=${encodeURIComponent(inicio)}&fim=${encodeURIComponent(fim)}`;
+}
+
+export function getAnaliseCancelamentos(periodo: AnalisePeriodo, signal?: AbortSignal) {
+  return request<AnaliseCancelamentos>(`/integrations/agile/analise/cancelamentos?${queryPeriodo(periodo)}`, { signal });
+}
+
+export function getAnaliseVendasPorPessoa(periodo: AnalisePeriodo, signal?: AbortSignal) {
+  return request<AnaliseVendasPorPessoa>(`/integrations/agile/analise/vendas-por-pessoa?${queryPeriodo(periodo)}`, { signal });
+}
+
 // ============================================================================
 // Delivery iFood (Fase 1: dados mockados no backend enquanto credencial não sai)
 // ============================================================================

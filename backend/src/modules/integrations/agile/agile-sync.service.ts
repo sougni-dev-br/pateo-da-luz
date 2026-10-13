@@ -87,6 +87,42 @@ type DayAggregate = {
 // dia anterior quando lida em Sao Paulo, e a competencia de virada de mes erra.
 // A competencia sai dos numeros da string, nao de getMonth() de um Date, para
 // nao depender do fuso do processo (o mesmo erro que ja mordeu este repo).
+// Nome de funcionario como o PDV mandou, so sem espaco sobrando; vazio vira null.
+// NAO muda caixa: "Ana" e "ANA" continuam sendo o que o PDV disse que sao.
+function limparNome(valor: string | null | undefined): string | null {
+  const limpo = (valor ?? "").replace(/\s+/g, " ").trim();
+  return limpo === "" ? null : limpo;
+}
+
+// "20:15", "9:05" e "20:15:30" viram "HH:MM"; qualquer outra coisa vira null.
+function normalizarHora(valor: string | null | undefined): string | null {
+  const m = /^(\d{1,2}):(\d{2})/.exec((valor ?? "").trim());
+  if (!m) return null;
+  const hora = Number(m[1]);
+  const minuto = Number(m[2]);
+  if (hora > 23 || minuto > 59) return null;
+  return `${String(hora).padStart(2, "0")}:${m[2]}`;
+}
+
+// Uma venda do PDV vira uma linha de AgileSale. Mesma convencao de data do item:
+// 12:00 UTC e competencia dos numeros da string, nao do fuso do processo.
+export function mapSaleRow(venda: AgileVenda) {
+  const [ano, mes, dia] = venda.dt_movimento.split("-").map(Number);
+  return {
+    saleId: venda.nrseqvenda,
+    movementDate: createCalendarDate(ano, mes, dia),
+    competenceYear: ano,
+    competenceMonth: mes,
+    shift: venda.turno,
+    saleStatus: venda.situacao_da_venda,
+    saleHour: normalizarHora(venda.hora),
+    people: venda.qtd_pessoas,
+    totalAmount: venda.vl_total,
+    cancelledBy: limparNome(venda.func_cancelou),
+    cancelReason: limparNome(venda.motivo_cancelamento)
+  };
+}
+
 export function mapSaleItemRow(item: AgileItem) {
   const [ano, mes, dia] = item.dt_movimento.split("-").map(Number);
   return {
@@ -104,7 +140,8 @@ export function mapSaleItemRow(item: AgileItem) {
     productGroup: item.grupo_produto?.trim() ? item.grupo_produto.trim() : null,
     productCategory: item.categoria_produto?.trim() ? item.categoria_produto.trim() : null,
     quantity: item.qtd,
-    totalAmount: item.vl_tot
+    totalAmount: item.vl_tot,
+    launchedBy: limparNome(item.func_lancou)
   };
 }
 
@@ -112,6 +149,10 @@ export function mapSaleItemRow(item: AgileItem) {
 // janeiro quando a integracao entrou no ar (07/07/2026); um payload assim tem
 // dezenas de milhares de itens e nao pode virar uma query gigante.
 const LOTE_ITENS = 500;
+
+// O padrao do Prisma para transacao interativa e 5 s. Um reimport longo (meses de venda,
+// itens e agora a venda detalhada) passa disso e o rollback levaria a RECEITA junto.
+const TRANSACAO_SYNC = { timeout: 120_000, maxWait: 15_000 };
 
 // Grava a venda ITEM A ITEM do salao.
 //
@@ -154,12 +195,34 @@ async function persistSaleItems(tx: Prisma.TransactionClient, itens: AgileItem[]
   return gravados;
 }
 
+// Grava a venda VENDA A VENDA (inclusive cancelada). Mesmo desenho do item: apaga as
+// vendas que vai regravar e insere de novo, para o reimport convergir mesmo quando o
+// PDV corrige uma venda ja enviada (cancelamento tardio, troca de funcionario).
+// Dado analitico: nao respeita trava de periodo e nao alimenta DRE nem CMV.
+export async function persistSales(tx: Prisma.TransactionClient, vendas: AgileVenda[]): Promise<number> {
+  if (vendas.length === 0) return 0;
+
+  const linhas = vendas.map(mapSaleRow);
+  let gravadas = 0;
+  for (let i = 0; i < linhas.length; i += LOTE_ITENS) {
+    const lote = linhas.slice(i, i + LOTE_ITENS);
+    await tx.agileSale.deleteMany({ where: { saleId: { in: lote.map((l) => l.saleId) } } });
+    const r = await tx.agileSale.createMany({ data: lote, skipDuplicates: true });
+    gravadas += r.count;
+  }
+  return gravadas;
+}
+
 export function agruparPorDia(payload: AgileSyncPayload): {
   dias: Map<string, DayAggregate>;
   duplicatasNrseqvenda: number;
   itensMesa: AgileItem[];
+  // Todas as vendas de mesa sem duplicata, inclusive as canceladas (o agregado do dia
+  // so enxerga as recebidas).
+  vendasMesa: AgileVenda[];
   naoMesa: ExcluidosPorModo;
 } {
+  const vendasMesa: AgileVenda[] = [];
   const dias = new Map<string, DayAggregate>();
   const naoMesa: ExcluidosPorModo = { vendas: 0, pagamentos: 0, itens: 0, modos: {} };
   const vendasNaoMesa = new Set<string>();
@@ -199,6 +262,7 @@ export function agruparPorDia(payload: AgileSyncPayload): {
       naoMesa.modos[modo] = (naoMesa.modos[modo] ?? 0) + 1;
       continue;
     }
+    vendasMesa.push(venda);
     const agg = pegar(venda.dt_movimento, venda.dia_da_semana);
     if (venda.situacao_da_venda === SITUACAO_RECEBIDA) {
       agg.vendasRecebidas.set(venda.nrseqvenda, venda);
@@ -224,7 +288,7 @@ export function agruparPorDia(payload: AgileSyncPayload): {
     return !fora;
   });
 
-  return { dias, duplicatasNrseqvenda, itensMesa, naoMesa };
+  return { dias, duplicatasNrseqvenda, itensMesa, vendasMesa, naoMesa };
 }
 
 type DayEntryPayload = {
@@ -375,7 +439,7 @@ function round2(value: number): number {
 }
 
 export async function importAgileSync(payload: AgileSyncPayload): Promise<AgileSyncReport> {
-  const { dias: agregados, duplicatasNrseqvenda, itensMesa, naoMesa } = agruparPorDia(payload);
+  const { dias: agregados, duplicatasNrseqvenda, itensMesa, vendasMesa, naoMesa } = agruparPorDia(payload);
   const dias = Array.from(agregados.values())
     .map(calcularDia)
     .sort((a, b) => a.date.getTime() - b.date.getTime());
@@ -616,6 +680,7 @@ export async function importAgileSync(payload: AgileSyncPayload): Promise<AgileS
     }
 
     itensGravados = await persistSaleItems(tx, itensMesa);
+    await persistSales(tx, vendasMesa);
 
     await tx.$executeRaw`
       UPDATE "RevenueImportBatch"
@@ -624,7 +689,7 @@ export async function importAgileSync(payload: AgileSyncPayload): Promise<AgileS
             "ignoredRows" = ${vendasCanceladasIgnoradas}
         WHERE "id" = ${batchId}
     `;
-  });
+  }, TRANSACAO_SYNC);
 
   if (vendasCanceladasIgnoradas > 0) {
     avisos.push(`${vendasCanceladasIgnoradas} venda(s) cancelada(s) foram ignoradas.`);

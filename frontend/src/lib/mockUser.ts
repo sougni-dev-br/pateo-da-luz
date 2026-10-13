@@ -17,6 +17,7 @@ import type { AppUser } from "../api/client";
 import { API_BASE_URL } from "../api/client";
 import { isLocal } from "../utils/env";
 import { mockFichas } from "./mockFichas";
+import { mockAnaliseSalao } from "./mockAnaliseSalao";
 
 export const MOCK_USER: AppUser = {
   id: "mock-user",
@@ -221,6 +222,10 @@ function mockResponseFor(url: string, method = "GET"): unknown {
   // Fichas técnicas: lista, detalhe, categorias e busca de produto com dados de exemplo.
   const fichas = mockFichas(url, method);
   if (fichas !== undefined) return fichas;
+
+  // Análise do Salão (cancelamentos e vendas por pessoa).
+  const analiseSalao = mockAnaliseSalao(url);
+  if (analiseSalao !== undefined) return analiseSalao;
 
   if (path.endsWith("/auth/me") || path.endsWith("/me")) return MOCK_USER;
   if (path.endsWith("/health")) return { status: "ok" };

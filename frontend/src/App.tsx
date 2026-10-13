@@ -32,7 +32,8 @@ import {
   Users as UsersIcon,
   WalletCards,
   Warehouse,
-  X
+  X,
+  ChartColumn
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -82,6 +83,7 @@ const PurchasePlanning = lazy(() => import("./pages/PurchasePlanning").then((mod
 const Purchases = lazy(() => import("./pages/Purchases").then((module) => ({ default: module.Purchases })));
 const Revenue = lazy(() => import("./pages/Revenue").then((module) => ({ default: module.Revenue })));
 const FaturamentoSalao = lazy(() => import("./pages/FaturamentoSalao").then((module) => ({ default: module.FaturamentoSalao })));
+const AnaliseSalao = lazy(() => import("./pages/AnaliseSalao").then((module) => ({ default: module.AnaliseSalao })));
 const DeliveryIfood = lazy(() => import("./pages/DeliveryIfood").then((module) => ({ default: module.DeliveryIfood })));
 const IfoodSettings = lazy(() => import("./pages/IfoodSettings").then((module) => ({ default: module.IfoodSettings })));
 const Delivery = lazy(() => import("./pages/Delivery").then((module) => ({ default: module.Delivery })));
@@ -155,6 +157,7 @@ const sections = [
   { id: "ifood-expenses", label: "Despesas iFood", icon: WalletCards, showInSidebar: true, group: "Financeiro", path: "/financeiro/despesas-ifood", matchers: ["/financeiro/despesas-ifood"], description: "Comissão, entrega, marketing e taxas mensais iFood" },
   { id: "revenue", label: "Faturamento", icon: BadgeDollarSign, showInSidebar: true, group: "Financeiro", path: "/financeiro/faturamento", matchers: ["/financeiro/faturamento"] },
   { id: "faturamento-salao", label: "Salão (Agile PDV)", icon: BadgeDollarSign, showInSidebar: true, group: "Financeiro", path: "/financeiro/faturamento-salao", matchers: ["/financeiro/faturamento-salao"], description: "Faturamento do salão sincronizado automaticamente pelo agente do PDV", hidePageHeader: true },
+  { id: "analise-salao", label: "Análise do Salão", icon: ChartColumn, showInSidebar: true, group: "Financeiro", path: "/financeiro/analise-salao", matchers: ["/financeiro/analise-salao"], description: "Cancelamentos e vendas por funcionário, a partir das vendas do PDV", hidePageHeader: true },
   { id: "delivery", label: "Delivery", icon: Truck, showInSidebar: true, group: "Financeiro", path: "/financeiro/delivery", matchers: ["/financeiro/delivery", "/financeiro/delivery-ifood"], permissionAnyOf: ["delivery-ifood", "delivery-noventa-nove", "delivery-keeta"], description: "Faturamento delivery iFood + 99 Food + Keeta — taxas, promoções e repasses" },
   { id: "cards", label: "Cartões", icon: CreditCard, showInSidebar: true, group: "Financeiro", path: "/financeiro/cartoes", matchers: ["/financeiro/cartoes"] },
   { id: "cash", label: "Caixa", icon: BadgeDollarSign, showInSidebar: true, group: "Financeiro", path: "/financeiro/caixa", matchers: ["/financeiro/caixa"] },
@@ -716,6 +719,7 @@ export function App() {
                 )}
               />
               <Route path="/financeiro/faturamento-salao" element={<FaturamentoSalao user={user} />} />
+              <Route path="/financeiro/analise-salao" element={<AnaliseSalao />} />
               <Route path="/financeiro/delivery" element={<Delivery />} />
               <Route path="/financeiro/delivery-ifood" element={<Navigate to="/financeiro/delivery?platform=ifood" replace />} />
               <Route path="/configuracoes/integracoes/delivery" element={<DeliverySettings />} />

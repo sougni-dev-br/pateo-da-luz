@@ -19,6 +19,7 @@ export const menuCatalog = [
   { id: "ifood-expenses", label: "Financeiro / Despesas iFood", group: "Financeiro" },
   { id: "revenue", label: "Faturamento diario", group: "Financeiro" },
   { id: "faturamento-salao", label: "Faturamento Salao (Agile PDV)", group: "Financeiro" },
+  { id: "analise-salao", label: "Analise do Salao (cancelamentos e vendas por pessoa)", group: "Financeiro" },
   { id: "delivery-ifood", label: "Delivery iFood", group: "Financeiro" },
   { id: "delivery-noventa-nove", label: "Delivery 99 Food", group: "Financeiro" },
   { id: "delivery-keeta", label: "Delivery Keeta", group: "Financeiro" },
@@ -449,6 +450,7 @@ function menuFromRequest(request: Request): MenuId | null {
   if (path.startsWith("/monthly/cmv-real")) return "cmv-real";
   if (path.startsWith("/monthly/revenue")) return "revenue";
   if (path.startsWith("/integrations/agile/status")) return "faturamento-salao";
+  if (path.startsWith("/integrations/agile/analise")) return "analise-salao";
   // Cadastrar loja e gravar credencial pertencem a tela de Integracoes, cujo modulo
   // no controle de acesso e "integracao-*". Sem estas duas regras aquele interruptor
   // so escondia o item do menu: POST /credential continuava alcancavel por quem

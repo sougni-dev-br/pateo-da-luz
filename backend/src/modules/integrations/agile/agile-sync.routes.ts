@@ -5,8 +5,13 @@ import { agileSyncPayloadSchema } from "./agile-sync.types.js";
 import { heartbeatPayloadSchema } from "./agile-heartbeat.types.js";
 import { getAgileSyncStatus, importAgileSync } from "./agile-sync.service.js";
 import { registrarHeartbeat } from "./agile-heartbeat.service.js";
+import { agileAnaliseRouter } from "./agile-analise.routes.js";
 
 export const agileIntegrationRouter = Router();
+
+// Relatórios para gestão (cancelamentos, vendas por pessoa). Autenticação por sessão e
+// permissão do módulo "analise-salao"; o token do agente NÃO vale aqui.
+agileIntegrationRouter.use("/analise", agileAnaliseRouter);
 
 agileIntegrationRouter.post("/sync", requireAgileToken, async (request, response) => {
   const parsed = agileSyncPayloadSchema.safeParse(request.body);
