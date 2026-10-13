@@ -29,6 +29,7 @@ import { montarPainel } from "../../../lib/painelFichas";
 import { useNavigationGuard } from "../../../lib/navigationGuard";
 import { hasPermission } from "../../../lib/permissions";
 import { useRevealScroll } from "../../../lib/useRevealScroll";
+import { CmvPorCanal } from "./CmvPorCanal";
 import { Categorias } from "./Categorias";
 import { DetalheDoPrato } from "./DetalheDoPrato";
 import { DialogoDeImpressao } from "./DialogoDeImpressao";
@@ -41,7 +42,7 @@ import { SeletorDeCardapio } from "./SeletorDeCardapio";
 import "./fichas.css";
 import "./painel.css";
 
-type Aba = "painel" | "fichas" | "categorias";
+type Aba = "painel" | "fichas" | "cmv" | "categorias";
 /** `chave` muda a cada abertura: reabrir "Novo prato" precisa de um formulário zerado, não do anterior. */
 type Editor = { modo: ModoDoFormulario; base: DishDetail | null; chave: number };
 
@@ -359,6 +360,7 @@ export function FichasTecnicas() {
         tabs={[
           { value: "painel", label: "Painel" },
           { value: "fichas", label: "Pratos" },
+          { value: "cmv", label: "CMV por canal" },
           { value: "categorias", label: "Categorias" }
         ]}
       />
@@ -385,6 +387,8 @@ export function FichasTecnicas() {
             onImprimirEmBranco={() => setDialogoDeImpressao(true)}
           />
         )
+      ) : aba === "cmv" ? (
+        <CmvPorCanal pratos={pratosDoCardapio} carregando={carregando} onAbrirPrato={abrirPratoDoPainel} />
       ) : aba === "categorias" ? (
         <Categorias categorias={categorias} pratos={pratos} filtroDeCardapio={filtro.menu} canEdit={canEdit} onSalvo={() => void carregar()} notificar={notificar} />
       ) : (

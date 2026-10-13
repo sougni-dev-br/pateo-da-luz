@@ -307,10 +307,18 @@ describe("leitura", () => {
   };
 
   test("lista resume os precos praticados nos canais", async () => {
-    db.dish.findMany.mockResolvedValue([{ ...prato, listings: prato.listings.map((l) => ({ price: l.price })) }]);
+    db.dish.findMany.mockResolvedValue([{
+      ...prato,
+      listings: prato.listings.map((l) => ({ price: l.price, channel: l.channel, deliveryStoreId: l.deliveryStore ? "s1" : null, deliveryStore: l.deliveryStore ? { nickname: l.deliveryStore.nickname } : null }))
+    }]);
     const r = await request(app).get("/dishes");
     expect(r.status).toBe(200);
     expect(r.body[0]).toMatchObject({ listingsCount: 2, listingPriceMin: 49.9, listingPriceMax: 60.9, itemsCount: 1 });
+    // O preço em cada loja vai junto: é com ele que a tela calcula o CMV de cada prato em cada lugar.
+    expect(r.body[0].canais).toEqual([
+      { channel: "NOVENTA_NOVE", deliveryStoreId: "s1", storeName: "Pateo Frei Caneca", price: 49.9 },
+      { channel: "NOVENTA_NOVE", deliveryStoreId: null, storeName: null, price: 60.9 }
+    ]);
   });
 
   test("prato sem listagem nao inventa faixa de preco", async () => {
