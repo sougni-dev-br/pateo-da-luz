@@ -1,3 +1,4 @@
+import { ehRecebida, SITUACAO_CANCELADA, SITUACAO_RECEBIDA } from "./agile-situacao.js";
 import { prisma } from "../../../config/database.js";
 import {
   montarCancelamentos,
@@ -40,7 +41,7 @@ export async function obterVendasPorPessoa(periodo: Periodo) {
   const { de, ate } = intervaloDoPeriodo(periodo);
   // So venda RECEBIDA: item de venda cancelada nao e venda de ninguem.
   const linhas = await prisma.agileSaleItem.findMany({
-    where: { movementDate: { gte: de, lt: ate }, saleStatus: "RECEBIDA" },
+    where: { movementDate: { gte: de, lt: ate }, saleStatus: SITUACAO_RECEBIDA },
     select: { saleId: true, launchedBy: true, productGroup: true, quantity: true, totalAmount: true }
   });
   const itens: ItemAnalise[] = linhas.map((l) => ({
@@ -59,14 +60,14 @@ export async function obterItensCancelados(periodo: Periodo) {
   const { de, ate } = intervaloDoPeriodo(periodo);
   const [canceladas, recebidos] = await Promise.all([
     prisma.agileSaleItem.findMany({
-      where: { movementDate: { gte: de, lt: ate }, saleStatus: "CANCELADA" },
+      where: { movementDate: { gte: de, lt: ate }, saleStatus: SITUACAO_CANCELADA },
       select: {
         saleId: true, movementDate: true, productName: true, productGroup: true, quantity: true,
         totalAmount: true, launchedBy: true, cancelledBy: true, cancelReason: true
       }
     }),
     prisma.agileSaleItem.aggregate({
-      where: { movementDate: { gte: de, lt: ate }, saleStatus: "RECEBIDA" },
+      where: { movementDate: { gte: de, lt: ate }, saleStatus: SITUACAO_RECEBIDA },
       _sum: { totalAmount: true }
     })
   ]);
@@ -84,7 +85,7 @@ export async function obterItensCancelados(periodo: Periodo) {
     });
     for (const v of vendas) {
       vendasGravadas.add(v.saleId);
-      if (v.saleStatus === "RECEBIDA") horaDaVenda.set(v.saleId, v.saleHour);
+      if (ehRecebida(v.saleStatus)) horaDaVenda.set(v.saleId, v.saleHour);
     }
   }
 
@@ -107,7 +108,7 @@ export async function obterItensCancelados(periodo: Periodo) {
 export async function obterDescontos(periodo: Periodo) {
   const { de, ate } = intervaloDoPeriodo(periodo);
   const linhas = await prisma.agileSale.findMany({
-    where: { movementDate: { gte: de, lt: ate }, saleStatus: "RECEBIDA" },
+    where: { movementDate: { gte: de, lt: ate }, saleStatus: SITUACAO_RECEBIDA },
     select: {
       saleId: true, movementDate: true, shift: true, saleHour: true, people: true, totalAmount: true,
       subtotalAmount: true, discountAmount: true, discountLabel: true, cancelledBy: true

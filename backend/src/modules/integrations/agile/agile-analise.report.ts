@@ -1,3 +1,4 @@
+import { ehCancelada, ehRecebida } from "./agile-situacao.js";
 import { toCalendarDateKey } from "../../../shared/utils/calendar-date.js";
 
 // Calculo dos relatorios de analise do salao (cancelamentos e vendas por pessoa).
@@ -55,7 +56,6 @@ export type VendaDescontoAnalise = {
   registeredBy: string | null;
 };
 
-const SITUACAO_RECEBIDA = "RECEBIDA";
 const SEM_TIPO = "(tipo não informado)";
 const LIMITE_DESCONTO_ALTO = 0.5;
 const NAO_INFORMADO = "(não informado)";
@@ -69,12 +69,16 @@ const round4 = (n: number) => Math.round(n * 10000) / 10000;
 const razao = (parte: number, todo: number) => (todo > 0 ? round4(parte / todo) : 0);
 const limpar = (nome: string | null) => (nome ?? "").replace(/\s+/g, " ").trim();
 
-const ehCancelada = (v: VendaAnalise) => v.saleStatus !== SITUACAO_RECEBIDA;
+// Comanda em aberto ("EM ABERTO"/"CONSUMINDO") nao e venda nem cancelamento: fica fora do relatorio
+// inteiro, inclusive dos denominadores das taxas.
+const ehVendaFechada = (v: VendaAnalise) => ehRecebida(v.saleStatus) || ehCancelada(v.saleStatus);
+const vendaCancelada = (v: VendaAnalise) => ehCancelada(v.saleStatus);
 
-export function montarCancelamentos(vendas: VendaAnalise[], periodo: Periodo) {
-  const canceladas = vendas.filter(ehCancelada);
+export function montarCancelamentos(todasAsVendas: VendaAnalise[], periodo: Periodo) {
+  const vendas = todasAsVendas.filter(ehVendaFechada);
+  const canceladas = vendas.filter(vendaCancelada);
   const valorCancelado = canceladas.reduce((s, v) => s + v.totalAmount, 0);
-  const valorFaturado = vendas.filter((v) => !ehCancelada(v)).reduce((s, v) => s + v.totalAmount, 0);
+  const valorFaturado = vendas.filter((v) => ehRecebida(v.saleStatus)).reduce((s, v) => s + v.totalAmount, 0);
 
   const porPessoaMap = new Map<string, { canceladas: number; valor: number }>();
   for (const v of canceladas) {
@@ -92,7 +96,7 @@ export function montarCancelamentos(vendas: VendaAnalise[], periodo: Periodo) {
       const k = chave(v);
       const atual = mapa.get(k) ?? { vendas: 0, canceladas: 0, valor: 0 };
       atual.vendas += 1;
-      if (ehCancelada(v)) {
+      if (vendaCancelada(v)) {
         atual.canceladas += 1;
         atual.valor += v.totalAmount;
       }
