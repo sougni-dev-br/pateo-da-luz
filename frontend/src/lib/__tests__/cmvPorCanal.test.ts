@@ -89,6 +89,37 @@ describe("matriz de CMV", () => {
   });
 });
 
+describe("CMV sobre o líquido da 99", () => {
+  // Frei Caneca: chega 50% da tabela; Pizzaria: 40%. O preço de tabela de cada uma é o do canal.
+  const razoes = { "s-Frei Caneca": 0.5, "s-Pizzaria": 0.4 };
+
+  it("na 99 o preço vira o líquido da loja; salão e iFood seguem pela tabela", () => {
+    const colunas = montarColunas([FILE], "loja");
+    const [linha] = montarMatriz([FILE], colunas, "loja", razoes);
+    expect(linha.celulas["NOVENTA_NOVE|Frei Caneca"]).toMatchObject({ sobreLiquido: true, preco: 50 });
+    expect(linha.celulas["NOVENTA_NOVE|Frei Caneca"].cmv).toBeCloseTo(48); // 24 / (100 × 0,5)
+    expect(linha.celulas["NOVENTA_NOVE|Pizzaria"].cmv).toBeCloseTo(100); // 24 / (60 × 0,4)
+    expect(linha.celulas.SALAO).toMatchObject({ sobreLiquido: false });
+    expect(linha.celulas.SALAO.cmv).toBeCloseTo(30);
+    expect(linha.celulas["IFOOD|Pateo da Luz"]).toMatchObject({ sobreLiquido: false });
+    expect(linha.celulas["IFOOD|Pateo da Luz"].cmv).toBeCloseTo(20);
+  });
+
+  it("por canal, a 99 mostra o pior líquido entre as lojas", () => {
+    const [linha] = montarMatriz([FILE], montarColunas([FILE], "canal"), "canal", razoes);
+    expect(linha.celulas.NOVENTA_NOVE).toMatchObject({ sobreLiquido: true, precoMin: 24, precoMax: 50 });
+    expect(linha.celulas.NOVENTA_NOVE.cmv).toBeCloseTo(100);
+  });
+
+  it("loja sem razão medida fica pela tabela, e sem razões nada muda", () => {
+    const [semRazao] = montarMatriz([FILE], montarColunas([FILE], "loja"), "loja", { "s-Frei Caneca": 0.5 });
+    expect(semRazao.celulas["NOVENTA_NOVE|Pizzaria"]).toMatchObject({ sobreLiquido: false });
+    expect(semRazao.celulas["NOVENTA_NOVE|Pizzaria"].cmv).toBeCloseTo(40);
+    const [tabela] = montarMatriz([FILE], montarColunas([FILE], "loja"), "loja");
+    expect(tabela.celulas["NOVENTA_NOVE|Frei Caneca"].cmv).toBeCloseTo(24);
+  });
+});
+
 describe("filtro da matriz", () => {
   const pratos = [SEM_FICHA, SO_DELIVERY, FILE, prato({ id: "o", name: "Outro", custoPorcao: 40 })];
   const linhas = montarMatriz(pratos, montarColunas(pratos, "canal"), "canal");
