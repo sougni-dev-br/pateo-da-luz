@@ -1783,10 +1783,14 @@ model DishItem {
   wasteFactor Decimal  @default(0) @db.Decimal(5, 4)
   notes       String?
   sortOrder   Int      @default(0)
+  // Ficha por cardapio: a quantidade do a la carte nao e a do delivery. O item pertence ao cardapio (CARDAPIO|DELIVERY)
+  // em que a quantidade vale; o prato vendido nos dois tem uma lista de itens para cada um.
+  menu        String   @default("CARDAPIO")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@index([dishId])
+  @@index([dishId, menu])
   @@index([productId])
 }
 
@@ -3888,35 +3892,35 @@ enum WasteReason {
 // período financeiro: registrar aqui não baixa nem soma nada na contabilidade.
 // Custo e setor ficam gravados como estavam no dia do lançamento.
 model WasteEntry {
-  id             String      @id @default(cuid())
+  id              String           @id @default(cuid())
   // Insumo (productId) OU prato pronto (dishId), nunca os dois: CHECK na migration.
   // Prato pronto = sobra de buffet, prato devolvido; vale ao custo da ficha técnica.
-  productId      String?
+  productId       String?
   // Restrict (e não o SetNull padrão de relação opcional): apagar o item não pode deixar o
   // lançamento sem insumo e sem prato, que o CHECK da migration proíbe.
-  product        Product?    @relation(fields: [productId], references: [id], onDelete: Restrict)
-  dishId         String?
-  dish           Dish?       @relation(fields: [dishId], references: [id], onDelete: Restrict)
+  product         Product?         @relation(fields: [productId], references: [id], onDelete: Restrict)
+  dishId          String?
+  dish            Dish?            @relation(fields: [dishId], references: [id], onDelete: Restrict)
   // Quantidade na unidade do estoque do item (a que a conferência e o custo usam). 6 casas: 1 g de uma
   // embalagem de 25 kg é 0,00004 e não pode arredondar para zero.
-  quantity       Decimal     @db.Decimal(16, 6)
-  unit           String?
+  quantity        Decimal          @db.Decimal(16, 6)
+  unit            String?
   // O que a pessoa digitou (500 G), antes de converter. Só para mostrar e auditar.
-  enteredQuantity Decimal?   @db.Decimal(14, 4)
-  enteredUnit    String?
-  reason         WasteReason
-  occurredOn     DateTime    @db.Date
-  sectorId       String?
-  unitCost       Decimal?    @db.Decimal(14, 4)
-  totalCost      Decimal?    @db.Decimal(14, 2)
-  costSource     String?
-  notes          String?
-  registeredById String
-  cancelledAt    DateTime?
-  cancelledById  String?
-  cancelReason   String?
-  createdAt      DateTime    @default(now())
-  photo          WasteEntryPhoto?
+  enteredQuantity Decimal?         @db.Decimal(14, 4)
+  enteredUnit     String?
+  reason          WasteReason
+  occurredOn      DateTime         @db.Date
+  sectorId        String?
+  unitCost        Decimal?         @db.Decimal(14, 4)
+  totalCost       Decimal?         @db.Decimal(14, 2)
+  costSource      String?
+  notes           String?
+  registeredById  String
+  cancelledAt     DateTime?
+  cancelledById   String?
+  cancelReason    String?
+  createdAt       DateTime         @default(now())
+  photo           WasteEntryPhoto?
 
   @@index([occurredOn])
   @@index([productId, occurredOn])

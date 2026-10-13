@@ -28,6 +28,29 @@ function indexar(itens: ItemDaVersao[]): Map<string, ItemDaVersao> {
   return mapa;
 }
 
+function mudancasDeItens(anteriores: ItemDaVersao[], atuais: ItemDaVersao[], prefixo: string): string[] {
+  const frases: string[] = [];
+  const antes = indexar(anteriores);
+  const depois = indexar(atuais);
+  for (const [chave, item] of depois) {
+    const velho = antes.get(chave);
+    if (!velho) {
+      frases.push(`${prefixo}+ ${item.productName}: ${quantidade(item)}`);
+      continue;
+    }
+    if (velho.quantity !== item.quantity || velho.unit !== item.unit) {
+      frases.push(`${prefixo}${item.productName}: ${quantidade(velho)} → ${quantidade(item)}`);
+    }
+    if (velho.wasteFactor !== item.wasteFactor) {
+      frases.push(`${prefixo}${item.productName}: perda ${percentualDaPerda(velho.wasteFactor)} → ${percentualDaPerda(item.wasteFactor)}`);
+    }
+  }
+  for (const [chave, item] of antes) {
+    if (!depois.has(chave)) frases.push(`${prefixo}− ${item.productName} saiu da ficha`);
+  }
+  return frases;
+}
+
 /**
  * As diferenças entre duas versões. `anterior` nulo = primeira versão. Devolve no máximo 8 frases,
  * com "e mais N mudanças" no fim, para a linha do tempo não virar um relatório.
@@ -80,24 +103,9 @@ export function descreverMudancas(anterior: DishRevisionSnapshot | null, atual: 
 
   frases.push(...mudancasDePrecoPorLoja(anterior, atual));
 
-  const antes = indexar(anterior.items);
-  const depois = indexar(atual.items);
-  for (const [chave, item] of depois) {
-    const velho = antes.get(chave);
-    if (!velho) {
-      frases.push(`+ ${item.productName}: ${quantidade(item)}`);
-      continue;
-    }
-    if (velho.quantity !== item.quantity || velho.unit !== item.unit) {
-      frases.push(`${item.productName}: ${quantidade(velho)} → ${quantidade(item)}`);
-    }
-    if (velho.wasteFactor !== item.wasteFactor) {
-      frases.push(`${item.productName}: perda ${percentualDaPerda(velho.wasteFactor)} → ${percentualDaPerda(item.wasteFactor)}`);
-    }
-  }
-  for (const [chave, item] of antes) {
-    if (!depois.has(chave)) frases.push(`− ${item.productName} saiu da ficha`);
-  }
+  frases.push(...mudancasDeItens(anterior.items, atual.items, ""));
+  // As quantidades do delivery (prato vendido nos dois) têm a mesma conta, marcadas para não se misturarem com as do salão.
+  frases.push(...mudancasDeItens(anterior.alsoItems ?? [], atual.alsoItems ?? [], "Delivery · "));
 
   if ((anterior.notes ?? "") !== (atual.notes ?? "")) frases.push("Observações alteradas");
   if (anterior.isActive !== atual.isActive) frases.push(atual.isActive ? "Prato reativado" : "Prato inativado");

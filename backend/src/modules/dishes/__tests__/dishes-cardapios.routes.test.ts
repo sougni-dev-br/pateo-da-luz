@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 vi.mock("../../../config/database.js", () => {
   const prisma: Record<string, unknown> = {
     dish: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), count: vi.fn() },
-    dishItem: { createMany: vi.fn(), deleteMany: vi.fn() },
+    dishItem: { createMany: vi.fn(), deleteMany: vi.fn(), count: vi.fn(), groupBy: vi.fn() },
     dishRevision: { create: vi.fn(), findMany: vi.fn() },
     dishCategory: { findMany: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), count: vi.fn() },
     product: { findMany: vi.fn(), findUnique: vi.fn() },
@@ -176,10 +176,46 @@ describe("cardápio do prato", () => {
 });
 
 describe("prato vendido nos dois cardápios", () => {
+  const quantidadesDoDelivery = [{ productId: "p1", quantity: 120, unit: "G" }];
+
+  test("vendido nos dois, sem as quantidades do delivery: 400 (as do a la carte não valem para ele)", async () => {
+    const r = await request(app).post("/dishes").send({ name: "Filé", menu: "CARDAPIO", alsoMenu: "DELIVERY" });
+    expect(r.status).toBe(400);
+    expect(r.body.message).toMatch(/Informe as quantidades do delivery/);
+    expect(db.dish.create).not.toHaveBeenCalled();
+  });
+
+  test("com as quantidades do delivery, grava cada lista no seu cardápio", async () => {
+    db.product.findMany.mockResolvedValue([{ id: "p1" }]);
+    const r = await request(app).post("/dishes").send({
+      name: "Filé", menu: "CARDAPIO", alsoMenu: "DELIVERY",
+      items: [{ productId: "p1", quantity: 200, unit: "G" }], alsoItems: quantidadesDoDelivery
+    });
+    expect(r.status).toBe(200);
+    const gravados = db.dishItem.createMany.mock.calls[0][0].data;
+    expect(gravados.map((i: { menu: string; quantity: number }) => [i.menu, i.quantity])).toEqual([["CARDAPIO", 200], ["DELIVERY", 120]]);
+  });
+
+  test("o prato dos dois cardápios tem o salão como principal", async () => {
+    const r = await request(app).post("/dishes").send({ name: "Filé", menu: "DELIVERY", alsoMenu: "CARDAPIO", alsoItems: quantidadesDoDelivery });
+    expect(r.status).toBe(400);
+    expect(r.body.message).toMatch(/salão como principal/);
+  });
+
+  test("editar prato já nos dois sem mandar as quantidades do delivery exige que já existam", async () => {
+    db.dishItem.count.mockResolvedValue(0);
+    expect((await request(app).put("/dishes/d1").send({ name: "Filé", menu: "CARDAPIO", alsoMenu: "DELIVERY" })).status).toBe(400);
+    db.dishItem.count.mockResolvedValue(3);
+    expect((await request(app).put("/dishes/d1").send({ name: "Filé", menu: "CARDAPIO", alsoMenu: "DELIVERY" })).status).toBe(200);
+    // Mandar só as do salão não apaga as do delivery.
+    expect(db.dishItem.deleteMany).not.toHaveBeenCalledWith({ where: { dishId: "d1", menu: "DELIVERY" } });
+  });
+
   test("grava o outro cardápio e a categoria dele, validada contra o cardápio certo", async () => {
     db.dishCategory.findUnique.mockImplementation(async ({ where }: { where: { id: string } }) =>
       where.id === "c-delivery" ? { name: "Carnes", menu: "DELIVERY" } : { name: "A la carte", menu: "CARDAPIO" });
-    const r = await request(app).post("/dishes").send({ name: "Filé", menu: "CARDAPIO", categoryId: "c-salao", alsoMenu: "DELIVERY", alsoCategoryId: "c-delivery" });
+    db.product.findMany.mockResolvedValue([{ id: "p1" }]);
+    const r = await request(app).post("/dishes").send({ name: "Filé", menu: "CARDAPIO", categoryId: "c-salao", alsoMenu: "DELIVERY", alsoCategoryId: "c-delivery", alsoItems: quantidadesDoDelivery });
     expect(r.status).toBe(200);
     expect(db.dish.create).toHaveBeenLastCalledWith({
       data: expect.objectContaining({ menu: "CARDAPIO", categoryId: "c-salao", alsoMenu: "DELIVERY", alsoCategoryId: "c-delivery" })
@@ -212,9 +248,18 @@ describe("prato vendido nos dois cardápios", () => {
 
   test("a versão do histórico guarda o segundo cardápio", async () => {
     db.dish.findUnique.mockImplementation(async (arg: { where: { id: string }; select?: object }) =>
-      arg.select ? { menu: "CARDAPIO" } : detalheMinimo(arg.where.id, { alsoMenu: "DELIVERY", alsoCategory: { id: "c2", name: "Carnes", parentId: null, menu: "DELIVERY" } }));
-    await request(app).put("/dishes/d1").send({ name: "Filé", alsoMenu: "DELIVERY" });
-    expect(db.dishRevision.create.mock.calls.at(-1)[0].data.snapshot).toMatchObject({ alsoMenu: "DELIVERY", alsoCategory: { name: "Carnes" } });
+      arg.select ? { menu: "CARDAPIO" } : detalheMinimo(arg.where.id, {
+        alsoMenu: "DELIVERY", alsoCategory: { id: "c2", name: "Carnes", parentId: null, menu: "DELIVERY" },
+        items: [{
+          id: "i9", productId: "p1", menu: "DELIVERY", quantity: 120, unit: "G", wasteFactor: 0, notes: null, sortOrder: 0,
+          product: { id: "p1", externalCode: "1", name: "FILE", unit: "KG", stockUnit: null, inventoryStock: { averageCost: 40 }, conversions: [] }
+        }]
+      }));
+    db.dishItem.count.mockResolvedValue(1);
+    await request(app).put("/dishes/d1").send({ name: "Filé", menu: "CARDAPIO", alsoMenu: "DELIVERY" });
+    expect(db.dishRevision.create.mock.calls.at(-1)[0].data.snapshot).toMatchObject({
+      alsoMenu: "DELIVERY", alsoCategory: { name: "Carnes" }, alsoItems: [{ productName: "FILE", quantity: 120 }]
+    });
   });
 
   test("lote: passar a ser principal no cardápio em que já era vendido 'também' desfaz o segundo cardápio", async () => {
@@ -239,7 +284,7 @@ describe("histórico de versões", () => {
       arg.select ? { menu: "CARDAPIO" } : {
         ...detalheMinimo(arg.where.id, { name: "Risoto", salePriceDefault: 80 }),
         items: [{
-          id: "i1", productId: "p1", quantity: 150, unit: "G", wasteFactor: 0.05, notes: null, sortOrder: 0,
+          id: "i1", productId: "p1", menu: "CARDAPIO", quantity: 150, unit: "G", wasteFactor: 0.05, notes: null, sortOrder: 0,
           product: { id: "p1", externalCode: "1", name: "CAMARAO", unit: "KG", stockUnit: null, inventoryStock: { averageCost: 40 }, conversions: [] }
         }]
       });
@@ -337,30 +382,43 @@ describe("lote: vender nos dois cardápios", () => {
     ];
     db.dish.findMany.mockImplementation(async ({ where }: { where: { id: { in: string[] } } }) => pratos.filter((prato) => where.id.in.includes(prato.id)));
     db.dish.updateMany.mockResolvedValue({ count: 1 });
+    db.dish.update.mockResolvedValue({});
+    db.dishItem.groupBy.mockResolvedValue([]);
   });
 
   test("'também no delivery': só o prato do salão ganha o segundo cardápio; o que já é do delivery fica de fora e é contado", async () => {
     const r = await request(app).post("/dishes/bulk").send({ ids: ["salao", "delivery"], alsoMenu: "DELIVERY" });
     expect(r.status).toBe(200);
     expect(r.body).toMatchObject({ atualizados: 2, nosDois: 1, jaNoCardapio: 1 });
-    expect(db.dish.updateMany).toHaveBeenCalledWith({ where: { id: { in: ["salao"] } }, data: { alsoMenu: "DELIVERY" } });
-    // O prato do delivery não é tocado.
-    expect(db.dish.updateMany.mock.calls.some(([arg]: [{ where: { id?: { in: string[] } } }]) => arg.where.id?.in.includes("delivery") && "alsoMenu" in ((arg as { data: object }).data))).toBe(false);
+    expect(db.dish.update).toHaveBeenCalledTimes(1);
+    expect(db.dish.update).toHaveBeenCalledWith({ where: { id: "salao" }, data: { alsoMenu: "DELIVERY", alsoCategoryId: null } });
   });
 
-  test("sem categoria escolhida, a segunda categoria que não for do cardápio certo é limpa", async () => {
-    await request(app).post("/dishes/bulk").send({ ids: ["salao"], alsoMenu: "DELIVERY" });
-    expect(db.dish.updateMany).toHaveBeenCalledWith({
-      where: { id: { in: ["salao"] }, alsoCategory: { is: { menu: { not: "DELIVERY" } } } },
-      data: { alsoCategoryId: null }
+  test("avisa quantos ficaram sem as quantidades do delivery (as do a la carte não valem para ele)", async () => {
+    db.dishItem.groupBy.mockResolvedValue([]);
+    const sem = await request(app).post("/dishes/bulk").send({ ids: ["salao"], alsoMenu: "DELIVERY" });
+    expect(sem.body.semQuantidadesNoDelivery).toBe(1);
+    db.dishItem.groupBy.mockResolvedValue([{ dishId: "salao" }]);
+    const com = await request(app).post("/dishes/bulk").send({ ids: ["salao"], alsoMenu: "DELIVERY" });
+    expect(com.body.semQuantidadesNoDelivery).toBe(0);
+  });
+
+  test("prato do delivery que também sai no salão: o salão vira o principal e o delivery (com a categoria dele) o segundo", async () => {
+    db.dishCategory.findUnique.mockResolvedValue({ name: "A la carte", menu: "CARDAPIO" });
+    db.dish.findMany.mockResolvedValue([{ id: "delivery", menu: "DELIVERY", categoryId: "c-carnes", alsoMenu: null, alsoCategoryId: null }]);
+    const r = await request(app).post("/dishes/bulk").send({ ids: ["delivery"], alsoMenu: "CARDAPIO", alsoCategoryId: "c-salao" });
+    expect(r.status).toBe(200);
+    expect(db.dish.update).toHaveBeenCalledWith({
+      where: { id: "delivery" },
+      data: { menu: "CARDAPIO", categoryId: "c-salao", alsoMenu: "DELIVERY", alsoCategoryId: "c-carnes" }
     });
   });
 
-  test("com categoria do outro cardápio: grava nos pratos elegíveis", async () => {
+  test("a categoria do segundo cardápio escolhida é gravada no prato do salão", async () => {
     db.dishCategory.findUnique.mockResolvedValue({ name: "Carnes", menu: "DELIVERY" });
     const r = await request(app).post("/dishes/bulk").send({ ids: ["salao"], alsoMenu: "DELIVERY", alsoCategoryId: "c-carnes" });
     expect(r.status).toBe(200);
-    expect(db.dish.updateMany).toHaveBeenCalledWith({ where: { id: { in: ["salao"] } }, data: { alsoCategoryId: "c-carnes" } });
+    expect(db.dish.update).toHaveBeenCalledWith({ where: { id: "salao" }, data: { alsoMenu: "DELIVERY", alsoCategoryId: "c-carnes" } });
   });
 
   test("categoria de cardápio errado ou sem dizer o outro cardápio: 400, nada gravado", async () => {

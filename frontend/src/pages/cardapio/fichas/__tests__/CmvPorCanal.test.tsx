@@ -26,7 +26,7 @@ function prato(parcial: Partial<DishListItem>): DishListItem {
 }
 const canal = (channel: string, loja: string, price: number) => ({ channel, deliveryStoreId: `s-${loja}`, storeName: loja, price });
 
-const FILE = prato({ id: "f", name: "Filé", alsoMenu: "DELIVERY", canais: [canal("NOVENTA_NOVE", "Frei Caneca", 100), canal("NOVENTA_NOVE", "Pizzaria", 60), canal("IFOOD", "Pateo da Luz", 120)] });
+const FILE = prato({ id: "f", name: "Filé", alsoMenu: "DELIVERY", alsoItemsCount: 3, alsoCustoPorcao: 24, canais: [canal("NOVENTA_NOVE", "Frei Caneca", 100), canal("NOVENTA_NOVE", "Pizzaria", 60), canal("IFOOD", "Pateo da Luz", 120)] });
 const PIZZA = prato({ id: "p", name: "Pizza", menu: "DELIVERY", salePriceDefault: null, custoPorcao: 15, canais: [canal("NOVENTA_NOVE", "Frei Caneca", 50)] });
 const PUDIM = prato({ id: "s", name: "Pudim", itemsCount: 0, custoPorcao: 0 });
 const abrir = vi.fn();

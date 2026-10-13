@@ -21,8 +21,9 @@ function prato(parcial: Partial<DishListItem> = {}): DishListItem {
 const canal = (channel: string, loja: string, price: number) => ({ channel, deliveryStoreId: `s-${loja}`, storeName: loja, price });
 
 // Filé: salão R$ 80 e delivery em 3 lojas (99 em duas, com preços diferentes, e iFood).
+// O delivery tem as próprias quantidades (alsoItemsCount); aqui, com o mesmo custo do a la carte, para as contas continuarem simples.
 const FILE = prato({
-  id: "f", alsoMenu: "DELIVERY",
+  id: "f", alsoMenu: "DELIVERY", alsoItemsCount: 3, alsoCustoPorcao: 24, alsoCustoIncompleto: false,
   canais: [canal("NOVENTA_NOVE", "Frei Caneca", 100), canal("NOVENTA_NOVE", "Pizzaria", 60), canal("IFOOD", "Pateo da Luz", 120)]
 });
 const SO_DELIVERY = prato({ id: "p", name: "Pizza", menu: "DELIVERY", salePriceDefault: null, custoPorcao: 15, canais: [canal("NOVENTA_NOVE", "Frei Caneca", 50)] });
@@ -86,6 +87,38 @@ describe("matriz de CMV", () => {
     expect(salao).toMatchObject({ analisados: 2, altos: 1, bons: 1 });
     expect(salao.cmvMedio).toBeCloseTo(40); // (30 + 50) / 2
     expect(resumos.find((r) => r.coluna.canal === "IFOOD")!.analisados).toBe(1);
+  });
+});
+
+describe("ficha de cada cardápio", () => {
+  it("o delivery usa o custo das quantidades do delivery, não o do a la carte", () => {
+    // A la carte custa 24; as quantidades do delivery custam 30 (porção maior).
+    const doisCardapios = prato({ id: "d", alsoMenu: "DELIVERY", alsoItemsCount: 2, alsoCustoPorcao: 30, canais: [canal("NOVENTA_NOVE", "Frei Caneca", 100)] });
+    const colunas = montarColunas([doisCardapios], "canal");
+    const [linha] = montarMatriz([doisCardapios], colunas, "canal");
+    expect(linha.celulas.SALAO.cmv).toBeCloseTo(30); // 24 / 80
+    expect(linha.celulas.NOVENTA_NOVE.cmv).toBeCloseTo(30); // 30 / 100, e não 24 / 100
+  });
+
+  it("sem as quantidades do delivery, o CMV de lá não sai: 'falta-delivery', e o salão segue normal", () => {
+    const semDelivery = prato({ id: "x", alsoMenu: "DELIVERY", alsoItemsCount: 0, canais: [canal("NOVENTA_NOVE", "Frei Caneca", 100)] });
+    const colunas = montarColunas([semDelivery], "canal");
+    const [linha] = montarMatriz([semDelivery], colunas, "canal");
+    expect(linha.celulas.NOVENTA_NOVE).toMatchObject({ estado: "falta-delivery", cmv: null });
+    expect(linha.celulas.SALAO.estado).toBe("ok");
+  });
+
+  it("custo parcial das quantidades do delivery aparece como 'incompleta' só no delivery", () => {
+    const parcial = prato({ id: "p", alsoMenu: "DELIVERY", alsoItemsCount: 2, alsoCustoPorcao: 10, alsoCustoIncompleto: true, canais: [canal("NOVENTA_NOVE", "Frei Caneca", 100)] });
+    const [linha] = montarMatriz([parcial], montarColunas([parcial], "canal"), "canal");
+    expect(linha.celulas.NOVENTA_NOVE.estado).toBe("incompleta");
+    expect(linha.celulas.SALAO.estado).toBe("ok");
+  });
+
+  it("prato só do salão com listagem de delivery (ainda não marcado nos dois) segue pela única ficha que tem", () => {
+    const legado = prato({ id: "l", canais: [canal("NOVENTA_NOVE", "Frei Caneca", 100)] });
+    const [linha] = montarMatriz([legado], montarColunas([legado], "canal"), "canal");
+    expect(linha.celulas.NOVENTA_NOVE.cmv).toBeCloseTo(24);
   });
 });
 

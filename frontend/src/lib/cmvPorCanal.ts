@@ -15,7 +15,7 @@ export type Coluna = {
   rotulo: string;
 };
 
-export type EstadoDaCelula = "ok" | "nao-vende" | "sem-ficha" | "incompleta" | "sem-preco";
+export type EstadoDaCelula = "ok" | "nao-vende" | "sem-ficha" | "incompleta" | "sem-preco" | "falta-delivery";
 
 /** Chave da loja nas razões: o id dela, ou "plataforma:KEETA" para a plataforma sem loja cadastrada. */
 export const chaveDaLoja = (canal: { channel: string; deliveryStoreId: string | null }) =>
@@ -60,7 +60,7 @@ export const ROTULO_DO_SALAO = "Salão (a la carte)";
 const rotuloDaColuna = (canal: string, loja: string | null) =>
   canal === "SALAO" ? ROTULO_DO_SALAO : loja ? `${loja}` : rotuloDoCanal(canal);
 
-type Venda = { canal: string; loja: string | null; preco: number; sobreLiquido: boolean };
+type Venda = { canal: string; loja: string | null; preco: number; sobreLiquido: boolean; menu: "CARDAPIO" | "DELIVERY" };
 
 /** Onde o prato tem preço: o do salão (se é vendido lá) e o de cada loja com listagem ativa. */
 function vendasDoPrato(prato: DishListItem, razoes?: RazoesLiquidas): Venda[] {
@@ -68,11 +68,11 @@ function vendasDoPrato(prato: DishListItem, razoes?: RazoesLiquidas): Venda[] {
     // Com a razão da loja, o preço vira o que chega ao caixa: o CMV passa a ser sobre o líquido.
     const razao = razoes?.[chaveDaLoja(canal)];
     return razao != null && razao > 0
-      ? { canal: canal.channel, loja: canal.storeName, preco: canal.price * razao, sobreLiquido: true }
-      : { canal: canal.channel, loja: canal.storeName, preco: canal.price, sobreLiquido: false };
+      ? { canal: canal.channel, loja: canal.storeName, preco: canal.price * razao, sobreLiquido: true, menu: "DELIVERY" as const }
+      : { canal: canal.channel, loja: canal.storeName, preco: canal.price, sobreLiquido: false, menu: "DELIVERY" as const };
   });
   if (menusDoPrato(prato).includes("CARDAPIO") && prato.salePriceDefault != null && prato.salePriceDefault > 0) {
-    vendas.push({ canal: "SALAO", loja: null, preco: prato.salePriceDefault, sobreLiquido: false });
+    vendas.push({ canal: "SALAO", loja: null, preco: prato.salePriceDefault, sobreLiquido: false, menu: "CARDAPIO" });
   }
   return vendas;
 }
@@ -98,17 +98,30 @@ export function montarColunas(pratos: DishListItem[], modo: ModoDeAgrupamento): 
 
 const celulaVazia = (estado: EstadoDaCelula): Celula => ({ estado, sobreLiquido: false, cmv: null, preco: null, precoMin: null, precoMax: null, lojas: 0 });
 
+/**
+ * A ficha do cardápio de um lugar: a quantidade do a la carte não é a do delivery, então o prato vendido nos dois
+ * tem uma ficha (e um custo) para cada. Prato que não foi marcado nos dois usa a única ficha que tem.
+ */
+function fichaDoCardapio(prato: DishListItem, menu: "CARDAPIO" | "DELIVERY") {
+  if (prato.alsoMenu === menu && prato.menu !== menu) {
+    return { itens: prato.alsoItemsCount ?? 0, custo: prato.alsoCustoPorcao ?? 0, incompleta: prato.alsoCustoIncompleto ?? false, propria: true };
+  }
+  return { itens: prato.itemsCount, custo: prato.custoPorcao, incompleta: prato.custoIncompleto, propria: false };
+}
+
 function celulaDe(prato: DishListItem, vendas: Venda[]): Celula {
   if (vendas.length === 0) return celulaVazia("nao-vende");
+  const ficha = fichaDoCardapio(prato, vendas[0].menu);
   const precos = vendas.map((venda) => venda.preco);
   const base: Celula = { ...celulaVazia("ok"), sobreLiquido: vendas.every((venda) => venda.sobreLiquido), precoMin: Math.min(...precos), precoMax: Math.max(...precos), lojas: vendas.length };
 
-  if (prato.itemsCount === 0) return { ...base, estado: "sem-ficha" };
+  // Vendido nos dois sem as quantidades do delivery: o CMV de lá não sai da ficha do a la carte.
+  if (ficha.itens === 0) return { ...base, estado: ficha.propria ? "falta-delivery" : "sem-ficha" };
   // Custo parcial subestima o CMV: melhor mostrar "parcial" do que um número bonito e errado.
-  if (prato.custoIncompleto) return { ...base, estado: "incompleta" };
+  if (ficha.incompleta) return { ...base, estado: "incompleta" };
 
   // O pior lugar manda: o menor preço é o que mais pesa o custo.
-  return { ...base, cmv: (prato.custoPorcao / base.precoMin!) * 100, preco: base.precoMin };
+  return { ...base, cmv: (ficha.custo / base.precoMin!) * 100, preco: base.precoMin };
 }
 
 /** Uma linha por prato; cada coluna diz o CMV dele naquele lugar. `nao-vende` onde o prato não está. */

@@ -1,10 +1,9 @@
 import { X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { saveDish, saveDishProductConversion, type DishCategory, type DishMenu, type DishDetail, type DishProductSearchResult } from "../../../api/client";
+import { saveDish, saveDishProductConversion, type DishCategory, type DishMenu, type DishDetail } from "../../../api/client";
 import { Button, FormField, FormGrid, IconButton, Money, Select, StatusBadge, TextField, Textarea } from "../../../design-system";
 import {
   faixaDeCmv,
-  converterAoTrocarUnidade,
   fracaoParaPercentual,
   ondeVende,
   trocarOndeVende,
@@ -13,7 +12,6 @@ import {
   normalizarUnidade,
   resumoDaFicha,
   temErros,
-  unidadePadrao,
   validarFicha,
   type CamposDaFicha,
   type ErrosDaFicha,
@@ -21,8 +19,8 @@ import {
 } from "../../../lib/fichaTecnica";
 import { formatPercent } from "../../../utils/format";
 import { DESCRICAO_DO_CARDAPIO, ROTULO_DO_CARDAPIO, opcoesDeCategoria } from "../../../lib/categoriasDasFichas";
-import { BuscaDeIngrediente } from "./BuscaDeIngrediente";
-import { LinhaDeIngrediente } from "./LinhaDeIngrediente";
+import { SecaoDeIngredientes } from "./SecaoDeIngredientes";
+import { novoIdDeLinha, useListaDeIngredientes } from "./useListaDeIngredientes";
 
 export type ModoDoFormulario = "novo" | "editar" | "copia";
 
@@ -54,11 +52,22 @@ const camposVazios = (menu: DishMenu): CamposDaFicha => ({
   name: "", code: "", menu, categoryId: "", alsoMenu: null, alsoCategoryId: "", salePriceDefault: "", yieldQty: "1", yieldUnit: "UN", notes: ""
 });
 
-let sequenciaDeLinhas = 0;
-const novoIdDeLinha = () => `novo-${Date.now()}-${++sequenciaDeLinhas}`;
+const itemDoDetalhe = (item: DishDetail["items"][number], copia: boolean): ItemDaFicha => ({
+  tempId: copia ? novoIdDeLinha() : item.id,
+  productId: item.productId,
+  productName: item.productName,
+  quantity: String(item.quantity),
+  unit: normalizarUnidade(item.unit) || item.unit,
+  wasteFactor: fracaoParaPercentual(item.wasteFactor),
+  unitCost: item.unitCost ?? 0,
+  productUnit: item.productUnit,
+  conversions: item.conversions ?? [],
+  embalagemInferida: item.embalagemInferida ?? null,
+  notes: item.notes ?? ""
+});
 
-function montarInicial(modo: ModoDoFormulario, base: DishDetail | null, menuPadrao: DishMenu): { campos: CamposDaFicha; itens: ItemDaFicha[] } {
-  if (!base || modo === "novo") return { campos: camposVazios(menuPadrao), itens: [] };
+function montarInicial(modo: ModoDoFormulario, base: DishDetail | null, menuPadrao: DishMenu): { campos: CamposDaFicha; itens: ItemDaFicha[]; itensDoOutro: ItemDaFicha[] } {
+  if (!base || modo === "novo") return { campos: camposVazios(menuPadrao), itens: [], itensDoOutro: [] };
 
   const copia = modo === "copia";
   return {
@@ -75,19 +84,8 @@ function montarInicial(modo: ModoDoFormulario, base: DishDetail | null, menuPadr
       yieldUnit: base.yieldUnit,
       notes: base.notes ?? ""
     },
-    itens: base.items.map((item) => ({
-      tempId: copia ? novoIdDeLinha() : item.id,
-      productId: item.productId,
-      productName: item.productName,
-      quantity: String(item.quantity),
-      unit: normalizarUnidade(item.unit) || item.unit,
-      wasteFactor: fracaoParaPercentual(item.wasteFactor),
-      unitCost: item.unitCost ?? 0,
-      productUnit: item.productUnit,
-      conversions: item.conversions ?? [],
-      embalagemInferida: item.embalagemInferida ?? null,
-      notes: item.notes ?? ""
-    }))
+    itens: base.items.map((item) => itemDoDetalhe(item, copia)),
+    itensDoOutro: (base.alsoItems ?? []).map((item) => itemDoDetalhe(item, copia))
   };
 }
 
@@ -101,12 +99,15 @@ export function FormularioDoPrato({ modo, base, categorias, menuPadrao, onCancel
   const inicial = useMemo(() => montarInicial(modo, base, menuPadrao), [modo, base, menuPadrao]);
   const instantaneoInicial = useRef(JSON.stringify(inicial));
   const [campos, setCampos] = useState<CamposDaFicha>(inicial.campos);
-  const [itens, setItens] = useState<ItemDaFicha[]>(inicial.itens);
+  // A quantidade do a la carte não é a do delivery: o prato vendido nos dois tem uma lista para cada cardápio.
+  const salao = useListaDeIngredientes(inicial.itens);
+  const delivery = useListaDeIngredientes(inicial.itensDoOutro);
+  const itens = salao.itens;
+  const itensDoOutro = delivery.itens;
   const [erros, setErros] = useState<ErrosDaFicha | null>(null);
   const [salvando, setSalvando] = useState(false);
-  const [focoNaLinha, setFocoNaLinha] = useState<string | null>(null);
 
-  const alterado = JSON.stringify({ campos, itens }) !== instantaneoInicial.current;
+  const alterado = JSON.stringify({ campos, itens, itensDoOutro }) !== instantaneoInicial.current;
   useEffect(() => { onAlterado(alterado); }, [alterado, onAlterado]);
   useEffect(() => () => onAlterado(false), [onAlterado]);
 
@@ -118,26 +119,12 @@ export function FormularioDoPrato({ modo, base, categorias, menuPadrao, onCancel
     if (modo === "copia") campo?.select();
   }, [modo]);
 
-  // Ingrediente recém-adicionado: o cursor vai direto para a quantidade.
-  useEffect(() => {
-    if (!focoNaLinha) return;
-    const campo = document.getElementById(`ft-qtd-${focoNaLinha}`) as HTMLInputElement | null;
-    campo?.focus();
-    campo?.select();
-    setFocoNaLinha(null);
-  }, [focoNaLinha, itens]);
-
   // Depois da primeira tentativa de salvar, os erros acompanham a digitação.
-  const errosVisiveis = useMemo(() => (erros ? validarFicha(campos, itens) : null), [erros, campos, itens]);
+  const errosVisiveis = useMemo(() => (erros ? validarFicha(campos, itens, itensDoOutro) : null), [erros, campos, itens, itensDoOutro]);
   const resumo = useMemo(() => resumoDaFicha(campos, itens), [campos, itens]);
   const faixa = faixaDeCmv(resumo.cmvPercentual);
-
-  const idsNaFicha = useMemo(() => new Set(itens.map((item) => item.productId)), [itens]);
-  const repetidos = useMemo(() => {
-    const contagem = new Map<string, number>();
-    itens.forEach((item) => contagem.set(item.productId, (contagem.get(item.productId) ?? 0) + 1));
-    return contagem;
-  }, [itens]);
+  // O custo do delivery sai das quantidades do delivery, sem preço: o preço de lá é por loja.
+  const resumoDoOutro = useMemo(() => resumoDaFicha({ salePriceDefault: "", yieldQty: campos.yieldQty }, itensDoOutro), [campos.yieldQty, itensDoOutro]);
 
   // Preços já praticados nos canais: um toque preenche o preço padrão.
   const atalhosDePreco = useMemo(() => {
@@ -163,54 +150,22 @@ export function FormularioDoPrato({ modo, base, categorias, menuPadrao, onCancel
     setCampos((anterior) => ({ ...anterior, [campo]: valor }));
   }
 
-  function adicionarProduto(produto: DishProductSearchResult) {
-    const tempId = novoIdDeLinha();
-    setItens((anterior) => [
-      ...anterior,
-      {
-        tempId,
-        productId: produto.id,
-        productName: produto.name,
-        quantity: "",
-        unit: unidadePadrao(produto.unit, produto.conversions ?? []),
-        wasteFactor: "0",
-        unitCost: produto.averageCost,
-        productUnit: produto.unit,
-        conversions: produto.conversions ?? [],
-        embalagemInferida: produto.embalagemInferida ?? null,
-        notes: ""
-      }
-    ]);
-    setFocoNaLinha(tempId);
-  }
-
-  function alterarItem(tempId: string, campo: "quantity" | "unit" | "wasteFactor", valor: string) {
-    setItens((anterior) => anterior.map((item) => {
-      if (item.tempId !== tempId) return item;
-      if (campo === "unit") {
-        // Trocar a unidade traz a quantidade junto (170 G → 0,17 KG) quando há conversão conhecida.
-        const convertida = converterAoTrocarUnidade(item, valor);
-        return convertida
-          ? { ...item, unit: valor, quantity: convertida.quantity, avisoDeConversao: convertida.aviso }
-          : { ...item, unit: valor, avisoDeConversao: null };
-      }
-      return campo === "quantity" ? { ...item, quantity: valor, avisoDeConversao: null } : { ...item, [campo]: valor };
-    }));
-  }
-
-  /** "1 UN = 1.200 g": grava no produto e atualiza todas as linhas desse produto na ficha. */
+  /** "1 UN = 1.200 g": grava no produto e atualiza todas as linhas desse produto, nas duas listas da ficha. */
   async function informarConversao(productId: string, unidade: string, quantidade: number, substituir?: boolean) {
     const resposta = await saveDishProductConversion(productId, { unit: unidade, amount: quantidade, ...(substituir ? { replace: true } : {}) });
-    setItens((anterior) => anterior.map((item) => (
+    const atualizar = (anterior: ItemDaFicha[]) => anterior.map((item) => (
       item.productId === productId
         ? { ...item, conversions: resposta.conversions, embalagemInferida: resposta.embalagemInferida }
         : item
-    )));
+    ));
+    salao.setItens(atualizar);
+    delivery.setItens(atualizar);
     notificar("success", "Conversão salva no produto. Vale para todas as fichas e para a conversão de compras e contagem.");
   }
 
-  function removerItem(tempId: string) {
-    setItens((anterior) => anterior.filter((item) => item.tempId !== tempId));
+  /** Ponto de partida do delivery: as linhas do a la carte, para ajustar — a quantidade de lá não vale para cá. */
+  function comecarDaFichaDoSalao() {
+    delivery.setItens(itens.map((item) => ({ ...item, tempId: novoIdDeLinha(), avisoDeConversao: null })));
   }
 
   function focarPrimeiroErro(encontrados: ErrosDaFicha) {
@@ -221,13 +176,15 @@ export function FormularioDoPrato({ modo, base, categorias, menuPadrao, onCancel
         ? "ft-preco"
         : encontrados.yieldQty
           ? "ft-rendimento"
-          : `${erroDoItem?.campo === "wasteFactor" ? "ft-perda" : "ft-qtd"}-${idDoItem}`;
+          : encontrados.semQuantidadesDoOutro
+            ? "ft-busca-ingrediente-delivery"
+            : `${erroDoItem?.campo === "wasteFactor" ? "ft-perda" : "ft-qtd"}-${idDoItem}`;
     // O erro só aparece depois do render seguinte.
     window.setTimeout(() => document.getElementById(alvo)?.focus(), 0);
   }
 
   async function salvar() {
-    const encontrados = validarFicha(campos, itens);
+    const encontrados = validarFicha(campos, itens, itensDoOutro);
     setErros(encontrados);
     if (temErros(encontrados)) {
       focarPrimeiroErro(encontrados);
@@ -240,7 +197,7 @@ export function FormularioDoPrato({ modo, base, categorias, menuPadrao, onCancel
         montarPayloadDaFicha(campos, itens, {
           id: modo === "editar" ? base?.id : undefined,
           isActive: modo === "editar" ? base?.isActive : undefined
-        })
+        }, itensDoOutro)
       );
       onSalvo(resultado.id, modo);
     } catch (erro) {
@@ -257,7 +214,10 @@ export function FormularioDoPrato({ modo, base, categorias, menuPadrao, onCancel
   function aoTeclarNoFormulario(evento: KeyboardEvent<HTMLFormElement>) {
     if (evento.key !== "Enter" || !(evento.target instanceof HTMLInputElement)) return;
     evento.preventDefault();
-    if (evento.target.closest(".ft-ingrediente")) document.getElementById("ft-busca-ingrediente")?.focus();
+    // Enter numa linha leva à busca da MESMA lista (a do salão e a do delivery são seções separadas).
+    if (evento.target.closest(".ft-ingrediente")) {
+      evento.target.closest(".ft-secao")?.querySelector<HTMLInputElement>('input[role="combobox"]')?.focus();
+    }
   }
 
   const mostrarErros = errosVisiveis ?? { itens: {} };
@@ -299,7 +259,7 @@ export function FormularioDoPrato({ modo, base, categorias, menuPadrao, onCancel
             <TextField value={campos.code} onChange={(evento) => alterarCampo("code", evento.target.value)} placeholder="Ex.: PRAT-001" maxLength={40} />
           </FormField>
           <div className="ft-campo-cheio">
-            <FormField label="Cardápio" hint="Salão e delivery têm categorias e preços próprios. Se o mesmo prato sai nos dois, escolha “Cardápio e delivery”: a ficha é uma só.">
+            <FormField label="Cardápio" hint="Salão e delivery têm categorias e preços próprios. Se o mesmo prato sai nos dois, escolha “Cardápio e delivery”: a ficha tem as quantidades do a la carte e as do delivery, cada uma no seu cardápio.">
               <div className="ft-segmentos" role="radiogroup" aria-label="Cardápio do prato">
                 {OPCOES_ONDE_VENDE.map(({ valor, rotulo, titulo }) => (
                   <button
@@ -404,38 +364,40 @@ export function FormularioDoPrato({ modo, base, categorias, menuPadrao, onCancel
         </FormGrid>
       </section>
 
-      <section className="ft-secao" aria-labelledby="ft-ingredientes-form">
-        <h3 id="ft-ingredientes-form" className="ft-secao-titulo">
-          Ingredientes <span className="ft-secao-n">{itens.length}</span>
-        </h3>
+      <SecaoDeIngredientes
+        titulo={campos.alsoMenu ? "Ingredientes no a la carte" : "Ingredientes"}
+        idBase="salao"
+        itens={itens}
+        repetidos={salao.repetidos}
+        idsNaFicha={salao.idsNaFicha}
+        erros={mostrarErros.itens}
+        descricao={campos.alsoMenu ? "Quantidades da porção servida no salão (a la carte)." : undefined}
+        onAdicionar={salao.adicionar}
+        onAlterar={salao.alterar}
+        onRemover={salao.remover}
+        onInformarConversao={informarConversao}
+      />
 
-        <BuscaDeIngrediente jaNaFicha={idsNaFicha} onEscolher={adicionarProduto} />
-
-        {itens.length === 0 ? (
-          <p className="ft-vazio-ingredientes">
-            Nenhum ingrediente ainda. Busque o produto acima, informe a quantidade e a unidade em que ele entra na receita.
-          </p>
-        ) : (
-          <>
-            <div className="ft-ingredientes-cabecalho" aria-hidden>
-              <span>Ingrediente</span><span>Quantidade</span><span>Unidade</span><span>Perda %</span><span>Custo</span><span />
-            </div>
-            <ul className="ft-ingredientes-lista">
-              {itens.map((item) => (
-                <LinhaDeIngrediente
-                  key={item.tempId}
-                  item={item}
-                  erro={mostrarErros.itens[item.tempId]}
-                  repetido={(repetidos.get(item.productId) ?? 0) > 1}
-                  onAlterar={alterarItem}
-                  onRemover={removerItem}
-                  onInformarConversao={informarConversao}
-                />
-              ))}
-            </ul>
-          </>
-        )}
-      </section>
+      {campos.alsoMenu && (
+        <SecaoDeIngredientes
+          titulo="Ingredientes no delivery"
+          idBase="delivery"
+          rotuloDaBusca="Buscar produto para adicionar à ficha do delivery"
+          itens={itensDoOutro}
+          repetidos={delivery.repetidos}
+          idsNaFicha={delivery.idsNaFicha}
+          erros={mostrarErros.itens}
+          erroDaLista={mostrarErros.semQuantidadesDoOutro}
+          descricao="Obrigatório. As quantidades do a la carte não valem para o delivery: informe as da porção que sai nele."
+          acoes={itens.length > 0 && itensDoOutro.length === 0 ? (
+            <Button variant="secondary" size="sm" onClick={comecarDaFichaDoSalao}>Começar da ficha do a la carte</Button>
+          ) : undefined}
+          onAdicionar={delivery.adicionar}
+          onAlterar={delivery.alterar}
+          onRemover={delivery.remover}
+          onInformarConversao={informarConversao}
+        />
+      )}
 
       <footer className="ft-form-rodape">
         <dl className="ft-resumo" aria-label="Resumo calculado da ficha">
@@ -457,6 +419,12 @@ export function FormularioDoPrato({ modo, base, categorias, menuPadrao, onCancel
                   : <StatusBadge tone={faixa?.tom ?? "neutral"}>{formatPercent(resumo.cmvPercentual)}</StatusBadge>}
             </dd>
           </div>
+          {campos.alsoMenu && itensDoOutro.length > 0 && (
+            <div>
+              <dt>Custo no delivery</dt>
+              <dd><Money value={resumoDoOutro.custoPorPorcao} /></dd>
+            </div>
+          )}
           {itens.length > 1 && (
             <div className="ft-resumo-receita">
               <dt>Receita inteira</dt>
