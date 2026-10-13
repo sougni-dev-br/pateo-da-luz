@@ -25,6 +25,56 @@ function entrada(parcial: Partial<EntradaConferencia>): EntradaConferencia {
 }
 
 describe("classificarItemDaConferencia", () => {
+  describe("desperdício registrado no período", () => {
+    test("zerado com compra continua suspeito mesmo quando o desperdício cobre o que havia, mas o texto explica", () => {
+      // Havia 2 + 8 comprados; 10 viraram desperdício registrado (câmara desligou).
+      const r = classificarItemDaConferencia(entrada({ anterior: 2, compras: 8, contado: 0, desperdicio: 10 }));
+      expect(r.classe).toBe("ZERADO_SUSPEITO");
+      expect(r.desperdicio).toBe(10);
+      expect(r.motivo).toMatch(/cobre o que havia: confirme e marque como conferido/);
+      // Quem lança desperdício não consegue, sozinho, tirar o item da lista de pendências.
+      expect(r.impacto).toBe(10);
+    });
+
+    test("desperdício que explica só parte diz isso", () => {
+      const r = classificarItemDaConferencia(entrada({ anterior: 2, compras: 8, contado: 0, desperdicio: 3 }));
+      expect(r.classe).toBe("ZERADO_SUSPEITO");
+      expect(r.motivo).toMatch(/cobre só parte/);
+    });
+
+    test("desperdício maior que o disponível no zerado avisa em vez de explicar", () => {
+      const r = classificarItemDaConferencia(entrada({ anterior: 2, compras: 8, contado: 0, desperdicio: 500 }));
+      expect(r.classe).toBe("ZERADO_SUSPEITO");
+      expect(r.motivo).toMatch(/Atenção.*mais que o disponível/);
+    });
+
+    test("não perdoa contagem impossível: desperdício só reduz, nunca cria estoque", () => {
+      const r = classificarItemDaConferencia(entrada({ anterior: 2, compras: 0, contado: 420, desperdicio: 1 }));
+      expect(r.classe).toBe("IMPOSSIVEL");
+    });
+
+    test("consumo coerente informa quanto dele foi desperdício", () => {
+      const r = classificarItemDaConferencia(entrada({ anterior: 10, compras: 0, contado: 4, desperdicio: 2 }));
+      expect(r.classe).toBe("COERENTE");
+      expect(r.consumo).toBe(6);
+      expect(r.desperdicio).toBe(2);
+      expect(r.motivo).toMatch(/2.*desperdício/);
+    });
+
+    test("desperdício maior que o consumo avisa em vez de afirmar que está incluído", () => {
+      const r = classificarItemDaConferencia(entrada({ anterior: 10, compras: 0, contado: 4, desperdicio: 50 }));
+      expect(r.classe).toBe("COERENTE");
+      expect(r.motivo).toMatch(/Atenção.*mais que o consumo/);
+      expect(r.motivo).not.toMatch(/Inclui/);
+    });
+
+    test("sem desperdício registrado o resultado é o de antes", () => {
+      const r = classificarItemDaConferencia(entrada({ anterior: 10, compras: 0, contado: 4 }));
+      expect(r.desperdicio).toBe(0);
+      expect(r.motivo).toBe("Consumo de 6 UN no período.");
+    });
+  });
+
   test("sem quantidade lancada fica pendente", () => {
     const r = classificarItemDaConferencia(entrada({ contado: null }));
     expect(r.classe).toBe("PENDENTE");
