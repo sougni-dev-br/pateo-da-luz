@@ -216,7 +216,7 @@ function pathFrom(url: string): string {
   }
 }
 
-function mockResponseFor(url: string, method = "GET"): unknown {
+function mockResponseFor(url: string, method = "GET", corpo?: BodyInit | null): unknown {
   const path = pathFrom(url);
 
   // Fichas técnicas: lista, detalhe, categorias e busca de produto com dados de exemplo.
@@ -224,7 +224,7 @@ function mockResponseFor(url: string, method = "GET"): unknown {
   if (fichas !== undefined) return fichas;
 
   // Análise do Salão (cancelamentos e vendas por pessoa).
-  const analiseSalao = mockAnaliseSalao(url);
+  const analiseSalao = mockAnaliseSalao(url, method, corpo);
   if (analiseSalao !== undefined) return analiseSalao;
 
   if (path.endsWith("/auth/me") || path.endsWith("/me")) return MOCK_USER;
@@ -829,7 +829,7 @@ export function installMockFetch(): void {
   window.fetch = async (input, init) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : (input as Request).url;
     if (!isApiUrl(url)) return originalFetch(input, init);
-    const body = mockResponseFor(url, init?.method ?? (input instanceof Request ? input.method : "GET"));
+    const body = mockResponseFor(url, init?.method ?? (input instanceof Request ? input.method : "GET"), init?.body);
     return new Response(JSON.stringify(body), {
       status: 200,
       headers: { "Content-Type": "application/json" }

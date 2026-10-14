@@ -7,10 +7,12 @@ vi.mock("../../api/client", () => ({
   getAnaliseDemanda: vi.fn(),
   getAnaliseCardapio: vi.fn(),
   getAnalisePerdas: vi.fn(),
-  getAnaliseVendasPorPessoa: vi.fn()
+  getAnaliseVendasPorPessoa: vi.fn(),
+  getAnaliseMetas: vi.fn(),
+  salvarAnaliseMeta: vi.fn()
 }));
 
-import { getAnaliseCardapio, getAnaliseDemanda, getAnalisePerdas, getAnaliseResumo, getAnaliseVendasPorPessoa } from "../../api/client";
+import { getAnaliseCardapio, getAnaliseDemanda, getAnaliseMetas, getAnalisePerdas, getAnaliseResumo, getAnaliseVendasPorPessoa } from "../../api/client";
 import { cardapio, demanda, perdas, PERIODO, renderComSessao, resumo } from "../analise-salao/__tests__/fixtures";
 import { AnaliseSalao } from "../AnaliseSalao";
 
@@ -32,6 +34,11 @@ beforeEach(() => {
   vi.mocked(getAnaliseCardapio).mockResolvedValue(cardapio());
   vi.mocked(getAnalisePerdas).mockResolvedValue(perdas());
   vi.mocked(getAnaliseVendasPorPessoa).mockResolvedValue(equipe);
+  vi.mocked(getAnaliseMetas).mockResolvedValue({
+    mes: { ano: 2026, mes: 10, inicio: "2026-10-01", fim: "2026-10-31", diasNoMes: 31, encerrado: false, futuro: false },
+    cobertura: { diasComMovimento: 14, diasRestantes: 15, diasNoRitmo: 48, podeProjetar: true },
+    indicadores: [{ indicador: "faturamento", rotulo: "Faturamento do mês", menorEMelhor: false, meta: null, realizado: 150000, projecao: 280000, progresso: null, faltam: null, porDiaAtual: 10000, porDiaNecessario: null, situacao: "sem-meta", referencia: null }]
+  });
 });
 
 describe("Análise do Salão — estrutura", () => {
@@ -46,9 +53,34 @@ describe("Análise do Salão — estrutura", () => {
     expect(getAnaliseVendasPorPessoa).not.toHaveBeenCalled();
   });
 
-  test("tem as cinco secoes, nesta ordem", () => {
+  test("tem as seis secoes, nesta ordem", () => {
     renderizar();
-    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Resumo", "Quando vendemos", "Cardápio", "Perdas", "Equipe"]);
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Resumo", "Quando vendemos", "Cardápio", "Perdas", "Equipe", "Metas"]);
+  });
+
+  test("metas: so busca ao abrir, esconde o filtro de periodo (e por mes) e nao chama os relatorios por periodo", async () => {
+    renderizar();
+    await screen.findByText("Faturamento por dia");
+    expect(getAnaliseMetas).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Período")).toBeTruthy();
+    fireEvent.click(aba("Metas"));
+    expect(await screen.findByRole("heading", { name: /de 20\d\d$/ })).toBeTruthy();
+    expect(getAnaliseMetas).toHaveBeenCalledTimes(1);
+    expect(screen.queryByLabelText("Período")).toBeNull();
+    expect(screen.queryByLabelText("De")).toBeNull();
+    expect(getAnaliseDemanda).not.toHaveBeenCalled();
+    fireEvent.click(aba("Resumo"));
+    expect(await screen.findByLabelText("Período")).toBeTruthy();
+  });
+
+  test("metas: erro da API aparece sem derrubar as outras secoes", async () => {
+    vi.mocked(getAnaliseMetas).mockRejectedValue(new Error("Falha nas metas"));
+    renderizar();
+    await screen.findByText("Faturamento por dia");
+    fireEvent.click(aba("Metas"));
+    expect(await screen.findByText(/Falha nas metas/)).toBeTruthy();
+    fireEvent.click(aba("Resumo"));
+    expect(await screen.findByText("Faturamento por dia")).toBeTruthy();
   });
 
   test("cardapio: nao busca ate abrir, e uma vez aberto nao refaz ao voltar", async () => {
