@@ -1,4 +1,9 @@
 import { ehRecebida, SITUACAO_CANCELADA, SITUACAO_RECEBIDA } from "./agile-situacao.js";
+import { montarDemanda } from "./agile-analise-demanda.report.js";
+import { descontarHoje, hojeEmSaoPaulo } from "./agile-analise-hoje.js";
+import { montarPerdas } from "./agile-analise-perdas.report.js";
+import { montarResumo } from "./agile-analise-resumo.js";
+import { periodoAnteriorDe, type VendaVisao } from "./agile-analise-visao.report.js";
 import { prisma } from "../../../config/database.js";
 import {
   montarCancelamentos,
@@ -37,19 +42,22 @@ export async function obterCancelamentos(periodo: Periodo) {
   return montarCancelamentos(vendas, periodo);
 }
 
-export async function obterVendasPorPessoa(periodo: Periodo) {
+export async function obterVendasPorPessoa(pedido: Periodo, hoje: string = hojeEmSaoPaulo()) {
+  const { periodo, hojeFicouDeFora, vazio } = descontarHoje(pedido, hoje);
   const { de, ate } = intervaloDoPeriodo(periodo);
   // So venda RECEBIDA: item de venda cancelada nao e venda de ninguem.
-  const linhas = await prisma.agileSaleItem.findMany({
-    where: { movementDate: { gte: de, lt: ate }, saleStatus: SITUACAO_RECEBIDA },
-    select: { saleId: true, launchedBy: true, productGroup: true, quantity: true, totalAmount: true }
-  });
+  const linhas = vazio
+    ? []
+    : await prisma.agileSaleItem.findMany({
+        where: { movementDate: { gte: de, lt: ate }, saleStatus: SITUACAO_RECEBIDA },
+        select: { saleId: true, launchedBy: true, productGroup: true, quantity: true, totalAmount: true }
+      });
   const itens: ItemAnalise[] = linhas.map((l) => ({
     ...l,
     quantity: Number(l.quantity),
     totalAmount: Number(l.totalAmount)
   }));
-  return montarVendasPorPessoa(itens, periodo);
+  return { ...montarVendasPorPessoa(itens, periodo), hojeFicouDeFora };
 }
 
 // Itens cancelados DENTRO de venda paga. O item guarda o status proprio (saleStatus), mas
@@ -127,4 +135,95 @@ export async function obterDescontos(periodo: Periodo) {
     registeredBy: l.cancelledBy
   }));
   return montarDescontos(vendas, periodo);
+}
+
+// ---------------------------------------------------------------------------
+// Visao de decisao: resumo, demanda e perdas. Uma unica leitura de AgileSale por relatorio.
+// ---------------------------------------------------------------------------
+
+const CAMPOS_VENDA = {
+  saleId: true, movementDate: true, shift: true, saleStatus: true, saleHour: true, people: true, totalAmount: true,
+  subtotalAmount: true, discountAmount: true, discountLabel: true, cancelledBy: true, cancelReason: true
+} as const;
+
+async function carregarVendas(de: Date, ate: Date): Promise<VendaVisao[]> {
+  const linhas = await prisma.agileSale.findMany({ where: { movementDate: { gte: de, lt: ate } }, select: CAMPOS_VENDA });
+  return linhas.map((l) => ({
+    ...l,
+    totalAmount: Number(l.totalAmount),
+    // Decimal null (linha anterior ao agente novo) segue como null: "sem dado" nao e zero.
+    subtotalAmount: l.subtotalAmount === null ? null : Number(l.subtotalAmount),
+    discountAmount: l.discountAmount === null ? null : Number(l.discountAmount)
+  }));
+}
+
+// Valor dos itens cancelados DENTRO de venda paga, nas duas janelas de uma vez. O item de venda
+// inteira cancelada ja esta no cancelamento da venda (contaria duas vezes).
+async function valorDeItensCancelados(deAnterior: Date, de: Date, ate: Date) {
+  const linhas = await prisma.$queryRaw<Array<{ atual: boolean; valor: unknown }>>`
+    SELECT (i."movementDate" >= ${de}) AS atual, COALESCE(SUM(i."totalAmount"), 0) AS valor
+    FROM "AgileSaleItem" i
+    JOIN "AgileSale" s ON s."saleId" = i."saleId" AND s."saleStatus" = ${SITUACAO_RECEBIDA}
+    WHERE i."saleStatus" = ${SITUACAO_CANCELADA} AND i."movementDate" >= ${deAnterior} AND i."movementDate" < ${ate}
+    GROUP BY 1`;
+  const soma = (atual: boolean) => linhas.filter((l) => l.atual === atual).reduce((t, l) => t + Number(l.valor), 0);
+  return { atual: soma(true), anterior: soma(false) };
+}
+
+// O dia em andamento fica de fora (ver agile-analise-hoje.ts). `hoje` e injetavel so para teste.
+export async function obterResumo(pedido: Periodo, hoje: string = hojeEmSaoPaulo()) {
+  const { periodo, hojeFicouDeFora, vazio } = descontarHoje(pedido, hoje);
+  const { de, ate } = intervaloDoPeriodo(periodo);
+  const { de: deAnterior } = intervaloDoPeriodo(periodoAnteriorDe(periodo));
+  const [vendas, itens] = vazio
+    ? [[], { atual: 0, anterior: 0 }]
+    : await Promise.all([carregarVendas(deAnterior, ate), valorDeItensCancelados(deAnterior, de, ate)]);
+  return {
+    ...montarResumo({
+      periodo,
+      vendasAtual: vendas.filter((v) => v.movementDate >= de),
+      vendasAnterior: vendas.filter((v) => v.movementDate < de),
+      itensCanceladosAtual: itens.atual,
+      itensCanceladosAnterior: itens.anterior
+    }),
+    hojeFicouDeFora
+  };
+}
+
+export async function obterDemanda(pedido: Periodo, hoje: string = hojeEmSaoPaulo()) {
+  const { periodo, hojeFicouDeFora, vazio } = descontarHoje(pedido, hoje);
+  const { de, ate } = intervaloDoPeriodo(periodo);
+  return { ...montarDemanda(vazio ? [] : await carregarVendas(de, ate), periodo), hojeFicouDeFora };
+}
+
+export async function obterPerdas(pedido: Periodo, hoje: string = hojeEmSaoPaulo()) {
+  const { periodo, hojeFicouDeFora, vazio } = descontarHoje(pedido, hoje);
+  const { de, ate } = intervaloDoPeriodo(periodo);
+  const [vendas, itens] = vazio
+    ? [[], montarItensCancelados([], 0, periodo)]
+    : await Promise.all([carregarVendas(de, ate), obterItensCancelados(periodo)]);
+  return {
+    ...montarPerdas({
+      periodo,
+      vendas,
+      cancelamentos: montarCancelamentos(vendas, periodo),
+      itens,
+      descontos: montarDescontos(
+        vendas.filter((v) => ehRecebida(v.saleStatus)).map((v) => ({
+          saleId: v.saleId,
+          movementDate: v.movementDate,
+          shift: v.shift,
+          saleHour: v.saleHour,
+          people: v.people,
+          totalAmount: v.totalAmount,
+          subtotalAmount: v.subtotalAmount,
+          discountAmount: v.discountAmount,
+          discountLabel: v.discountLabel ?? null,
+          registeredBy: v.cancelledBy
+        })),
+        periodo
+      )
+    }),
+    hojeFicouDeFora
+  };
 }
