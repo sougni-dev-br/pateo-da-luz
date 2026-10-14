@@ -67,6 +67,17 @@ function Metrica({ rotulo, children, destaque, ajuda }: { rotulo: string; childr
   );
 }
 
+/** Explica, em uma frase, por que o prato vendido nos dois cardápios tem duas fichas e de onde vem cada preço. */
+function ExplicacaoDasFichas() {
+  return (
+    <p className="ft-explica">
+      <strong>Este prato é vendido no a la carte e no delivery, por isso tem duas fichas.</strong> Cada uma tem o seu porcionamento:
+      a quantidade de um não vale para o outro. O custo, o CMV e a margem do alto são do <strong>a la carte</strong>; o CMV do delivery
+      aparece em “Preços por canal”, loja por loja, porque o preço muda de uma plataforma e de uma loja para outra.
+    </p>
+  );
+}
+
 /** Prato vendido nos dois cardápios sem as quantidades do delivery: as do a la carte não valem para ele. */
 function AvisoDoDelivery({ prato, canEdit, onEditar }: Pick<Props, "prato" | "canEdit" | "onEditar">) {
   if (!prato.alsoMenu || (prato.alsoItems?.length ?? 0) > 0) return null;
@@ -237,10 +248,11 @@ export function DetalheDoPrato({ prato, canEdit, onEditar, onCopiar, onAlternarA
 
       <Aviso prato={prato} canEdit={canEdit} onEditar={onEditar} />
       <AvisoDoDelivery prato={prato} canEdit={canEdit} onEditar={onEditar} />
+      {prato.alsoMenu && <ExplicacaoDasFichas />}
 
       <section className="ft-resumo-ficha" aria-label="Resumo do prato">
         <div className={`ft-hero ft-hero--${mostraCmv ? (prato.custoIncompleto ? "warning" : faixa?.tom ?? "neutro") : "neutro"}`}>
-          <span className="ft-metrica-rotulo">CMV</span>
+          <span className="ft-metrica-rotulo">{prato.alsoMenu ? "CMV no a la carte" : "CMV"}</span>
           <strong className="ft-hero-valor">{mostraCmv ? <Percent value={prato.cmvPercentual} /> : "—"}</strong>
           <span className="ft-hero-faixa">
             {semFicha ? "sem ficha" : !mostraCmv ? "falta o preço" : prato.custoIncompleto ? "no mínimo — custo parcial" : `CMV ${faixa?.rotulo}`}
@@ -249,10 +261,10 @@ export function DetalheDoPrato({ prato, canEdit, onEditar, onCopiar, onAlternarA
         </div>
 
         <div className="ft-trio">
-          <Metrica rotulo="Custo por porção" ajuda={prato.yieldQty !== 1 ? `receita inteira: R$ ${prato.calculatedCost.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : undefined}>
+          <Metrica rotulo={prato.alsoMenu ? "Custo por porção (a la carte)" : "Custo por porção"} ajuda={prato.yieldQty !== 1 ? `receita inteira: R$ ${prato.calculatedCost.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : undefined}>
             {semFicha ? "—" : <Money value={prato.custoPorcao} />}
           </Metrica>
-          <Metrica rotulo="Preço de venda" ajuda={prato.salePriceDefault == null ? "não definido" : undefined}>
+          <Metrica rotulo={prato.alsoMenu ? "Preço no a la carte" : "Preço de venda"} ajuda={prato.salePriceDefault == null ? "não definido" : undefined}>
             <Money value={prato.salePriceDefault} />
           </Metrica>
           <Metrica
@@ -266,7 +278,7 @@ export function DetalheDoPrato({ prato, canEdit, onEditar, onCopiar, onAlternarA
       </section>
 
       <Ingredientes
-        titulo={prato.alsoMenu ? "Ingredientes no a la carte" : "Ingredientes"}
+        titulo={prato.alsoMenu ? "Porcionamento no a la carte" : "Ingredientes"}
         idBase="salao"
         itens={prato.items}
         total={prato.calculatedCost}
@@ -274,7 +286,7 @@ export function DetalheDoPrato({ prato, canEdit, onEditar, onCopiar, onAlternarA
       />
       {prato.alsoMenu && (
         <Ingredientes
-          titulo="Ingredientes no delivery"
+          titulo="Porcionamento no delivery"
           idBase="delivery"
           itens={prato.alsoItems ?? []}
           total={prato.alsoCusto?.calculatedCost ?? 0}
