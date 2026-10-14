@@ -4,9 +4,11 @@ import {
   getAnaliseDemanda,
   getAnaliseMargem,
   getAnaliseMargemBebidas,
+  getAnaliseMargemBuffet,
   getAnalisePerdas,
   getAnaliseResumo,
   getAnaliseVendasPorPessoa,
+  salvarCustoBuffetAnalise,
   vincularBebidaAnaliseMargem,
   vincularProdutoAnaliseMargem,
   type AnaliseUnidadeDeConsumo,
@@ -20,6 +22,7 @@ import { AvisoRecarga } from "./analise-salao/AvisoRecarga";
 import { CardapioPanel } from "./analise-salao/CardapioPanel";
 import { DemandaPanel } from "./analise-salao/DemandaPanel";
 import { MargemBebidasPanel } from "./analise-salao/MargemBebidasPanel";
+import { MargemBuffetPanel } from "./analise-salao/MargemBuffetPanel";
 import { MargemPanel } from "./analise-salao/MargemPanel";
 import { useRecargaEstavel } from "./analise-salao/useRecargaEstavel";
 import { MetasPanel } from "./analise-salao/MetasPanel";
@@ -106,10 +109,12 @@ export function AnaliseSalao() {
   const cardapio = useRelatorio(getAnaliseCardapio, periodo, aba === "cardapio");
   const margem = useRelatorio(getAnaliseMargem, periodo, aba === "margem");
   const margemBebidas = useRelatorio(getAnaliseMargemBebidas, periodo, aba === "margem");
+  const margemBuffet = useRelatorio(getAnaliseMargemBuffet, periodo, aba === "margem");
   // Depois de vincular o relatório é relido: o painel antigo continua na tela (sem pulo nem perda de foco) até o novo chegar.
   const chavePeriodo = `${periodo.inicio}|${periodo.fim}`;
   const pratos = useRecargaEstavel(margem, chavePeriodo);
   const bebidas = useRecargaEstavel(margemBebidas, chavePeriodo);
+  const buffet = useRecargaEstavel(margemBuffet, chavePeriodo);
   const perdas = useRelatorio(getAnalisePerdas, periodo, aba === "perdas");
   const equipe = useRelatorio(getAnaliseVendasPorPessoa, periodo, aba === "equipe");
   // Metas é por mês e se carrega sozinha: não usa o período do topo.
@@ -124,6 +129,11 @@ export function AnaliseSalao() {
   async function vincularBebida(codigo: string, nome: string, insumoId: string | null, quantidade?: number, unidade?: AnaliseUnidadeDeConsumo) {
     await vincularBebidaAnaliseMargem({ codigo, nome, insumoId, quantidade, unidade });
     bebidas.anunciarERecarregar(insumoId === null ? `Vínculo de ${nome} desfeito.` : `Vínculo de ${nome} salvo.`);
+  }
+
+  async function salvarCustoBuffet(ano: number, mes: number, valor: number | null) {
+    await salvarCustoBuffetAnalise({ ano, mes, valor });
+    buffet.anunciarERecarregar(valor === null ? "Custo do buffet removido." : "Custo do buffet salvo.");
   }
 
   function escolherPreset(valor: string) {
@@ -207,6 +217,24 @@ export function AnaliseSalao() {
             </div>
             {bebidas.aviso && <AvisoRecarga texto={bebidas.aviso} recalculando={bebidas.recalculando} erro={bebidas.erro} />}
             {bebidas.naTela && <MargemBebidasPanel dados={bebidas.naTela} podeEditar={podeEditar} onVincular={vincularBebida} />}
+          </section>
+        )}
+        {aba === "margem" && valido && (
+          <section aria-labelledby="margem-buffet" className="analise-stack">
+            <PanelEyebrow id="margem-buffet">Buffet: margem por pessoa</PanelEyebrow>
+            <div aria-live="polite">
+              {margemBuffet.erro && !buffet.naTela && (
+                <Alert tone="error">
+                  {margemBuffet.erro}{" "}
+                  <Button variant="secondary" size="sm" onClick={margemBuffet.recarregar}>
+                    Tentar de novo
+                  </Button>
+                </Alert>
+              )}
+              {margemBuffet.carregando && !buffet.naTela && <p className="analise-nota">Carregando o buffet…</p>}
+            </div>
+            {buffet.aviso && <AvisoRecarga texto={buffet.aviso} recalculando={buffet.recalculando} erro={buffet.erro} />}
+            {buffet.naTela && <MargemBuffetPanel dados={buffet.naTela} podeEditar={podeEditar} onSalvarCusto={salvarCustoBuffet} />}
           </section>
         )}
         {pronto && aba === "perdas" && perdas.dados && <PerdasPanel dados={perdas.dados} />}
