@@ -72,6 +72,8 @@ describe("menuDoFavorito — itens do menu que herdam permissão", () => {
   it("Rescisões e Retorno do RH herdam a Folha e a Gorjeta", () => {
     expect(menuDoFavorito("rescisoes")).toBe("payroll");
     expect(menuDoFavorito("rh-retorno")).toBe("payroll-tips");
+    expect(menuDoFavorito("payroll-vt")).toBe("payroll");
+    expect(menuDoFavorito("payroll-adiantamento")).toBe("payroll");
   });
   it("chave inventada não vale", () => {
     expect(menuDoFavorito("qualquer")).toBeNull();
