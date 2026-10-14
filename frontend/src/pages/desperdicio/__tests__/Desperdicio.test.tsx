@@ -10,6 +10,7 @@ vi.mock("../../../api/client", () => ({
   getWastePhoto: vi.fn(),
   getWasteSettings: vi.fn(),
   getWasteAnalysis: vi.fn(),
+  saveDishProductConversion: vi.fn(),
   saveWasteSettings: vi.fn(),
   searchWasteDishes: vi.fn(),
   searchWasteProducts: vi.fn(),
@@ -20,7 +21,7 @@ vi.mock("../foto", async (original) => ({ ...(await original<typeof import("../f
 import type { WasteAnalysis, WasteEntry } from "../../../api/client";
 import {
   cancelWasteEntry, createWasteEntry, getWasteAnalysis, getWasteEntries, getWastePhoto, getWasteSettings,
-  saveWasteSettings, searchWasteDishes, searchWasteProducts, uploadWastePhoto,
+  saveDishProductConversion, saveWasteSettings, searchWasteDishes, searchWasteProducts, uploadWastePhoto,
 } from "../../../api/client";
 import { SessionContext, type SessionContextValue } from "../../../context/SessionContext";
 import { HideValuesProvider } from "../../../design-system";
@@ -461,7 +462,8 @@ describe("Desperdicio: unidade da quantidade (g, ml, kg...) como na ficha técni
     await escolherArroz();
     const unidade = screen.getByLabelText("Unidade");
     expect(unidade).toHaveValue("UN");
-    expect([...(unidade as HTMLSelectElement).options].map((o) => o.value)).toEqual(["UN", "KG", "G"]);
+    expect([...(unidade as HTMLSelectElement).options].map((o) => o.value)).toEqual(["UN", "KG", "G", "ML", "L"]);
+    expect([...(unidade as HTMLSelectElement).options].map((o) => o.textContent)).toEqual(["UN", "KG", "G", "ML (informar)", "L (informar)"]);
     expect(unidade).toBeEnabled();
   });
 
@@ -483,14 +485,115 @@ describe("Desperdicio: unidade da quantidade (g, ml, kg...) como na ficha técni
     expect(screen.getByText("1 UN = 5 KG (lido do nome do produto)")).toBeInTheDocument();
   });
 
-  test("item sem peso nem volume só aceita a unidade do estoque e diz como mudar isso", async () => {
-    vi.mocked(searchWasteProducts).mockResolvedValue([{ id: "p2", name: "Guardanapo", code: "G1", unit: "UN", sectorName: null, conversions: [], embalagemInferida: null }]);
-    render(<Desperdicio />);
-    await escolher(/buscar produto/i, "guar", "Guardanapo");
+  describe("item sem peso nem volume: a pessoa informa quanto vale 1 unidade, na hora", () => {
+    const guardanapo = { id: "p2", name: "Guardanapo", code: "G1", unit: "UN", sectorName: null, conversions: [], embalagemInferida: null };
 
-    expect(screen.getByLabelText("Unidade")).toBeDisabled();
-    expect(screen.getByLabelText("Unidade")).toHaveValue("UN");
-    expect(screen.getByText(/Este item só aceita UN/)).toBeInTheDocument();
+    async function escolherGuardanapo(contexto = SESSAO) {
+      vi.mocked(searchWasteProducts).mockResolvedValue([guardanapo]);
+      renderRaw(<MemoryRouter initialEntries={["/?aba=lancar"]}><SessionContext.Provider value={contexto}><HideValuesProvider><Desperdicio /></HideValuesProvider></SessionContext.Provider></MemoryRouter>);
+      await escolher(/buscar produto/i, "guar", "Guardanapo");
+    }
+
+    test("a unidade fica liberada e g, kg, ml e l aparecem marcadas (informar)", async () => {
+      await escolherGuardanapo();
+      const unidade = screen.getByLabelText("Unidade");
+      expect(unidade).toBeEnabled();
+      expect(unidade).toHaveValue("UN");
+      expect([...(unidade as HTMLSelectElement).options].map((o) => o.textContent)).toEqual(["UN", "G (informar)", "KG (informar)", "ML (informar)", "L (informar)"]);
+      expect(screen.queryByLabelText(/Quanto pesa ou mede 1 UN/)).not.toBeInTheDocument();
+    });
+
+    test("escolher g abre o campo do peso, mostra a conta e envia perUnit", async () => {
+      await escolherGuardanapo();
+      fireEvent.change(screen.getByLabelText("Unidade"), { target: { value: "G" } });
+      expect(await screen.findByLabelText(/Quanto pesa ou mede 1 UN/)).toBeInTheDocument();
+      expect(screen.getByLabelText("Medida")).toHaveValue("G");
+
+      fireEvent.change(screen.getByLabelText("Quantidade"), { target: { value: "300" } });
+      fireEvent.change(screen.getByLabelText(/Quanto pesa ou mede 1 UN/), { target: { value: "2" } });
+      fireEvent.change(screen.getByLabelText("Medida"), { target: { value: "KG" } });
+      expect(await screen.findByText("300 G = 0,15 UN")).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: "Vencido" }));
+      registrar();
+      await waitFor(() => expect(createWasteEntry).toHaveBeenCalled());
+      expect(vi.mocked(createWasteEntry).mock.calls[0][0]).toMatchObject({ productId: "p2", quantity: "300", unit: "G", perUnit: { quantity: "2", unit: "KG" } });
+    });
+
+    test("sem informar o peso o envio é recusado, com o foco no campo", async () => {
+      await escolherGuardanapo();
+      fireEvent.change(screen.getByLabelText("Unidade"), { target: { value: "ML" } });
+      fireEvent.change(screen.getByLabelText("Quantidade"), { target: { value: "200" } });
+      fireEvent.click(screen.getByRole("button", { name: "Vencido" }));
+      expect(screen.getByLabelText("Medida")).toHaveValue("ML");
+      registrar();
+
+      expect(await screen.findByText("Informe quanto pesa ou mede 1 UN.")).toBeInTheDocument();
+      await waitFor(() => expect(screen.getByLabelText(/Quanto pesa ou mede 1 UN/)).toHaveFocus());
+      expect(createWasteEntry).not.toHaveBeenCalled();
+    });
+
+    test("voltar para a unidade do estoque some com o campo e não manda perUnit", async () => {
+      await escolherGuardanapo();
+      fireEvent.change(screen.getByLabelText("Unidade"), { target: { value: "G" } });
+      await screen.findByLabelText(/Quanto pesa ou mede 1 UN/);
+      fireEvent.change(screen.getByLabelText("Unidade"), { target: { value: "UN" } });
+      expect(screen.queryByLabelText(/Quanto pesa ou mede 1 UN/)).not.toBeInTheDocument();
+
+      fireEvent.change(screen.getByLabelText("Quantidade"), { target: { value: "3" } });
+      fireEvent.click(screen.getByRole("button", { name: "Vencido" }));
+      registrar();
+      await waitFor(() => expect(createWasteEntry).toHaveBeenCalled());
+      expect(vi.mocked(createWasteEntry).mock.calls[0][0]).not.toHaveProperty("perUnit");
+    });
+
+    test("a gestão grava a conversão no produto e a tela avisa", async () => {
+      vi.mocked(saveDishProductConversion).mockResolvedValue({ conversions: [], embalagemInferida: null });
+      await escolherGuardanapo();
+      fireEvent.change(screen.getByLabelText("Unidade"), { target: { value: "G" } });
+      fireEvent.change(screen.getByLabelText("Quantidade"), { target: { value: "300" } });
+      fireEvent.change(await screen.findByLabelText(/Quanto pesa ou mede 1 UN/), { target: { value: "500" } });
+      fireEvent.click(screen.getByRole("button", { name: "Vencido" }));
+      registrar();
+
+      await waitFor(() => expect(saveDishProductConversion).toHaveBeenCalledWith("p2", { unit: "G", amount: 500 }));
+      expect(await screen.findByText(/Conversão salva no produto/)).toBeInTheDocument();
+    });
+
+    test("quem não é da gestão não grava no produto: a tela diz que valeu só para o lançamento", async () => {
+      const ESTOQUISTA = { ...SESSAO, user: { id: "u2", name: "Estoquista", role: "ESTOQUISTA", modulePermissions: { "inventory-waste": { view: true, create: true } } } } as unknown as SessionContextValue;
+      await escolherGuardanapo(ESTOQUISTA);
+      fireEvent.change(screen.getByLabelText("Unidade"), { target: { value: "G" } });
+      fireEvent.change(screen.getByLabelText("Quantidade"), { target: { value: "300" } });
+      fireEvent.change(await screen.findByLabelText(/Quanto pesa ou mede 1 UN/), { target: { value: "500" } });
+      fireEvent.click(screen.getByRole("button", { name: "Vencido" }));
+      registrar();
+
+      expect(await screen.findByText(/valeu só para este lançamento/)).toBeInTheDocument();
+      expect(saveDishProductConversion).not.toHaveBeenCalled();
+    });
+
+    test("se gravar no produto falha, o desperdício continua registrado e a pessoa é avisada", async () => {
+      vi.mocked(saveDishProductConversion).mockRejectedValue(new Error("fora do ar"));
+      await escolherGuardanapo();
+      fireEvent.change(screen.getByLabelText("Unidade"), { target: { value: "G" } });
+      fireEvent.change(screen.getByLabelText("Quantidade"), { target: { value: "300" } });
+      fireEvent.change(await screen.findByLabelText(/Quanto pesa ou mede 1 UN/), { target: { value: "500" } });
+      fireEvent.click(screen.getByRole("button", { name: "Vencido" }));
+      registrar();
+
+      expect(await screen.findByText(/Desperdício de Guardanapo registrado\./)).toBeInTheDocument();
+      expect(screen.getByText(/valeu só para este lançamento/)).toBeInTheDocument();
+    });
+
+    test("prato em porção também aceita informar: o campo fala em 1 porção", async () => {
+      vi.mocked(searchWasteDishes).mockResolvedValue([{ id: "d1", name: "Lasanha", code: null, unit: "UN", sectorName: "Massas", conversions: [], embalagemInferida: null }]);
+      render(<Desperdicio />);
+      fireEvent.click(screen.getByRole("button", { name: "Prato pronto" }));
+      await escolher(/buscar prato/i, "las", "Lasanha");
+      fireEvent.change(screen.getByLabelText("Unidade"), { target: { value: "G" } });
+      expect(await screen.findByLabelText(/Quanto pesa ou mede 1 porção/)).toBeInTheDocument();
+    });
   });
 
   test("trocar de produto volta para a unidade do estoque do novo (não herda o G do anterior)", async () => {

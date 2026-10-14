@@ -476,7 +476,41 @@ describe("lançar em g, ml, kg...: o servidor converte para a unidade do estoque
     const r = await request(app).post("/waste").send({ ...lancamento, quantity: "500", unit: "G" });
     expect(r.status).toBe(400);
     expect(r.body.message).toMatch(/converter G para UN/);
+    expect(r.body.message).toMatch(/quanto pesa ou mede 1 UN/);
     expect(db.wasteEntry.create).not.toHaveBeenCalled();
+  });
+
+  test("com o peso informado na hora (1 UN = 2 KG) o mesmo item é aceito e fica registrado na auditoria", async () => {
+    db.product.findUnique.mockResolvedValue({ ...arroz, name: "ARROZ SEM EMBALAGEM NO NOME" });
+    compraEmUn();
+    const r = await request(app).post("/waste").send({ ...lancamento, quantity: "500", unit: "G", perUnit: { quantity: "2", unit: "KG" } });
+    expect(r.status).toBe(201);
+    expect(db.wasteEntry.create.mock.calls[0][0].data).toMatchObject({ quantity: 0.25, unit: "UN", enteredQuantity: 500, enteredUnit: "G" });
+    expect(auditLog).toHaveBeenCalledWith(expect.objectContaining({ action: "CREATE_WASTE_ENTRY", newValue: expect.objectContaining({ pesoInformado: { quantity: 2, unit: "KG" } }) }));
+  });
+
+  test("peso informado de outra medida que a digitada é recusado com a explicação", async () => {
+    db.product.findUnique.mockResolvedValue({ ...arroz, name: "ARROZ SEM EMBALAGEM NO NOME" });
+    const r = await request(app).post("/waste").send({ ...lancamento, quantity: "500", unit: "ML", perUnit: { quantity: "2", unit: "KG" } });
+    expect(r.status).toBe(400);
+    expect(r.body.message).toMatch(/não é da mesma medida/);
+    expect(db.wasteEntry.create).not.toHaveBeenCalled();
+  });
+
+  test("o cadastro do produto vale mais que o peso informado (não vira dois pesos)", async () => {
+    db.product.findUnique.mockResolvedValue({ ...arroz, name: "FARINHA ESPECIAL", conversions: [{ fromUnit: "UN", toUnit: "G", factor: 1200 }] });
+    compraEmUn();
+    await request(app).post("/waste").send({ ...lancamento, quantity: "300", unit: "G", perUnit: { quantity: "10", unit: "G" } });
+    expect(db.wasteEntry.create.mock.calls[0][0].data).toMatchObject({ quantity: 0.25 });
+    expect(auditLog).toHaveBeenCalledWith(expect.objectContaining({ newValue: expect.not.objectContaining({ pesoInformado: expect.anything() }) }));
+  });
+
+  test("prato pronto em porção (UN) também aceita o peso informado: 1 porção = 300 g", async () => {
+    db.dish = { ...db.dish, findUnique: vi.fn() };
+    vi.mocked(carregarDetalhe).mockResolvedValue({ isActive: true, yieldUnit: "UN", custoPorcao: 12, custoIncompleto: false } as never);
+    const r = await request(app).post("/waste").send({ dishId: "d1", quantity: "150", unit: "G", perUnit: { quantity: "300", unit: "G" }, reason: "PRODUCTION_LEFTOVER", occurredOn: hoje, notes: "" });
+    expect(r.status).toBe(201);
+    expect(db.wasteEntry.create.mock.calls[0][0].data).toMatchObject({ dishId: "d1", quantity: 0.5, unit: "UN", totalCost: 6 });
   });
 
   test("o custo continua sendo o da unidade do estoque, não o da unidade digitada", async () => {

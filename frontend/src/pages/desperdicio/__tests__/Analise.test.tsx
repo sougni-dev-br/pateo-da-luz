@@ -10,6 +10,7 @@ vi.mock("../../../api/client", () => ({
   getWasteEntries: vi.fn(),
   getWastePhoto: vi.fn(),
   getWasteSettings: vi.fn(),
+  saveDishProductConversion: vi.fn(),
   saveWasteSettings: vi.fn(),
   searchWasteDishes: vi.fn(),
   searchWasteProducts: vi.fn(),

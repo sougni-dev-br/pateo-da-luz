@@ -8944,6 +8944,8 @@ export type WasteInput = {
   /** Como a pessoa digitou, na unidade de `unit`; o servidor converte para a unidade do estoque. */
   quantity: string;
   unit?: string;
+  /** "1 UN = 500 G": quanto vale 1 unidade do estoque, para itens que ainda não convertem g/ml. */
+  perUnit?: { quantity: string; unit: string };
   reason: WasteReason;
   occurredOn: string;
   notes: string;
