@@ -4140,6 +4140,10 @@ export type DishListItem = {
   salePriceDefault: number | null;
   yieldQty: number;
   yieldUnit: string;
+  /** Peso de cada porção, em gramas (opcional). */
+  portionWeightG?: number | null;
+  /** Por quantos dias o preparo pode ser usado (opcional). */
+  shelfLifeDays?: number | null;
   isActive: boolean;
   itemsCount: number;
   /** Quantas listagens ativas o prato tem nos canais (hoje, o cardapio da 99). */
@@ -4289,6 +4293,8 @@ export type DishRevisionSnapshot = {
   salePriceDefault: number | null;
   yieldQty: number;
   yieldUnit: string;
+  portionWeightG?: number | null;
+  shelfLifeDays?: number | null;
   notes: string | null;
   isActive: boolean;
   /** Preço em cada loja no momento da versão (só as ativas). */

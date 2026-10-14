@@ -169,6 +169,13 @@ function snap(parcial: Partial<DishRevisionSnapshot> = {}): DishRevisionSnapshot
 }
 
 describe("histórico da ficha", () => {
+  it("mudança do peso da porção e da validade de uso aparece no histórico", () => {
+    expect(descreverMudancas(snap(), snap({ portionWeightG: 160, shelfLifeDays: 4 }))).toEqual([
+      "Peso da porção: sem peso → 160 g",
+      "Validade de uso: sem validade → 4 dias"
+    ]);
+  });
+
   it("primeira versão: ficha criada com N ingredientes", () => {
     expect(descreverMudancas(null, snap())).toEqual(["Ficha criada com 2 ingredientes"]);
     expect(descreverMudancas(null, snap({ items: [] }))).toEqual(["Prato criado, ainda sem ingredientes"]);

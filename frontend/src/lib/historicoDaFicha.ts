@@ -101,6 +101,15 @@ export function descreverMudancas(anterior: DishRevisionSnapshot | null, atual: 
     frases.push(`Rendimento: ${formatarQuantidade(anterior.yieldQty)} ${anterior.yieldUnit} → ${formatarQuantidade(atual.yieldQty)} ${atual.yieldUnit}`);
   }
 
+  if ((anterior.portionWeightG ?? null) !== (atual.portionWeightG ?? null)) {
+    const peso = (valor: number | null | undefined) => (valor == null ? "sem peso" : `${formatarQuantidade(valor)} g`);
+    frases.push(`Peso da porção: ${peso(anterior.portionWeightG)} → ${peso(atual.portionWeightG)}`);
+  }
+  if ((anterior.shelfLifeDays ?? null) !== (atual.shelfLifeDays ?? null)) {
+    const dias = (valor: number | null | undefined) => (valor == null ? "sem validade" : `${valor} ${valor === 1 ? "dia" : "dias"}`);
+    frases.push(`Validade de uso: ${dias(anterior.shelfLifeDays)} → ${dias(atual.shelfLifeDays)}`);
+  }
+
   frases.push(...mudancasDePrecoPorLoja(anterior, atual));
 
   frases.push(...mudancasDeItens(anterior.items, atual.items, ""));
