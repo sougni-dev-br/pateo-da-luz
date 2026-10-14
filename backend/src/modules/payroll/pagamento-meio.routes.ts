@@ -38,8 +38,8 @@ pagamentoMeioRouter.get("/pagamento-meio", async (request, response) => {
 
   const [lancados, calculo] = await Promise.all([
     prisma.payrollItem.findMany({
-      where: { competenceYear: ano, competenceMonth: mes, type: "ADIANTAMENTO", deletedAt: null, status: { not: "CANCELED" } },
-      select: { id: true, employeeId: true, amount: true, dueDate: true, paymentDate: true, paidAmount: true, details: true, source: true },
+      where: { competenceYear: ano, competenceMonth: mes, type: "ADIANTAMENTO", deletedAt: null },
+      select: { id: true, employeeId: true, amount: true, dueDate: true, paymentDate: true, paidAmount: true, details: true, source: true, status: true },
     }),
     computePayroll(ano, mes),
   ]);
@@ -60,12 +60,18 @@ pagamentoMeioRouter.get("/pagamento-meio", async (request, response) => {
     }),
   }]));
 
-  const lista = montarPagamentoMeio(tipo, lancados.map((i) => ({
+  // Título cancelado não entra na lista nem no total, mas também não pode sumir calado: o cálculo
+  // o conta como lançado (não vira "falta lançar"), então quem paga precisa do aviso.
+  const ehQuinzena = (d: unknown) => (d as { primeiraQuinzena?: unknown } | null)?.primeiraQuinzena === true;
+  const cancelados = lancados.filter((i) => i.status === "CANCELED" && ehQuinzena(i.details) === (tipo === "QUINZENA"));
+  const vivos = lancados.filter((i) => i.status !== "CANCELED");
+  const lista = montarPagamentoMeio(tipo, vivos.map((i) => ({
     ...i, amount: Number(i.amount), paidAmount: i.paidAmount == null ? null : Number(i.paidAmount),
   })), calculo.items, pessoas);
   const competencia = `${String(mes).padStart(2, "0")}/${ano}`;
   const avisos = [
     ...(calculo.warnings ?? []).filter((w) => avisoDoPagamento(tipo, w)),
+    ...cancelados.map((i) => `${pessoas.get(i.employeeId)?.nome ?? "—"}: título de ${competencia} cancelado no Contas a Pagar — fora desta lista. Se ainda precisa pagar, restaure ou lance de novo.`),
     ...(lista.cltSemTitulo.length > 0
       ? [`CLT sem adiantamento de ${competencia} no Contas a Pagar (o extrato do adiantamento já foi importado no Retorno do RH?): ${lista.cltSemTitulo.join(", ")}.`]
       : []),

@@ -125,16 +125,18 @@ export function PagamentoMeio({ year, month, canEdit, percentAdiantamento, diaAd
 
   // Só a resposta do último pedido vale: trocar de mês ou de tipo no meio não mistura listas.
   const pedido = useRef(0);
-  async function carregar(): Promise<Dados | null> {
+  // undefined = outro pedido passou na frente (resposta descartada); null = erro.
+  async function carregar(): Promise<Dados | null | undefined> {
     const vez = ++pedido.current;
     try {
       const d = await getPagamentoMeio(year, month, tipo);
-      if (vez !== pedido.current) return null;
+      if (vez !== pedido.current) return undefined;
       setDados(d);
       setErro(null);
       return d;
     } catch (e) {
-      if (vez === pedido.current) setErro((e as Error).message);
+      if (vez !== pedido.current) return undefined;
+      setErro((e as Error).message);
       return null;
     }
   }
@@ -148,6 +150,7 @@ export function PagamentoMeio({ year, month, canEdit, percentAdiantamento, diaAd
     if (contextoAtual.current !== contexto) {
       contextoAtual.current = contexto;
       setDados(null);
+      setErro(null);
       setConfirmando(false);
       setResultado(null);
     }
@@ -163,7 +166,7 @@ export function PagamentoMeio({ year, month, canEdit, percentAdiantamento, diaAd
       const r = await generatePayroll(year, month, KIND_DO_TIPO[tipo]);
       const depois = await carregar();
       // Trocou de mês ou de tipo no meio (os controles ficam travados, mas por garantia): não mistura.
-      if (contextoAtual.current !== doContexto) return;
+      if (contextoAtual.current !== doContexto || depois === undefined) return;
       const msgs: string[] = [];
       if (!depois) {
         setResultado({ tom: "warning", linhas: [
