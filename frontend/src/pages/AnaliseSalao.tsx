@@ -3,19 +3,25 @@ import {
   getAnaliseCardapio,
   getAnaliseDemanda,
   getAnaliseMargem,
+  getAnaliseMargemBebidas,
   getAnalisePerdas,
   getAnaliseResumo,
   getAnaliseVendasPorPessoa,
+  vincularBebidaAnaliseMargem,
   vincularProdutoAnaliseMargem,
+  type AnaliseUnidadeDeConsumo,
   type AnalisePeriodo
 } from "../api/client";
 import { useSession } from "../context/SessionContext";
-import { Alert, Button, PageHeader, Select, Tabs, TextField } from "../design-system";
+import { Alert, Button, PageHeader, PanelEyebrow, Select, Tabs, TextField } from "../design-system";
 import { hasPermission } from "../lib/permissions";
 import { AvisoHoje } from "./analise-salao/AvisoHoje";
+import { AvisoRecarga } from "./analise-salao/AvisoRecarga";
 import { CardapioPanel } from "./analise-salao/CardapioPanel";
 import { DemandaPanel } from "./analise-salao/DemandaPanel";
+import { MargemBebidasPanel } from "./analise-salao/MargemBebidasPanel";
 import { MargemPanel } from "./analise-salao/MargemPanel";
+import { useRecargaEstavel } from "./analise-salao/useRecargaEstavel";
 import { MetasPanel } from "./analise-salao/MetasPanel";
 import type { SecaoDaAnalise } from "./analise-salao/InsightCard";
 import { PerdasPanel } from "./analise-salao/PerdasPanel";
@@ -97,13 +103,11 @@ export function AnaliseSalao() {
   const demanda = useRelatorio(getAnaliseDemanda, periodo, aba === "demanda");
   const cardapio = useRelatorio(getAnaliseCardapio, periodo, aba === "cardapio");
   const margem = useRelatorio(getAnaliseMargem, periodo, aba === "margem");
+  const margemBebidas = useRelatorio(getAnaliseMargemBebidas, periodo, aba === "margem");
   // Depois de vincular o relatório é relido: o painel antigo continua na tela (sem pulo nem perda de foco) até o novo chegar.
-  const ultimaMargem = useRef<typeof margem.dados>(null);
-  const [vinculo, setVinculo] = useState<{ texto: string; chave: string } | null>(null);
   const chavePeriodo = `${periodo.inicio}|${periodo.fim}`;
-  const avisoDoVinculo = vinculo && vinculo.chave === chavePeriodo ? vinculo.texto : null;
-  if (margem.dados) ultimaMargem.current = margem.dados;
-  const margemNaTela = margem.dados ?? (margem.carregando && avisoDoVinculo !== null ? ultimaMargem.current : null);
+  const pratos = useRecargaEstavel(margem, chavePeriodo);
+  const bebidas = useRecargaEstavel(margemBebidas, chavePeriodo);
   const perdas = useRelatorio(getAnalisePerdas, periodo, aba === "perdas");
   const equipe = useRelatorio(getAnaliseVendasPorPessoa, periodo, aba === "equipe");
   // Metas é por mês e se carrega sozinha: não usa o período do topo.
@@ -112,8 +116,12 @@ export function AnaliseSalao() {
   // Vincula (ou desfaz) e relê o relatório: a margem do prato entra na tabela no mesmo instante.
   async function vincular(codigo: string, nome: string, pratoId: string | null) {
     await vincularProdutoAnaliseMargem({ codigo, nome, pratoId });
-    setVinculo({ texto: pratoId === null ? `Vínculo de ${nome} desfeito.` : `${nome} vinculado.`, chave: chavePeriodo });
-    margem.recarregar();
+    pratos.anunciarERecarregar(pratoId === null ? `Vínculo de ${nome} desfeito.` : `${nome} vinculado.`);
+  }
+
+  async function vincularBebida(codigo: string, nome: string, insumoId: string | null, quantidade?: number, unidade?: AnaliseUnidadeDeConsumo) {
+    await vincularBebidaAnaliseMargem({ codigo, nome, insumoId, quantidade, unidade });
+    bebidas.anunciarERecarregar(insumoId === null ? `Vínculo de ${nome} desfeito.` : `Vínculo de ${nome} salvo.`);
   }
 
   function escolherPreset(valor: string) {
@@ -178,13 +186,27 @@ export function AnaliseSalao() {
         {pronto && aba === "resumo" && resumo.dados && <ResumoPanel dados={resumo.dados} onAbrir={abrirSecao} />}
         {pronto && aba === "demanda" && demanda.dados && <DemandaPanel dados={demanda.dados} />}
         {pronto && aba === "cardapio" && cardapio.dados && <CardapioPanel dados={cardapio.dados} />}
-        {aba === "margem" && avisoDoVinculo && (
-          <p className="analise-nota" role="status">
-            {avisoDoVinculo}
-            {margem.carregando ? " Recalculando a margem…" : " Margem recalculada."}
-          </p>
+        {aba === "margem" && pratos.aviso && <AvisoRecarga texto={pratos.aviso} recalculando={pratos.recalculando} erro={pratos.erro} />}
+        {aba === "margem" && pratos.naTela && (pronto || pratos.aviso !== null) && <MargemPanel dados={pratos.naTela} podeEditar={podeEditar} onVincular={vincular} />}
+        {/* Não depende do estado dos pratos: recarregar os pratos não pode desmontar o formulário das bebidas. */}
+        {aba === "margem" && valido && (
+          <section aria-labelledby="margem-bebidas" className="analise-stack">
+            <PanelEyebrow id="margem-bebidas">Bebidas: margem de revenda</PanelEyebrow>
+            <div aria-live="polite">
+              {margemBebidas.erro && !bebidas.naTela && (
+                <Alert tone="error">
+                  {margemBebidas.erro}{" "}
+                  <Button variant="secondary" size="sm" onClick={margemBebidas.recarregar}>
+                    Tentar de novo
+                  </Button>
+                </Alert>
+              )}
+              {margemBebidas.carregando && !bebidas.naTela && <p className="analise-nota">Carregando as bebidas…</p>}
+            </div>
+            {bebidas.aviso && <AvisoRecarga texto={bebidas.aviso} recalculando={bebidas.recalculando} erro={bebidas.erro} />}
+            {bebidas.naTela && <MargemBebidasPanel dados={bebidas.naTela} podeEditar={podeEditar} onVincular={vincularBebida} />}
+          </section>
         )}
-        {aba === "margem" && margemNaTela && (pronto || avisoDoVinculo !== null) && <MargemPanel dados={margemNaTela} podeEditar={podeEditar} onVincular={vincular} />}
         {pronto && aba === "perdas" && perdas.dados && <PerdasPanel dados={perdas.dados} />}
         {pronto && aba === "equipe" && equipe.dados && (
           <div className="analise-stack">
