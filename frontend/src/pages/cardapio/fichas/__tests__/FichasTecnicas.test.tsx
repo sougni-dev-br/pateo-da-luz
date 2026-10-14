@@ -5,6 +5,8 @@ import { ApiError, type AppUser, type DishCategory, type DishDetail, type DishLi
 vi.mock("../../../../api/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../../../api/client")>()),
   getBuffetDishes: vi.fn(),
+  getDishFichaSuggestions: vi.fn(),
+  searchDishFichas: vi.fn(),
   getDishes: vi.fn(),
   getDishCategories: vi.fn(),
   getDishDetail: vi.fn(),
@@ -18,7 +20,7 @@ vi.mock("../../../../api/client", async (importOriginal) => ({
 }));
 
 import {
-  deactivateDish, getBuffetDishes, getDishCategories, getDishDetail, getDishes, reactivateDish, saveDish, saveDishProductConversion, searchDishProducts,
+  deactivateDish, getBuffetDishes, getDishCategories, getDishDetail, getDishFichaSuggestions, searchDishFichas, getDishes, reactivateDish, saveDish, saveDishProductConversion, searchDishProducts,
 } from "../../../../api/client";
 import { SessionContext, type SessionContextValue } from "../../../../context/SessionContext";
 import { HideValuesProvider } from "../../../../design-system";
@@ -92,8 +94,11 @@ async function abrirPrato(nome: string, id: string) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(getDishes).mockResolvedValue([RISOTO, PURE, FUNGHI, ANTIGO]);
+  // Ficha de produção vem de uma consulta própria (?tipo=producao): a lista de pratos nunca a traz.
+  vi.mocked(getDishes).mockImplementation(async (parametros) => (parametros?.tipo === "producao" ? [] : [RISOTO, PURE, FUNGHI, ANTIGO]));
   vi.mocked(getBuffetDishes).mockResolvedValue([]);
+  vi.mocked(getDishFichaSuggestions).mockResolvedValue([]);
+  vi.mocked(searchDishFichas).mockResolvedValue([]);
   vi.mocked(getDishCategories).mockResolvedValue([CATEGORIA]);
   vi.mocked(getDishDetail).mockImplementation(async (id: string) => DETALHES[id]);
   vi.mocked(saveDish).mockResolvedValue({ id: "d-novo" });
@@ -752,3 +757,309 @@ describe("A preencher: o que ainda falta de ficha, com impressão", () => {
     expect(within(lista()).queryByText("Purê de abóbora")).toBeNull();
   });
 });
+
+describe("ficha de produção como ingrediente (ficha dentro de ficha)", () => {
+  // O prato copiou a massa (dividida por 12 à mão) e soma o creme: a ficha de produção cobre os dois primeiros.
+  const NHOQUE = resumo({ id: "d-nh", name: "Nhoque ao molho", menu: "DELIVERY", itemsCount: 3 });
+  const DETALHE_NHOQUE = detalhe(NHOQUE, [
+    ingrediente("i1", "FARINHA TRIGO", { quantity: 83.3333, wasteFactor: 0, unitCost: 5, productUnit: "KG", unitFactor: 0.001, itemCost: 0.42 }),
+    ingrediente("i2", "BATATA ASTERIX", { quantity: 83.3333, wasteFactor: 0, unitCost: 4, productUnit: "KG", unitFactor: 0.001, itemCost: 0.33 }),
+    ingrediente("i3", "CREME DE LEITE", { quantity: 150, wasteFactor: 0, unitCost: 10, productUnit: "KG", unitFactor: 0.001, itemCost: 1.5 }),
+  ]);
+  const MASSA = { id: "massa", externalCode: null, name: "Nhoque - Massa", unit: "UN", averageCost: 0.75, conversions: [], embalagemInferida: null, kind: "FICHA" as const, incompleta: false, motivo: null };
+  const SUGESTAO = { componentDishId: "massa", name: "Nhoque - Massa", quantity: 1, unit: "UN", itemIds: ["i1", "i2"], unitCost: 0.75, incompleta: false, motivo: null };
+  const REGIAO = "Ingredientes que já são uma ficha de produção";
+
+  beforeEach(() => {
+    vi.mocked(getDishes).mockResolvedValue([RISOTO, NHOQUE]);
+    vi.mocked(getDishDetail).mockImplementation(async (id: string) => (id === "d-nh" ? DETALHE_NHOQUE : DETALHES[id]));
+    vi.mocked(getDishFichaSuggestions).mockResolvedValue([SUGESTAO]);
+  });
+
+  async function editarNhoque() {
+    await abrir();
+    await abrirPrato("Nhoque ao molho", "d-nh");
+    fireEvent.click(screen.getByRole("button", { name: "Editar" }));
+    await screen.findByRole("heading", { name: "Editar ficha" });
+  }
+
+  test("oferece trocar os ingredientes copiados pela ficha e troca por uma linha só, no lugar do primeiro", async () => {
+    await editarNhoque();
+    const banner = await screen.findByRole("region", { name: REGIAO });
+    expect(within(banner).getByText(/Estes 2 ingredientes são a ficha/)).toBeInTheDocument();
+    expect(within(banner).getByText("FARINHA TRIGO")).toBeInTheDocument();
+
+    fireEvent.click(within(banner).getByRole("button", { name: /Trocar por “Nhoque - Massa” \(1 UN\)/ }));
+
+    expect(screen.queryByLabelText("Quantidade de FARINHA TRIGO")).toBeNull();
+    expect(screen.queryByLabelText("Quantidade de BATATA ASTERIX")).toBeNull();
+    expect(screen.getByLabelText("Quantidade de Nhoque - Massa")).toHaveValue(1);
+    expect(screen.getByText("Ficha de produção")).toBeInTheDocument();
+    expect(screen.getByText(/Custo da ficha/)).toBeInTheDocument();
+    // A ordem da receita não muda: a ficha fica onde estava a farinha, antes do creme.
+    const quantidades = screen.getAllByLabelText(/^Quantidade de /).map((c) => c.getAttribute("aria-label"));
+    expect(quantidades).toEqual(["Quantidade de Nhoque - Massa", "Quantidade de CREME DE LEITE"]);
+    expect(screen.queryByRole("region", { name: REGIAO })).toBeNull();
+  });
+
+  test("salvar depois da troca manda a ficha como ingrediente (sem produto) e o resto como estava", async () => {
+    await editarNhoque();
+    fireEvent.click(await screen.findByRole("button", { name: /Trocar por “Nhoque - Massa”/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Salvar alterações" }));
+    await waitFor(() => expect(saveDish).toHaveBeenCalledTimes(1));
+    const payload = vi.mocked(saveDish).mock.calls[0][0] as { items: Array<Record<string, unknown>> };
+    expect(payload.items).toHaveLength(2);
+    expect(payload.items[0]).toMatchObject({ productId: null, componentDishId: "massa", quantity: 1, unit: "UN" });
+    expect(payload.items[1]).toMatchObject({ productId: "p-i3", componentDishId: null, quantity: 150 });
+  });
+
+  test("quem mudou a quantidade de um dos ingredientes não recebe uma troca que não vale mais", async () => {
+    await editarNhoque();
+    await screen.findByRole("region", { name: REGIAO });
+    fireEvent.change(screen.getByLabelText("Quantidade de FARINHA TRIGO"), { target: { value: "100" } });
+    expect(screen.queryByRole("region", { name: REGIAO })).toBeNull();
+  });
+
+  test("quem já tirou um dos ingredientes não recebe uma troca que não vale mais", async () => {
+    await editarNhoque();
+    await screen.findByRole("region", { name: REGIAO });
+    fireEvent.click(screen.getByRole("button", { name: "Remover FARINHA TRIGO da ficha" }));
+    expect(screen.queryByRole("region", { name: REGIAO })).toBeNull();
+  });
+
+  test("se a consulta da sugestão falha, o editor abre normal", async () => {
+    vi.mocked(getDishFichaSuggestions).mockRejectedValue(new Error("fora do ar"));
+    await editarNhoque();
+    expect(screen.getByLabelText("Quantidade de FARINHA TRIGO")).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: REGIAO })).toBeNull();
+  });
+
+  test("a busca de ingrediente traz as fichas de produção junto dos produtos, marcadas, e a escolhida entra com 1 unidade", async () => {
+    vi.mocked(searchDishProducts).mockResolvedValue([]);
+    vi.mocked(searchDishFichas).mockResolvedValue([MASSA]);
+    await abrir();
+    fireEvent.click(screen.getAllByRole("button", { name: "Novo prato" })[0]);
+    await screen.findByRole("heading", { name: "Novo prato" });
+    fireEvent.change(screen.getByLabelText(/Nome do prato/), { target: { value: "Nhoque com pesto" } });
+
+    fireEvent.change(screen.getByRole("combobox", { name: /Buscar produto/ }), { target: { value: "nho" } });
+    const opcao = await screen.findByRole("option", { name: /Nhoque - Massa/ });
+    expect(within(opcao).getByText("Ficha de produção")).toBeInTheDocument();
+    expect(within(opcao).getByText(/rende em UN/)).toBeInTheDocument();
+    fireEvent.click(opcao);
+
+    expect(screen.getByLabelText("Quantidade de Nhoque - Massa")).toHaveValue(1);
+    expect(screen.getByLabelText("Unidade de Nhoque - Massa")).toHaveValue("UN");
+    // Não há "(informar)" para ficha de produção: a unidade é a de rendimento dela.
+    expect([...(screen.getByLabelText("Unidade de Nhoque - Massa") as HTMLSelectElement).options].map((o) => o.textContent)).toEqual(["UN"]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Criar prato" }));
+    await waitFor(() => expect(saveDish).toHaveBeenCalledTimes(1));
+    const payload = vi.mocked(saveDish).mock.calls[0][0] as { items: Array<Record<string, unknown>> };
+    expect(payload.items[0]).toMatchObject({ productId: null, componentDishId: "massa", unit: "UN", quantity: 1 });
+  });
+
+  test("a busca da ficha em edição não a oferece como ingrediente dela mesma", async () => {
+    await editarNhoque();
+    fireEvent.change(screen.getByRole("combobox", { name: /Buscar produto/ }), { target: { value: "nho" } });
+    await waitFor(() => expect(searchDishFichas).toHaveBeenCalledWith("nho", "d-nh"));
+  });
+
+  test("ficha de produção incompleta avisa na linha que o custo depende dela", async () => {
+    vi.mocked(searchDishProducts).mockResolvedValue([]);
+    vi.mocked(searchDishFichas).mockResolvedValue([{ ...MASSA, averageCost: 0, incompleta: true, motivo: "Ficha de produção incompleta: complete os ingredientes dela." }]);
+    await abrir();
+    fireEvent.click(screen.getAllByRole("button", { name: "Novo prato" })[0]);
+    await screen.findByRole("heading", { name: "Novo prato" });
+    fireEvent.change(screen.getByRole("combobox", { name: /Buscar produto/ }), { target: { value: "nho" } });
+    fireEvent.click(await screen.findByRole("option", { name: /Nhoque - Massa/ }));
+    expect(screen.getByText("Ficha de produção incompleta")).toBeInTheDocument();
+    expect(screen.getByText(/complete os ingredientes dela/)).toBeInTheDocument();
+  });
+
+  test("o detalhe do prato marca o ingrediente que é ficha de produção", async () => {
+    vi.mocked(getDishDetail).mockImplementation(async (id: string) => id === "d-nh"
+      ? detalhe(NHOQUE, [ingrediente("i1", "Nhoque - Massa", { productId: null, componentDishId: "massa", unit: "UN", quantity: 1, productUnit: "UN", unitCost: 0.75, unitFactor: 1, itemCost: 0.75 })])
+      : DETALHES[id]);
+    await abrir();
+    await abrirPrato("Nhoque ao molho", "d-nh");
+    expect(await screen.findByText("Ficha de produção")).toBeInTheDocument();
+    expect(screen.getByText(/Custo da ficha/)).toBeInTheDocument();
+  });
+});
+
+describe("ficha de produção x prato vendido", () => {
+  const MASSA = resumo({ id: "m1", name: "Nhoque - Massa", menu: "CARDAPIO", yieldQty: 12, yieldUnit: "UN", salePriceDefault: null, itemsCount: 3, calculatedCost: 9, custoPorcao: 0.75, margemBruta: null, cmvPercentual: null, fichaDeProducao: true });
+  const DETALHE_MASSA = detalhe(MASSA, [ingrediente("i1", "FARINHA TRIGO", { quantity: 1000, unit: "G" })], { fichaDeProducao: true });
+
+  beforeEach(() => {
+    vi.mocked(getDishes).mockImplementation(async (parametros) => (parametros?.tipo === "producao" ? [MASSA] : [RISOTO, PURE, FUNGHI, ANTIGO]));
+    vi.mocked(getDishDetail).mockImplementation(async (id: string) => (id === "m1" ? DETALHE_MASSA : DETALHES[id]));
+  });
+
+  async function abrirProducao() {
+    render(
+      <SessionContext.Provider value={SESSAO}>
+        <HideValuesProvider><FichasTecnicas /></HideValuesProvider>
+      </SessionContext.Provider>,
+    );
+    fireEvent.click(await screen.findByRole("tab", { name: "Produção (1)" }));
+    await screen.findByText("Nhoque - Massa");
+  }
+
+  test("a aba Produção lista só as fichas de produção, com o custo de cada unidade; a lista de pratos não as traz", async () => {
+    await abrirProducao();
+    expect(screen.getByText(/Rende 12 UN/)).toBeInTheDocument();
+    expect(screen.queryByText("Risoto de camarão")).toBeNull();
+    expect(vi.mocked(getDishes)).toHaveBeenCalledWith({ showInactive: true, tipo: "producao" });
+    fireEvent.click(screen.getByRole("tab", { name: "Pratos" }));
+    await screen.findByText("Risoto de camarão");
+    expect(screen.queryByText("Nhoque - Massa")).toBeNull();
+  });
+
+  test("o detalhe de uma ficha de produção mostra o custo por unidade e não tem preço, CMV, margem nem preços por canal", async () => {
+    await abrirProducao();
+    fireEvent.click(screen.getByText("Nhoque - Massa").closest("button") as HTMLElement);
+    await screen.findByRole("heading", { level: 2, name: "Nhoque - Massa" });
+    expect(screen.getByText("Custo por UN")).toBeInTheDocument();
+    expect(screen.getByText("Custo da receita inteira")).toBeInTheDocument();
+    expect(screen.queryByText("CMV")).toBeNull();
+    expect(screen.queryByText("Margem bruta")).toBeNull();
+    expect(screen.queryByText("Preço de venda")).toBeNull();
+    expect(screen.queryByText("Falta o preço de venda")).toBeNull();
+    expect(screen.queryByText(/Preços por canal/)).toBeNull();
+  });
+
+  test("nova ficha de produção: formulário sem preço, categoria nem cardápio, e grava como ficha de produção", async () => {
+    await abrirProducao();
+    fireEvent.click(screen.getAllByRole("button", { name: "Nova ficha de produção" })[0]);
+    await screen.findByRole("heading", { name: "Nova ficha de produção" });
+    expect(screen.queryByLabelText(/Preço/)).toBeNull();
+    expect(screen.queryByRole("radiogroup", { name: "Cardápio do prato" })).toBeNull();
+    expect(screen.queryByText("Categoria")).toBeNull();
+
+    fireEvent.change(screen.getByLabelText(/Nome da ficha/), { target: { value: "Molho base" } });
+    fireEvent.change(screen.getByLabelText("Rendimento"), { target: { value: "5" } });
+    vi.mocked(searchDishProducts).mockResolvedValue([{ id: "p1", externalCode: null, name: "TOMATE", unit: "KG", averageCost: 8, conversions: [], embalagemInferida: null }]);
+    fireEvent.change(screen.getByRole("combobox", { name: /Buscar produto/ }), { target: { value: "tom" } });
+    fireEvent.click(await screen.findByRole("option", { name: /TOMATE/ }));
+    fireEvent.change(screen.getByLabelText("Quantidade de TOMATE"), { target: { value: "2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Criar ficha de produção" }));
+
+    await waitFor(() => expect(saveDish).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(saveDish).mock.calls[0][0]).toMatchObject({ name: "Molho base", fichaDeProducao: true, salePriceDefault: null, categoryId: "", alsoMenu: null, yieldQty: 5 });
+  });
+
+  test("editar uma ficha de produção mantém o tipo e não manda preço", async () => {
+    await abrirProducao();
+    fireEvent.click(screen.getByText("Nhoque - Massa").closest("button") as HTMLElement);
+    await screen.findByRole("heading", { level: 2, name: "Nhoque - Massa" });
+    fireEvent.click(screen.getByRole("button", { name: "Editar" }));
+    await screen.findByRole("heading", { name: "Editar ficha de produção" });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar alterações" }));
+    await waitFor(() => expect(saveDish).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(saveDish).mock.calls[0][0]).toMatchObject({ id: "m1", fichaDeProducao: true, salePriceDefault: null });
+  });
+
+  test("tornar ficha de produção: um prato vendido é convertido ao salvar, sem preço nem categoria", async () => {
+    await abrir();
+    await abrirPrato("Risoto de camarão", "d1");
+    fireEvent.click(screen.getByRole("button", { name: "Editar" }));
+    await screen.findByRole("heading", { name: "Editar ficha" });
+    fireEvent.click(screen.getByRole("button", { name: "Tornar ficha de produção" }));
+    expect(await screen.findByRole("heading", { name: "Editar ficha de produção" })).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Preço/)).toBeNull();
+    expect(screen.getByText(/deixa de ser um prato vendido/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Salvar alterações" }));
+    await waitFor(() => expect(saveDish).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(saveDish).mock.calls[0][0]).toMatchObject({ id: "d1", fichaDeProducao: true, salePriceDefault: null, categoryId: "", alsoMenu: null });
+  });
+
+  test("desfazer a conversão devolve o preço e o cardápio ao formulário", async () => {
+    await abrir();
+    await abrirPrato("Risoto de camarão", "d1");
+    fireEvent.click(screen.getByRole("button", { name: "Editar" }));
+    await screen.findByRole("heading", { name: "Editar ficha" });
+    fireEvent.click(screen.getByRole("button", { name: "Tornar ficha de produção" }));
+    fireEvent.click(screen.getByRole("button", { name: "Desfazer" }));
+    expect(screen.getByLabelText(/Preço no salão/)).toBeInTheDocument();
+    expect(screen.getByRole("radiogroup", { name: "Cardápio do prato" })).toBeInTheDocument();
+  });
+
+  test("ficha que já é de produção não oferece o botão", async () => {
+    await abrirProducao();
+    fireEvent.click(screen.getByText("Nhoque - Massa").closest("button") as HTMLElement);
+    await screen.findByRole("heading", { level: 2, name: "Nhoque - Massa" });
+    fireEvent.click(screen.getByRole("button", { name: "Editar" }));
+    await screen.findByRole("heading", { name: "Editar ficha de produção" });
+    expect(screen.queryByRole("button", { name: "Tornar ficha de produção" })).toBeNull();
+  });
+
+  test("a lista de produção esconde as inativas até ligar 'Mostrar inativas', e marca como Inativa", async () => {
+    const VELHA = resumo({ id: "m2", name: "Molho antigo", isActive: false, fichaDeProducao: true, salePriceDefault: null, itemsCount: 1 });
+    vi.mocked(getDishes).mockImplementation(async (parametros) => (parametros?.tipo === "producao" ? [MASSA, VELHA] : [RISOTO, PURE, FUNGHI, ANTIGO]));
+    await abrirProducao();
+    expect(screen.queryByText("Molho antigo")).toBeNull();
+    fireEvent.click(screen.getByLabelText(/Mostrar inativas \(1\)/));
+    expect(screen.getByText("Molho antigo")).toBeInTheDocument();
+    expect(screen.getByText("Inativa")).toBeInTheDocument();
+  });
+
+  test("ficha de produção em uso mostra onde é usada e trava a unidade de rendimento", async () => {
+    vi.mocked(getDishDetail).mockImplementation(async (id: string) => (id === "m1" ? { ...DETALHE_MASSA, usadaEm: [{ id: "d9", name: "Nhoque ao molho" }] } : DETALHES[id]));
+    await abrirProducao();
+    fireEvent.click(screen.getByText("Nhoque - Massa").closest("button") as HTMLElement);
+    await screen.findByRole("heading", { level: 2, name: "Nhoque - Massa" });
+    expect(screen.getByRole("heading", { name: /Usada em/ })).toBeInTheDocument();
+    expect(screen.getAllByText("Nhoque ao molho").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "Editar" }));
+    await screen.findByRole("heading", { name: "Editar ficha de produção" });
+    expect(screen.getByText(/Esta ficha é ingrediente de 1 ficha/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Unidade do rendimento")).toBeDisabled();
+  });
+
+  test("converter um prato em ficha de produção leva para a aba Produção", async () => {
+    vi.mocked(saveDish).mockResolvedValue({ id: "d1" });
+    await abrir();
+    await abrirPrato("Risoto de camarão", "d1");
+    fireEvent.click(screen.getByRole("button", { name: "Editar" }));
+    await screen.findByRole("heading", { name: "Editar ficha" });
+    fireEvent.click(screen.getByRole("button", { name: "Tornar ficha de produção" }));
+    fireEvent.click(screen.getByRole("button", { name: "Salvar alterações" }));
+    expect(await screen.findByRole("tab", { name: /Produção/, selected: true })).toBeInTheDocument();
+    expect(await screen.findByText(/agora é uma ficha de produção/)).toBeInTheDocument();
+  });
+
+  test("nova ficha de produção com o seletor em Delivery grava no cardápio padrão, não no delivery", async () => {
+    await abrirProducao();
+    fireEvent.click(screen.getAllByRole("button", { name: "Nova ficha de produção" })[0]);
+    await screen.findByRole("heading", { name: "Nova ficha de produção" });
+    fireEvent.change(screen.getByLabelText(/Nome da ficha/), { target: { value: "Molho base" } });
+    vi.mocked(searchDishProducts).mockResolvedValue([{ id: "p1", externalCode: null, name: "TOMATE", unit: "KG", averageCost: 8, conversions: [], embalagemInferida: null }]);
+    fireEvent.change(screen.getByRole("combobox", { name: /Buscar produto/ }), { target: { value: "tom" } });
+    fireEvent.click(await screen.findByRole("option", { name: /TOMATE/ }));
+    fireEvent.change(screen.getByLabelText("Quantidade de TOMATE"), { target: { value: "2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Criar ficha de produção" }));
+    await waitFor(() => expect(saveDish).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(saveDish).mock.calls[0][0]).toMatchObject({ fichaDeProducao: true, menu: "CARDAPIO" });
+  });
+
+  test("a aba Produção não mostra o seletor de salão/delivery", async () => {
+    await abrirProducao();
+    expect(screen.queryByRole("radiogroup", { name: /Cardápio|cardápio/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Delivery/ })).toBeNull();
+  });
+
+  test("backend ainda sem ?tipo (devolve tudo junto): cada lista fica só com o que é dela", async () => {
+    vi.mocked(getDishes).mockResolvedValue([RISOTO, PURE, MASSA]);
+    render(
+      <SessionContext.Provider value={SESSAO}>
+        <HideValuesProvider><FichasTecnicas /></HideValuesProvider>
+      </SessionContext.Provider>,
+    );
+    fireEvent.click(await screen.findByRole("tab", { name: /Produção/ }));
+    expect(await screen.findByText("Nhoque - Massa")).toBeInTheDocument();
+    expect(screen.queryByText("Risoto de camarão")).toBeNull();
+  });
+});
+

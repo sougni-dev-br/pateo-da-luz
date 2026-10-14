@@ -106,7 +106,7 @@ function Aviso({ prato, canEdit, onEditar }: Pick<Props, "prato" | "canEdit" | "
   if (situacao === "sem-ficha") {
     return (
       <Alert tone="info" title="Esta ficha ainda não tem ingredientes">
-        Sem eles o custo, a margem e o CMV ficam em branco.
+        {prato.fichaDeProducao ? "Sem eles a ficha não tem custo e não pode ser usada como ingrediente." : "Sem eles o custo, a margem e o CMV ficam em branco."}
         {canEdit && editavel(prato) && (
           <>
             {" "}
@@ -119,7 +119,7 @@ function Aviso({ prato, canEdit, onEditar }: Pick<Props, "prato" | "canEdit" | "
 
   if (situacao === "incompleta") {
     return (
-      <Alert tone="warning" title="Custo parcial — o CMV real é maior que o mostrado">
+      <Alert tone="warning" title={prato.fichaDeProducao ? "Custo parcial — o custo real é maior que o mostrado" : "Custo parcial — o CMV real é maior que o mostrado"}>
         {pendentes.length === 1 ? "1 ingrediente ficou fora da conta:" : `${pendentes.length} ingredientes ficaram fora da conta:`}
         <ul className="ft-pendencias">
           {pendentes.map((item) => (
@@ -130,7 +130,8 @@ function Aviso({ prato, canEdit, onEditar }: Pick<Props, "prato" | "canEdit" | "
     );
   }
 
-  if (situacao === "sem-preco") {
+  // Ficha de produção não tem preço de venda: faltar o preço não é pendência dela.
+  if (situacao === "sem-preco" && !prato.fichaDeProducao) {
     return (
       <Alert tone="info" title="Falta o preço de venda">
         A ficha está completa, mas sem preço não há margem nem CMV.
@@ -171,12 +172,12 @@ function Ingredientes({ titulo, idBase, itens, total, rendimento }: { titulo: st
               return (
                 <tr key={item.id} className={item.itemCost == null ? "ft-linha-alerta" : undefined}>
                   <th scope="row" data-rotulo="Ingrediente">
-                    <span className="ft-ingrediente-nome">{item.productName}</span>
+                    <span className="ft-ingrediente-nome">{item.productName}{item.componentDishId && <span className="ft-etiqueta-ficha">Ficha de produção</span>}</span>
                     {item.itemCost == null && item.issue ? (
                       <span className="ft-ingrediente-alerta"><AlertTriangle size={13} aria-hidden /> {item.issue}</span>
                     ) : item.unitCost != null ? (
                       <span className="ft-ingrediente-sub">
-                        {item.productCode ? `${item.productCode} · ` : ""}Estoque: <Money value={item.unitCost} />{item.productUnit ? ` / ${item.productUnit}` : ""}
+                        {item.productCode ? `${item.productCode} · ` : ""}{item.componentDishId ? "Custo da ficha" : "Estoque"}: <Money value={item.unitCost} />{item.productUnit ? ` / ${item.productUnit}` : ""}
                         {item.embalagemInferida && normalizarUnidade(item.unit) !== normalizarUnidade(item.productUnit) && ` · ${item.embalagemInferida}`}
                       </span>
                     ) : null}
@@ -229,6 +230,7 @@ export function DetalheDoPrato({ prato, canEdit, onEditar, onCopiar, onAlternarA
   const faixa = faixaDeCmv(prato.cmvPercentual);
   const mostraCmv = !semFicha && prato.cmvPercentual != null;
   const margemNegativa = prato.margemBruta != null && prato.margemBruta < 0;
+  const producao = Boolean(prato.fichaDeProducao);
 
   return (
     <article className="ft-detalhe" aria-labelledby="ft-detalhe-titulo">
@@ -236,7 +238,8 @@ export function DetalheDoPrato({ prato, canEdit, onEditar, onCopiar, onAlternarA
         <div className="ft-detalhe-titulos">
           <h2 id="ft-detalhe-titulo" className="ft-detalhe-nome" tabIndex={-1}>{prato.name}</h2>
           <p className="ft-detalhe-meta">
-            {menusDoPrato(prato).map((menu) => (
+            {producao && <span className="ft-etiqueta-ficha">Ficha de produção</span>}
+            {!producao && menusDoPrato(prato).map((menu) => (
               <span key={menu} className="ft-detalhe-cardapio">
                 <span className={`ft-etiqueta-cardapio${menu === "DELIVERY" ? " ft-etiqueta-cardapio--delivery" : ""}`}>{ROTULO_DO_CARDAPIO[menu]}</span>
                 <span>{caminhoDaCategoria(categoriaNoCardapio(prato, menu))}</span>
@@ -269,6 +272,18 @@ export function DetalheDoPrato({ prato, canEdit, onEditar, onCopiar, onAlternarA
       <AvisoDoDelivery prato={prato} canEdit={canEdit} onEditar={onEditar} />
       {prato.alsoMenu && <ExplicacaoDasFichas />}
 
+      {producao ? (
+        <section className="ft-resumo-ficha" aria-label="Resumo da ficha de produção">
+          <div className="ft-trio">
+            <Metrica rotulo={`Custo por ${prato.yieldUnit}`} ajuda={prato.custoIncompleto && !semFicha ? "no mínimo — custo parcial" : "é este custo que o prato usa como ingrediente"}>
+              {semFicha ? "—" : <Money value={prato.custoPorcao} />}
+            </Metrica>
+            <Metrica rotulo="Custo da receita inteira" ajuda={`rende ${formatarQuantidade(prato.yieldQty)} ${prato.yieldUnit}`}>
+              {semFicha ? "—" : <Money value={prato.calculatedCost} />}
+            </Metrica>
+          </div>
+        </section>
+      ) : (
       <section className="ft-resumo-ficha" aria-label="Resumo do prato">
         <div className={`ft-hero ft-hero--${mostraCmv ? (prato.custoIncompleto ? "warning" : faixa?.tom ?? "neutro") : "neutro"}`}>
           <span className="ft-metrica-rotulo">{prato.alsoMenu ? "CMV no a la carte" : "CMV"}</span>
@@ -295,6 +310,7 @@ export function DetalheDoPrato({ prato, canEdit, onEditar, onCopiar, onAlternarA
           </Metrica>
         </div>
       </section>
+      )}
 
       <Ingredientes
         titulo={prato.alsoMenu ? "Porcionamento no a la carte" : "Ingredientes"}
@@ -312,7 +328,14 @@ export function DetalheDoPrato({ prato, canEdit, onEditar, onCopiar, onAlternarA
           rendimento={{ qtd: prato.yieldQty, unidade: prato.yieldUnit }}
         />
       )}
-      <PrecosPorCanal prato={prato} canEdit={canEdit} onEditarPrato={onEditar} onMudou={onPrecosMudaram} notificar={notificar} />
+      {producao && (prato.usadaEm?.length ?? 0) > 0 && (
+        <section className="ft-secao" aria-labelledby="ft-usada-em">
+          <h3 id="ft-usada-em" className="ft-secao-titulo">Usada em <span className="ft-secao-n">{prato.usadaEm?.length}</span></h3>
+          <ul className="ft-pendencias">{prato.usadaEm?.map((uso) => <li key={uso.id}>{uso.name}</li>)}</ul>
+          <p className="ft-explica">Mudar o rendimento ou os ingredientes desta ficha muda o custo de todas elas.</p>
+        </section>
+      )}
+      {!producao && <PrecosPorCanal prato={prato} canEdit={canEdit} onEditarPrato={onEditar} onMudou={onPrecosMudaram} notificar={notificar} />}
       <HistoricoDaFicha pratoId={prato.id} versao={prato.updatedAt} />
 
       {prato.notes && (

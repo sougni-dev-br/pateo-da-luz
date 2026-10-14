@@ -58,12 +58,13 @@ export function registrarRotasDeListagem(router: Router) {
     const dishId = request.params.id;
     const daPlataforma = body.deliveryStoreId.startsWith(PREFIXO_PLATAFORMA) ? body.deliveryStoreId.slice(PREFIXO_PLATAFORMA.length) : null;
     const [prato, lojaDoBanco] = await Promise.all([
-      prisma.dish.findUnique({ where: { id: dishId }, select: { id: true, name: true } }),
+      prisma.dish.findUnique({ where: { id: dishId }, select: { id: true, name: true, fichaDeProducao: true } }),
       daPlataforma
         ? Promise.resolve(null)
         : prisma.deliveryStore.findUnique({ where: { id: body.deliveryStoreId }, select: { id: true, platform: true, nickname: true, active: true } })
     ]);
     if (!prato) return void response.status(404).json({ message: "Prato não encontrado." });
+    if (prato.fichaDeProducao) return void response.status(400).json({ message: "Ficha de produção não é vendida: não tem preço nos canais." });
 
     // Plataforma sem lojas cadastradas: a listagem fica ligada à plataforma, sem loja.
     if (daPlataforma && !(PLATAFORMAS_SEM_LOJA as readonly string[]).includes(daPlataforma)) {

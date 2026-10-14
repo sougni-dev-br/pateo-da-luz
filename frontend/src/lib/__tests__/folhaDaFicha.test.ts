@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DishDetail } from "../../api/client";
-import { alturaDaLinha, copiasDaFolha, folhaDoNome, folhaDoPrato, folhaEmBranco, linhasDaTabela, MAXIMO_DE_COPIAS } from "../folhaDaFicha";
+import { alturaDaLinha, copiasDaFolha, folhaDoNome, folhaDoPrato, folhaEmBranco, linhasDaTabela, linhasDoModoDePreparo, MAXIMO_DE_COPIAS } from "../folhaDaFicha";
 
 const prato = {
   name: "Penne ao sugo", code: "PRAT-1", menu: "DELIVERY" as const, yieldQty: 2, yieldUnit: "PORÇÃO",
@@ -83,3 +83,48 @@ describe("folha da ficha técnica", () => {
     expect(altura(20)).toBeGreaterThan(altura(24));
   });
 });
+
+describe("folha cheia: tudo cabe numa A4", () => {
+  it("quanto mais linhas de ingrediente, menor a linha, nunca abaixo de 5,4 mm", () => {
+    const alturas = [12, 16, 20, 24, 40].map((n) => parseFloat(alturaDaLinha(n)));
+    expect(alturas).toEqual([9.2, 7.6, 6.4, 5.8, 5.4]);
+    expect([...alturas].sort((a, b) => b - a)).toEqual(alturas);
+  });
+
+  it("o modo de preparo encolhe quando a lista de ingredientes é longa", () => {
+    expect(linhasDoModoDePreparo(16)).toBe(7);
+    expect(linhasDoModoDePreparo(17)).toBe(4);
+    expect(linhasDoModoDePreparo(23)).toBe(3);
+  });
+
+  it("nunca encolhe abaixo do que o texto já escrito precisa (o texto da ficha não é cortado)", () => {
+    expect(linhasDoModoDePreparo(20, "x".repeat(458))).toBe(5);
+    expect(linhasDoModoDePreparo(10, "x".repeat(1050))).toBe(10);
+    expect(linhasDoModoDePreparo(10, "")).toBe(7);
+  });
+});
+
+describe("folha com ficha de produção como ingrediente", () => {
+  it("a linha da ficha diz que é ficha de produção e não leva código de produto", () => {
+    const detalhe = { ...prato, id: "p", notes: null, salePriceDefault: null, items: [
+      { id: "i1", productId: null, componentDishId: "massa", productCode: null, productName: "Nhoque - Massa", productUnit: "UN", quantity: 1, unit: "UN", wasteFactor: 0, notes: null },
+    ] } as unknown as DishDetail;
+    const folha = folhaDoPrato(detalhe);
+    expect(folha.ingredientes[0]).toMatchObject({ nome: "Nhoque - Massa (ficha de produção)", codigo: "", quantidade: "1", unidade: "UN" });
+  });
+});
+
+describe("folha de ficha de produção", () => {
+  it("sai sem cardápio, categoria nem preço, marcada como produção", () => {
+    const detalhe = { ...prato, id: "m", notes: null, salePriceDefault: 40, fichaDeProducao: true, menu: "DELIVERY", category: { id: "c", name: "Massas", parentId: null, parentName: null, menu: "DELIVERY" }, items: [] } as unknown as DishDetail;
+    const folha = folhaDoPrato(detalhe);
+    expect(folha).toMatchObject({ producao: true, menu: null, categoria: "", subcategoria: "", preco: "" });
+  });
+
+  it("prato vendido continua com cardápio e preço", () => {
+    const detalhe = { ...prato, id: "p", notes: null, salePriceDefault: 40, items: [] } as unknown as DishDetail;
+    expect(folhaDoPrato(detalhe)).toMatchObject({ preco: "40,00" });
+    expect(folhaDoPrato(detalhe).producao).toBeUndefined();
+  });
+});
+

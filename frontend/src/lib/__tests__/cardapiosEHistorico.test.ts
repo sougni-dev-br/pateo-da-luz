@@ -309,3 +309,25 @@ describe("histórico: quantidades do delivery", () => {
     expect(descreverMudancas(depois, antes)).toEqual(["Delivery · − FILE saiu da ficha"]);
   });
 });
+
+describe("histórico com ficha de produção como ingrediente", () => {
+  const item = (parcial: Record<string, unknown>) => ({ productId: "p", componentDishId: null, productName: "X", quantity: 1, unit: "UN", wasteFactor: 0, itemCost: 1, ...parcial });
+  const snapshot = (items: unknown[]) => ({ name: "P", code: null, menu: "DELIVERY", category: null, salePriceDefault: 50, yieldQty: 1, yieldUnit: "UN", notes: null, isActive: true, custoPorcao: 2, cmvPercentual: 20, custoIncompleto: false, items }) as never;
+
+  it("duas fichas diferentes (sem productId) não se confundem na comparação", () => {
+    const antes = snapshot([item({ productId: null, componentDishId: "massa", productName: "Massa" }), item({ productId: null, componentDishId: "molho", productName: "Molho" })]);
+    const depois = snapshot([item({ productId: null, componentDishId: "massa", productName: "Massa", quantity: 2 }), item({ productId: null, componentDishId: "molho", productName: "Molho" })]);
+    const frases = descreverMudancas(antes, depois).join(" ");
+    expect(frases).toMatch(/Massa: 1 UN → 2 UN/);
+    expect(frases).not.toMatch(/Molho/);
+  });
+
+  it("trocar quatro produtos por uma ficha aparece como a ficha entrando e os produtos saindo", () => {
+    const antes = snapshot([item({ productId: "a", productName: "FARINHA" }), item({ productId: "b", productName: "BATATA" })]);
+    const depois = snapshot([item({ productId: null, componentDishId: "massa", productName: "Massa" })]);
+    const frases = descreverMudancas(antes, depois).join(" ");
+    expect(frases).toMatch(/\+ Massa/);
+    expect(frases).toMatch(/FARINHA saiu da ficha/);
+    expect(frases).toMatch(/BATATA saiu da ficha/);
+  });
+});

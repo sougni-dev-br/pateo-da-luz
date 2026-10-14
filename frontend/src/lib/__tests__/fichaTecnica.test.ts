@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { DishListItem } from "../../api/client";
 import {
+  chaveDoIngrediente,
   contarPorSituacao,
   custoPorKg,
   rotuloDeDias,
@@ -322,7 +323,7 @@ describe("formulário da ficha", () => {
     const payload = montarPayloadDaFicha(campos, [item({ quantity: "0,15", unit: "gr", wasteFactor: "7", notes: " fresco " })], { id: "d1", isActive: true });
     expect(payload).toMatchObject({ id: "d1", name: "Risoto", menu: "CARDAPIO", salePriceDefault: 79.9, yieldQty: 1, yieldUnit: "UN", isActive: true });
     expect(payload.items).toEqual([
-      { productId: "p1", quantity: 0.15, unit: "G", wasteFactor: 0.07, notes: "fresco", sortOrder: 0 }
+      { productId: "p1", componentDishId: null, quantity: 0.15, unit: "G", wasteFactor: 0.07, notes: "fresco", sortOrder: 0 }
     ]);
   });
 
@@ -471,5 +472,62 @@ describe("peso da porção e validade de uso", () => {
   it("rótulo de dias no singular e no plural", () => {
     expect(rotuloDeDias(1)).toBe("1 dia");
     expect(rotuloDeDias(4)).toBe("4 dias");
+  });
+});
+
+describe("ficha de produção como ingrediente", () => {
+  const massa = { quantity: "1", unit: "UN", wasteFactor: "0", unitCost: 0.75, productUnit: "UN", conversions: [], ehFicha: true as const };
+
+  it("o custo é a quantidade × o custo de uma unidade de rendimento da ficha", () => {
+    expect(custoPrevisto({ ...massa, quantity: "2" })).toBeCloseTo(1.5, 6);
+  });
+
+  it("ficha sem custo explica o motivo da ficha, não o do estoque", () => {
+    expect(motivoSemCusto({ ...massa, unitCost: 0, motivoDaFicha: "Ficha de produção sem ingredientes." })).toBe("Ficha de produção sem ingredientes.");
+    expect(motivoSemCusto({ ...massa, unitCost: 0 })).toMatch(/complete os ingredientes dela/);
+  });
+
+  it("unidade que não é a de rendimento da ficha: pede a unidade dela", () => {
+    expect(motivoSemCusto({ ...massa, unit: "G" })).toMatch(/rende em UN/);
+    expect(motivoSemCusto(massa)).toBeNull();
+  });
+
+  it("só a unidade de rendimento (e g ↔ kg por física): nada de \"(informar)\"", () => {
+    expect(opcoesDeUnidade("UN", [], "UN", true).map((o) => o.label)).toEqual(["UN"]);
+    expect(opcoesDeUnidade("KG", [], "KG", true).map((o) => o.value).sort()).toEqual(["G", "KG"]);
+    // O produto comum continua oferecendo as medidas para informar.
+    expect(opcoesDeUnidade("UN", [], "UN").some((o) => o.label.includes("(informar)"))).toBe(true);
+  });
+
+  it("chave: ficha de produção e produto com o mesmo id não se confundem", () => {
+    expect(chaveDoIngrediente({ productId: "x" })).toBe("x");
+    expect(chaveDoIngrediente({ productId: "", componentDishId: "x" })).toBe("ficha:x");
+  });
+
+  it("o payload manda a ficha como componentDishId e sem productId", () => {
+    const campos = { name: "P", code: "", menu: "DELIVERY", categoryId: "", alsoMenu: null, alsoCategoryId: "", salePriceDefault: "", yieldQty: "1", yieldUnit: "UN", portionWeightG: "", shelfLifeDays: "", notes: "" } as never;
+    const itens = [
+      { tempId: "1", productId: "", componentDishId: "massa", productName: "Massa", notes: "", ...massa },
+      { tempId: "2", productId: "p2", productName: "Queijo", notes: "", quantity: "30", unit: "G", wasteFactor: "0", unitCost: 40, productUnit: "KG", conversions: [] },
+    ] as never;
+    const items = (montarPayloadDaFicha(campos, itens) as { items: Array<Record<string, unknown>> }).items;
+    expect(items[0]).toMatchObject({ productId: null, componentDishId: "massa", quantity: 1, unit: "UN" });
+    expect(items[1]).toMatchObject({ productId: "p2", componentDishId: null });
+  });
+});
+
+describe("payload de ficha de produção", () => {
+  const campos = { name: "Massa", code: "", menu: "DELIVERY", categoryId: "c1", alsoMenu: "CARDAPIO", alsoCategoryId: "c2", salePriceDefault: "40", yieldQty: "12", yieldUnit: "un", portionWeightG: "", shelfLifeDays: "", notes: "" } as never;
+
+  it("ficha de produção vai sem preço, categoria nem segundo cardápio, mesmo que os campos tenham sobrado valores", () => {
+    const payload = montarPayloadDaFicha(campos, [], { fichaDeProducao: true }, []) as Record<string, unknown>;
+    expect(payload).toMatchObject({ fichaDeProducao: true, salePriceDefault: null, categoryId: "", alsoMenu: null, alsoCategoryId: "", yieldUnit: "UN" });
+    expect(payload).not.toHaveProperty("alsoItems");
+  });
+
+  it("prato vendido não manda o tipo (o servidor mantém o que está gravado)", () => {
+    const payload = montarPayloadDaFicha(campos, [], {}, []) as Record<string, unknown>;
+    expect(payload).not.toHaveProperty("fichaDeProducao");
+    expect(payload).toMatchObject({ salePriceDefault: 40, categoryId: "c1", alsoMenu: "CARDAPIO" });
   });
 });

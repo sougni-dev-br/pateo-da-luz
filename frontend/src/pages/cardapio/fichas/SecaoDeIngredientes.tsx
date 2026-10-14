@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import type { DishProductSearchResult } from "../../../api/client";
-import type { ErroDoItem, ItemDaFicha } from "../../../lib/fichaTecnica";
+import { chaveDoIngrediente, type ErroDoItem, type ItemDaFicha } from "../../../lib/fichaTecnica";
 import { BuscaDeIngrediente } from "./BuscaDeIngrediente";
 import { LinhaDeIngrediente } from "./LinhaDeIngrediente";
 
@@ -9,6 +9,8 @@ type Props = {
   /** Distingue as duas listas do prato nos dois cardápios (ids e rótulos). */
   idBase: string;
   rotuloDaBusca?: string;
+  /** A ficha em edição: ela não pode aparecer na busca de fichas de produção (não se usa a si mesma). */
+  excluirId?: string;
   itens: ItemDaFicha[];
   repetidos: Map<string, number>;
   idsNaFicha: Set<string>;
@@ -27,7 +29,7 @@ type Props = {
 
 /** Lista de ingredientes de uma ficha: busca, linhas editáveis e o aviso de lista vazia. */
 export function SecaoDeIngredientes({
-  titulo, idBase, rotuloDaBusca, itens, repetidos, idsNaFicha, erros, erroDaLista, descricao, acoes,
+  titulo, idBase, rotuloDaBusca, excluirId, itens, repetidos, idsNaFicha, erros, erroDaLista, descricao, acoes,
   onAdicionar, onAlterar, onRemover, onInformarConversao
 }: Props) {
   const idDoTitulo = `ft-ingredientes-${idBase}`;
@@ -44,13 +46,14 @@ export function SecaoDeIngredientes({
         onEscolher={onAdicionar}
         idDoCampo={idBase === "salao" ? undefined : `ft-busca-ingrediente-${idBase}`}
         rotulo={rotuloDaBusca}
+        excluirId={excluirId}
       />
 
       {erroDaLista && <p className="ft-resumo-aviso ft-resumo-aviso--erro" role="alert">{erroDaLista}</p>}
 
       {itens.length === 0 ? (
         <p className="ft-vazio-ingredientes">
-          Nenhum ingrediente ainda. Busque o produto acima, informe a quantidade e a unidade em que ele entra na receita.
+          Nenhum ingrediente ainda. Busque o produto (ou uma ficha de produção, como a massa de um nhoque) acima, informe a quantidade e a unidade em que ele entra na receita.
         </p>
       ) : (
         <>
@@ -63,7 +66,7 @@ export function SecaoDeIngredientes({
                 key={item.tempId}
                 item={item}
                 erro={erros[item.tempId]}
-                repetido={(repetidos.get(item.productId) ?? 0) > 1}
+                repetido={(repetidos.get(chaveDoIngrediente(item)) ?? 0) > 1}
                 onAlterar={onAlterar}
                 onRemover={onRemover}
                 onInformarConversao={onInformarConversao}

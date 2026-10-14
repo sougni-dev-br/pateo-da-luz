@@ -41,15 +41,16 @@ import { DialogoDeLote, type EscolhaDoLote } from "./DialogoDeLote";
 import { useImpressaoDeFolhas } from "./FolhaDaFicha";
 import { FormularioDoPrato, type ModoDoFormulario } from "./FormularioDoPrato";
 import { ListaAPreencher } from "./ListaAPreencher";
+import { ListaDeProducao } from "./ListaDeProducao";
 import { ListaDePratos } from "./ListaDePratos";
 import { PainelDasFichasView } from "./PainelDasFichas";
 import { SeletorDeCardapio } from "./SeletorDeCardapio";
 import "./fichas.css";
 import "./painel.css";
 
-type Aba = "painel" | "fichas" | "preencher" | "cmv" | "categorias";
+type Aba = "painel" | "fichas" | "producao" | "preencher" | "cmv" | "categorias";
 /** `chave` muda a cada abertura: reabrir "Novo prato" precisa de um formulário zerado, não do anterior. */
-type Editor = { modo: ModoDoFormulario; base: DishDetail | null; chave: number };
+type Editor = { modo: ModoDoFormulario; base: DishDetail | null; chave: number; producao: boolean };
 
 const FILTRO_INICIAL: FiltroDaLista = { busca: "", menu: "todos", categoriaId: "", situacao: "todos", mostrarInativos: false };
 const AVISO_DE_DESCARTE = "Há alterações não salvas nesta ficha. Descartar?";
@@ -63,6 +64,8 @@ export function FichasTecnicas() {
 
   const [aba, setAba] = useState<Aba>("painel");
   const [pratos, setPratos] = useState<DishListItem[]>([]);
+  // Fichas de produção (a massa do nhoque): não são vendidas, então ficam fora da lista de pratos e do CMV.
+  const [producao, setProducao] = useState<DishListItem[]>([]);
   // Preparações do buffet criadas pelo lançamento de desperdício: aguardam (ou já têm) a ficha.
   const [buffet, setBuffet] = useState<BuffetDish[]>([]);
   const [categorias, setCategorias] = useState<DishCategory[]>([]);
@@ -110,14 +113,17 @@ export function FichasTecnicas() {
     try {
       // Traz inativos também: o filtro é local, então busca e contadores respondem na hora.
       // O buffet é um extra: se a lista dele falhar, as fichas continuam abrindo.
-      const [lista, categoriasDoServidor, doBuffet] = await Promise.all([
+      const [lista, categoriasDoServidor, doBuffet, deProducao] = await Promise.all([
         getDishes({ showInactive: true }),
         getDishCategories(),
-        getBuffetDishes().catch(() => [] as BuffetDish[])
+        getBuffetDishes().catch(() => [] as BuffetDish[]),
+        getDishes({ showInactive: true, tipo: "producao" })
       ]);
       if (meuPedido !== pedidoDeCarga.current) return;
-      setPratos(lista);
+      // Um backend ainda sem ?tipo devolveria tudo junto: cada lista fica só com o que é dela.
+      setPratos(lista.filter((prato) => !prato.fichaDeProducao));
       setBuffet(doBuffet);
+      setProducao(deProducao.filter((ficha) => ficha.fichaDeProducao));
       setCategorias(categoriasDoServidor);
     } catch (erro) {
       if (meuPedido !== pedidoDeCarga.current) return;
@@ -144,8 +150,8 @@ export function FichasTecnicas() {
 
   const confirmarDescarte = useCallback(() => !alterado || window.confirm(AVISO_DE_DESCARTE), [alterado]);
 
-  function abrirEditor(modo: ModoDoFormulario, base: DishDetail | null) {
-    setEditor({ modo, base, chave: ++sequenciaDoEditor.current });
+  function abrirEditor(modo: ModoDoFormulario, base: DishDetail | null, ehProducao = false) {
+    setEditor({ modo, base, chave: ++sequenciaDoEditor.current, producao: base ? Boolean(base.fichaDeProducao) : ehProducao });
   }
 
   function fecharEditor() {
@@ -172,6 +178,14 @@ export function FichasTecnicas() {
     abrirEditor("novo", null);
   }
 
+  function novaFichaDeProducao() {
+    if (!confirmarDescarte()) return;
+    definirSelecionado(null);
+    setDetalhe(null);
+    setAlterado(false);
+    abrirEditor("novo", null, true);
+  }
+
   function cancelarEditor() {
     if (!confirmarDescarte()) return;
     fecharEditor();
@@ -192,6 +206,9 @@ export function FichasTecnicas() {
     if (!confirmarDescarte()) return;
     setEditor(null);
     setAlterado(false);
+    // Cada aba tem a sua lista: o prato aberto na anterior não fica no painel sem item marcado.
+    definirSelecionado(null);
+    setDetalhe(null);
     setAba(proxima as Aba);
   }
 
@@ -258,12 +275,15 @@ export function FichasTecnicas() {
     await Promise.all([carregar(), aberto ? abrirDetalhe(aberto) : Promise.resolve()]);
   }
 
-  async function aoSalvar(id: string, modo: ModoDoFormulario, desperdicio?: SaveDishResult["desperdicio"]) {
+  async function aoSalvar(id: string, modo: ModoDoFormulario, desperdicio?: SaveDishResult["desperdicio"], virouProducao = false) {
     fecharEditor();
     definirSelecionado(id);
+    // O prato que virou ficha de produção saiu da lista de pratos: a aba dele passa a ser a de produção.
+    if (virouProducao) setAba("producao");
     // Se o filtro atual esconderia o prato recém-salvo, ele some da lista mas continua aberto.
     await Promise.all([carregar(), abrirDetalhe(id)]);
-    const base = modo === "editar" ? "Ficha atualizada." : modo === "copia" ? "Cópia salva como um prato novo." : "Prato criado.";
+    const deProducao = Boolean(editor?.producao);
+    const base = virouProducao ? "Pronto: agora é uma ficha de produção (aba Produção). Ela pode ser usada como ingrediente de outras fichas." : modo === "editar" ? "Ficha atualizada." : modo === "copia" ? (deProducao ? "Cópia salva como uma ficha de produção nova." : "Cópia salva como um prato novo.") : deProducao ? "Ficha de produção criada." : "Prato criado.";
     // Ficha completa: o desperdício que estava sem valor passou a valer, e quem lançou já pode ver na Análise.
     const reflexo = desperdicio?.revalorizados
       ? ` ${desperdicio.revalorizados} ${desperdicio.revalorizados === 1 ? "lançamento" : "lançamentos"} de desperdício ${desperdicio.revalorizados === 1 ? "passou" : "passaram"} a ter valor.`
@@ -274,14 +294,14 @@ export function FichasTecnicas() {
   async function alternarAtivo() {
     if (!detalhe) return;
     const { id, name, isActive } = detalhe;
-    if (isActive && !window.confirm(`Inativar “${name}”? Ele sai da lista, mas dá para reativar depois.`)) return;
+    if (isActive && !window.confirm(`Inativar “${name}”? ${detalhe.fichaDeProducao ? "Ela sai da lista, mas dá para reativar depois." : "Ele sai da lista, mas dá para reativar depois."}`)) return;
 
     try {
       if (isActive) await deactivateDish(id);
       else await reactivateDish(id);
       // Quem clicou noutro prato enquanto isto rodava não pode ver a ficha do anterior de volta.
       await Promise.all([carregar(), selecionadoRef.current === id ? abrirDetalhe(id) : Promise.resolve()]);
-      notificar("success", isActive ? `“${name}” inativado. Marque “Mostrar inativos” para vê-lo na lista.` : `“${name}” reativado.`);
+      notificar("success", isActive ? (detalhe.fichaDeProducao ? `“${name}” inativada. Marque “Mostrar inativas” na aba Produção para vê-la.` : `“${name}” inativado. Marque “Mostrar inativos” para vê-lo na lista.`) : `“${name}” ${detalhe.fichaDeProducao ? "reativada" : "reativado"}.`);
     } catch (erro) {
       notificar("error", mensagemDe(erro, isActive ? "Não foi possível inativar o prato." : "Não foi possível reativar o prato."));
     }
@@ -323,7 +343,7 @@ export function FichasTecnicas() {
   const contagemDosChips = useMemo(() => contarPorSituacao(pratosDosChips, filtro.mostrarInativos), [pratosDosChips, filtro.mostrarInativos]);
 
   // O que ainda falta preencher: preparações do desperdício, pratos sem ficha e fichas incompletas (aba "A preencher").
-  const fila = useMemo(() => montarFilaAPreencher(pratos, buffet), [pratos, buffet]);
+  const fila = useMemo(() => montarFilaAPreencher([...pratos, ...producao], buffet), [pratos, producao, buffet]);
   const detalheDoSelecionado = detalhe && detalhe.id === selecionadoId ? detalhe : null;
   const painelAberto = selecionadoId !== null || editor !== null;
 
@@ -351,8 +371,9 @@ export function FichasTecnicas() {
           base={editor.base}
           categorias={categorias}
           menuPadrao={filtro.menu === "DELIVERY" ? "DELIVERY" : "CARDAPIO"}
+          producao={editor.producao}
           onCancelar={cancelarEditor}
-          onSalvo={(id, modo, desperdicio) => void aoSalvar(id, modo, desperdicio)}
+          onSalvo={(id, modo, desperdicio, virouProducao) => void aoSalvar(id, modo, desperdicio, virouProducao)}
           onAlterado={setAlterado}
           notificar={notificar}
         />
@@ -388,6 +409,17 @@ export function FichasTecnicas() {
       );
     }
 
+    if (aba === "producao") {
+      return (
+        <div className="ft-vazio">
+          <ChefHat size={30} aria-hidden />
+          <h2>Escolha uma ficha de produção</h2>
+          <p>O custo de cada unidade dela entra no CMV dos pratos que a usam como ingrediente. Ela não tem preço de venda nem CMV próprio.</p>
+          {canEdit && <Button leadingIcon={<Plus size={16} aria-hidden />} onClick={novaFichaDeProducao}>Nova ficha de produção</Button>}
+        </div>
+      );
+    }
+
     const semFicha = painel.pendencias.semFicha;
     return (
       <div className="ft-vazio">
@@ -413,12 +445,14 @@ export function FichasTecnicas() {
         tabs={[
           { value: "painel", label: "Painel" },
           { value: "fichas", label: "Pratos" },
+          { value: "producao", label: producao.some((ficha) => ficha.isActive) ? `Produção (${producao.filter((ficha) => ficha.isActive).length})` : "Produção" },
           { value: "preencher", label: fila.total > 0 ? `A preencher (${fila.total})` : "A preencher" },
           { value: "cmv", label: "CMV por canal" },
           { value: "categorias", label: "Categorias" }
         ]}
       />
-      <SeletorDeCardapio valor={filtro.menu} contagem={contagemPorCardapio} onChange={escolherCardapio} />
+      {/* Ficha de produção não tem cardápio: o seletor de salão/delivery só vale para os pratos vendidos. */}
+      {aba !== "producao" && <SeletorDeCardapio valor={filtro.menu} contagem={contagemPorCardapio} onChange={escolherCardapio} />}
       </div>
 
       {erroDeCarga && (
@@ -441,6 +475,15 @@ export function FichasTecnicas() {
             onImprimirEmBranco={() => setDialogoDeImpressao(true)}
           />
         )
+      ) : aba === "producao" ? (
+        <ListDetailLayout
+          className="ft-layout"
+          detailActive={painelAberto}
+          onBack={voltar}
+          backLabel={editor?.base ? "Voltar à ficha" : "Voltar à lista"}
+          list={<ListaDeProducao fichas={producao} selecionadoId={selecionadoId} carregando={carregando} comErro={erroDeCarga != null} canEdit={canEdit} onSelecionar={selecionar} onNova={novaFichaDeProducao} />}
+          detail={<div ref={revelarRef} className="scroll-target ft-painel">{renderizarPainel()}</div>}
+        />
       ) : aba === "preencher" ? (
         <ListDetailLayout
           className="ft-layout"

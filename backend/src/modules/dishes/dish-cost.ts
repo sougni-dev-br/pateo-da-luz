@@ -12,6 +12,8 @@ export type CostProduct = {
   unit: string | null;
   averageCost: number | null;
   conversions: UnitConversion[];
+  /** Mensagem própria para "sem custo" (ficha de produção incompleta); o padrão fala de estoque. */
+  semCustoMotivo?: string;
 };
 
 export type CostItemInput = {
@@ -76,7 +78,7 @@ export function calculateDishCost(input: {
 
     if (unitCost == null || !Number.isFinite(unitCost) || unitCost === 0) {
       hasMissingCost = true;
-      return { ...base, unitFactor: null, itemCost: null, issue: "Produto sem custo medio no estoque." };
+      return { ...base, unitFactor: null, itemCost: null, issue: item.product.semCustoMotivo ?? "Produto sem custo medio no estoque." };
     }
 
     const factor = resolveUnitFactor(item.unit, stockUnit, item.product.conversions);

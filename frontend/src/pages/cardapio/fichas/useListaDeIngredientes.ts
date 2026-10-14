@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { DishProductSearchResult } from "../../../api/client";
-import { converterAoTrocarUnidade, unidadePadrao, type ItemDaFicha } from "../../../lib/fichaTecnica";
+import { chaveDoIngrediente, converterAoTrocarUnidade, unidadePadrao, type ItemDaFicha } from "../../../lib/fichaTecnica";
 
 let sequenciaDeLinhas = 0;
 export const novoIdDeLinha = () => `novo-${Date.now()}-${++sequenciaDeLinhas}`;
@@ -24,13 +24,18 @@ export function useListaDeIngredientes(inicial: ItemDaFicha[]) {
 
   const adicionar = useCallback((produto: DishProductSearchResult) => {
     const tempId = novoIdDeLinha();
+    // Ficha de produção como ingrediente: 1 unidade de rendimento dela (1 porção da massa) é o ponto de partida.
+    const ehFicha = produto.kind === "FICHA";
     setItens((anterior) => [
       ...anterior,
       {
         tempId,
-        productId: produto.id,
+        productId: ehFicha ? "" : produto.id,
+        componentDishId: ehFicha ? produto.id : null,
+        ehFicha,
+        motivoDaFicha: ehFicha ? produto.motivo ?? null : null,
         productName: produto.name,
-        quantity: "",
+        quantity: ehFicha ? "1" : "",
         unit: unidadePadrao(produto.unit, produto.conversions ?? []),
         wasteFactor: "0",
         unitCost: produto.averageCost,
@@ -61,10 +66,10 @@ export function useListaDeIngredientes(inicial: ItemDaFicha[]) {
     setItens((anterior) => anterior.filter((item) => item.tempId !== tempId));
   }, []);
 
-  const idsNaFicha = useMemo(() => new Set(itens.map((item) => item.productId)), [itens]);
+  const idsNaFicha = useMemo(() => new Set(itens.map(chaveDoIngrediente)), [itens]);
   const repetidos = useMemo(() => {
     const contagem = new Map<string, number>();
-    itens.forEach((item) => contagem.set(item.productId, (contagem.get(item.productId) ?? 0) + 1));
+    itens.forEach((item) => contagem.set(chaveDoIngrediente(item), (contagem.get(chaveDoIngrediente(item)) ?? 0) + 1));
     return contagem;
   }, [itens]);
 

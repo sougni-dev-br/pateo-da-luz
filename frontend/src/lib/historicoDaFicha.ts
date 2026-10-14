@@ -21,9 +21,11 @@ function indexar(itens: ItemDaVersao[]): Map<string, ItemDaVersao> {
   const vistos = new Map<string, number>();
   const mapa = new Map<string, ItemDaVersao>();
   for (const item of itens) {
-    const ocorrencia = (vistos.get(item.productId) ?? 0) + 1;
-    vistos.set(item.productId, ocorrencia);
-    mapa.set(`${item.productId}#${ocorrencia}`, item);
+    // Ficha de produção como ingrediente não tem productId: a chave é a da ficha.
+    const chave = item.productId ?? (item.componentDishId ? `ficha:${item.componentDishId}` : item.productName);
+    const ocorrencia = (vistos.get(chave) ?? 0) + 1;
+    vistos.set(chave, ocorrencia);
+    mapa.set(`${chave}#${ocorrencia}`, item);
   }
   return mapa;
 }

@@ -75,7 +75,7 @@ describe("GET /margem", () => {
   test("so le pratos ATIVOS do salao e so os itens do cardapio do salao (o delivery tem custo proprio)", async () => {
     await request(app).get("/analise/margem" + QS);
     const consulta = db.dish.findMany.mock.calls[0][0];
-    expect(consulta.where).toEqual({ isActive: true, OR: [{ menu: "CARDAPIO" }, { alsoMenu: "CARDAPIO" }] });
+    expect(consulta.where).toEqual({ isActive: true, fichaDeProducao: false, OR: [{ menu: "CARDAPIO" }, { alsoMenu: "CARDAPIO" }] });
     expect(consulta.select.items.where).toEqual({ menu: "CARDAPIO" });
   });
 
@@ -169,7 +169,7 @@ describe("PUT /margem/vinculo", () => {
     const r = await request(app).put("/analise/margem/vinculo").send(corpo);
     expect(r.status).toBe(400);
     expect(r.body.message).toMatch(/prato ativo do cardápio do salão/);
-    expect(db.dish.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "d1", isActive: true, OR: [{ menu: "CARDAPIO" }, { alsoMenu: "CARDAPIO" }] } }));
+    expect(db.dish.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "d1", isActive: true, fichaDeProducao: false, OR: [{ menu: "CARDAPIO" }, { alsoMenu: "CARDAPIO" }] } }));
     expect(db.agileProdutoPrato.upsert).not.toHaveBeenCalled();
   });
 

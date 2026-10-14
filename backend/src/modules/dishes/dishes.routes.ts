@@ -7,7 +7,8 @@ import { calculateDishCost } from "./dish-cost.js";
 import { parseBody } from "../../shared/validate-body.js";
 import { normalizeText } from "../../shared/utils/normalize-text.js";
 import { linhasDeConversaoInformada, normalizarUnidade } from "../../shared/unidades/conversao.js";
-import { carregarDetalhe, categoriaResumida, conversoesDaFicha, separarItensPorCardapio, textoDaEmbalagemInferida, toCostItem, type ItemComProduto } from "./dish-detail.js";
+import { carregarDetalhe, categoriaResumida, conversoesDaFicha, separarItensPorCardapio, textoDaEmbalagemInferida, toCostItem } from "./dish-detail.js";
+import { anexarFichas, primeiroProblemaDeFicha, resolverFichas, sugerirFichasDeProducao } from "./dish-fichas-de-producao.js";
 import { concluirFichaDoPrato } from "../waste/waste-ficha.js";
 import { auditLog, requestIp, requireRole } from "../security/security-utils.js";
 import { MENUS, registrarRotasDeCategoria } from "./dish-categories.js";
@@ -51,15 +52,21 @@ const numeroOpcionalQueNaoApagaAoOmitir = (mensagem: string, maximo: number, int
 
 const textoOpcional = z.string().trim().nullish().transform((valor) => valor || null);
 
+const MAXIMO_DE_INGREDIENTES = 300;
+
 const dishItemsSchema = z.array(
   z.object({
-    productId: z.string().trim().min(1, "produto obrigatorio"),
+    // Ingrediente: um produto comprado OU outra ficha (de producao), nunca os dois.
+    productId: z.string().trim().nullish().transform((valor) => valor || null),
+    componentDishId: z.string().trim().nullish().transform((valor) => valor || null),
     quantity: z.coerce.number().positive("quantidade deve ser maior que zero"),
     unit: z.string().trim().min(1, "unidade obrigatoria"),
     wasteFactor: z.coerce.number().min(0, "perda nao pode ser negativa").max(1, "perda deve ser uma fracao entre 0 e 1").optional(),
-    notes: z.string().trim().nullable().optional()
-  })
-);
+    notes: z.string().trim().max(500, "observacao do ingrediente longa demais").nullable().optional()
+  }).refine((item) => Boolean(item.productId) !== Boolean(item.componentDishId), {
+    message: "cada ingrediente e um produto ou uma ficha de producao (um dos dois)"
+  }),
+).max(MAXIMO_DE_INGREDIENTES, `no maximo ${MAXIMO_DE_INGREDIENTES} ingredientes por ficha`);
 
 const dishBodySchema = z.object({
   name: z.string({ required_error: "Nome do prato é obrigatório." }).trim().min(1, "Nome do prato é obrigatório."),
@@ -74,6 +81,8 @@ const dishBodySchema = z.object({
   shelfLifeDays: numeroOpcionalQueNaoApagaAoOmitir("validade invalida (em dias inteiros, maior que zero)", 3650, true),
   notes: textoOpcional,
   isActive: z.boolean().optional(),
+  /** Ficha de producao (nao vendida, so ingrediente de outras fichas). Ausente = nao mexe no que esta gravado. */
+  fichaDeProducao: z.boolean().optional(),
   menu: z.enum(MENUS).optional(),
   /** Outro cardápio onde o mesmo prato também é vendido; vazio = só no principal. */
   alsoMenu: z.enum(MENUS).nullish(),
@@ -82,6 +91,28 @@ const dishBodySchema = z.object({
   /** Quantidades do OUTRO cardápio (o delivery) do prato vendido nos dois: a do a la carte não vale para o delivery. */
   alsoItems: dishItemsSchema.optional()
 });
+
+/** Problema de ficha achado na revalidação dentro da transação (o que outra gravação fez enquanto esta rodava). */
+class ProblemaDeFicha extends Error {}
+
+// Duas gravações que juntas fechariam um ciclo (A em B e B em A) passam cada uma na validação isolada: a trava as enfileira
+// e a segunda revalida já vendo o que a primeira gravou.
+const TRAVA_DE_FICHAS = 7311001;
+
+async function revalidarFichasNaTransacao(
+  tx: Prisma.TransactionClient,
+  dishId: string | null,
+  itens: Array<{ productId?: string | null; componentDishId?: string | null; unit: string }>,
+  serProducao: boolean,
+  mudancaDeTipo: { eraProducao: boolean; serProducao: boolean; ehDeBuffet: boolean } | null
+) {
+  const mudou = mudancaDeTipo != null && mudancaDeTipo.eraProducao !== mudancaDeTipo.serProducao;
+  if (!mudou && !itens.some((item) => item.componentDishId)) return;
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${TRAVA_DE_FICHAS})`;
+  const problema = (mudou && dishId ? await impedimentoDeMudarDeTipo(tx, dishId, mudancaDeTipo.eraProducao, mudancaDeTipo.serProducao, mudancaDeTipo.ehDeBuffet) : null)
+    ?? (await primeiroProblemaDeFicha(tx, dishId, itens, serProducao));
+  if (problema) throw new ProblemaDeFicha(problema);
+}
 
 const ehCodigoDuplicado = (error: unknown) =>
   error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
@@ -97,8 +128,8 @@ const ehReferenciaInvalida = (error: unknown) =>
  * Number(item.quantity) virava NaN em silencio e productId inexistente so
  * aparecia como erro de chave estrangeira depois do delete dos itens antigos.
  */
-async function primeiroProdutoInvalido(items: Array<{ productId: string }>) {
-  const ids = [...new Set(items.map((item) => item.productId))];
+async function primeiroProdutoInvalido(items: Array<{ productId?: string | null }>) {
+  const ids = [...new Set(items.map((item) => item.productId).filter((id): id is string => Boolean(id)))];
   if (ids.length === 0) return null;
 
   const encontrados = await prisma.product.findMany({ where: { id: { in: ids } }, select: { id: true } });
@@ -119,6 +150,7 @@ function itemParaGravar(dishId: string, item: ItemValidado, index: number, menu:
     dishId,
     menu,
     productId: item.productId,
+    componentDishId: item.componentDishId,
     quantity: item.quantity,
     unit: item.unit,
     wasteFactor: item.wasteFactor ?? 0,
@@ -151,11 +183,14 @@ dishesRouter.get("/", async (request, response) => {
   const search = String(request.query.search ?? "").trim();
   const categoryId = String(request.query.categoryId ?? "").trim() || undefined;
   const showInactive = String(request.query.showInactive ?? "") === "true";
+  // Sem ?tipo a lista é só de pratos vendidos: CMV por canal, margem e cardápios não enxergam ficha de produção.
+  const producao = String(request.query.tipo ?? "") === "producao";
 
   const dishes = await prisma.dish.findMany({
     where: {
       // Preparação de buffet criada pelo desperdício não é prato de cardápio: tem a aba própria (/buffet).
       fichaDeBuffet: false,
+      fichaDeProducao: producao,
       isActive: showInactive ? undefined : true,
       ...(categoryId ? { OR: [{ categoryId }, { alsoCategoryId: categoryId }] } : {}),
       ...(search
@@ -185,9 +220,12 @@ dishesRouter.get("/", async (request, response) => {
     orderBy: [{ category: { sortOrder: "asc" } }, { name: "asc" }]
   });
 
+  // Ingrediente pode ser outra ficha (de produção): uma leitura só resolve as de todos os pratos da lista.
+  const comProduto = new Map((await anexarFichas(prisma, dishes.flatMap((dish) => dish.items))).map((item) => [item.id, item]));
+
   const result = dishes.map((dish) => {
     const salePrice = dish.salePriceDefault ? Number(dish.salePriceDefault) : null;
-    const { principais, doOutro } = separarItensPorCardapio(dish);
+    const { principais, doOutro } = separarItensPorCardapio({ menu: dish.menu, alsoMenu: dish.alsoMenu, items: dish.items.map((item) => comProduto.get(item.id)!) });
     const custo = calculateDishCost({
       yieldQty: Number(dish.yieldQty),
       salePrice,
@@ -219,6 +257,7 @@ dishesRouter.get("/", async (request, response) => {
       shelfLifeDays: dish.shelfLifeDays,
       notes: dish.notes,
       isActive: dish.isActive,
+      fichaDeProducao: dish.fichaDeProducao,
       itemsCount: principais.length,
       alsoItemsCount: doOutro.length,
       alsoCustoPorcao: custoDoOutro.costPerServing,
@@ -285,10 +324,53 @@ dishesRouter.get("/buffet", async (_request, response) => {
   response.json(lista);
 });
 
+// Fichas que podem entrar como ingrediente de outra (ficha dentro de ficha). Voltam no formato da busca de produtos, para a
+// tela tratar as duas coisas igual: a unidade é a de rendimento da ficha e o "custo" é o de uma unidade de rendimento.
+dishesRouter.get("/fichas/search", async (request, response) => {
+  const search = String(request.query.search ?? "").trim();
+  const excluir = String(request.query.exclude ?? "").trim();
+  const fichas = await prisma.dish.findMany({
+    where: {
+      fichaDeProducao: true,
+      fichaDeBuffet: false,
+      isActive: true,
+      items: { some: {} },
+      ...(excluir ? { id: { not: excluir } } : {}),
+      ...(search ? { name: { contains: search, mode: "insensitive" } } : {})
+    },
+    select: { id: true },
+    orderBy: { name: "asc" },
+    take: 12
+  });
+  const resolvidas = await resolverFichas(prisma, fichas.map((f) => f.id));
+  response.json(fichas.map(({ id }) => {
+    const ficha = resolvidas.get(id)!;
+    return {
+      id: ficha.id,
+      externalCode: ficha.code,
+      name: ficha.name,
+      unit: ficha.yieldUnit,
+      averageCost: ficha.custoPorUnidade ?? 0,
+      conversions: [],
+      embalagemInferida: null,
+      kind: "FICHA" as const,
+      incompleta: ficha.incompleta,
+      motivo: ficha.motivo
+    };
+  }));
+});
+
 dishesRouter.get("/:id", async (request, response) => {
   const detalhe = await carregarDetalhe(prisma, request.params.id);
   if (!detalhe) {
     response.status(404).json({ message: "Prato não encontrado." });
+    return;
+  }
+  // Ficha de produção: quem a usa como ingrediente. Mudar o rendimento dela muda o custo de todos eles.
+  if (detalhe.fichaDeProducao) {
+    const usos = await prisma.dishItem.findMany({ where: { componentDishId: detalhe.id }, select: { dish: { select: { id: true, name: true } } } });
+    const unicos = new Map(usos.map((uso) => [uso.dish.id, uso.dish.name]));
+    response.json({ ...detalhe, usadaEm: [...unicos].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name, "pt-BR")) });
     return;
   }
   response.json(detalhe);
@@ -299,6 +381,10 @@ dishesRouter.get("/:id", async (request, response) => {
  * legivel; o resto continua sendo 500 para nao esconder falha de verdade.
  */
 function responderErroDeGravacao(error: unknown, codigo: string | null, response: { status: (code: number) => { json: (body: unknown) => void } }) {
+  if (error instanceof ProblemaDeFicha) {
+    response.status(400).json({ message: error.message });
+    return true;
+  }
   if (ehCodigoDuplicado(error)) {
     response.status(409).json({ message: `Já existe um prato com o código "${codigo ?? ""}".` });
     return true;
@@ -363,6 +449,66 @@ async function moverFichaParaOCardapio(tx: Pick<typeof prisma, "dishItem">, dish
   if (jaTem === 0) await tx.dishItem.updateMany({ where: { dishId, menu: de }, data: { menu: para } });
 }
 
+/**
+ * Trocar o tipo da ficha só vale quando nada depende dele: a ficha de produção que já é ingrediente de outras não vira prato
+ * vendido (elas ficariam apontando para um prato), e o prato com preço nos canais não vira ficha de produção (o preço sumiria).
+ */
+async function impedimentoDeMudarDeTipo(client: Pick<typeof prisma, "dishItem" | "dishListing" | "agileProdutoPrato">, dishId: string, eraProducao: boolean, serProducao: boolean, ehDeBuffet = false): Promise<string | null> {
+  if (eraProducao === serProducao) return null;
+  if (serProducao && ehDeBuffet) return "Preparação do buffet criada pelo desperdício não vira ficha de produção: ela já tem a aba própria.";
+  if (eraProducao) {
+    const usos = await client.dishItem.count({ where: { componentDishId: dishId } });
+    return usos > 0 ? `Esta ficha de produção é ingrediente de ${usos} ${usos === 1 ? "item de outra ficha" : "itens de outras fichas"}: tire-a de lá antes de torná-la um prato vendido.` : null;
+  }
+  const [precos, vinculos] = await Promise.all([
+    client.dishListing.count({ where: { dishId } }),
+    client.agileProdutoPrato.count({ where: { dishId } })
+  ]);
+  if (precos > 0) return "Este prato tem preço nos canais de venda: tire os preços antes de torná-lo uma ficha de produção.";
+  if (vinculos > 0) return "Este prato está ligado a um produto do PDV: desfaça a ligação antes de torná-lo uma ficha de produção.";
+  return null;
+}
+
+// Os ingredientes do prato que são uma ficha de produção copiada na mão (a massa do nhoque dividida por 12): a tela oferece
+// trocá-los pela ficha. Só sugere; quem decide e grava é quem edita a ficha.
+dishesRouter.get("/:id/sugestoes-de-ficha", async (request, response) => {
+  const prato = await prisma.dish.findUnique({ where: { id: request.params.id }, select: { id: true, menu: true, items: { select: { id: true, menu: true, productId: true, componentDishId: true, quantity: true, unit: true } } } });
+  if (!prato) {
+    response.status(404).json({ message: "Prato não encontrado." });
+    return;
+  }
+  const itens = prato.items.filter((item) => item.menu === prato.menu).map((item) => ({ id: item.id, productId: item.productId, componentDishId: item.componentDishId, quantity: Number(item.quantity), unit: item.unit }));
+
+  // Só serve de candidata a ficha cujos ingredientes são todos produtos que o prato também usa: o banco já descarta o resto.
+  const produtosDoPrato = [...new Set(itens.map((item) => item.productId).filter((id): id is string => Boolean(id)))];
+  if (produtosDoPrato.length === 0) {
+    response.json([]);
+    return;
+  }
+  const outras = await prisma.dish.findMany({
+    where: { id: { not: prato.id }, fichaDeProducao: true, isActive: true, items: { some: {}, every: { productId: { in: produtosDoPrato } } } },
+    take: 200,
+    select: { id: true, name: true, menu: true, yieldQty: true, yieldUnit: true, items: { select: { menu: true, productId: true, quantity: true, unit: true } } }
+  });
+  const candidatas = outras
+    .map((ficha) => ({
+      id: ficha.id,
+      name: ficha.name,
+      yieldQty: Number(ficha.yieldQty),
+      yieldUnit: ficha.yieldUnit,
+      items: ficha.items.filter((item) => item.menu === ficha.menu).map((item) => ({ productId: item.productId, quantity: Number(item.quantity), unit: item.unit }))
+    }))
+    // Ficha que já usa outra ficha não entra: a comparação é de produto com produto.
+    .filter((ficha) => ficha.items.every((item) => item.productId));
+  const sugestoes = sugerirFichasDeProducao({ id: prato.id, items: itens }, candidatas);
+  // O custo da ficha de baixo vai junto: a tela prevê o custo da linha nova antes de a pessoa aceitar a troca.
+  const fichas = sugestoes.length > 0 ? await resolverFichas(prisma, sugestoes.map((sugestao) => sugestao.componentDishId)) : new Map();
+  response.json(sugestoes.map((sugestao) => {
+    const ficha = fichas.get(sugestao.componentDishId);
+    return { ...sugestao, unitCost: ficha?.custoPorUnidade ?? 0, incompleta: ficha?.incompleta ?? true, motivo: ficha?.motivo ?? null };
+  }));
+});
+
 dishesRouter.post("/", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
@@ -373,27 +519,30 @@ dishesRouter.post("/", async (request, response) => {
   if (!body) return;
 
   const items = body.items ?? [];
-  const invalido = await primeiroProdutoInvalido(items);
+  const invalido = (await primeiroProdutoInvalido(items)) ?? (await primeiroProblemaDeFicha(prisma, null, [...items, ...(body.alsoItems ?? [])]));
   if (invalido) {
     response.status(400).json({ message: invalido });
     return;
   }
 
+  // Ficha de produção não é vendida: sem preço, categoria nem segundo cardápio, mesmo que a tela mande.
+  const producao = body.fichaDeProducao === true;
   const menu = body.menu ?? "CARDAPIO";
-  const categoriaRuim = await categoriaIncompativel(prisma, body.categoryId, menu);
+  const categoryId = producao ? null : body.categoryId;
+  const categoriaRuim = await categoriaIncompativel(prisma, categoryId, menu);
   if (categoriaRuim) {
     response.status(400).json({ message: categoriaRuim });
     return;
   }
 
-  const segundo = await validarSegundoCardapio(prisma, menu, body.alsoMenu ?? null, body.alsoCategoryId);
+  const segundo = await validarSegundoCardapio(prisma, menu, producao ? null : body.alsoMenu ?? null, producao ? null : body.alsoCategoryId);
   if ("erro" in segundo) {
     response.status(400).json({ message: segundo.erro });
     return;
   }
 
   // Vendido nos dois: as quantidades do delivery são obrigatórias (as do a la carte não valem para ele).
-  const alsoItems = body.alsoItems ?? [];
+  const alsoItems = producao ? [] : body.alsoItems ?? [];
   const exigencia = segundo.alsoMenu ? exigirQuantidadesDoOutro(menu, segundo.alsoMenu, alsoItems.length) : null;
   if (exigencia) {
     response.status(400).json({ message: exigencia });
@@ -408,6 +557,7 @@ dishesRouter.post("/", async (request, response) => {
   const id = crypto.randomUUID();
   try {
     const dish = await prisma.$transaction(async (tx) => {
+      await revalidarFichasNaTransacao(tx, null, [...items, ...alsoItems], producao, null);
       const created = await tx.dish.create({
         data: {
           id,
@@ -416,8 +566,9 @@ dishesRouter.post("/", async (request, response) => {
           menu,
           alsoMenu: segundo.alsoMenu,
           alsoCategoryId: segundo.alsoCategoryId,
-          categoryId: body.categoryId,
-          salePriceDefault: body.salePriceDefault,
+          categoryId,
+          salePriceDefault: producao ? null : body.salePriceDefault,
+          fichaDeProducao: producao,
           yieldQty: body.yieldQty,
           yieldUnit: body.yieldUnit,
           portionWeightG: body.portionWeightG ?? null,
@@ -454,16 +605,34 @@ dishesRouter.put("/:id", async (request, response) => {
   const body = parseBody(dishBodySchema, request.body, response);
   if (!body) return;
 
-  const invalido = body.items ? await primeiroProdutoInvalido(body.items) : null;
+  const itensEnviados = [...(body.items ?? []), ...(body.alsoItems ?? [])];
+  const invalido = body.items || body.alsoItems
+    ? (await primeiroProdutoInvalido(itensEnviados)) ?? (await primeiroProblemaDeFicha(prisma, request.params.id, itensEnviados))
+    : null;
   if (invalido) {
     response.status(400).json({ message: invalido });
     return;
   }
 
   const id = request.params.id;
-  const atual = await prisma.dish.findUnique({ where: { id }, select: { menu: true, alsoMenu: true, alsoCategoryId: true } });
+  const atual = await prisma.dish.findUnique({ where: { id }, select: { menu: true, alsoMenu: true, alsoCategoryId: true, fichaDeProducao: true, fichaDeBuffet: true, yieldUnit: true } });
   if (!atual) {
     response.status(404).json({ message: "Prato não encontrado." });
+    return;
+  }
+  // Quem não envia o tipo (tela antiga em cache) não muda o que está gravado.
+  const producao = body.fichaDeProducao ?? atual.fichaDeProducao;
+  // A unidade de rendimento é a unidade em que os pratos usam a ficha: trocá-la deixaria todos sem conversão.
+  if (atual.fichaDeProducao && normalizarUnidade(body.yieldUnit) !== normalizarUnidade(atual.yieldUnit)) {
+    const usos = await prisma.dishItem.count({ where: { componentDishId: id } });
+    if (usos > 0) {
+      response.status(400).json({ message: `Esta ficha de produção é ingrediente de ${usos} ${usos === 1 ? "item de outra ficha" : "itens de outras fichas"}, em ${normalizarUnidade(atual.yieldUnit)}: não dá para trocar a unidade de rendimento. Tire-a de lá antes.` });
+      return;
+    }
+  }
+  const mudancaDeTipo = await impedimentoDeMudarDeTipo(prisma, id, atual.fichaDeProducao, producao, atual.fichaDeBuffet);
+  if (mudancaDeTipo) {
+    response.status(400).json({ message: mudancaDeTipo });
     return;
   }
   const invalidoNoOutro = body.alsoItems ? await primeiroProdutoInvalido(body.alsoItems) : null;
@@ -472,7 +641,8 @@ dishesRouter.put("/:id", async (request, response) => {
     return;
   }
   const menu = body.menu ?? atual.menu;
-  const categoriaRuim = await categoriaIncompativel(prisma, body.categoryId, menu);
+  const categoryId = producao ? null : body.categoryId;
+  const categoriaRuim = await categoriaIncompativel(prisma, categoryId, menu);
   if (categoriaRuim) {
     response.status(400).json({ message: categoriaRuim });
     return;
@@ -480,8 +650,8 @@ dishesRouter.put("/:id", async (request, response) => {
   // Quem não envia "alsoMenu" (tela antiga em cache, outra integração) não quer mexer nele: o segundo cardápio fica como está.
   // Só o null explícito o remove. Se o principal passou a ser o cardápio do segundo, o segundo deixa de existir.
   const omitido = body.alsoMenu === undefined;
-  const alsoMenuPedido = omitido ? (atual.alsoMenu && atual.alsoMenu !== menu ? atual.alsoMenu : null) : (body.alsoMenu ?? null);
-  const alsoCategoriaPedida = omitido && body.alsoCategoryId == null ? atual.alsoCategoryId : (body.alsoCategoryId ?? null);
+  const alsoMenuPedido = producao ? null : omitido ? (atual.alsoMenu && atual.alsoMenu !== menu ? atual.alsoMenu : null) : (body.alsoMenu ?? null);
+  const alsoCategoriaPedida = producao ? null : omitido && body.alsoCategoryId == null ? atual.alsoCategoryId : (body.alsoCategoryId ?? null);
   const segundo = await validarSegundoCardapio(prisma, menu, alsoMenuPedido, alsoCategoriaPedida);
   if ("erro" in segundo) {
     response.status(400).json({ message: segundo.erro });
@@ -502,6 +672,7 @@ dishesRouter.put("/:id", async (request, response) => {
     // Prato, ingredientes e versao do historico na mesma transacao: o delete seguido de create sem
     // transacao deixava a ficha permanentemente sem ingredientes se o create falhasse no meio.
     const dish = await prisma.$transaction(async (tx) => {
+      await revalidarFichasNaTransacao(tx, id, itensEnviados, producao, { eraProducao: atual.fichaDeProducao, serProducao: producao, ehDeBuffet: atual.fichaDeBuffet });
       const atualizado = await tx.dish.update({
         where: { id },
         data: {
@@ -510,8 +681,9 @@ dishesRouter.put("/:id", async (request, response) => {
           menu,
           alsoMenu: segundo.alsoMenu,
           alsoCategoryId: segundo.alsoCategoryId,
-          categoryId: body.categoryId,
-          salePriceDefault: body.salePriceDefault,
+          categoryId,
+          salePriceDefault: producao ? null : body.salePriceDefault,
+          fichaDeProducao: producao,
           yieldQty: body.yieldQty,
           yieldUnit: body.yieldUnit,
           portionWeightG: body.portionWeightG,
@@ -589,9 +761,14 @@ dishesRouter.post("/bulk", async (request, response) => {
   }
 
   const ids = [...new Set(body.ids)];
-  const pratos = await prisma.dish.findMany({ where: { id: { in: ids } }, select: { id: true, menu: true, categoryId: true, alsoMenu: true, alsoCategoryId: true } });
+  const pratos = await prisma.dish.findMany({ where: { id: { in: ids } }, select: { id: true, menu: true, categoryId: true, alsoMenu: true, alsoCategoryId: true, fichaDeProducao: true } });
   if (pratos.length !== ids.length) {
     response.status(404).json({ message: "Algum prato escolhido não existe mais. Atualize a lista." });
+    return;
+  }
+
+  if (pratos.some((prato) => prato.fichaDeProducao)) {
+    response.status(400).json({ message: "Ficha de produção não tem cardápio nem categoria: tire-a da seleção." });
     return;
   }
 
@@ -866,6 +1043,15 @@ async function alterarSituacao(
 ) {
   const user = await requireRole(request as never, response as never, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
+
+  // Ficha de produção que é ingrediente de outra não sai de cena em silêncio: o custo dos pratos que a usam dependem dela.
+  if (!ativo) {
+    const usos = await prisma.dishItem.count({ where: { componentDishId: request.params.id } });
+    if (usos > 0) {
+      response.status(400).json({ message: `Esta ficha de produção é ingrediente de ${usos} ${usos === 1 ? "item de outra ficha" : "itens de outras fichas"}: tire-a de lá antes de inativá-la.` });
+      return;
+    }
+  }
 
   try {
     await prisma.$transaction(async (tx) => {

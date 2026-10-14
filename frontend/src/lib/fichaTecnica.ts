@@ -95,8 +95,14 @@ export type OpcaoDeUnidade = { value: string; label: string; converte: boolean }
 export function opcoesDeUnidade(
   unidadeDoProduto: string | null,
   conversoes: DishUnitConversion[],
-  unidadeAtual: string
+  unidadeAtual: string,
+  ehFicha = false
 ): OpcaoDeUnidade[] {
+  // Ficha de produção: só a unidade de rendimento dela (e g ↔ kg, ml ↔ l por física). Não há o que "informar".
+  if (ehFicha) {
+    const aceitas = [...new Set([...unidadesPossiveis(unidadeDoProduto, []), normalizarUnidade(unidadeAtual)].filter(Boolean))];
+    return aceitas.map((value) => ({ value, converte: true, label: value }));
+  }
   const base = normalizarUnidade(unidadeDoProduto);
   const todas = [...new Set([base, ...MEDIDAS_DA_FICHA, normalizarUnidade(unidadeAtual)].filter(Boolean))];
   const convertiveis = new Set(unidadesPossiveis(unidadeDoProduto, conversoes));
@@ -134,7 +140,15 @@ export type IngredientePrevisto = {
   unitCost: number;
   productUnit: string | null;
   conversions: DishUnitConversion[];
+  /** Ficha de produção como ingrediente: a unidade é a de rendimento dela e não há "estoque". */
+  ehFicha?: boolean;
+  /** Por que a ficha de produção não tem custo (incompleta), quando é o caso. */
+  motivoDaFicha?: string | null;
 };
+
+/** Chave do ingrediente na lista: produto e ficha de produção têm ids de tabelas diferentes, então a ficha leva prefixo. */
+export const chaveDoIngrediente = (item: { productId: string; componentDishId?: string | null }) =>
+  item.componentDishId ? `ficha:${item.componentDishId}` : item.productId;
 
 /** "0,5" e "0.5" são o mesmo número; vazio ou lixo viram NaN para quem decide o que fazer. */
 export function lerNumero(texto: string | number | null | undefined): number {
@@ -187,6 +201,11 @@ export function converterAoTrocarUnidade(
 
 /** Por que o custo do ingrediente não foi calculado; null quando foi. */
 export function motivoSemCusto(item: IngredientePrevisto): string | null {
+  if (item.ehFicha) {
+    if (!item.unitCost) return item.motivoDaFicha ?? "A ficha de produção ainda não tem custo: complete os ingredientes dela.";
+    if (fatorConversao(item.unit, item.productUnit, []) == null) return `A ficha rende em ${normalizarUnidade(item.productUnit) || "(vazio)"}: use essa unidade.`;
+    return null;
+  }
   if (!item.unitCost) return "O produto ainda não tem custo médio no estoque.";
   if (fatorConversao(item.unit, item.productUnit, item.conversions) == null) {
     const de = normalizarUnidade(item.unit) || "(vazio)";
@@ -372,7 +391,9 @@ export type CamposDaFicha = {
 
 export type ItemDaFicha = IngredientePrevisto & {
   tempId: string;
+  /** Vazio quando o ingrediente é uma ficha de produção: aí vale `componentDishId`. */
   productId: string;
+  componentDishId?: string | null;
   productName: string;
   notes: string;
   /** Texto "1 UN = 5 KG (lido do nome do produto)" quando a conversão veio do nome. */
@@ -476,12 +497,16 @@ export function temErros(erros: ErrosDaFicha): boolean {
 export function montarPayloadDaFicha(
   campos: CamposDaFicha,
   itens: ItemDaFicha[],
-  opcoes: { id?: string; isActive?: boolean } = {},
+  opcoes: { id?: string; isActive?: boolean; fichaDeProducao?: boolean } = {},
   itensDoOutro: ItemDaFicha[] = []
 ): Record<string, unknown> {
-  const preco = lerNumero(campos.salePriceDefault);
+  // Ficha de produção não é vendida: sem preço, categoria nem segundo cardápio.
+  const producao = opcoes.fichaDeProducao === true;
+  const preco = producao ? Number.NaN : lerNumero(campos.salePriceDefault);
   const paraOBanco = (lista: ItemDaFicha[]) => lista.map((item, indice) => ({
-    productId: item.productId,
+    // Ingrediente é um produto comprado OU uma ficha de produção, nunca os dois.
+    productId: item.componentDishId ? null : item.productId,
+    componentDishId: item.componentDishId ?? null,
     quantity: lerNumero(item.quantity),
     unit: normalizarUnidade(item.unit) || item.unit.trim(),
     wasteFactor: percentualParaFracao(item.wasteFactor),
@@ -492,10 +517,12 @@ export function montarPayloadDaFicha(
     ...(opcoes.id ? { id: opcoes.id } : {}),
     name: campos.name.trim(),
     code: campos.code.trim(),
-    menu: campos.menu,
-    categoryId: campos.categoryId,
-    alsoMenu: campos.alsoMenu,
-    alsoCategoryId: campos.alsoMenu ? campos.alsoCategoryId : "",
+    // Ficha de produção não é de cardápio nenhum; "CARDAPIO" é só o padrão do cadastro, e é por ele que o custo a lê.
+    menu: producao ? "CARDAPIO" : campos.menu,
+    ...(producao ? { fichaDeProducao: true } : {}),
+    categoryId: producao ? "" : campos.categoryId,
+    alsoMenu: producao ? null : campos.alsoMenu,
+    alsoCategoryId: campos.alsoMenu && !producao ? campos.alsoCategoryId : "",
     salePriceDefault: Number.isFinite(preco) ? preco : null,
     yieldQty: lerNumero(campos.yieldQty),
     yieldUnit: campos.yieldUnit.trim().toUpperCase() || "UN",
@@ -506,7 +533,7 @@ export function montarPayloadDaFicha(
     ...(opcoes.isActive === undefined ? {} : { isActive: opcoes.isActive }),
     items: paraOBanco(itens),
     // As quantidades do delivery só vão quando o prato é vendido nos dois cardápios.
-    ...(campos.alsoMenu ? { alsoItems: paraOBanco(itensDoOutro) } : {})
+    ...(campos.alsoMenu && !producao ? { alsoItems: paraOBanco(itensDoOutro) } : {})
   };
 }
 
