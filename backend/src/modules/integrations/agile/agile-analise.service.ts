@@ -331,19 +331,28 @@ export async function obterMetas(ano: number, mes: number, hoje: string = hojeEm
   const hojeData = new Date(`${hoje}T00:00:00.000Z`);
   const deRitmo = new Date(hojeData.getTime() - DIAS_DA_JANELA_DE_RITMO * UM_DIA_MS);
   const deHistorico = new Date(Date.UTC(ano, mes - 1 - MESES_DE_HISTORICO, 1));
+  // O historico so tem meses FECHADOS (o mes de hoje esta incompleto) e os itens cancelados, como as
+  // vendas, so contam ate ontem: item de hoje com a venda de hoje de fora inflaria a perda.
+  const inicioDoMesDeHoje = new Date(`${hoje.slice(0, 7)}-01T00:00:00.000Z`);
+  const ateHistorico = inicioDoMesDeHoje < de ? inicioDoMesDeHoje : de;
+  const ateItens = hojeData < ate ? hojeData : ate;
+  const mesEncerrado = hoje > fim;
 
   const [vendasMes, vendasRitmo, vendasHistorico, itens, linhasMeta] = await Promise.all([
     carregarVendas(de, ate),
-    carregarVendas(deRitmo, hojeData),
-    carregarVendas(deHistorico, de),
-    valorDeItensCancelados(de, de, ate),
+    // Mes encerrado projeta o proprio realizado: nao precisa do ritmo.
+    mesEncerrado ? Promise.resolve<VendaVisao[]>([]) : carregarVendas(deRitmo, hojeData),
+    carregarVendas(deHistorico, ateHistorico),
+    valorDeItensCancelados(de, de, ateItens),
     prisma.agileSalaoMeta.findMany({ where: { ano, mes }, select: { indicador: true, valor: true } })
   ]);
 
   const porMes = new Map<string, VendaVisao[]>();
   for (const v of vendasHistorico) {
     const chave = toCalendarDateKey(v.movementDate).slice(0, 7);
-    porMes.set(chave, [...(porMes.get(chave) ?? []), v]);
+    const doMes = porMes.get(chave);
+    if (doMes) doMes.push(v);
+    else porMes.set(chave, [v]);
   }
   const historico: MesDoHistorico[] = [...porMes.entries()].map(([chave, vendas]) => ({
     ano: Number(chave.slice(0, 4)),

@@ -13,13 +13,14 @@ export function formatarValor(indicador: AnaliseIndicadorDeMeta, valor: number, 
 type Selo = { texto: string; tom: "neutral" | "success" | "warning" | "danger" | "info" };
 
 // Sempre texto + cor: a cor sozinha não diz se o mês está bem.
-export function seloDaSituacao(i: AnaliseMetaIndicador): Selo {
+export function seloDaSituacao(i: AnaliseMetaIndicador, encerrado = false): Selo {
   const soma = i.indicador === "faturamento" || i.indicador === "pessoas";
   switch (i.situacao) {
     case "sem-meta": return { texto: "Sem meta", tom: "neutral" };
     case "sem-dado": return { texto: "Sem dados suficientes", tom: "neutral" };
     case "atingida": return { texto: soma ? "Meta batida" : "Dentro da meta", tom: "success" };
     case "no-ritmo": return { texto: soma ? "No ritmo" : "No alvo", tom: "success" };
-    case "abaixo": return { texto: soma ? "Abaixo do ritmo" : "Fora do alvo", tom: "warning" };
+    // Mês fechado não tem mais ritmo a recuperar: o resultado é "não batida".
+    case "abaixo": return { texto: encerrado ? "Meta não batida" : soma ? "Abaixo do ritmo" : "Fora do alvo", tom: "warning" };
   }
 }

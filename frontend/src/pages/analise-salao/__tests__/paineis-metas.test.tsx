@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { AnaliseMetaIndicador, AnaliseMetas } from "../../../api/client";
 import { SessionContext, type SessionContextValue } from "../../../context/SessionContext";
 import { HideValuesProvider } from "../../../design-system";
@@ -33,7 +33,10 @@ function metas(over: Partial<AnaliseMetas> = {}, indicadores?: AnaliseMetaIndica
 
 const cartao = (nome: string) => screen.getByRole("heading", { name: nome }).closest("li") as HTMLElement;
 const vista = (dados = metas(), extra: Partial<React.ComponentProps<typeof MetasView>> = {}) => {
-  const props = { dados, podeEditar: true, onSalvar: vi.fn().mockResolvedValue(undefined), onMesAnterior: vi.fn(), onProximoMes: vi.fn(), ...extra };
+  const props = {
+    mes: { ano: dados.mes.ano, mes: dados.mes.mes }, dados, carregando: false, erro: null, podeEditar: true, navegacaoBloqueada: false,
+    onSalvar: vi.fn().mockResolvedValue(undefined), onMesAnterior: vi.fn(), onProximoMes: vi.fn(), onTentarDeNovo: vi.fn(), ...extra
+  };
   renderComSessao(<MetasView {...props} />);
   return props;
 };
@@ -61,7 +64,7 @@ describe("MetasView", () => {
     const c = cartao("Faturamento do mês");
     expect(within(c).getByText("R$ 150.000")).toBeTruthy();
     expect(c.textContent).toMatch(/meta: R\$ 300\.000/);
-    expect(c.textContent).toMatch(/Ritmo atual leva o mês a R\$ 280\.000, 93% da meta\./);
+    expect(c.textContent).toMatch(/Estimativa: no ritmo atual o mês fecha em R\$ 280\.000, 93% da meta\./);
     expect(c.textContent).toMatch(/Faltam R\$ 150\.000: precisa de R\$ 10\.000 por dia nos 15 dias que ainda abrem; até aqui a média é R\$ 10\.000 por dia\./);
   });
 
@@ -112,6 +115,7 @@ describe("MetasView", () => {
     vista(fechado);
     const c = cartao("Faturamento do mês");
     expect(c.textContent).toMatch(/Mês encerrado em R\$ 270\.000, 90% da meta\./);
+    expect(within(c).getByText("Meta não batida")).toBeTruthy(); // mês fechado não tem "ritmo" a recuperar
     expect(c.textContent).not.toMatch(/Faltam/);
     expect(screen.queryByText(/ainda por abrir/)).toBeNull();
   });
@@ -150,7 +154,9 @@ describe("MetasView", () => {
   });
 
   test("ocultar valores mascara os reais e deixa pessoas e porcentagem", () => {
-    renderComSessao(<MetasView dados={metas()} podeEditar={false} onSalvar={vi.fn()} onMesAnterior={vi.fn()} onProximoMes={vi.fn()} />, { ocultar: true });
+    renderComSessao(
+      <MetasView mes={{ ano: 2026, mes: 10 }} dados={metas()} carregando={false} erro={null} podeEditar={false} navegacaoBloqueada={false}
+        onSalvar={vi.fn()} onMesAnterior={vi.fn()} onProximoMes={vi.fn()} onTentarDeNovo={vi.fn()} />, { ocultar: true });
     const fat = cartao("Faturamento do mês").textContent ?? "";
     expect(fat).toContain("R$ ••••");
     expect(fat).not.toMatch(/150\.000/);
@@ -164,9 +170,68 @@ function cartao_ticket() {
 }
 
 describe("edicao de metas", () => {
-  test("sem permissao de editar: nenhum botao de definir ou editar", () => {
-    vista(metas(), { podeEditar: false });
+  test("sem permissao de editar: nenhum botao e nenhum texto mandando definir", () => {
+    vista(metas({}, metas().indicadores.map((i) => ({ ...i, meta: null, situacao: "sem-meta" as const }))), { podeEditar: false });
     expect(screen.queryByRole("button", { name: /Definir meta|Editar meta/ })).toBeNull();
+    expect(screen.queryByText(/Defina uma meta/)).toBeNull();
+    expect(screen.getAllByText("Nenhuma meta definida para este mês.").length).toBe(4);
+    expect(screen.getByText(/^Nenhuma meta definida para outubro de 2026\.$/)).toBeTruthy();
+  });
+
+  test("ao abrir o editor o foco vai para o campo; ao cancelar volta para o botao que o abriu", async () => {
+    vista();
+    const abrir = within(cartao("Faturamento do mês")).getByRole("button", { name: "Editar meta" });
+    fireEvent.click(abrir);
+    expect(document.activeElement).toBe(screen.getByLabelText(/^Meta de faturamento do mês/));
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    await waitFor(() => expect(document.activeElement).toBe(within(cartao("Faturamento do mês")).getByRole("button", { name: "Editar meta" })));
+  });
+
+  test("o erro e anunciado (role alert) e o campo fica marcado como invalido", () => {
+    vista();
+    fireEvent.click(within(cartao("Pessoas atendidas")).getByRole("button", { name: "Editar meta" }));
+    fireEvent.change(screen.getByLabelText(/^Meta de pessoas atendidas/), { target: { value: "abc" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar meta" }));
+    expect(screen.getByRole("alert").textContent).toMatch(/Digite um valor maior que zero/);
+    expect(screen.getByLabelText(/^Meta de pessoas atendidas/).getAttribute("aria-invalid")).toBe("true");
+  });
+
+  test("pessoas exige inteiro; valores acima do teto do servidor sao recusados no cliente", () => {
+    const p = vista();
+    fireEvent.click(within(cartao("Pessoas atendidas")).getByRole("button", { name: "Editar meta" }));
+    const campo = screen.getByLabelText(/^Meta de pessoas atendidas/);
+    fireEvent.change(campo, { target: { value: "2500,5" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar meta" }));
+    expect(screen.getByRole("alert").textContent).toMatch(/número inteiro/);
+    fireEvent.change(campo, { target: { value: "2.000.000" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar meta" }));
+    expect(screen.getByRole("alert").textContent).toMatch(/acima do limite de 1 milhão de pessoas/);
+    expect(p.onSalvar).not.toHaveBeenCalled();
+  });
+
+  test("durante a gravacao o campo fica so leitura (sem disabled, que derruba o foco) e o clique repetido e ignorado", async () => {
+    let concluir: () => void = () => undefined;
+    const onSalvar = vi.fn().mockReturnValue(new Promise<void>((resolve) => { concluir = resolve; }));
+    vista(metas(), { onSalvar });
+    fireEvent.click(within(cartao("Faturamento do mês")).getByRole("button", { name: "Editar meta" }));
+    const campo = screen.getByLabelText(/^Meta de faturamento do mês/) as HTMLInputElement;
+    fireEvent.click(screen.getByRole("button", { name: "Salvar meta" }));
+    fireEvent.click(screen.getByRole("button", { name: "Salvando…" }));
+    expect(campo.readOnly).toBe(true);
+    expect(campo.disabled).toBe(false);
+    expect(onSalvar).toHaveBeenCalledTimes(1);
+    concluir();
+    await waitFor(() => expect(screen.queryByLabelText(/^Meta de faturamento do mês/)).toBeNull());
+  });
+
+  test("com valores ocultos o campo nao mostra o numero (tipo password)", () => {
+    renderComSessao(
+      <MetasView mes={{ ano: 2026, mes: 10 }} dados={metas()} carregando={false} erro={null} podeEditar navegacaoBloqueada={false}
+        onSalvar={vi.fn()} onMesAnterior={vi.fn()} onProximoMes={vi.fn()} onTentarDeNovo={vi.fn()} />, { ocultar: true });
+    fireEvent.click(within(cartao("Faturamento do mês")).getByRole("button", { name: "Editar meta" }));
+    const campo = screen.getByLabelText(/^Meta de faturamento do mês/) as HTMLInputElement;
+    expect(campo.type).toBe("password");
+    expect(campo.value).toBe("");
   });
 
   test("digitar em reais com ponto de milhar grava o numero e fecha o editor", async () => {
@@ -195,7 +260,7 @@ describe("edicao de metas", () => {
     fireEvent.click(within(cartao("Pessoas atendidas")).getByRole("button", { name: "Editar meta" }));
     fireEvent.change(screen.getByLabelText(/^Meta de pessoas atendidas/), { target: { value: digitado } });
     fireEvent.click(screen.getByRole("button", { name: "Salvar meta" }));
-    expect(screen.getByText("Digite um valor maior que zero.")).toBeTruthy();
+    expect(screen.getByRole("alert").textContent).toMatch(/Digite um valor maior que zero/);
     expect(p.onSalvar).not.toHaveBeenCalled();
   });
 
@@ -204,7 +269,7 @@ describe("edicao de metas", () => {
     fireEvent.click(within(cartao("Perda sobre o faturamento")).getByRole("button", { name: "Editar meta" }));
     fireEvent.change(screen.getByLabelText(/^Meta de perda sobre o faturamento/), { target: { value: "150" } });
     fireEvent.click(screen.getByRole("button", { name: "Salvar meta" }));
-    expect(screen.getByText("A perda é uma porcentagem: até 100.")).toBeTruthy();
+    expect(screen.getByRole("alert").textContent).toMatch(/acima do limite de 100%/);
     expect(p.onSalvar).not.toHaveBeenCalled();
   });
 
@@ -249,10 +314,10 @@ describe("edicao de metas", () => {
 
 describe("leitura de numeros e nomes de mes", () => {
   test.each([
-    ["300000", 300000], ["300.000", 300000], ["1.234.567", 1234567], ["300.000,50", 300000.5], ["98,5", 98.5], ["R$ 98,50", 98.5], ["2%", 2], ["98.5", 98.5]
+    ["300000", 300000], ["300.000", 300000], ["1.234.567", 1234567], ["300.000,50", 300000.5], ["98,5", 98.5], ["R$ 98,50", 98.5], ["2%", 2], ["98.5", 98.5], ["1.234,5", 1234.5]
   ])("lerNumeroBr(%s) = %s", (texto, esperado) => expect(lerNumeroBr(texto)).toBe(esperado));
 
-  test.each(["", "abc", "1,2,3", "-5", "1e5", "12a"])("lerNumeroBr(%j) nao e numero", (texto) => expect(lerNumeroBr(texto)).toBeNull());
+  test.each(["", "abc", "1,2,3", "-5", "1e5", "12a", "1,234.56", "12.34,5"])("lerNumeroBr(%j) nao e numero", (texto) => expect(lerNumeroBr(texto)).toBeNull());
 
   test("nome do mes", () => {
     expect(nomeDoMes(1, 2026)).toBe("janeiro de 2026");
@@ -268,6 +333,8 @@ describe("MetasPanel (busca, mes e gravacao)", () => {
     ({ user: { id: "u", role, modulePermissions }, setUser: () => undefined, hideSensitiveValues: false, toggleSensitiveValues: () => undefined, canAccessSection: () => true, hasPermission: () => true }) as unknown as SessionContextValue;
   const abrir = (sessao: SessionContextValue) =>
     render(<SessionContext.Provider value={sessao}><HideValuesProvider><MetasPanel /></HideValuesProvider></SessionContext.Provider>);
+
+  afterEach(() => vi.useRealTimers());
 
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ["Date"] });
@@ -303,21 +370,38 @@ describe("MetasPanel (busca, mes e gravacao)", () => {
     expect(await screen.findByText(/meta: R\$ 320\.000/)).toBeTruthy();
   });
 
-  test("gravar e mudar de mes antes da resposta: a resposta antiga nao ocupa a tela do outro mes", async () => {
+  test("durante a gravacao a navegacao de mes fica travada: a resposta cai no mes certo", async () => {
     let responder: (m: AnaliseMetas) => void = () => undefined;
     api.salvarAnaliseMeta.mockReturnValue(new Promise<AnaliseMetas>((resolve) => { responder = resolve; }));
-    api.getAnaliseMetas.mockImplementation(async (ano: number, mes: number) => metas({ mes: { ...metas().mes, ano, mes } }));
     abrir(sessaoCom("ADMIN"));
     await screen.findByRole("heading", { name: "outubro de 2026" });
     fireEvent.click(within(cartao("Faturamento do mês")).getByRole("button", { name: "Editar meta" }));
     fireEvent.click(screen.getByRole("button", { name: "Salvar meta" }));
+    expect((screen.getByRole("button", { name: "Mês anterior" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Próximo mês" }) as HTMLButtonElement).disabled).toBe(true);
+    responder(metas());
+    await waitFor(() => expect((screen.getByRole("button", { name: "Mês anterior" }) as HTMLButtonElement).disabled).toBe(false));
+    expect(screen.getByRole("heading", { name: "outubro de 2026" })).toBeTruthy();
+  });
+
+  test("ao trocar de mes a navegacao continua na tela e o titulo ja mostra o mes novo enquanto carrega", async () => {
+    abrir(sessaoCom("ADMIN"));
+    await screen.findByRole("heading", { name: "outubro de 2026" });
+    api.getAnaliseMetas.mockReturnValue(new Promise(() => undefined));
     fireEvent.click(screen.getByRole("button", { name: "Mês anterior" }));
-    await screen.findByRole("heading", { name: "setembro de 2026" });
-    responder(metas()); // resposta do outubro, que ficou para tras
-    await waitFor(() => expect(api.salvarAnaliseMeta).toHaveBeenCalledTimes(1));
-    await new Promise((r) => setTimeout(r, 0));
     expect(screen.getByRole("heading", { name: "setembro de 2026" })).toBeTruthy();
-    expect(screen.queryByRole("heading", { name: "outubro de 2026" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Mês anterior" })).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toBe("Carregando…");
+  });
+
+  test("falha ao gravar mostra o erro no editor, que continua aberto", async () => {
+    api.salvarAnaliseMeta.mockRejectedValue(new Error("Usuário sem permissão para editar as metas do salão."));
+    abrir(sessaoCom("ADMIN"));
+    await screen.findByRole("heading", { name: "outubro de 2026" });
+    fireEvent.click(within(cartao("Faturamento do mês")).getByRole("button", { name: "Editar meta" }));
+    fireEvent.click(screen.getByRole("button", { name: "Salvar meta" }));
+    expect((await screen.findByRole("alert")).textContent).toMatch(/sem permissão para editar/);
+    expect((screen.getByRole("button", { name: "Mês anterior" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   test("quem so ve (sem editar) nao recebe botoes de meta", async () => {

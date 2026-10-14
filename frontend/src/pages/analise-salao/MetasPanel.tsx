@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { getAnaliseMetas, salvarAnaliseMeta, type AnaliseIndicadorDeMeta, type AnaliseMetas } from "../../api/client";
-import { Alert, Button } from "../../design-system";
 import { useSession } from "../../context/SessionContext";
 import { hasPermission } from "../../lib/permissions";
 import { MetasView } from "./MetasView";
@@ -27,8 +26,11 @@ export function MetasPanel() {
   const [escolhido, setEscolhido] = useState<MesEscolhido>(() => mesDe(new Date()));
   const [estado, setEstado] = useState<Estado>({ tipo: "carregando" });
   const [tentativa, setTentativa] = useState(0);
+  const [gravando, setGravando] = useState(false);
   const escolhidoRef = useRef(escolhido);
-  escolhidoRef.current = escolhido;
+  useEffect(() => {
+    escolhidoRef.current = escolhido;
+  }, [escolhido]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -51,23 +53,30 @@ export function MetasPanel() {
   }
 
   async function salvar(indicador: AnaliseIndicadorDeMeta, valor: number | null) {
-    const dados = await salvarAnaliseMeta({ ano: escolhido.ano, mes: escolhido.mes, indicador, valor });
-    // Se a pessoa já foi para outro mês enquanto gravava, a resposta antiga não pode ocupar a tela.
-    const atual = escolhidoRef.current;
-    if (atual.ano === dados.mes.ano && atual.mes === dados.mes.mes) setEstado({ tipo: "ok", dados });
+    setGravando(true);
+    try {
+      const dados = await salvarAnaliseMeta({ ano: escolhido.ano, mes: escolhido.mes, indicador, valor });
+      // Com a navegação travada durante a gravação isto não deveria acontecer, mas uma resposta de
+      // outro mês nunca pode ocupar a tela.
+      const atual = escolhidoRef.current;
+      if (atual.ano === dados.mes.ano && atual.mes === dados.mes.mes) setEstado({ tipo: "ok", dados });
+    } finally {
+      setGravando(false);
+    }
   }
 
-  if (estado.tipo === "erro") {
-    return (
-      <Alert tone="error">
-        {estado.mensagem}{" "}
-        <Button variant="secondary" size="sm" onClick={() => setTentativa((n) => n + 1)}>
-          Tentar de novo
-        </Button>
-      </Alert>
-    );
-  }
-  if (estado.tipo === "carregando") return <p className="analise-nota">Carregando…</p>;
-
-  return <MetasView dados={estado.dados} podeEditar={podeEditar} onSalvar={salvar} onMesAnterior={() => mudarMes(-1)} onProximoMes={() => mudarMes(1)} />;
+  return (
+    <MetasView
+      mes={escolhido}
+      dados={estado.tipo === "ok" ? estado.dados : null}
+      carregando={estado.tipo === "carregando"}
+      erro={estado.tipo === "erro" ? estado.mensagem : null}
+      podeEditar={podeEditar}
+      navegacaoBloqueada={gravando}
+      onSalvar={salvar}
+      onMesAnterior={() => mudarMes(-1)}
+      onProximoMes={() => mudarMes(1)}
+      onTentarDeNovo={() => setTentativa((n) => n + 1)}
+    />
+  );
 }
