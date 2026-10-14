@@ -47,12 +47,22 @@ describe("GET /payroll/pagamento-meio", () => {
     const r = await request(app).get(url);
     expect(r.status).toBe(200);
     expect(computePayroll).toHaveBeenCalledWith(2026, 10);
-    expect(prismaFalso.payrollItem.findMany.mock.calls[0][0].where).toMatchObject({ competenceYear: 2026, competenceMonth: 10, type: "ADIANTAMENTO", deletedAt: null, status: { not: "CANCELED" } });
+    expect(prismaFalso.payrollItem.findMany.mock.calls[0][0].where).toMatchObject({ competenceYear: 2026, competenceMonth: 10, type: "ADIANTAMENTO", deletedAt: null });
     expect(r.body.competencia).toBe("10/2026");
     expect(r.body.linhas.map((l: { nome: string; situacao: string }) => [l.nome, l.situacao])).toEqual([["Ana Exemplo", "LANCADO"], ["Dora Exemplo", "A_LANCAR"]]);
     expect(r.body.linhas[0]).toMatchObject({ valor: 1034, pix: "ana@exemplo.com", grupo: "ALFA EXEMPLO LTDA" });
     expect(r.body.linhas[1].contaBancaria).toBe("Banco Exemplo · Ag. 0001 · C/C 12345-6");
     expect(r.body.avisos).toEqual(["Beltrano Exemplo: Adiantamento de 10/2026 não gerado — saiu em 05/10/2026."]);
+  });
+
+  test("título cancelado fica fora da lista e do total, com aviso", async () => {
+    prismaFalso.payrollItem.findMany.mockResolvedValue([
+      { id: "i1", employeeId: "c1", amount: "1034.00", dueDate: new Date("2026-10-20T00:00:00Z"), paymentDate: null, paidAmount: null, details: { empresa: "ALFA EXEMPLO LTDA" }, source: "EXTRATO_RH", status: "CANCELED" },
+    ]);
+    const r = await request(app).get(url);
+    expect(r.body.linhas.map((l: { nome: string }) => l.nome)).toEqual(["Dora Exemplo"]);
+    expect(r.body.total).toBe(880);
+    expect(r.body.avisos).toEqual(expect.arrayContaining([expect.stringContaining("Ana Exemplo: título de 10/2026 cancelado no Contas a Pagar")]));
   });
 
   test("sem permissão de ver Funcionários: 403 e nada consultado", async () => {
