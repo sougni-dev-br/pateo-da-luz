@@ -4179,6 +4179,9 @@ export type DishListing = {
 
 export type DishDetail = Omit<DishListItem, "listingsCount" | "listingPriceMin" | "listingPriceMax"> & {
   notes: string | null;
+  /** Preparação do buffet criada pelo desperdício: nasce inativa (não é vendida) e mesmo assim se edita. */
+  fichaDeBuffet?: boolean;
+  fichaPendente?: boolean;
   items: DishIngredient[];
   /** Quantidades do outro cardápio (o delivery) do prato vendido nos dois. */
   alsoItems?: DishIngredient[];
@@ -4211,8 +4214,11 @@ export function getDishDetail(id: string) {
   return request<DishDetail>(`/dishes/${id}`);
 }
 
+/** Ficha completa: o desperdício que estava sem valor passou a valer (e, se aguardava a ficha, ela está concluída). */
+export type SaveDishResult = { id: string; desperdicio?: { completa: boolean; revalorizados: number; emOutraUnidade: number; concluiuPendencia: boolean } };
+
 export function saveDish(payload: Record<string, unknown>) {
-  return request<{ id: string }>(
+  return request<SaveDishResult>(
     payload.id ? `/dishes/${payload.id}` : "/dishes",
     { method: payload.id ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }
   );
@@ -8925,6 +8931,8 @@ export type WasteProductHit = {
   conversions: DishUnitConversion[];
   /** "1 UN = 5 KG (lido do nome do produto)" quando a conversão veio do nome. */
   embalagemInferida: string | null;
+  /** Prato criado pelo desperdício que ainda aguarda a ficha técnica: o lançamento fica sem valor até ela ser concluída. */
+  pendente?: boolean;
 };
 
 export type WasteEntry = {
@@ -8963,6 +8971,8 @@ export type WasteInput = {
   /** Como a pessoa digitou, na unidade de `unit`; o servidor converte para a unidade do estoque. */
   quantity: string;
   unit?: string;
+  /** "1 UN = 500 G": quanto vale 1 unidade do estoque, para itens que ainda não convertem g/ml. */
+  perUnit?: { quantity: string; unit: string };
   reason: WasteReason;
   occurredOn: string;
   notes: string;
@@ -9003,7 +9013,7 @@ export type WasteAnalysis = {
   itensPara80: number | null;
   reincidentes: WasteAnalysisProduct[];
   porPessoa: Array<{ id: string; nome: string; lancamentos: number }>;
-  qualidade: { semCusto: number; motivoOutro: number; retroativos: number; semFotoNosMaiores: number; diasSemRegistro: number | null; diasComVenda: number | null };
+  qualidade: { semCusto: number; motivoOutro: number; retroativos: number; semFotoNosMaiores: number; fichasPendentes: { pratos: number; lancamentos: number }; diasSemRegistro: number | null; diasComVenda: number | null };
 };
 
 export function getWasteAnalysis(filters: { from: string; to: string }) {
@@ -9016,6 +9026,38 @@ export function searchWasteProducts(search: string) {
 
 export function searchWasteDishes(search: string) {
   return request<WasteProductHit[]>(`/waste/dishes${toQueryString({ search })}`);
+}
+
+export type WasteDishSuggestion = { name: string; category: string };
+
+/** Itens do buffet (lista das plaquinhas) que ainda não são prato: o jeito de cadastrar sem errar o nome. */
+export function getWasteDishSuggestions(search: string) {
+  return request<WasteDishSuggestion[]>(`/waste/dishes/suggestions${toQueryString({ search })}`);
+}
+
+/** Prato que não existe: nasce aguardando a ficha técnica. 409 devolve o que já existe em `body.existing`. */
+export function createWastePendingDish(payload: { name: string; unit: "KG" | "UN"; notes?: string }) {
+  return request<WasteProductHit>("/waste/dishes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+}
+
+export type BuffetDish = {
+  id: string;
+  name: string;
+  unit: string;
+  /** Aguardando a ficha técnica (criado pelo lançamento de desperdício). */
+  pending: boolean;
+  pendingSince: string | null;
+  completedAt: string | null;
+  requestedBy: string | null;
+  notes: string | null;
+  wasteEntries: number;
+  wasteQuantity: number;
+  lastWasteOn: string | null;
+};
+
+/** Preparações do buffet criadas pelo desperdício: as que aguardam ficha primeiro, o que mais saiu na frente. */
+export function getBuffetDishes() {
+  return request<BuffetDish[]>("/dishes/buffet");
 }
 
 export function createWasteEntry(payload: WasteInput) {

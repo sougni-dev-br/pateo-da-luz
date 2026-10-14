@@ -5,8 +5,9 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 vi.mock("../../../config/database.js", () => ({
   prisma: {
     product: { findUnique: vi.fn(), findMany: vi.fn() },
-    dish: { findMany: vi.fn() },
-    wasteEntry: { create: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn() },
+    dish: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn() },
+    buffetPlateItem: { findMany: vi.fn() },
+    wasteEntry: { create: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn(), count: vi.fn(), groupBy: vi.fn() },
     inventorySector: { findMany: vi.fn() },
     user: { findMany: vi.fn() },
     wasteSettings: { findUnique: vi.fn(), upsert: vi.fn() },
@@ -172,6 +173,8 @@ describe("GET /waste/analysis", () => {
     entradaGravada({ id: "w", productId: "p1", reason: "EXPIRED", sectorId: "s1", totalCost: 100, quantity: 2, unit: "KG", occurredOn: ontem, registeredById: "u1", photo: null, ...extra });
 
   beforeEach(() => {
+    db.wasteEntry.count.mockResolvedValue(0);
+    db.wasteEntry.groupBy.mockResolvedValue([]);
     db.user.findMany.mockResolvedValue([{ id: "u1", name: "Ana" }]);
     db.wasteEntry.findMany.mockResolvedValue([linha({}), linha({ id: "w2", reason: "SPOILED", totalCost: 50 })]);
     // Faturamento por dia e compras do período usam SQL próprio: distingue pelo texto da consulta.
@@ -199,6 +202,14 @@ describe("GET /waste/analysis", () => {
     expect(chamada.slice(1)).toEqual(expect.arrayContaining([["p1"], ["KG"]]));
   });
 
+  test("conta os pratos que aguardam ficha e os lançamentos que ficaram sem valor por causa deles", async () => {
+    db.wasteEntry.count.mockResolvedValue(5);
+    db.wasteEntry.groupBy.mockResolvedValue([{ dishId: "d1" }, { dishId: "d2" }]);
+    const r = await request(app).get(`/waste/analysis?from=${hoje}&to=${hoje}`);
+    expect(r.body.qualidade.fichasPendentes).toEqual({ pratos: 2, lancamentos: 5 });
+    expect(db.wasteEntry.count.mock.calls[0][0].where).toMatchObject({ cancelledAt: null, dish: { fichaPendente: true } });
+  });
+
   test("lê só lançamentos ativos, nos dois períodos", async () => {
     await request(app).get(`/waste/analysis?from=${hoje}&to=${hoje}`);
     const consultas = db.wasteEntry.findMany.mock.calls.map((c: Array<{ where: { cancelledAt: unknown } }>) => c[0].where.cancelledAt);
@@ -212,6 +223,8 @@ describe("GET /waste/analysis", () => {
     expect(r.body.total).toEqual({ lancamentos: 2, valor: null, semCusto: 0 });
     expect(r.body.faturamento).toBeNull();
     expect(r.body.porProduto[0]).toMatchObject({ valor: null, comprado: null, taxaDePerda: null });
+    expect(r.body.qualidade.fichasPendentes).toEqual({ pratos: 0, lancamentos: 0 });
+    expect(db.wasteEntry.count).not.toHaveBeenCalled();
     const sqls = db.$queryRaw.mock.calls.map((c: [TemplateStringsArray]) => c[0].join("?"));
     expect(sqls.some((q: string) => q.includes("RevenueEntry") || q.includes("PurchaseItem"))).toBe(false);
   });
@@ -297,7 +310,16 @@ describe("prato pronto", () => {
     vi.mocked(carregarDetalhe).mockResolvedValue(null as never);
     expect((await request(app).post("/waste").send(lancamentoPrato)).status).toBe(404);
     vi.mocked(carregarDetalhe).mockResolvedValue(prato({ isActive: false }) as never);
+    db.dish.findUnique.mockResolvedValue({ fichaDeBuffet: false });
     expect((await request(app).post("/waste").send(lancamentoPrato)).status).toBe(404);
+  });
+
+  test("preparação de buffet criada pelo desperdício nasce inativa e mesmo assim se lança (sem valor até a ficha)", async () => {
+    vi.mocked(carregarDetalhe).mockResolvedValue(prato({ isActive: false, custoIncompleto: true, custoPorcao: 0 }) as never);
+    db.dish.findUnique.mockResolvedValue({ fichaDeBuffet: true });
+    const r = await request(app).post("/waste").send(lancamentoPrato);
+    expect(r.status).toBe(201);
+    expect(db.wasteEntry.create.mock.calls[0][0].data).toMatchObject({ dishId: "d1", unitCost: null, totalCost: null });
   });
 
   test("não aceita insumo e prato juntos", async () => {
@@ -476,7 +498,41 @@ describe("lançar em g, ml, kg...: o servidor converte para a unidade do estoque
     const r = await request(app).post("/waste").send({ ...lancamento, quantity: "500", unit: "G" });
     expect(r.status).toBe(400);
     expect(r.body.message).toMatch(/converter G para UN/);
+    expect(r.body.message).toMatch(/quanto pesa ou mede 1 UN/);
     expect(db.wasteEntry.create).not.toHaveBeenCalled();
+  });
+
+  test("com o peso informado na hora (1 UN = 2 KG) o mesmo item é aceito e fica registrado na auditoria", async () => {
+    db.product.findUnique.mockResolvedValue({ ...arroz, name: "ARROZ SEM EMBALAGEM NO NOME" });
+    compraEmUn();
+    const r = await request(app).post("/waste").send({ ...lancamento, quantity: "500", unit: "G", perUnit: { quantity: "2", unit: "KG" } });
+    expect(r.status).toBe(201);
+    expect(db.wasteEntry.create.mock.calls[0][0].data).toMatchObject({ quantity: 0.25, unit: "UN", enteredQuantity: 500, enteredUnit: "G" });
+    expect(auditLog).toHaveBeenCalledWith(expect.objectContaining({ action: "CREATE_WASTE_ENTRY", newValue: expect.objectContaining({ pesoInformado: { quantity: 2, unit: "KG" } }) }));
+  });
+
+  test("peso informado de outra medida que a digitada é recusado com a explicação", async () => {
+    db.product.findUnique.mockResolvedValue({ ...arroz, name: "ARROZ SEM EMBALAGEM NO NOME" });
+    const r = await request(app).post("/waste").send({ ...lancamento, quantity: "500", unit: "ML", perUnit: { quantity: "2", unit: "KG" } });
+    expect(r.status).toBe(400);
+    expect(r.body.message).toMatch(/não é da mesma medida/);
+    expect(db.wasteEntry.create).not.toHaveBeenCalled();
+  });
+
+  test("o cadastro do produto vale mais que o peso informado (não vira dois pesos)", async () => {
+    db.product.findUnique.mockResolvedValue({ ...arroz, name: "FARINHA ESPECIAL", conversions: [{ fromUnit: "UN", toUnit: "G", factor: 1200 }] });
+    compraEmUn();
+    await request(app).post("/waste").send({ ...lancamento, quantity: "300", unit: "G", perUnit: { quantity: "10", unit: "G" } });
+    expect(db.wasteEntry.create.mock.calls[0][0].data).toMatchObject({ quantity: 0.25 });
+    expect(auditLog).toHaveBeenCalledWith(expect.objectContaining({ newValue: expect.not.objectContaining({ pesoInformado: expect.anything() }) }));
+  });
+
+  test("prato pronto em porção (UN) também aceita o peso informado: 1 porção = 300 g", async () => {
+    db.dish = { ...db.dish, findUnique: vi.fn() };
+    vi.mocked(carregarDetalhe).mockResolvedValue({ isActive: true, yieldUnit: "UN", custoPorcao: 12, custoIncompleto: false } as never);
+    const r = await request(app).post("/waste").send({ dishId: "d1", quantity: "150", unit: "G", perUnit: { quantity: "300", unit: "G" }, reason: "PRODUCTION_LEFTOVER", occurredOn: hoje, notes: "" });
+    expect(r.status).toBe(201);
+    expect(db.wasteEntry.create.mock.calls[0][0].data).toMatchObject({ dishId: "d1", quantity: 0.5, unit: "UN", totalCost: 6 });
   });
 
   test("o custo continua sendo o da unidade do estoque, não o da unidade digitada", async () => {
@@ -504,5 +560,89 @@ describe("lançar em g, ml, kg...: o servidor converte para a unidade do estoque
     const r = await request(app).post("/waste").send({ dishId: "d1", quantity: "800", unit: "G", reason: "PRODUCTION_LEFTOVER", occurredOn: hoje });
     expect(r.status).toBe(201);
     expect(db.wasteEntry.create.mock.calls[0][0].data).toMatchObject({ quantity: 0.8, unit: "KG", enteredQuantity: 800, enteredUnit: "G", totalCost: 20 });
+  });
+});
+
+describe("prato novo aguardando ficha (POST /waste/dishes)", () => {
+  const novo = { name: "  Purê  de batata ", unit: "KG", notes: "leva manteiga e leite" };
+
+  beforeEach(() => {
+    db.dish.findMany.mockResolvedValue([{ id: "d9", name: "Lasanha", yieldUnit: "KG", fichaPendente: false }]);
+    db.dish.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: "dn", name: data.name, yieldUnit: data.yieldUnit, fichaPendente: true }));
+  });
+
+  test("cria inativo, como preparação de buffet pendente, e devolve no formato da busca", async () => {
+    const r = await request(app).post("/waste/dishes").send(novo);
+    expect(r.status).toBe(201);
+    expect(db.dish.create.mock.calls[0][0].data).toMatchObject({
+      name: "Purê de batata", yieldQty: 1, yieldUnit: "KG", isActive: false, fichaDeBuffet: true, fichaPendente: true, pendentePorId: "u1", pendenteObservacao: "leva manteiga e leite",
+    });
+    expect(r.body).toMatchObject({ id: "dn", name: "Purê de batata", unit: "KG", sectorName: "Prato pronto", pendente: true, conversions: [] });
+    expect(auditLog).toHaveBeenCalledWith(expect.objectContaining({ action: "CREATE_PENDING_DISH", userId: "u1" }));
+  });
+
+  test("unidade padrão é kg", async () => {
+    await request(app).post("/waste/dishes").send({ name: "Farofa" });
+    expect(db.dish.create.mock.calls[0][0].data.yieldUnit).toBe("KG");
+  });
+
+  test.each([
+    ["nome" , { name: "ab" }],
+    ["sem letras", { name: "12345" }],
+    ["nome longo", { name: "a".repeat(81) }],
+    ["unidade", { name: "Farofa", unit: "CX" }],
+    ["observação longa", { name: "Farofa", notes: "x".repeat(301) }],
+  ])("recusa entrada inválida (%s)", async (_titulo, corpo) => {
+    const r = await request(app).post("/waste/dishes").send(corpo);
+    expect(r.status).toBe(400);
+    expect(db.dish.create).not.toHaveBeenCalled();
+  });
+
+  test("nome que já existe (mesmo com outra grafia) não cria outro: devolve o existente", async () => {
+    db.dish.findMany.mockResolvedValue([{ id: "d9", name: "PURÊ de batata.", yieldUnit: "KG", fichaPendente: true }]);
+    const r = await request(app).post("/waste/dishes").send(novo);
+    expect(r.status).toBe(409);
+    expect(r.body.message).toMatch(/aguarda a ficha técnica/);
+    expect(r.body.existing).toMatchObject({ id: "d9", pendente: true });
+    expect(db.dish.create).not.toHaveBeenCalled();
+  });
+
+  test("duplicado de prato já com ficha avisa que já existe", async () => {
+    db.dish.findMany.mockResolvedValue([{ id: "d9", name: "Pure de batata", yieldUnit: "KG", fichaPendente: false }]);
+    const r = await request(app).post("/waste/dishes").send(novo);
+    expect(r.status).toBe(409);
+    expect(r.body.message).toMatch(/Já existe um prato/);
+  });
+
+  test("sem sessão é 401", async () => {
+    vi.mocked(getSessionUser).mockResolvedValue(null as never);
+    expect((await request(app).post("/waste/dishes").send(novo)).status).toBe(401);
+  });
+});
+
+describe("busca de prato: inclui o que aguarda ficha", () => {
+  test("a consulta aceita prato ativo OU preparação de buffet, e marca o pendente", async () => {
+    db.dish.findMany.mockResolvedValue([{ id: "dn", name: "Purê de batata", code: null, yieldUnit: "KG", fichaPendente: true, category: null }]);
+    const r = await request(app).get("/waste/dishes?search=pur");
+    expect(JSON.stringify(db.dish.findMany.mock.calls[0][0].where)).toContain("fichaDeBuffet");
+    expect(r.body[0]).toMatchObject({ name: "Purê de batata", pendente: true, sectorName: "Prato pronto" });
+  });
+});
+
+describe("sugestões do buffet (GET /waste/dishes/suggestions)", () => {
+  test("mostra os itens do buffet que ainda não são prato, ignorando acento e pontuação", async () => {
+    db.buffetPlateItem.findMany.mockResolvedValue([
+      { namePt: "Purê de batata", category: "Guarnições" },
+      { namePt: "Purê de abóbora", category: "Guarnições" },
+    ]);
+    db.dish.findMany.mockResolvedValue([{ name: "PURE de batata." }]);
+    const r = await request(app).get("/waste/dishes/suggestions?search=pur");
+    expect(r.body).toEqual([{ name: "Purê de abóbora", category: "Guarnições" }]);
+  });
+
+  test("busca curta não consulta", async () => {
+    const r = await request(app).get("/waste/dishes/suggestions?search=p");
+    expect(r.body).toEqual([]);
+    expect(db.buffetPlateItem.findMany).not.toHaveBeenCalled();
   });
 });

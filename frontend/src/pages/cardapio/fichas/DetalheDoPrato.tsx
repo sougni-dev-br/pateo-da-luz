@@ -79,12 +79,15 @@ function ExplicacaoDasFichas() {
 }
 
 /** Prato vendido nos dois cardápios sem as quantidades do delivery: as do a la carte não valem para ele. */
+/** Prato ativo, ou preparação do buffet (nasce inativa porque não é vendida, mas é para montar a ficha). */
+const editavel = (prato: Pick<Props["prato"], "isActive" | "fichaDeBuffet">) => prato.isActive || Boolean(prato.fichaDeBuffet);
+
 function AvisoDoDelivery({ prato, canEdit, onEditar }: Pick<Props, "prato" | "canEdit" | "onEditar">) {
   if (!prato.alsoMenu || (prato.alsoItems?.length ?? 0) > 0) return null;
   return (
     <Alert tone="warning" title="Faltam as quantidades do delivery">
       As quantidades da ficha são as do a la carte e não valem para o delivery, então o CMV do delivery não é calculado.
-      {canEdit && prato.isActive && (
+      {canEdit && editavel(prato) && (
         <>
           {" "}
           <button type="button" className="ft-link" onClick={onEditar}>Informar as quantidades do delivery</button>
@@ -102,7 +105,7 @@ function Aviso({ prato, canEdit, onEditar }: Pick<Props, "prato" | "canEdit" | "
     return (
       <Alert tone="info" title="Esta ficha ainda não tem ingredientes">
         Sem eles o custo, a margem e o CMV ficam em branco.
-        {canEdit && prato.isActive && (
+        {canEdit && editavel(prato) && (
           <>
             {" "}
             <button type="button" className="ft-link" onClick={onEditar}>Montar a ficha</button>
@@ -129,7 +132,7 @@ function Aviso({ prato, canEdit, onEditar }: Pick<Props, "prato" | "canEdit" | "
     return (
       <Alert tone="info" title="Falta o preço de venda">
         A ficha está completa, mas sem preço não há margem nem CMV.
-        {canEdit && prato.isActive && (
+        {canEdit && editavel(prato) && (
           <>
             {" "}
             <button type="button" className="ft-link" onClick={onEditar}>Definir preço</button>
@@ -230,16 +233,17 @@ export function DetalheDoPrato({ prato, canEdit, onEditar, onCopiar, onAlternarA
             <span>Rende {formatarQuantidade(prato.yieldQty)} {prato.yieldUnit}</span>
             <span>Atualizado em {dataHora(prato.updatedAt)}</span>
           </p>
-          {!prato.isActive && <StatusBadge tone="danger">Inativo</StatusBadge>}
+          {!editavel(prato) && <StatusBadge tone="danger">Inativo</StatusBadge>}
         </div>
 
         <div className="ft-detalhe-acoes">
           {canEdit && (<>
-            {prato.isActive && <Button variant="secondary" size="sm" leadingIcon={<Pencil size={15} aria-hidden />} onClick={onEditar}>Editar</Button>}
-            <Button variant="secondary" size="sm" leadingIcon={<Copy size={15} aria-hidden />} onClick={onCopiar}>Copiar</Button>
-            {prato.isActive
+            {editavel(prato) && <Button variant="secondary" size="sm" leadingIcon={<Pencil size={15} aria-hidden />} onClick={onEditar}>Editar</Button>}
+            {/* Preparação do buffet não é vendida: copiar, inativar e reativar não fazem sentido para ela. */}
+            {!prato.fichaDeBuffet && <Button variant="secondary" size="sm" leadingIcon={<Copy size={15} aria-hidden />} onClick={onCopiar}>Copiar</Button>}
+            {!prato.fichaDeBuffet && (prato.isActive
               ? <Button variant="danger" size="sm" leadingIcon={<Power size={15} aria-hidden />} onClick={onAlternarAtivo}>Inativar</Button>
-              : <Button variant="secondary" size="sm" leadingIcon={<RotateCcw size={15} aria-hidden />} onClick={onAlternarAtivo}>Reativar</Button>}
+              : <Button variant="secondary" size="sm" leadingIcon={<RotateCcw size={15} aria-hidden />} onClick={onAlternarAtivo}>Reativar</Button>)}
           </>)}
           <Button variant="secondary" size="sm" leadingIcon={<Printer size={15} aria-hidden />} onClick={onImprimir}>Imprimir ficha</Button>
           <IconButton className="ft-fechar" icon={<X size={16} aria-hidden />} label="Fechar a ficha" size="sm" onClick={onFechar} />

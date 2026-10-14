@@ -4,6 +4,7 @@ import { ApiError, type AppUser, type DishCategory, type DishDetail, type DishLi
 
 vi.mock("../../../../api/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../../../api/client")>()),
+  getBuffetDishes: vi.fn(),
   getDishes: vi.fn(),
   getDishCategories: vi.fn(),
   getDishDetail: vi.fn(),
@@ -17,7 +18,7 @@ vi.mock("../../../../api/client", async (importOriginal) => ({
 }));
 
 import {
-  deactivateDish, getDishCategories, getDishDetail, getDishes, reactivateDish, saveDish, saveDishProductConversion, searchDishProducts,
+  deactivateDish, getBuffetDishes, getDishCategories, getDishDetail, getDishes, reactivateDish, saveDish, saveDishProductConversion, searchDishProducts,
 } from "../../../../api/client";
 import { SessionContext, type SessionContextValue } from "../../../../context/SessionContext";
 import { HideValuesProvider } from "../../../../design-system";
@@ -92,6 +93,7 @@ async function abrirPrato(nome: string, id: string) {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(getDishes).mockResolvedValue([RISOTO, PURE, FUNGHI, ANTIGO]);
+  vi.mocked(getBuffetDishes).mockResolvedValue([]);
   vi.mocked(getDishCategories).mockResolvedValue([CATEGORIA]);
   vi.mocked(getDishDetail).mockImplementation(async (id: string) => DETALHES[id]);
   vi.mocked(saveDish).mockResolvedValue({ id: "d-novo" });
@@ -642,5 +644,75 @@ describe("formulário", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
     expect(window.confirm).not.toHaveBeenCalled();
     expect(await screen.findByText("Escolha um prato")).toBeInTheDocument();
+  });
+});
+
+describe("buffet: preparações criadas pelo desperdício, aguardando ficha", () => {
+  const PURE_BUFFET = { id: "b1", name: "Purê de abóbora", unit: "KG", pending: true, pendingSince: "2026-10-05T12:00:00.000Z", completedAt: null, requestedBy: "Beto", notes: "batata, manteiga e leite", wasteEntries: 4, wasteQuantity: 9.5, lastWasteOn: "2026-10-10" };
+  const FAROFA = { id: "b2", name: "Farofa de bacon", unit: "KG", pending: true, pendingSince: "2026-10-01T12:00:00.000Z", completedAt: null, requestedBy: null, notes: null, wasteEntries: 1, wasteQuantity: 2, lastWasteOn: "2026-10-02" };
+  const ARROZ = { id: "b3", name: "Arroz de forno", unit: "KG", pending: false, pendingSince: null, completedAt: "2026-10-09T12:00:00.000Z", requestedBy: null, notes: null, wasteEntries: 0, wasteQuantity: 0, lastWasteOn: null };
+
+  async function abrirBuffet(itens = [PURE_BUFFET, FAROFA, ARROZ]) {
+    vi.mocked(getBuffetDishes).mockResolvedValue(itens);
+    render(
+      <SessionContext.Provider value={SESSAO}>
+        <HideValuesProvider><FichasTecnicas /></HideValuesProvider>
+      </SessionContext.Provider>,
+    );
+    await screen.findByText("Fichas montadas");
+    fireEvent.click(screen.getByRole("tab", { name: /Buffet/ }));
+  }
+
+  test("a aba mostra quantos aguardam e lista primeiro quem aguarda, com o que foi perdido e quem pediu", async () => {
+    await abrirBuffet();
+    expect(screen.getByRole("tab", { name: "Buffet (2 aguardando)" })).toBeInTheDocument();
+    const aguardando = await screen.findByRole("region", { name: "Aguardando ficha" });
+    expect(within(aguardando).getByText("Purê de abóbora")).toBeInTheDocument();
+    expect(within(aguardando).getByText("4 lançamentos · 9,5 KG perdidos")).toBeInTheDocument();
+    expect(within(aguardando).getByText(/Pedido por Beto em/)).toBeInTheDocument();
+    expect(within(aguardando).getByText("Leva: batata, manteiga e leite")).toBeInTheDocument();
+    expect(within(aguardando).getByText("1 lançamento · 2 KG perdidos")).toBeInTheDocument();
+    const comFicha = screen.getByRole("region", { name: "Com ficha" });
+    expect(within(comFicha).getByText("Arroz de forno")).toBeInTheDocument();
+    expect(within(comFicha).getByText("Nenhum lançamento de desperdício")).toBeInTheDocument();
+  });
+
+  test("sem preparações o rótulo é só Buffet e a aba explica de onde elas vêm", async () => {
+    await abrirBuffet([]);
+    expect(screen.getByRole("tab", { name: "Buffet" })).toBeInTheDocument();
+    expect(await screen.findByText("Nenhuma preparação do buffet ainda")).toBeInTheDocument();
+  });
+
+  test("abrir uma que aguarda mostra o aviso com o que está esperando valor, e deixa montar a ficha", async () => {
+    vi.mocked(getDishDetail).mockImplementation(async (id: string) => id === "b1" ? detalhe(resumo({ id: "b1", name: "Purê de abóbora", yieldUnit: "KG", isActive: false, itemsCount: 0, cmvPercentual: 0 }), [], { fichaDeBuffet: true, fichaPendente: true }) : DETALHES[id]);
+    await abrirBuffet();
+    fireEvent.click(await screen.findByText("Purê de abóbora"));
+    expect(await screen.findByRole("heading", { level: 2, name: "Purê de abóbora" })).toBeInTheDocument();
+    const aviso = await screen.findByText("Aguardando ficha técnica", { selector: "strong, p, div, span, h3, h4" });
+    expect(aviso.closest("[role=alert], div")?.textContent).toMatch(/Criado no lançamento de desperdício por Beto/);
+    expect(screen.getByText(/4\s+lançamentos \(9,5 KG\) ficam sem valor/)).toBeInTheDocument();
+    expect(screen.getAllByText(/batata, manteiga e leite/).length).toBeGreaterThanOrEqual(1);
+    // Inativa por desenho (não é vendida), mas se edita: sem "Inativo", sem "Reativar", sem "Copiar".
+    expect(screen.getByRole("button", { name: /Editar/ })).toBeInTheDocument();
+    expect(screen.queryByText("Inativo")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Reativar|Inativar|Copiar/ })).toBeNull();
+  });
+
+  test("salvar a ficha completa avisa quantos lançamentos passaram a ter valor", async () => {
+    vi.mocked(getDishDetail).mockImplementation(async (id: string) => id === "b1" ? detalhe(resumo({ id: "b1", name: "Purê de abóbora", yieldUnit: "KG", isActive: false, itemsCount: 0, cmvPercentual: 0 }), [], { fichaDeBuffet: true, fichaPendente: true }) : DETALHES[id]);
+    vi.mocked(saveDish).mockResolvedValue({ id: "b1", desperdicio: { completa: true, revalorizados: 4, emOutraUnidade: 0, concluiuPendencia: true } });
+    await abrirBuffet();
+    fireEvent.click(await screen.findByText("Purê de abóbora"));
+    await screen.findByRole("heading", { level: 2, name: "Purê de abóbora" });
+    fireEvent.click(screen.getByRole("button", { name: /Editar/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Salvar/ }));
+    expect(await screen.findByText(/4 lançamentos de desperdício passaram a ter valor/)).toBeInTheDocument();
+  });
+
+  test("a lista de pratos continua sem as preparações do buffet (o servidor não as devolve)", async () => {
+    await abrirBuffet();
+    fireEvent.click(screen.getByRole("tab", { name: "Pratos" }));
+    await screen.findByText("Risoto de camarão");
+    expect(within(lista()).queryByText("Purê de abóbora")).toBeNull();
   });
 });

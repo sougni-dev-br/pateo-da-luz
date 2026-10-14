@@ -1,6 +1,6 @@
 import { X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { saveDish, saveDishProductConversion, type DishCategory, type DishMenu, type DishDetail } from "../../../api/client";
+import { saveDish, saveDishProductConversion, type DishCategory, type DishMenu, type DishDetail, type SaveDishResult } from "../../../api/client";
 import { Button, FormField, FormGrid, IconButton, Money, Select, StatusBadge, TextField, Textarea } from "../../../design-system";
 import {
   faixaDeCmv,
@@ -32,7 +32,7 @@ type Props = {
   /** Cardápio de um prato novo: o que está selecionado na tela. */
   menuPadrao: DishMenu;
   onCancelar: () => void;
-  onSalvo: (id: string, modo: ModoDoFormulario) => void;
+  onSalvo: (id: string, modo: ModoDoFormulario, desperdicio?: SaveDishResult["desperdicio"]) => void;
   onAlterado: (alterado: boolean) => void;
   notificar: (tom: "success" | "error", mensagem: string) => void;
 };
@@ -208,7 +208,7 @@ export function FormularioDoPrato({ modo, base, categorias, menuPadrao, onCancel
           isActive: modo === "editar" ? base?.isActive : undefined
         }, itensDoOutro)
       );
-      onSalvo(resultado.id, modo);
+      onSalvo(resultado.id, modo, resultado.desperdicio);
     } catch (erro) {
       notificar("error", erro instanceof Error ? erro.message : "Não foi possível salvar a ficha.");
     } finally {

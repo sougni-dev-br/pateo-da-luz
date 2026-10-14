@@ -32,6 +32,8 @@ export type EntradaDaAnalise = {
   nomesDasPessoas: Map<string, string>;
   /** Quanto cada insumo foi comprado no período, na unidade do estoque (compras com conversão conhecida). */
   comprados?: Map<string, number>;
+  /** Pratos criados pelo desperdício que aguardam ficha, e os lançamentos do período que ficaram sem valor por causa deles. */
+  fichasPendentes?: { pratos: number; lancamentos: number };
   /** Hoje (São Paulo): o dia em andamento ainda pode receber lançamentos, então não conta como "dia sem registro". */
   hoje?: string;
 };
@@ -81,6 +83,7 @@ export type Analise = {
     motivoOutro: number;
     retroativos: number;
     semFotoNosMaiores: number;
+    fichasPendentes: { pratos: number; lancamentos: number };
     diasSemRegistro: number | null;
     diasComVenda: number | null;
   };
@@ -267,6 +270,7 @@ export function analisarDesperdicio(entrada: EntradaDaAnalise): Analise {
       motivoOutro: atual.filter((e) => e.reason === "OTHER").length,
       retroativos: atual.filter((e) => diasEntre(e.dia, diaDigitado(e.createdAt)) - 1 > DIAS_PARA_SER_RETROATIVO).length,
       semFotoNosMaiores: comCusto ? maiores.filter((e) => !e.hasPhoto).length : 0,
+      fichasPendentes: comCusto ? entrada.fichasPendentes ?? { pratos: 0, lancamentos: 0 } : { pratos: 0, lancamentos: 0 },
       diasSemRegistro: comCusto ? diasConferiveis.filter((d) => !diasComRegistro.has(d)).length : null,
       diasComVenda: comCusto ? diasConferiveis.length : null,
     },

@@ -25,7 +25,7 @@ function analise(parcial: Partial<WasteAnalysis> = {}): WasteAnalysis {
     itensPara80: null,
     reincidentes: [],
     porPessoa: [],
-    qualidade: { semCusto: 0, motivoOutro: 0, retroativos: 0, semFotoNosMaiores: 0, diasSemRegistro: null, diasComVenda: null },
+    qualidade: { semCusto: 0, motivoOutro: 0, retroativos: 0, semFotoNosMaiores: 0, fichasPendentes: { pratos: 0, lancamentos: 0 }, diasSemRegistro: null, diasComVenda: null },
     ...parcial,
   };
 }
@@ -137,6 +137,33 @@ describe("lerPeriodo: o que fazer", () => {
     expect(lerPeriodo(analise({ porProduto: [produto({ chave: "p1", nome: "A", lancamentos: 1, taxaDePerda: 40, comprado: 5 })] }), true).find((l) => l.id === "taxa-de-perda")).toBeUndefined();
   });
 
+  test("pratos aguardando ficha viram alerta específico, com o primeiro passo", () => {
+    const base = analise().qualidade;
+    const r = lerPeriodo(analise({ qualidade: { ...base, semCusto: 4, fichasPendentes: { pratos: 2, lancamentos: 4 } } }), true);
+    const l = r.find((x) => x.id === "fichas-pendentes");
+    expect(l?.titulo).toBe("2 pratos aguardam ficha técnica e deixam 4 lançamentos sem valor");
+    expect(l?.acao).toMatch(/Aguardando ficha/);
+    // O "sem custo" genérico não repete o que a pendência já explica.
+    expect(r.find((x) => x.id === "sem-custo")).toBeUndefined();
+  });
+
+  test("um prato com um lançamento fala no singular", () => {
+    const base = analise().qualidade;
+    const l = lerPeriodo(analise({ qualidade: { ...base, fichasPendentes: { pratos: 1, lancamentos: 1 } } }), true).find((x) => x.id === "fichas-pendentes");
+    expect(l?.titulo).toBe("1 prato aguarda ficha técnica e deixa 1 lançamento sem valor");
+  });
+
+  test("sem custo além dos pratos pendentes continua aparecendo, só com o que sobra", () => {
+    const base = analise().qualidade;
+    const r = lerPeriodo(analise({ qualidade: { ...base, semCusto: 9, fichasPendentes: { pratos: 1, lancamentos: 3 } } }), true);
+    expect(r.find((x) => x.id === "sem-custo")?.titulo).toBe("6 lançamentos estão sem custo e não entram no valor");
+  });
+
+  test("quem não vê custos não recebe o aviso de ficha", () => {
+    const base = analise().qualidade;
+    expect(lerPeriodo(analise({ qualidade: { ...base, fichasPendentes: { pratos: 2, lancamentos: 4 } } }), false).find((x) => x.id === "fichas-pendentes")).toBeUndefined();
+  });
+
   test("poucos itens concentrando 80% do valor", () => {
     const r = lerPeriodo(analise({ itensPara80: 2, produtosTotal: 12, porProduto: [produto({ chave: "a", nome: "Salmão" }), produto({ chave: "b", nome: "Camarão" })] }), true);
     expect(r.find((l) => l.id === "concentracao")?.titulo).toBe("2 de 12 itens concentram 80% do valor perdido");
@@ -150,12 +177,12 @@ describe("lerPeriodo: o que fazer", () => {
   });
 
   test("dias com venda e sem registro viram aviso de dado incompleto", () => {
-    const r = lerPeriodo(analise({ qualidade: { semCusto: 0, motivoOutro: 0, retroativos: 0, semFotoNosMaiores: 0, diasSemRegistro: 5, diasComVenda: 10 } }), true);
+    const r = lerPeriodo(analise({ qualidade: { semCusto: 0, motivoOutro: 0, retroativos: 0, semFotoNosMaiores: 0, fichasPendentes: { pratos: 0, lancamentos: 0 }, diasSemRegistro: 5, diasComVenda: 10 } }), true);
     expect(r.find((l) => l.id === "dias-sem-registro")).toMatchObject({ tom: "warn" });
   });
 
   test("poucos dias de venda não bastam para concluir que falta registro", () => {
-    const r = lerPeriodo(analise({ qualidade: { semCusto: 0, motivoOutro: 0, retroativos: 0, semFotoNosMaiores: 0, diasSemRegistro: 3, diasComVenda: 4 } }), true);
+    const r = lerPeriodo(analise({ qualidade: { semCusto: 0, motivoOutro: 0, retroativos: 0, semFotoNosMaiores: 0, fichasPendentes: { pratos: 0, lancamentos: 0 }, diasSemRegistro: 3, diasComVenda: 4 } }), true);
     expect(r.find((l) => l.id === "dias-sem-registro")).toBeUndefined();
   });
 
@@ -165,7 +192,7 @@ describe("lerPeriodo: o que fazer", () => {
       porMotivo: [grupo({ chave: "OTHER", nome: "Outro", lancamentos: 10, valor: 300, anteriorValor: 20 })],
       reincidentes: [produto({ chave: "p1", nome: "Pão", dias: 4 })],
       itensPara80: 1, produtosTotal: 8, porProduto: [produto({ chave: "p1", nome: "Pão" })],
-      qualidade: { semCusto: 4, motivoOutro: 10, retroativos: 8, semFotoNosMaiores: 5, diasSemRegistro: 5, diasComVenda: 10 },
+      qualidade: { semCusto: 4, motivoOutro: 10, retroativos: 8, semFotoNosMaiores: 5, fichasPendentes: { pratos: 0, lancamentos: 0 }, diasSemRegistro: 5, diasComVenda: 10 },
     }), true);
     expect(r.length).toBeLessThanOrEqual(6);
     const tons = r.map((l) => l.tom);
