@@ -50,13 +50,13 @@ export function PerdasPanel({ dados }: { dados: AnalisePerdas }) {
       )}
 
       <section aria-labelledby="funil-titulo">
-        <PanelEyebrow id="funil-titulo">Do cancelado à perda potencial</PanelEyebrow>
+        <PanelEyebrow as="h2" id="funil-titulo">Do cancelado à perda potencial</PanelEyebrow>
         <FunilDePerdas funil={funil} refacao={dados.refacao} />
       </section>
 
       {dados.grandes.length > 0 && (
         <section aria-labelledby="grandes-titulo">
-          <PanelEyebrow id="grandes-titulo">Cancelamentos de valor muito alto (a partir de {reais(dados.limiteGrande)})</PanelEyebrow>
+          <PanelEyebrow as="h2" id="grandes-titulo">Cancelamentos de valor muito alto (a partir de {reais(dados.limiteGrande)})</PanelEyebrow>
           <p className="analise-nota">
             Valores assim costumam ser pacote ou evento, não mesa. Confira se tinham comanda própria ou se foi lançamento errado.
             {grandesOcultas && ` Mostrando as ${inteiro(dados.grandes.length)} maiores de ${inteiro(funil.grandesVendas)}.`}
@@ -99,7 +99,7 @@ export function PerdasPanel({ dados }: { dados: AnalisePerdas }) {
       )}
 
       <section aria-labelledby="pessoas-titulo">
-        <PanelEyebrow id="pessoas-titulo">Quem concentra a perda potencial</PanelEyebrow>
+        <PanelEyebrow as="h2" id="pessoas-titulo">Quem concentra a perda potencial</PanelEyebrow>
         <p className="analise-nota">
           Soma cancelamentos de venda (já sem a provável refação), itens cancelados e descontos de cada pessoa. O desconto é atribuído a quem o PDV
           registra no campo de quem cancelou (a confirmar com a equipe). Quem tem mais vendas tende a ter mais ocorrências: olhe o conjunto, não só
@@ -150,7 +150,7 @@ export function PerdasPanel({ dados }: { dados: AnalisePerdas }) {
       </section>
 
       <section aria-labelledby="detalhe-titulo">
-        <PanelEyebrow id="detalhe-titulo">Detalhe</PanelEyebrow>
+        <PanelEyebrow as="h2" id="detalhe-titulo">Detalhe</PanelEyebrow>
         <details className="detalhe">
           <summary>Cancelamentos de venda: por turno, hora e maiores</summary>
           <CancelamentosPanel dados={dados.cancelamentos} />

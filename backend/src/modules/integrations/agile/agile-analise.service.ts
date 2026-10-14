@@ -7,7 +7,7 @@ import { montarPerdas } from "./agile-analise-perdas.report.js";
 import { montarMargemBebidas, type VinculoDeBebida } from "./agile-analise-margem-bebidas.report.js";
 import { montarMargemBuffet } from "./agile-analise-margem-buffet.report.js";
 import { montarMargem, type ProdutoVendido } from "./agile-analise-margem.report.js";
-import { custoDoVinculo } from "./agile-bebidas-custo.js";
+import { custoDoVinculo, unidadeConverte } from "./agile-bebidas-custo.js";
 import { DIAS_DA_JANELA_DE_RITMO, limitesDoMes, montarMetas, type IndicadorDeMeta, type MesDoHistorico } from "./agile-analise-metas.report.js";
 import { montarResumo } from "./agile-analise-resumo.js";
 import { calcularIndicadores, periodoAnteriorDe, type VendaVisao } from "./agile-analise-visao.report.js";
@@ -505,16 +505,18 @@ export async function obterMargemBebidas(pedido: Periodo, hoje: string = hojeEmS
 // insumoId null desfaz o vinculo da bebida. O insumo tem que existir, estar ativo e ter custo medio.
 export async function vincularBebidaAoInsumo(
   codigo: string, nome: string, insumoId: string | null, quantidade: number, unidade: string, usuarioId: string | null
-): Promise<"ok" | "insumo-invalido"> {
+): Promise<"ok" | "insumo-invalido" | "unidade-invalida"> {
   if (insumoId === null) {
     await prisma.agileProdutoInsumo.deleteMany({ where: { productCode: codigo } });
     return "ok";
   }
   const insumo = await prisma.product.findFirst({
     where: { id: insumoId, isActive: true, inventoryStock: { averageCost: { gt: 0 } } },
-    select: { id: true }
+    select: { name: true, unit: true, stockUnit: true, conversions: { where: { isActive: true }, select: { fromUnit: true, toUnit: true, factor: true } } }
   });
   if (!insumo) return "insumo-invalido";
+  const conversions = insumo.conversions.map((c) => ({ fromUnit: c.fromUnit, toUnit: c.toUnit, factor: Number(c.factor) }));
+  if (!unidadeConverte({ name: insumo.name, unit: insumo.unit, stockUnit: insumo.stockUnit, conversions }, unidade)) return "unidade-invalida";
   await prisma.agileProdutoInsumo.upsert({
     where: { productCode: codigo },
     create: { productCode: codigo, productName: nome, insumoId, quantity: quantidade, unit: unidade, updatedById: usuarioId },
