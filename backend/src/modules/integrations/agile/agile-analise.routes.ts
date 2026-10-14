@@ -248,6 +248,10 @@ agileAnaliseRouter.put("/margem-bebidas/vinculo", exigirAnaliseSalao, exigirCust
       response.status(400).json({ message: "Insumo inválido: escolha um insumo ativo e com custo médio no estoque." });
       return;
     }
+    if (resultado === "unidade-invalida") {
+      response.status(400).json({ message: `Não há conversão de ${unidade} para a unidade de estoque deste insumo. Escolha outra unidade ou cadastre a conversão no produto.` });
+      return;
+    }
     response.json({ ok: true });
   } catch (error: unknown) {
     console.error("Falha ao salvar o vínculo bebida-insumo", error);

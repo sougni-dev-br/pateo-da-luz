@@ -63,7 +63,7 @@ export function MargemBuffetPanel({ dados, podeEditar, onSalvarCusto }: Props) {
 
       {dados.insights.length > 0 && (
         <section aria-labelledby="buffet-prioridades">
-          <PanelEyebrow id="buffet-prioridades">Prioridades: o que o buffet mostra</PanelEyebrow>
+          <PanelEyebrow as="h2" id="buffet-prioridades">Prioridades: o que o buffet mostra</PanelEyebrow>
           <ul className="insights">
             {dados.insights.map((i) => (
               <InsightCard key={i.id} insight={i} />
@@ -73,7 +73,7 @@ export function MargemBuffetPanel({ dados, podeEditar, onSalvarCusto }: Props) {
       )}
 
       <section aria-labelledby="buffet-meses">
-        <PanelEyebrow id="buffet-meses">Custo e margem por mês</PanelEyebrow>
+        <PanelEyebrow as="h2" id="buffet-meses">Custo e margem por mês</PanelEyebrow>
         <div className="mix-rolagem" tabIndex={0} role="region" aria-label="Tabela do buffet por mês">
           <table className="mix">
             <caption className="sr-only">Pessoas, ticket, custo informado e margem do buffet em cada mês</caption>
@@ -154,7 +154,7 @@ export function MargemBuffetPanel({ dados, podeEditar, onSalvarCusto }: Props) {
       </section>
 
       <section aria-labelledby="buffet-faixas">
-        <PanelEyebrow id="buffet-faixas">Por faixa de preço</PanelEyebrow>
+        <PanelEyebrow as="h2" id="buffet-faixas">Por faixa de preço</PanelEyebrow>
         <div className="mix-rolagem" tabIndex={0} role="region" aria-label="Tabela do buffet por faixa de preço">
           <table className="mix">
             <caption className="sr-only">Pessoas e ticket do buffet em cada faixa de preço, da que mais vende à que menos vende</caption>
