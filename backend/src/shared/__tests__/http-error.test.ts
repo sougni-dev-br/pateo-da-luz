@@ -72,3 +72,32 @@ describe("describeHttpError", () => {
     expect(result.detail).toContain("P2002");
   });
 });
+
+describe("describeHttpError — erros do parser de corpo", () => {
+  const doParser = (type: string, status: number) => Object.assign(new Error(`falha do parser: ${type}`), { type, status });
+
+  it("corpo grande demais e 413, nao 500", () => {
+    expect(describeHttpError(doParser("entity.too.large", 413))).toMatchObject({ status: 413, message: "Corpo da requisicao grande demais." });
+  });
+
+  it("JSON quebrado e 400, nao 500", () => {
+    expect(describeHttpError(doParser("entity.parse.failed", 400))).toMatchObject({ status: 400, message: "Corpo da requisicao nao e um JSON valido." });
+  });
+
+  it("outros erros de corpo do cliente (4xx) viram 4xx com mensagem fixa, sem vazar o texto do parser", () => {
+    const r = describeHttpError(doParser("request.aborted", 400));
+    expect(r.status).toBe(400);
+    expect(r.message).toBe("Requisicao invalida.");
+    expect(r.message).not.toMatch(/parser/);
+    expect(describeHttpError(doParser("request.size.invalid", 400)).status).toBe(400);
+  });
+
+  it("o detalhe tecnico fica so para o log", () => {
+    expect(describeHttpError(doParser("entity.too.large", 413)).detail).toMatch(/entity\.too\.large/);
+  });
+
+  it("um erro comum com a palavra 'type' qualquer continua 500", () => {
+    expect(describeHttpError(Object.assign(new Error("boom"), { type: "outra-coisa", status: 418 })).status).toBe(500);
+    expect(describeHttpError(new Error("boom")).status).toBe(500);
+  });
+});
