@@ -378,3 +378,18 @@
   .ft-tabela--precos .ft-acoes-linha { grid-column: 1 / -1; }
   .ft-tabela--precos .ft-vazio-estreito { display: none; }
 }
+
+/* Buffet: preparações criadas pelo desperdício, aguardando (ou já com) a ficha técnica. */
+.ft-buffet { display: grid; gap: 18px; align-content: start; }
+.ft-buffet-grupo h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 14px; }
+.ft-buffet-grupo h3 span { font-weight: 400; color: var(--ink-soft); }
+.ft-buffet-grupo ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.ft-buffet-item { display: grid; gap: 4px; width: 100%; padding: 12px 14px; text-align: left; font: inherit; color: inherit; background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius-md); cursor: pointer; }
+.ft-buffet-item:hover { border-color: var(--ink); }
+.ft-buffet-item:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.ft-buffet-item--ativo { background: var(--paper-soft); border-color: var(--ink); }
+.ft-buffet-linha { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.ft-buffet-meta { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--ink-soft); }
+.ft-buffet-obs { font-size: 12px; color: var(--ink); }
+.ft-buffet-vazio { padding: 24px 8px; color: var(--ink-soft); }
+.ft-buffet-vazio h2 { margin: 0 0 6px; font-size: 16px; color: var(--ink); }

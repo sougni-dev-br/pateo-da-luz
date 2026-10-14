@@ -6,6 +6,7 @@ import {
   createWasteEntry,
   getWasteAnalysis,
   getWasteEntries,
+  saveDishProductConversion,
   uploadWastePhoto,
   type WasteAnalysis,
   type WasteEntry,
@@ -17,6 +18,7 @@ import { Dialog } from "../../components/ui/Dialog";
 import { useSession } from "../../context/SessionContext";
 import { Button, EmptyState, Money, Tabs, TextField, Textarea } from "../../design-system";
 import { hojeLocalIso } from "../../lib/datas";
+import { lerNumero } from "../../lib/fichaTecnica";
 import { hasPermission } from "../../lib/permissions";
 import { csvDosLancamentos, lerPeriodo, type Leitura } from "./analise";
 import { formatarQuantidade } from "./quantidade";
@@ -53,6 +55,22 @@ async function enviarFoto(id: string, arquivo: File): Promise<string | null> {
   }
 }
 
+/**
+ * O peso de 1 unidade informado no lançamento vira conversão do produto quando quem lança é da gestão
+ * (assim o item passa a aceitar g/ml para todos). Para os demais, vale só para aquele lançamento.
+ * Gravar é depois de registrar e nunca derruba o desperdício: o texto devolvido vai no aviso.
+ */
+async function guardarConversaoInformada(dados: WasteInput, podeGravar: boolean): Promise<string> {
+  const soNesteLancamento = " O peso informado valeu só para este lançamento: peça à gestão para cadastrá-lo no produto.";
+  if (!dados.perUnit || !dados.productId || !podeGravar) return soNesteLancamento;
+  try {
+    await saveDishProductConversion(dados.productId, { unit: dados.perUnit.unit, amount: lerNumero(dados.perUnit.quantity) });
+    return " Conversão salva no produto: o item passa a aceitar essa medida para todos.";
+  } catch {
+    return soNesteLancamento;
+  }
+}
+
 function baixarCsv(conteudo: string, nome: string) {
   const url = URL.createObjectURL(new Blob([conteudo], { type: "text/csv;charset=utf-8" }));
   const link = document.createElement("a");
@@ -72,6 +90,8 @@ export function Desperdicio() {
   const podeCancelar = hasPermission(user, "inventory-waste", "delete");
   const podeConfigurar = hasPermission(user, "inventory-waste", "admin");
   const veCusto = hasPermission(user, "inventory-costs", "view");
+  // Gravar "1 UN = 500 g" no produto muda também compras e contagem: é da gestão (mesma regra da ficha técnica).
+  const podeGravarConversao = hasPermission(user, "dishes", "edit");
 
   // Quem lança sem ver custos (estoquista) abre direto no lançamento; quem lê valores abre na análise.
   const pedida = parametros.get("aba");
@@ -161,9 +181,10 @@ export function Desperdicio() {
       // A foto é opcional e vem depois: se falhar, o desperdício já está registrado e a pessoa é avisada.
       const falhaDaFoto = foto ? await enviarFoto(criada.id, foto) : null;
       const semCusto = criada.hasCost ? "" : " Sem custo conhecido: não entra no valor nem no aviso do dia.";
+      const conversao = dados.perUnit ? await guardarConversaoInformada(dados, podeGravarConversao) : "";
       setNotice(falhaDaFoto
-        ? { tone: "error", message: `Desperdício de ${escolhido.name} registrado, mas a foto não foi enviada: ${falhaDaFoto} Use "Anexar foto" na lista.${semCusto}` }
-        : { tone: criada.hasCost ? "success" : "warning", message: `Desperdício de ${escolhido.name} registrado.${semCusto}` });
+        ? { tone: "error", message: `Desperdício de ${escolhido.name} registrado, mas a foto não foi enviada: ${falhaDaFoto} Use "Anexar foto" na lista.${semCusto}${conversao}` }
+        : { tone: criada.hasCost ? "success" : "warning", message: `Desperdício de ${escolhido.name} registrado.${semCusto}${conversao}` });
       void carregarHoje();
       // Lançamento de dia fora do período mostrado não apareceria na lista: o período se abre para incluí-lo.
       if (dados.occurredOn < de) { setDe(dados.occurredOn); setFiltro(SEM_FILTRO); }
