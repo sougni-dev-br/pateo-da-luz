@@ -5233,6 +5233,44 @@ export type AnaliseDescontos = {
   }>;
 };
 
+export type AnaliseIndicadorDeMeta = "faturamento" | "pessoas" | "ticketPessoa" | "perdaPct";
+export type AnaliseSituacaoDaMeta = "sem-meta" | "sem-dado" | "atingida" | "no-ritmo" | "abaixo";
+
+export type AnaliseMetaIndicador = {
+  indicador: AnaliseIndicadorDeMeta;
+  rotulo: string;
+  menorEMelhor: boolean;
+  // perdaPct em fração (0,02 = 2%); os demais na própria unidade (R$, pessoas).
+  meta: number | null;
+  realizado: number | null;
+  projecao: number | null;
+  progresso: number | null;
+  faltam: number | null;
+  porDiaAtual: number | null;
+  porDiaNecessario: number | null;
+  situacao: AnaliseSituacaoDaMeta;
+  referencia: { media3: number; mesesNaMedia: number; melhor: number } | null;
+};
+
+export type AnaliseMetas = {
+  mes: { ano: number; mes: number; inicio: string; fim: string; diasNoMes: number; encerrado: boolean; futuro: boolean };
+  cobertura: { diasComMovimento: number; diasRestantes: number; diasNoRitmo: number; podeProjetar: boolean };
+  indicadores: AnaliseMetaIndicador[];
+};
+
+export function getAnaliseMetas(ano: number, mes: number, signal?: AbortSignal) {
+  return request<AnaliseMetas>(`/integrations/agile/analise/metas?ano=${ano}&mes=${mes}`, { signal });
+}
+
+// valor null apaga a meta do indicador no mês. Devolve as metas do mês já atualizadas.
+export function salvarAnaliseMeta(corpo: { ano: number; mes: number; indicador: AnaliseIndicadorDeMeta; valor: number | null }) {
+  return request<AnaliseMetas>("/integrations/agile/analise/metas", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(corpo)
+  });
+}
+
 function queryPeriodo({ inicio, fim }: AnalisePeriodo) {
   return `inicio=${encodeURIComponent(inicio)}&fim=${encodeURIComponent(fim)}`;
 }
