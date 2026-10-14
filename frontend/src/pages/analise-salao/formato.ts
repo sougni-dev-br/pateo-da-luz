@@ -28,6 +28,14 @@ export const reaisInteiro = (n: number) => `${n < 0 ? MENOS : ""}R$ ${numero(Mat
 // razão (0,238) -> "23,8%". Para pontos percentuais já calculados, use pontos().
 export const percentual = (razao: number, casas = 1) => `${numero(razao * 100, casas)}%`;
 
+// Diferença entre duas razões, em pontos percentuais: 0,012 -> "+1,2 pp". Menos de 0,05 pp é ruído.
+export function textoPontos(razaoDiferenca: number | null): string {
+  if (razaoDiferenca === null) return "—";
+  const pp = razaoDiferenca * 100;
+  if (Math.abs(pp) < 0.05) return "0,0 pp";
+  return `${pp > 0 ? "+" : MENOS}${numero(Math.abs(pp), 1)} pp`;
+}
+
 export function dataCurta(iso: string | null | undefined, comAno = false): string {
   if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return "—";
   return `${iso.slice(8, 10)}/${iso.slice(5, 7)}${comAno ? `/${iso.slice(0, 4)}` : ""}`;
