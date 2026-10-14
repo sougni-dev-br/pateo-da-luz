@@ -11,13 +11,13 @@ import { Prisma } from "@prisma/client";
  *
  * Consequencia: toda soma de "Purchase"."totalAmount" que nao excluir o
  * agregador conta a mesma despesa duas vezes. Medido em producao em 15/09/2026,
- * com 6 agregadores ativos: jun +R$ 19.072,70, jul +R$ 20.474,57,
- * ago +R$ 27.498,05 — R$ 67.045,32 de compra que nunca existiu.
+ * com 6 agregadores ativos: jun +R$ [valor], jul +R$ [valor],
+ * ago +R$ [valor] — R$ [valor] de compra que nunca existiu.
  *
  * O CMV e a Parte B do DRE nao sao afetados: somam "PurchaseItem"."totalPrice",
  * e o agregador nao tem item (ver comentario em comprasSemItem, monthly-closure).
  * A Parte A do DRE era: ela soma PaymentInstallment de compra sem itens, e o
- * titulo do agregador entrava ali (jun–set/2026, R$ 69.375,96 a mais). O DRE
+ * titulo do agregador entrava ali (jun–set/2026, R$ [valor] a mais). O DRE
  * aplica este filtro nas consultas de titulo.
  *
  * Contas a pagar e caixa NAO usam: o titulo e gerado SO pelo agregador, nunca

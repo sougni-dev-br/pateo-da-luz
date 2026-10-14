@@ -141,8 +141,8 @@ function parseLocalDate(s: string): Date | null {
 // (competencia), e nao a janela de datas do Ciclo Operacional. O passo 1 do
 // refactor foi aplicado — as funcoes de CMV passaram a filtrar por purchaseDate
 // — mas o DRE ficou apontando para elas. Media da divergencia contra o
-// Fechamento Contabil em 09/2026: R$ 27.002,27 no CMV compras (pior mes,
-// agosto, R$ 13.668,33) e R$ 53.305,59 na despesa de nota sem item, que ainda
+// Fechamento Contabil em 09/2026: R$ [valor] no CMV compras (pior mes,
+// agosto, R$ [valor]) e R$ [valor] na despesa de nota sem item, que ainda
 // era reconhecida por pagamento (caixa) em vez de competencia.
 //
 // Quando o pedido vem por year+month, competencia manda. No modo de intervalo
@@ -209,14 +209,14 @@ function expensePredicateByMode(mode: CmvVisionKey) {
 // Titulo de ciclo de fornecedor, de fatura de cartao ou de reembolso a
 // funcionario repete compras que ja estao no CMV ou na Parte B pelos itens delas.
 // Medido em producao em 08/10/2026: a Parte A de jun–set era 100% desses titulos
-// — R$ 69.375,96 de despesa contada duas vezes. Vale para a soma, o detalhamento
+// — R$ [valor] de despesa contada duas vezes. Vale para a soma, o detalhamento
 // e as pendencias. O helper cobre os tres tipos (ver purchase-aggregators.ts).
 const semTituloDeAgregador = excludeAggregatorsSql("p");
 
 // Parte A da despesa = nota SEM itens (servico, despesa fixa). Era reconhecida
 // por pagamento, com fallback no vencimento: regime de
 // caixa dentro de um relatorio de competencia. Em 06/2026 isso mostrava R$ 0,00
-// no DRE contra R$ 19.072,70 por competencia.
+// no DRE contra R$ [valor] por competencia.
 function filtroDespesaSemItens(competencia: Competencia | null, from: Date, to: Date) {
   return competencia
     ? Prisma.sql`p."competenceYear" = ${competencia.year} AND p."competenceMonth" = ${competencia.month}`

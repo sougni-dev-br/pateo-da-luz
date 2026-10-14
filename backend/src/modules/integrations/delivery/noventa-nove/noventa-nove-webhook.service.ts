@@ -248,7 +248,7 @@ async function findStoreForCallback(
 // Consequencia medida em producao: o mesmo pedido entrava DUAS vezes, porque o sync
 // financeiro grava o id intacto (string) e o webhook gravava o arredondado, e a chave
 // unica (deliveryStoreId, externalOrderId) enxergava dois pedidos diferentes. De
-// 27/08 a 11/09/2026 isso gerou 297 vendas fantasma, R$ 25.331,05 de receita inflada.
+// 27/08 a 11/09/2026 isso gerou 297 vendas fantasma, R$ [valor] de receita inflada.
 // Confronto que revelou: somando so os canais DELIVERY/DELIVERY_REFUND, os quatro
 // repasses da plataforma batem ao centavo; com as fantasmas, nao batem.
 //

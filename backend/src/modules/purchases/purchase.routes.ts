@@ -930,7 +930,7 @@ purchaseRouter.get("/payables/report.pdf", async (request, response) => {
 
   // O PDF lia SO parcela de compra, enquanto a tela (/payables) une tres fontes.
   // Mesmo relatorio, duas renderizacoes, totais diferentes: em 09/2026 faltavam
-  // 34 lancamentos de folha, R$ 20.866,10, no documento impresso — e qualquer
+  // 34 lancamentos de folha, R$ [valor], no documento impresso — e qualquer
   // imposto vencido tambem ficaria de fora.
   //
   // Mesma regra da tela: imposto e folha entram quando nao ha filtro de fornecedor
@@ -1472,12 +1472,12 @@ purchaseRouter.get("/:id", async (request, response) => {
 // purchaseDate (nao a competencia) para casar compra com consumo entre duas contagens.
 // Uma nota com ano errado sai do CMV para sempre, sem aparecer em lugar nenhum.
 //
-// Achado em producao: NOVA UNIAO ALIMENTOS, R$ 3.595,95, purchaseDate 28/07/2029,
+// Achado em producao: um fornecedor, R$ [valor], purchaseDate 28/07/2029,
 // competencia 07/2026, criada em 29/07/2026 — tres anos a frente por um digito.
 //
 // O limite e 12 meses e nao "nada no futuro" de proposito: ha uso legitimo de nota
 // futura no sistema — assinaturas lancadas como uma nota por mes, ate 12 meses a
-// frente (JOHN SYSTEM, parcela 12/12 em 01/2027). Proibir o futuro inteiro quebraria
+// frente (um fornecedor de sistema, parcela 12/12 em 01/2027). Proibir o futuro inteiro quebraria
 // esse fluxo; 12 meses pega o erro de ano sem tocar no que funciona.
 const LIMITE_DATA_FUTURA_MESES = 12;
 
@@ -2927,7 +2927,7 @@ purchaseRouter.patch("/:id/cancel", async (request, response) => {
       // nao um item dentro dele, tratado acima): o ciclo ficava CLOSED apontando
       // para uma compra morta. Sem titulo a pagar e sem caminho de volta, porque
       // /supplier-cycles/:id/close recusa refechar ciclo CLOSED e nao existe rota
-      // de reabrir. Ha um caso assim em producao — R$ 5.220,66 da DISTRIBUIDORA
+      // de reabrir. Ha um caso assim em producao — R$ [valor] da DISTRIBUIDORA
       // FLD, cancelado em 22/07/2026 por "erro de digitacao": a despesa continua
       // no CMV pelas compras individuais e a divida sumiu do contas a pagar.
       // Devolver o ciclo para OPEN e limpar a referencia restaura o caminho: da

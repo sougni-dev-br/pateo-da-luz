@@ -5,7 +5,7 @@ import type { IfoodPeriodSummary } from "./ifood.types.js";
 // Ate 18/09/2026 `summaryForStore` caia em `buildMockSummary` quando nao achava
 // venda, e o consolidado somava isso. Com TODAS as tabelas do iFood vazias
 // (zero credencial, zero venda, zero repasse, 4 lojas ainda em PENDENTE-*), a
-// tela de setembro mostrava R$ 425.119 e 6.138 pedidos — cem por cento ficcao,
+// tela de setembro mostrava R$ [valor] e 6.138 pedidos — cem por cento ficcao,
 // com o aviso em letra pequena ao lado dos cartoes. Quem batia o olho concluia
 // que o iFood ia bem.
 //

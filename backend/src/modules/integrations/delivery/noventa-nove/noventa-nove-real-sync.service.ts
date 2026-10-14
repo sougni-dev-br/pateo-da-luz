@@ -104,7 +104,7 @@ const round2 = (v: number): number => Math.round(v * 100) / 100;
 // commissionAmount e b2pDeliveryAmount escaparam, e ficaram negativos no banco.
 // Consequencia medida em 17/09/2026: em reflectFeesIntoMonthlyExpense o
 // `Math.max(0, ...)` zerava as duas linhas e a despesa inteira caia em "outros" —
-// jul/2026 comissao 0,00 e entrega -10.341,00, set/2026 comissao -2.310,12. O
+// jul/2026 comissao 0,00 e entrega -[valor], set/2026 comissao -[valor]. O
 // TOTAL sempre esteve certo (vem do repasse), mas o detalhamento nao existia.
 export function deducaoComoCusto(valorDaPlataforma: number | undefined | null): number {
   const valor = cents(valorDaPlataforma);
@@ -342,7 +342,7 @@ export async function reflectSalesIntoRevenueEntries(
   // A prova veio do confronto com os quatro repasses de agosto/2026, que a 99
   // declara ter PAGO: contando so estes canais, o bruto bate AO CENTAVO nos quatro
   // (4223.52 / 6115.81 / 4725.70 / 5558.19). Incluindo os do webhook, nao bate —
-  // sobravam 21 pedidos e R$ 1.814,80 que a plataforma nunca faturou.
+  // sobravam 21 pedidos e R$ [valor] que a plataforma nunca faturou.
   //
   // O webhook continua sendo gravado em NoventaNoveSale: serve para visibilidade
   // operacional e para o sync reconciliar por orderId quando o faturamento chega.
@@ -371,9 +371,9 @@ export async function reflectSalesIntoRevenueEntries(
   // que qualquer formula.
   //
   // Impacto medido: a receita liquida do 99Food estava subestimada em
-  // R$ 13.197,77 (ago R$ 11.920,96 + set R$ 1.276,81). Confrontado com os quatro
-  // repasses de agosto, que a plataforma declara ter PAGO: R$ 19.104,83 contra os
-  // R$ 10.586,73 que o ERP lancava no mesmo periodo.
+  // R$ [valor] (ago R$ [valor] + set R$ [valor]). Confrontado com os quatro
+  // repasses de agosto, que a plataforma declara ter PAGO: R$ [valor] contra os
+  // R$ [valor] que o ERP lancava no mesmo periodo.
   const byDate = new Map<string, { gross: number; net: number; count: number; dateObj: Date }>();
   for (const sale of sales) {
     const dateKey = sale.orderDate.toISOString().slice(0, 10);
@@ -472,7 +472,7 @@ export async function reflectSalesIntoRevenueEntries(
   // O laco acima so toca os dias presentes em byDate. Quando um dia perde todas as
   // vendas faturadas — porque eram do webhook e nao se concretizaram, ou porque o
   // pedido foi cancelado — o lancamento antigo sobrevivia intocado, com o valor
-  // inflado de antes. Foi o que aconteceu em 11/09/2026: o razao marcava R$ 1.513,91
+  // inflado de antes. Foi o que aconteceu em 11/09/2026: o razao marcava R$ [valor]
   // num dia sem nenhuma venda faturada, e a ressincronizacao nao corrigia.
   //
   // Zera em vez de apagar: o lancamento volta a ter valor quando a API financeira
@@ -519,11 +519,11 @@ async function reflectFeesIntoMonthlyExpense(
   // b2pDeliveryAmount) e consolidadas no repasse semanal, que o ERP ja guardava em
   // NoventaNoveSettlement e nunca usava para custo.
   //
-  // Medido em agosto/2026: a plataforma deduziu R$ 1.518,39 dos repasses (bruto
-  // 20.623,22 menos liquido pago 19.104,83) e o ERP lancava R$ 1.020,41.
+  // Medido em agosto/2026: a plataforma deduziu R$ [valor] dos repasses (bruto
+  // [valor] menos liquido pago [valor]) e o ERP lancava R$ [valor].
   //
   // Decisao do Eli em 11/09/2026: a base e o que saiu do bolso — bruto menos liquido
-  // efetivamente pago. O totalFees que a plataforma declara (R$ 3.345,71 em agosto) e
+  // efetivamente pago. O totalFees que a plataforma declara (R$ [valor] em agosto) e
   // maior porque e bruto de subsidios que ela devolve; nao foi o que ela reteve.
   const repasses = await prisma.noventaNoveSettlement.findMany({
     where: { deliveryStoreId: store.id },
@@ -826,7 +826,7 @@ export async function runRealSync(params: {
       // vinculada — dados nao entraram no DRE" eram produzidas com cuidado e
       // descartadas. O log ficava com errorMessage nulo em 100% das execucoes, o que
       // parece saude e e so cegueira: em 09/2026 os 4 repasses da 99 estavam
-      // incompletos (bruto - taxas != liquido, R$ 1.827,32 acumulados) e o aviso
+      // incompletos (bruto - taxas != liquido, R$ [valor] acumulados) e o aviso
       // vinha sendo emitido todo dia sem deixar rastro.
       //
       // O status continua distinguindo o caso: SUCCESS com texto = aviso, PARTIAL ou

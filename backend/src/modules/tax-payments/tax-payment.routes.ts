@@ -404,7 +404,7 @@ taxPaymentRouter.patch("/:id/pay", async (request, response) => {
   if (!existing) return response.status(404).json({ message: "Lançamento não encontrado." });
 
   // Ja pago: sem esta guarda, repetir a chamada sobrescreve data e valor em
-  // silencio. Aconteceu em producao — um titulo de R$ 8.754,77 recebeu duas
+  // silencio. Aconteceu em producao — um titulo de R$ [valor] recebeu duas
   // baixas de R$ 14,31 com 34 segundos de diferenca (cara de toque duplo), e o
   // valor errado ficou de pe por um mes ate alguem pagar de novo para corrigir.
   // As rotas irmas (contas a pagar, folha, cartoes) ja exigem estorno antes de

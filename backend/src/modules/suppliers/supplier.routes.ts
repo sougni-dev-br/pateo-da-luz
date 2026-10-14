@@ -100,7 +100,7 @@ supplierRouter.get("/", async (request, response) => {
   const search = request.query.search ? String(request.query.search) : undefined;
   const activeOnly = request.query.activeOnly === "true";
   const term = `%${search ?? ""}%`;
-  // Busca de documento por dígitos: ignora . / - do formato salvo (ex.: "17.847.991/0001-45").
+  // Busca de documento por dígitos: ignora . / - do formato salvo (ex.: "12.345.678/0001-95").
   // Exige ≥4 dígitos para não casar documento por dígito solto de um nome (ex.: "wp3" → "3").
   // Com menos de 4 dígitos, digitTerm = null e a condição de documento não casa nada.
   const searchDigits = (search ?? "").replace(/\D/g, "");

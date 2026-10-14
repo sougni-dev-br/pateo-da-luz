@@ -234,7 +234,7 @@ export async function reflectSalesIntoRevenueEntries(store: { id: string; compan
     //
     // Esta linha repete a formula que estava ERRADA na 99 (ver F-59): la o liquido
     // era calculado como bruto - promocao e acertava so 384 dos 1.374 pedidos (28%),
-    // subestimando a receita em R$ 13.197,77. A 99 passou a somar o netAmount que a
+    // subestimando a receita em R$ [valor]. A 99 passou a somar o netAmount que a
     // plataforma informa por pedido.
     //
     // NAO copiei a correcao para ca porque o iFood tem um modelo diferente e

@@ -42,7 +42,7 @@ dashboardRouter.get("/purchases", async (request, response) => {
   // Ate 09/2026 esta consulta somava com OU entre as duas bases: a compra entrava
   // se a DATA caisse no intervalo OU se a COMPETENCIA fosse a do mes. Nota comprada
   // em julho com competencia de junho era contada nos DOIS meses — inflacao medida
-  // de R$ 78.555,64 no ano, com julho 12% maior e setembro 34% maior.
+  // de R$ [valor] no ano, com julho 12% maior e setembro 34% maior.
   //
   // Pior: a consulta do mes ANTERIOR, logo abaixo, sempre usou competencia pura,
   // entao a comparacao mes a mes do painel ja era entre bases diferentes.
@@ -126,7 +126,7 @@ dashboardRouter.get("/purchases", async (request, response) => {
 
   // Fornecedor soma a NOTA; categoria e produto somam os ITENS. Quando uma nota
   // entra sem itemizacao as duas visoes se separam em silencio — foi assim que o
-  // FLV apareceu com R$ 10.690,49 na categoria e R$ 27.437,07 nos fornecedores de
+  // FLV apareceu com R$ [valor] na categoria e R$ [valor] nos fornecedores de
   // hortifruti. O residuo passa a ser uma linha propria em vez de sumir.
   let unitemizedTotal = 0;
 
@@ -515,8 +515,8 @@ dashboardRouter.get("/alerts", async (request, response) => {
   // ── 1. Titulos vencidos (global, não filtrado por competência) ──
   // Todas as fontes, como em Contas a Pagar (desde 09/2026 inclui extras). Ate 09/2026 este painel lia so
   // PaymentInstallment, entao folha e imposto vencidos nao entravam: o Dashboard
-  // mostrava R$ 491.765,30 enquanto o total real era R$ 512.631,40 — 34
-  // lancamentos de folha, R$ 20.866,10, invisiveis. Duas telas sobre a mesma
+  // mostrava R$ [valor] enquanto o total real era R$ [valor] — 34
+  // lancamentos de folha, R$ [valor], invisiveis. Duas telas sobre a mesma
   // divida dando numeros diferentes.
   const overdueRows = await prisma.$queryRaw<Array<{ cnt: unknown; total: unknown }>>`
     SELECT COUNT(*) AS cnt, COALESCE(SUM(valor), 0) AS total FROM (
@@ -562,7 +562,7 @@ dashboardRouter.get("/alerts", async (request, response) => {
 
   // Titulo sem vencimento nao fica vencido nem entra no "a vencer": as duas
   // consultas acima exigem dueDate IS NOT NULL. Ele some dos paineis e do fluxo
-  // de caixa. Em 09/2026 eram 26 parcelas, R$ 18.795,59 — a diferenca entre os
+  // de caixa. Em 09/2026 eram 26 parcelas, R$ [valor] — a diferenca entre os
   // R$ 630 mil que os paineis somavam e os R$ 649 mil realmente em aberto.
   // Nao e erro de calculo: ninguem definiu o que fazer com esse caso, e o
   // silencio virou omissao. Ganha faixa propria em vez de sumir.
