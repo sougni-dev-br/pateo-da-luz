@@ -4,13 +4,15 @@ import type { ListaPagamentoPdf } from "../gorjeta/pdfFolhaLiquidos";
 import type { Selo } from "../gorjeta/pdfTema";
 
 export const TITULO_PAGAMENTO: Record<TipoPagamentoMeio, string> = { ADIANTAMENTO: "Adiantamento", QUINZENA: "1ª quinzena" };
-export const DIA_PAGAMENTO: Record<TipoPagamentoMeio, string> = { ADIANTAMENTO: "dia 20", QUINZENA: "dia 15" };
+/** "dia 20": o adiantamento vence no dia das Configurações da folha; a 1ª quinzena, sempre no dia 15. */
+export function diaDoPagamento(tipo: TipoPagamentoMeio, diaAdiantamento: number | null): string {
+  return tipo === "QUINZENA" ? "dia 15" : `dia ${diaAdiantamento ?? 20}`;
+}
 /** O botão que lança no Contas a Pagar é o mesmo gerador da prévia da folha. */
 export const KIND_DO_TIPO = { ADIANTAMENTO: "ADIANTAMENTO_SR", QUINZENA: "QUINZENA_SR" } as const;
 
-const MARCA_ATUALIZAR = "lançar de novo atualiza";
 /** 1ª quinzena em aberto com valor diferente do cálculo de hoje: o mesmo botão atualiza. */
-export const precisaAtualizar = (l: LinhaPagamentoMeio) => l.situacao === "LANCADO" && (l.aviso ?? "").includes(MARCA_ATUALIZAR);
+export const precisaAtualizar = (l: LinhaPagamentoMeio) => l.situacao === "LANCADO" && l.atualizarPara != null;
 
 /** O que o botão "Lançar no Contas a Pagar" vai criar ou atualizar. */
 export function aLancar(dados: PagamentoMeio): LinhaPagamentoMeio[] {
@@ -35,20 +37,29 @@ export function textoSituacao(l: LinhaPagamentoMeio): string {
   return `vence ${ddmm(l.vencimento)}`;
 }
 
-/** PDF: os pagos saem da lista (vão para "Já pagos"); quem falta lançar sai marcado. */
+const reais = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+/** O aviso que vai no PDF, embaixo do nome: o que quem paga precisa saber. */
+function avisoNoPdf(l: LinhaPagamentoMeio): string | null {
+  if (l.situacao === "A_LANCAR") return "Ainda não lançado no Contas a Pagar";
+  if (precisaAtualizar(l)) return `Título em aberto de ${reais(l.valor)}; o cálculo de hoje dá ${reais(l.atualizarPara!)}`;
+  return l.aviso;
+}
+
+/** PDF: os pagos saem da lista (vão para "Já pagos"); quem falta lançar ou atualizar sai marcado. */
 export function listaParaPdf(dados: PagamentoMeio): ListaPagamentoPdf {
   const linhas: TipLinhaFolha[] = dados.linhas.filter((l) => l.situacao !== "PAGO").map((l) => ({
     employeeId: l.employeeId, nome: l.nome, grupo: l.grupo, origem: l.origem, valor: l.valor,
-    pix: l.pix, pixTipo: l.pixTipo, contaBancaria: l.contaBancaria,
-    aviso: l.situacao === "A_LANCAR" ? "Ainda não lançado no Contas a Pagar" : null,
+    pix: l.pix, pixTipo: l.pixTipo, contaBancaria: l.contaBancaria, aviso: avisoNoPdf(l),
   }));
   const jaPagos = dados.linhas.filter((l) => l.situacao === "PAGO")
     .map((l) => ({ nome: l.nome, valor: l.valorPago ?? l.valor, pagoEm: l.pagoEm ?? l.vencimento }));
   return { linhas, jaPagos, total: Math.round(linhas.reduce((a, l) => a + l.valor, 0) * 100) / 100 };
 }
 
+/** Prévia enquanto falta lançar ou atualizar alguém; "lançado" só com a lista toda no Contas a Pagar. */
 export function seloDoPdf(dados: PagamentoMeio): Selo {
-  const n = dados.aLancar.pessoas;
+  const n = aLancar(dados).length;
   return n > 0
     ? { texto: `PRÉVIA - ${n === 1 ? "FALTA LANÇAR 1" : `FALTAM LANÇAR ${n}`}`, tom: "aviso" }
     : { texto: "LANÇADO NO CONTAS A PAGAR", tom: "ok" };

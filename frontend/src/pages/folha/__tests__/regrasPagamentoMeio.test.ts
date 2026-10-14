@@ -5,10 +5,10 @@ import { aLancar, regrasDoPdf, resultadoDoLancamento, seloDoPdf, textoSituacao, 
 // Dados fictícios.
 const linha = (over: Partial<LinhaPagamentoMeio>): LinhaPagamentoMeio => ({
   employeeId: "x", nome: "Fulano Exemplo", grupo: "Sem registro", origem: "SEM_REGISTRO", valor: 880, situacao: "A_LANCAR",
-  vencimento: "2026-10-20", pagoEm: null, valorPago: null, payrollItemId: null, pix: null, pixTipo: null, contaBancaria: null, aviso: null, ...over,
+  vencimento: "2026-10-20", pagoEm: null, valorPago: null, payrollItemId: null, pix: null, pixTipo: null, contaBancaria: null, aviso: null, atualizarPara: null, ...over,
 });
 const dados = (linhas: LinhaPagamentoMeio[], aLancarN = linhas.filter((l) => l.situacao === "A_LANCAR").length): PagamentoMeio => ({
-  tipo: "ADIANTAMENTO", competencia: "10/2026", linhas, avisos: [], total: 0,
+  tipo: "ADIANTAMENTO", competencia: "10/2026", linhas, avisos: [], cltSemTitulo: [], total: 0,
   aLancar: { pessoas: aLancarN, total: 0 }, lancado: { pessoas: 0, total: 0 }, pago: { pessoas: 0, total: 0 },
 });
 
@@ -16,7 +16,7 @@ describe("regras da lista do adiantamento", () => {
   test("a lançar inclui a quinzena desatualizada (o mesmo botão atualiza)", () => {
     const d = dados([
       linha({ employeeId: "a" }),
-      linha({ employeeId: "b", situacao: "LANCADO", aviso: "O cálculo de hoje dá R$ 1.100,00: lançar de novo atualiza o título." }),
+      linha({ employeeId: "b", situacao: "LANCADO", atualizarPara: 1100 }),
       linha({ employeeId: "c", situacao: "LANCADO" }),
     ]);
     expect(aLancar(d).map((l) => l.employeeId)).toEqual(["a", "b"]);
@@ -38,8 +38,9 @@ describe("regras da lista do adiantamento", () => {
   });
 
   test("selo: prévia enquanto falta lançar; lançado quando completo", () => {
-    expect(seloDoPdf(dados([], 2))).toEqual({ texto: "PRÉVIA - FALTAM LANÇAR 2", tom: "aviso" });
-    expect(seloDoPdf(dados([], 0))).toEqual({ texto: "LANÇADO NO CONTAS A PAGAR", tom: "ok" });
+    expect(seloDoPdf(dados([linha({ employeeId: "a" }), linha({ employeeId: "b" })]))).toEqual({ texto: "PRÉVIA - FALTAM LANÇAR 2", tom: "aviso" });
+    expect(seloDoPdf(dados([linha({ situacao: "LANCADO", atualizarPara: 900 })]))).toEqual({ texto: "PRÉVIA - FALTA LANÇAR 1", tom: "aviso" });
+    expect(seloDoPdf(dados([linha({ situacao: "LANCADO" })]))).toEqual({ texto: "LANÇADO NO CONTAS A PAGAR", tom: "ok" });
   });
 
   test("regras do PDF com o percentual das configurações", () => {

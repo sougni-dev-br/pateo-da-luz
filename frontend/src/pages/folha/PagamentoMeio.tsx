@@ -18,7 +18,7 @@ import {
 } from "../gorjeta/pdfFolhaLiquidos";
 import "../gorjeta/gorjeta.css";
 import {
-  DIA_PAGAMENTO, KIND_DO_TIPO, TITULO_PAGAMENTO, aLancar, ddmmaaaa, listaParaPdf, precisaAtualizar, regrasDoPdf, resultadoDoLancamento,
+  KIND_DO_TIPO, diaDoPagamento, TITULO_PAGAMENTO, aLancar, ddmmaaaa, listaParaPdf, precisaAtualizar, regrasDoPdf, resultadoDoLancamento,
   seloDoPdf, textoSituacao, vencimentoDaLista,
 } from "./regrasPagamentoMeio";
 
@@ -28,6 +28,8 @@ type Props = {
   canEdit: boolean;
   /** Percentual do adiantamento (Configurações da folha), para a regra no PDF. */
   percentAdiantamento: number | null;
+  /** Dia do vencimento do adiantamento (Configurações da folha), para os rótulos. */
+  diaAdiantamento: number | null;
   /** Muda quando a folha do mês muda (lançou, baixou, excluiu): recarrega a lista. */
   versao: string;
   /** Depois de lançar: a Folha recarrega os lançamentos do mês. */
@@ -43,7 +45,6 @@ const EXT: Extratores<LinhaPagamentoMeio> = {
 const TEXTO = new Set(["nome", "situacao", "banco"]);
 const COLUNAS: ColunaOpcional[] = [{ chave: "situacao", rotulo: "Situação" }, { chave: "banco", rotulo: "Dados bancários" }];
 const MODOS_IMPRESSAO = [{ value: "empresa", label: "Por empresa" }, { value: "alfabetica", label: "Pateo (A–Z)" }];
-const TIPOS = [{ value: "ADIANTAMENTO", label: "Adiantamento (dia 20)" }, { value: "QUINZENA", label: "1ª quinzena (dia 15)" }];
 
 // Preferências de quem confere; sem armazenamento (aba anônima), voltam ao padrão.
 const CHAVE_MODO = "pagamento-meio:modo-impressao";
@@ -68,16 +69,17 @@ function Confirmacao({ tipo, linhas, lancando, onConfirmar, onCancelar }: {
   tipo: TipoPagamentoMeio; linhas: LinhaPagamentoMeio[]; lancando: boolean; onConfirmar: () => void; onCancelar: () => void;
 }) {
   const caixa = useRef<HTMLDivElement>(null);
-  // Aparece embaixo dos botões: rola até ela e põe o foco no "Confirmar".
+  // Aparece embaixo dos botões: rola até ela e põe o foco no "Cancelar" — um Enter distraído não grava nada.
   useEffect(() => {
     caixa.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
-    caixa.current?.querySelector<HTMLButtonElement>("button:last-of-type")?.focus();
+    caixa.current?.querySelector<HTMLButtonElement>("button")?.focus();
   }, []);
   const novos = linhas.filter((l) => l.situacao === "A_LANCAR");
   const atualizar = linhas.filter(precisaAtualizar);
   const total = novos.reduce((a, l) => a + l.valor, 0);
   return (
-    <div ref={caixa} role="dialog" aria-label="Confirmar lançamento" className="pagamento-meio-confirmacao">
+    <div ref={caixa} role="group" aria-label="Confirmar lançamento" className="pagamento-meio-confirmacao"
+      onKeyDown={(e) => { if (e.key === "Escape" && !lancando) onCancelar(); }}>
       <strong>Confirme o que vai para o Contas a Pagar</strong>
       {novos.length > 0 && (
         <>
@@ -90,7 +92,11 @@ function Confirmacao({ tipo, linhas, lancando, onConfirmar, onCancelar }: {
       {atualizar.length > 0 && (
         <>
           <span>{plural(atualizar.length, "título em aberto terá", "títulos em aberto terão")} o valor atualizado pelo cálculo de hoje:</span>
-          <ul>{atualizar.map((l) => <li key={l.employeeId}>{nomeProprio(l.nome)} — {l.aviso}</li>)}</ul>
+          <ul>
+            {atualizar.map((l) => (
+              <li key={l.employeeId}>{nomeProprio(l.nome)} — de {money(l.valor)} para <strong>{money(l.atualizarPara)}</strong> · vence {ddmmaaaa(l.vencimento)}</li>
+            ))}
+          </ul>
         </>
       )}
       <span style={mutedStyle}>Depois de lançar, confira a lista abaixo e imprima o PDF para o pagamento.</span>
@@ -102,7 +108,7 @@ function Confirmacao({ tipo, linhas, lancando, onConfirmar, onCancelar }: {
   );
 }
 
-export function PagamentoMeio({ year, month, canEdit, percentAdiantamento, versao, onLancado }: Props) {
+export function PagamentoMeio({ year, month, canEdit, percentAdiantamento, diaAdiantamento, versao, onLancado }: Props) {
   const [tipo, setTipo] = useState<TipoPagamentoMeio>(() => lerPreferencia(CHAVE_TIPO, ["ADIANTAMENTO", "QUINZENA"] as const, "ADIANTAMENTO"));
   const [modo, setModo] = useState<ModoImpressaoFolha>(() => lerPreferencia(CHAVE_MODO, ["empresa", "alfabetica"] as const, "empresa"));
   const [dados, setDados] = useState<Dados | null>(null);
@@ -110,6 +116,8 @@ export function PagamentoMeio({ year, month, canEdit, percentAdiantamento, versa
   const [confirmando, setConfirmando] = useState(false);
   const [lancando, setLancando] = useState(false);
   const [resultado, setResultado] = useState<{ tom: "success" | "warning" | "error"; linhas: string[] } | null>(null);
+  const [imprimindo, setImprimindo] = useState(false);
+  const tipos = (["ADIANTAMENTO", "QUINZENA"] as const).map((t) => ({ value: t, label: `${TITULO_PAGAMENTO[t]} (${diaDoPagamento(t, diaAdiantamento)})` }));
   const ord = useOrdenacao("pagamento-meio");
   const col = useColunas("pagamento-meio");
   const colPdf = useColunas("pagamento-meio-pdf");
@@ -130,21 +138,38 @@ export function PagamentoMeio({ year, month, canEdit, percentAdiantamento, versa
       return null;
     }
   }
+  // Outro mês ou outro tipo: lista nova do zero (o resultado de um lançamento é do mês e do tipo
+  // em que foi feito). Só a versão mudou (a Folha recarregou): atualiza sem piscar a tela.
+  const contexto = `${year}-${month}-${tipo}`;
+  const contextoAtual = useRef("");
   // carregar muda a cada render; o que dispara a recarga é a competência, o tipo e a versão.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { setDados(null); setConfirmando(false); void carregar(); }, [year, month, tipo, versao]);
-  // O resultado do lançamento é do mês e do tipo em que foi feito.
-  useEffect(() => { setResultado(null); }, [year, month, tipo]);
+  useEffect(() => {
+    if (contextoAtual.current !== contexto) {
+      contextoAtual.current = contexto;
+      setDados(null);
+      setConfirmando(false);
+      setResultado(null);
+    }
+    void carregar();
+  }, [contexto, versao]);
 
   async function lancar() {
     if (!dados) return;
     const antes = dados.linhas;
+    const doContexto = contexto;
     setLancando(true);
     try {
       const r = await generatePayroll(year, month, KIND_DO_TIPO[tipo]);
       const depois = await carregar();
+      // Trocou de mês ou de tipo no meio (os controles ficam travados, mas por garantia): não mistura.
+      if (contextoAtual.current !== doContexto) return;
       const msgs: string[] = [];
-      if (depois) {
+      if (!depois) {
+        setResultado({ tom: "warning", linhas: [
+          `Lançamento feito (${plural(r.created, "título criado", "títulos criados")}), mas a lista não recarregou. Use "Tentar de novo" antes de lançar outra vez.`,
+        ] });
+      } else {
         const { lancados, pendentes, total } = resultadoDoLancamento(antes, depois);
         msgs.push(lancados.length > 0
           ? `${plural(lancados.length, "título criado", "títulos criados")} no Contas a Pagar · ${money(total)}: ${lancados.map((l) => nomeProprio(l.nome)).join(", ")}.`
@@ -165,7 +190,8 @@ export function PagamentoMeio({ year, month, canEdit, percentAdiantamento, versa
   }
 
   async function imprimir() {
-    if (!dados) return;
+    if (!dados || imprimindo) return;
+    setImprimindo(true);
     const competencia = competenciaPdf(year, month);
     const venc = vencimentoDaLista(dados.linhas.filter((l) => l.situacao !== "PAGO"));
     const codigo = `${tipo === "QUINZENA" ? "QUINZ" : "ADIANT"}-${year}-${String(month).padStart(2, "0")}`;
@@ -180,23 +206,41 @@ export function PagamentoMeio({ year, month, canEdit, percentAdiantamento, versa
       });
     } catch (e) {
       setResultado({ tom: "error", linhas: ["Erro ao gerar o PDF: " + (e as Error).message] });
+    } finally {
+      setImprimindo(false);
     }
   }
 
   const cabecalho = (
     <div className="cabecalho-painel">
       <div className="cabecalho-painel-texto">
-        <strong>Lista de pagamento · {TITULO_PAGAMENTO[tipo]} ({DIA_PAGAMENTO[tipo]})</strong>
+        <strong>Lista de pagamento · {TITULO_PAGAMENTO[tipo]} ({diaDoPagamento(tipo, diaAdiantamento)})</strong>
         <span>O que está no Contas a Pagar, o que falta lançar e o que já foi pago — com os dados bancários para pagar.</span>
       </div>
       <div className="cabecalho-painel-acoes">
-        <Select aria-label="Qual pagamento" options={TIPOS} value={tipo}
-          onChange={(e) => { const t = e.target.value as TipoPagamentoMeio; setTipo(t); gravarPreferencia(CHAVE_TIPO, t); }} />
+        <Select aria-label="Qual pagamento" options={tipos} value={tipo} disabled={lancando}
+          onChange={(e) => {
+            const t = e.target.value as TipoPagamentoMeio;
+            // O filtro de uma lista (empresa, situação) não serve para a outra.
+            filtro.limpar();
+            setTipo(t);
+            gravarPreferencia(CHAVE_TIPO, t);
+          }} />
       </div>
     </div>
   );
 
-  if (erro) return <div className="pagamento-meio">{cabecalho}<Alert tone="error">{erro}</Alert></div>;
+  const avisoResultado = resultado && <Alert tone={resultado.tom}>{resultado.linhas.map((m) => <div key={m}>{m}</div>)}</Alert>;
+  if (erro) {
+    return (
+      <div className="pagamento-meio">
+        {cabecalho}
+        {avisoResultado}
+        <Alert tone="error">{erro}</Alert>
+        <div><Button variant="secondary" size="sm" onClick={() => void carregar()}>Tentar de novo</Button></div>
+      </div>
+    );
+  }
   if (!dados) return <div className="pagamento-meio">{cabecalho}<span style={mutedStyle}>Carregando a lista…</span></div>;
 
   const pendentes = aLancar(dados);
@@ -225,13 +269,12 @@ export function PagamentoMeio({ year, month, canEdit, percentAdiantamento, versa
       </div>
 
       {dados.avisos.length > 0 && <Alert tone="warning">{dados.avisos.map((a) => <div key={a}>{a}</div>)}</Alert>}
-      {resultado && (
-        <Alert tone={resultado.tom}>{resultado.linhas.map((m) => <div key={m}>{m}</div>)}</Alert>
-      )}
+      {avisoResultado}
 
       <div className="pagamento-meio-acoes">
-        {canEdit && pendentes.length > 0 && !confirmando && (
-          <Button leadingIcon={<Banknote size={14} />} onClick={() => { setConfirmando(true); setResultado(null); }}
+        {canEdit && pendentes.length > 0 && (
+          <Button leadingIcon={<Banknote size={14} />} disabled={confirmando || lancando} data-lancar="1"
+            onClick={() => { setConfirmando(true); setResultado(null); }}
             title="Mostra o que vai ser lançado e pede confirmação antes de gravar">
             Lançar no Contas a Pagar ({pendentes.length})
           </Button>
@@ -242,16 +285,21 @@ export function PagamentoMeio({ year, month, canEdit, percentAdiantamento, versa
           <Select aria-label="Modo de impressão do PDF" options={MODOS_IMPRESSAO} value={modo}
             title="Por empresa: um bloco por empresa com subtotal. Pateo: todos juntos em ordem alfabética."
             onChange={(e) => { const m = e.target.value as ModoImpressaoFolha; setModo(m); gravarPreferencia(CHAVE_MODO, m); }} />
-          <Button variant="secondary" size="sm" leadingIcon={<FileText size={14} />} disabled={aPagar === 0}
+          <Button variant="secondary" size="sm" leadingIcon={<FileText size={14} />} disabled={aPagar === 0 || imprimindo}
             title={aPagar === 0 ? "Todos já pagos: nada a imprimir" : dados.aLancar.pessoas > 0 ? "Sai como prévia: ainda falta lançar alguém" : filtro.ativo ? "O PDF sai com a lista inteira, sem o filtro" : undefined}
             onClick={() => void imprimir()}>
-            PDF para pagamento
+            {imprimindo ? "Gerando…" : "PDF para pagamento"}
           </Button>
         </div>
       </div>
 
       {confirmando && (
-        <Confirmacao tipo={tipo} linhas={pendentes} lancando={lancando} onConfirmar={() => void lancar()} onCancelar={() => setConfirmando(false)} />
+        <Confirmacao tipo={tipo} linhas={pendentes} lancando={lancando} onConfirmar={() => void lancar()}
+          onCancelar={() => {
+            setConfirmando(false);
+            // O foco volta ao botão que abriu a confirmação.
+            requestAnimationFrame(() => document.querySelector<HTMLButtonElement>("[data-lancar]")?.focus());
+          }} />
       )}
 
       {semDados > 0 && (

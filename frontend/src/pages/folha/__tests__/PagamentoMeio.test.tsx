@@ -6,14 +6,14 @@ import type { LinhaPagamentoMeio, PagamentoMeio as Dados } from "../../../api/cl
 const linha = (over: Partial<LinhaPagamentoMeio>): LinhaPagamentoMeio => ({
   employeeId: "x", nome: "Fulano Exemplo", grupo: "ALFA EXEMPLO LTDA", origem: "EXTRATO", valor: 1000, situacao: "LANCADO",
   vencimento: "2026-10-20", pagoEm: null, valorPago: null, payrollItemId: "i-x", pix: "fulano@exemplo.com", pixTipo: "EMAIL",
-  contaBancaria: null, aviso: null, ...over,
+  contaBancaria: null, aviso: null, atualizarPara: null, ...over,
 });
 const resumo = (linhas: LinhaPagamentoMeio[], s: LinhaPagamentoMeio["situacao"]) => {
   const l = linhas.filter((x) => x.situacao === s);
   return { pessoas: l.length, total: l.reduce((a, x) => a + x.valor, 0) };
 };
 const dados = (linhas: LinhaPagamentoMeio[]): Dados => ({
-  tipo: "ADIANTAMENTO", competencia: "10/2026", linhas, avisos: [], total: linhas.reduce((a, x) => a + x.valor, 0),
+  tipo: "ADIANTAMENTO", competencia: "10/2026", linhas, avisos: [], cltSemTitulo: [], total: linhas.reduce((a, x) => a + x.valor, 0),
   aLancar: resumo(linhas, "A_LANCAR"), lancado: resumo(linhas, "LANCADO"), pago: resumo(linhas, "PAGO"),
 });
 
@@ -40,7 +40,7 @@ beforeEach(() => {
 });
 
 const montar = (canEdit = true, onLancado = vi.fn()) =>
-  render(<PagamentoMeio year={2026} month={10} canEdit={canEdit} percentAdiantamento={40} versao="1" onLancado={onLancado} />);
+  render(<PagamentoMeio year={2026} month={10} canEdit={canEdit} percentAdiantamento={40} diaAdiantamento={20} versao="1" onLancado={onLancado} />);
 
 test("mostra a situação de cada pessoa, agrupada por empresa, com o resumo", async () => {
   montar();
@@ -59,7 +59,9 @@ test("lançar pede confirmação com nomes e valores; só grava ao confirmar", a
   const onLancado = vi.fn();
   montar(true, onLancado);
   fireEvent.click(await screen.findByRole("button", { name: "Lançar no Contas a Pagar (1)" }));
-  const dialogo = screen.getByRole("dialog", { name: "Confirmar lançamento" });
+  const dialogo = screen.getByRole("group", { name: "Confirmar lançamento" });
+  // Foco no Cancelar: um Enter distraído não grava nada.
+  expect(document.activeElement?.textContent).toBe("Cancelar");
   expect(dialogo.textContent).toMatch(/1 título novo de adiantamento · total R\$\s?920,00/);
   expect(dialogo.textContent).toMatch(/Carla Exemplo — R\$\s?920,00 · vence 20\/10\/2026/);
   expect(api.generatePayroll).not.toHaveBeenCalled();
@@ -69,7 +71,7 @@ test("lançar pede confirmação com nomes e valores; só grava ao confirmar", a
   await waitFor(() => expect(api.generatePayroll).toHaveBeenCalledWith(2026, 10, "ADIANTAMENTO_SR"));
   expect(await screen.findByText(/1 título criado no Contas a Pagar · R\$\s?920,00: Carla Exemplo\./)).toBeInTheDocument();
   expect(onLancado).toHaveBeenCalled();
-  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(screen.queryByRole("group", { name: "Confirmar lançamento" })).toBeNull();
   expect(screen.queryByRole("button", { name: /Lançar no Contas a Pagar/ })).toBeNull();
 });
 
@@ -77,7 +79,7 @@ test("cancelar a confirmação não grava nada", async () => {
   montar();
   fireEvent.click(await screen.findByRole("button", { name: "Lançar no Contas a Pagar (1)" }));
   fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
-  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(screen.queryByRole("group", { name: "Confirmar lançamento" })).toBeNull();
   expect(api.generatePayroll).not.toHaveBeenCalled();
 });
 
@@ -117,3 +119,38 @@ test("erro da API (sem permissão) aparece na tela", async () => {
   montar();
   expect(await screen.findByText(/é preciso permissão de ver Funcionários/)).toBeInTheDocument();
 });
+
+test("Esc fecha a confirmação sem gravar", async () => {
+  montar();
+  fireEvent.click(await screen.findByRole("button", { name: "Lançar no Contas a Pagar (1)" }));
+  fireEvent.keyDown(screen.getByRole("group", { name: "Confirmar lançamento" }), { key: "Escape" });
+  expect(screen.queryByRole("group", { name: "Confirmar lançamento" })).toBeNull();
+  expect(api.generatePayroll).not.toHaveBeenCalled();
+});
+
+test("lançou mas a lista não recarregou: avisa que o lançamento foi feito e oferece tentar de novo", async () => {
+  montar();
+  fireEvent.click(await screen.findByRole("button", { name: "Lançar no Contas a Pagar (1)" }));
+  api.getPagamentoMeio.mockRejectedValueOnce(new Error("Falha de rede"));
+  fireEvent.click(screen.getByRole("button", { name: "Confirmar e lançar" }));
+  expect(await screen.findByText(/Lançamento feito \(1 título criado\), mas a lista não recarregou/)).toBeInTheDocument();
+  expect(screen.getByText("Falha de rede")).toBeInTheDocument();
+  api.getPagamentoMeio.mockResolvedValue(DEPOIS);
+  fireEvent.click(screen.getByRole("button", { name: "Tentar de novo" }));
+  expect(await screen.findByText("Carla Exemplo")).toBeInTheDocument();
+});
+
+test("quinzena com valor a atualizar: a confirmação mostra o valor atual e o novo; o PDF sai como prévia", async () => {
+  const comAtualizar = dados([linha({ employeeId: "q", nome: "Edu Exemplo", grupo: "Sem registro", origem: "SEM_REGISTRO", valor: 1000, atualizarPara: 1100, vencimento: "2026-10-15" })]);
+  api.getPagamentoMeio.mockResolvedValue(comAtualizar);
+  montar();
+  fireEvent.click(await screen.findByRole("button", { name: "Lançar no Contas a Pagar (1)" }));
+  expect(screen.getByRole("group", { name: "Confirmar lançamento" }).textContent).toMatch(/Edu Exemplo — de R\$\s?1\.000,00 para R\$\s?1\.100,00/);
+  fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+  fireEvent.click(screen.getByRole("button", { name: "PDF para pagamento" }));
+  await waitFor(() => expect(pdf.gerarPdfListaPagamento).toHaveBeenCalled());
+  const [lista, opcoes] = pdf.gerarPdfListaPagamento.mock.calls[0] as unknown as [{ linhas: Array<{ aviso: string | null }> }, { selo: { tom: string } }];
+  expect(opcoes.selo.tom).toBe("aviso");
+  expect(lista.linhas[0].aviso).toMatch(/o cálculo de hoje dá R\$\s?1\.100,00/);
+});
+
