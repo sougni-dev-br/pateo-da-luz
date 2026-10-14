@@ -1,6 +1,7 @@
 import { Search } from "lucide-react";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
-import { searchDishProducts, type DishProductSearchResult } from "../../../api/client";
+import { searchDishFichas, searchDishProducts, type DishProductSearchResult } from "../../../api/client";
+import { chaveDoIngrediente } from "../../../lib/fichaTecnica";
 import { Money } from "../../../design-system";
 
 type Props = {
@@ -10,6 +11,8 @@ type Props = {
   /** Id do campo: o prato nos dois cardápios tem duas buscas na mesma tela. */
   idDoCampo?: string;
   rotulo?: string;
+  /** A ficha em edição, para não oferecer a ela mesma como ingrediente. */
+  excluirId?: string;
 };
 
 const ESPERA_DA_DIGITACAO_MS = 250;
@@ -19,11 +22,13 @@ const ESPERA_DA_DIGITACAO_MS = 250;
  * Respostas fora de ordem são descartadas: a busca por "arr" não pode sobrescrever
  * a de "arroz" só porque chegou depois.
  */
-export function BuscaDeIngrediente({ jaNaFicha, onEscolher, idDoCampo = "ft-busca-ingrediente", rotulo = "Buscar produto para adicionar à ficha" }: Props) {
+export function BuscaDeIngrediente({ jaNaFicha, onEscolher, idDoCampo = "ft-busca-ingrediente", rotulo = "Buscar produto para adicionar à ficha", excluirId }: Props) {
   const [texto, setTexto] = useState("");
   const [resultados, setResultados] = useState<DishProductSearchResult[]>([]);
   const [buscando, setBuscando] = useState(false);
   const [falhou, setFalhou] = useState(false);
+  // Só a busca das fichas de produção falhou: os produtos aparecem, mas quem procura uma ficha precisa saber que ela pode estar faltando.
+  const [fichasFalharam, setFichasFalharam] = useState(false);
   const [aberta, setAberta] = useState(false);
   const [indiceAtivo, setIndiceAtivo] = useState(0);
   // Termo que gerou `resultados`: Enter só vale quando a lista na tela é a do que está digitado.
@@ -46,11 +51,21 @@ export function BuscaDeIngrediente({ jaNaFicha, onEscolher, idDoCampo = "ft-busc
     setBuscando(true);
     const espera = window.setTimeout(async () => {
       try {
-        const achados = await searchDishProducts(termo);
+        // As fichas de produção são um extra: se a busca delas falhar, os produtos aparecem do mesmo jeito.
+        let fichasComFalha = false;
+        const [produtos, fichas] = await Promise.all([
+          searchDishProducts(termo),
+          searchDishFichas(termo, excluirId).catch(() => {
+            fichasComFalha = true;
+            return [] as DishProductSearchResult[];
+          })
+        ]);
+        const achados = [...produtos, ...fichas];
         if (minha !== ultimaBusca.current) return;
         setResultados(achados);
         setTermoDosResultados(termo);
         setFalhou(false);
+        setFichasFalharam(fichasComFalha);
         setIndiceAtivo(0);
       } catch {
         if (minha !== ultimaBusca.current) return;
@@ -63,7 +78,7 @@ export function BuscaDeIngrediente({ jaNaFicha, onEscolher, idDoCampo = "ft-busc
     }, ESPERA_DA_DIGITACAO_MS);
 
     return () => window.clearTimeout(espera);
-  }, [termo]);
+  }, [termo, excluirId]);
 
   function escolher(produto: DishProductSearchResult) {
     onEscolher(produto);
@@ -101,9 +116,9 @@ export function BuscaDeIngrediente({ jaNaFicha, onEscolher, idDoCampo = "ft-busc
     : falhou
       ? "Não foi possível buscar agora. Tente de novo."
       : resultados.length === 0 && termo !== ""
-        ? `Nenhum produto encontrado para “${termo}”.`
+        ? `Nenhum produto encontrado para “${termo}”.${fichasFalharam ? " Não foi possível buscar as fichas de produção agora." : ""}`
         : resultados.length > 0
-          ? `${resultados.length} produto${resultados.length === 1 ? "" : "s"} encontrado${resultados.length === 1 ? "" : "s"}.`
+          ? `${resultados.length} resultado${resultados.length === 1 ? "" : "s"} (produtos e fichas de produção).${fichasFalharam ? " A busca das fichas de produção falhou: pode haver mais." : ""}`
           : "";
 
   return (
@@ -135,10 +150,11 @@ export function BuscaDeIngrediente({ jaNaFicha, onEscolher, idDoCampo = "ft-busc
       {mostrarLista && (
         <ul id={idDaLista} role="listbox" aria-label="Produtos encontrados" className="ft-combo-lista">
           {resultados.map((produto, indice) => {
-            const repetido = jaNaFicha.has(produto.id);
+            const ehFicha = produto.kind === "FICHA";
+            const repetido = jaNaFicha.has(chaveDoIngrediente({ productId: produto.id, componentDishId: ehFicha ? produto.id : null }));
             return (
               <li
-                key={produto.id}
+                key={`${ehFicha ? "ficha" : "produto"}-${produto.id}`}
                 id={idDaOpcao(indice)}
                 role="option"
                 aria-selected={indice === indiceAtivo}
@@ -149,9 +165,9 @@ export function BuscaDeIngrediente({ jaNaFicha, onEscolher, idDoCampo = "ft-busc
                 onClick={() => escolher(produto)}
               >
                 <span className="ft-combo-nome">
-                  <strong>{produto.name}</strong>
+                  <strong>{produto.name}{ehFicha && <span className="ft-etiqueta-ficha">Ficha de produção</span>}</strong>
                   <small>
-                    {produto.externalCode ? `${produto.externalCode} · ` : ""}estoque em {produto.unit ?? "—"}
+                    {produto.externalCode ? `${produto.externalCode} · ` : ""}{ehFicha ? `rende em ${produto.unit ?? "—"}` : `estoque em ${produto.unit ?? "—"}`}
                     {produto.embalagemInferida && ` · ${produto.embalagemInferida}`}
                     {repetido && <em className="ft-combo-repetido"> · já está na ficha</em>}
                   </small>
@@ -159,7 +175,7 @@ export function BuscaDeIngrediente({ jaNaFicha, onEscolher, idDoCampo = "ft-busc
                 <span className="ft-combo-custo">
                   {produto.averageCost > 0
                     ? <><Money value={produto.averageCost} />{produto.unit ? ` / ${produto.unit}` : ""}</>
-                    : <em className="ft-sem-valor">sem custo médio</em>}
+                    : <em className="ft-sem-valor">{ehFicha ? "ficha incompleta" : "sem custo médio"}</em>}
                 </span>
               </li>
             );

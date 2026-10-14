@@ -1,5 +1,6 @@
 import { calculateDishCost } from "./dish-cost.js";
 import { toCostItem, type ClienteDoBanco } from "./dish-detail.js";
+import { anexarFichas } from "./dish-fichas-de-producao.js";
 
 /** O cardápio do salão é o "CARDAPIO" das fichas: o delivery tem quantidades e custo próprios. */
 export const MENU_DO_SALAO = "CARDAPIO";
@@ -23,7 +24,7 @@ export type PratoDoSalaoComCusto = {
  */
 export async function carregarPratosDoSalaoComCusto(client: ClienteDoBanco): Promise<PratoDoSalaoComCusto[]> {
   const pratos = await client.dish.findMany({
-    where: { isActive: true, OR: [{ menu: MENU_DO_SALAO }, { alsoMenu: MENU_DO_SALAO }] },
+    where: { isActive: true, fichaDeProducao: false, OR: [{ menu: MENU_DO_SALAO }, { alsoMenu: MENU_DO_SALAO }] },
     select: {
       id: true,
       name: true,
@@ -33,9 +34,11 @@ export async function carregarPratosDoSalaoComCusto(client: ClienteDoBanco): Pro
       items: {
         where: { menu: MENU_DO_SALAO },
         select: {
+          id: true,
           quantity: true,
           unit: true,
           wasteFactor: true,
+          componentDishId: true,
           product: {
             select: {
               name: true,
@@ -51,12 +54,15 @@ export async function carregarPratosDoSalaoComCusto(client: ClienteDoBanco): Pro
     orderBy: { name: "asc" }
   });
 
+  // Ingrediente pode ser outra ficha (de produção): uma leitura só resolve as de todos os pratos.
+  const comProduto = new Map((await anexarFichas(client, pratos.flatMap((prato) => prato.items))).map((item) => [item.id, item]));
+
   return pratos.map((prato) => {
     const precoFicha = prato.salePriceDefault ? Number(prato.salePriceDefault) : null;
     if (prato.items.length === 0) {
       return { id: prato.id, nome: prato.name, precoFicha, custoPorcao: null, itensNaFicha: 0, custoCompleto: false };
     }
-    const custo = calculateDishCost({ yieldQty: Number(prato.yieldQty), salePrice: precoFicha, items: prato.items.map((i) => toCostItem(i)) });
+    const custo = calculateDishCost({ yieldQty: Number(prato.yieldQty), salePrice: precoFicha, items: prato.items.map((i) => toCostItem(comProduto.get(i.id)!)) });
     // O relatorio trata cada unidade vendida como UMA porcao: ficha com rendimento em KG ou L daria custo por quilo.
     const rendimentoEmPorcao = UNIDADES_DE_PORCAO.has(String(prato.yieldUnit ?? "").trim().toUpperCase());
     return {

@@ -1,67 +1,19 @@
-import type { Prisma, PrismaClient } from "@prisma/client";
-import { calculateDishCost, type CostItemInput } from "./dish-cost.js";
-import { conversoesDoProduto, embalagemDoNome, normalizarUnidade } from "../../shared/unidades/conversao.js";
+import { calculateDishCost } from "./dish-cost.js";
+import { anexarFichas } from "./dish-fichas-de-producao.js";
+import {
+  conversoesDaFicha,
+  separarItensPorCardapio,
+  textoDaEmbalagemInferida,
+  toCostItem,
+  type ClienteDoBanco,
+  type ItemComProduto,
+  type ProdutoParaConversao
+} from "./dish-itens.js";
 
-/** Cliente do Prisma ou o de dentro de uma transacao: a mesma leitura serve aos dois. */
-export type ClienteDoBanco = Prisma.TransactionClient | PrismaClient;
-
-export type ItemComProduto = {
-  quantity: Prisma.Decimal | number;
-  unit: string;
-  wasteFactor: Prisma.Decimal | number;
-  product: {
-    name: string;
-    unit: string | null;
-    stockUnit?: string | null;
-    inventoryStock: { averageCost: Prisma.Decimal | null } | null;
-    conversions: Array<{ fromUnit: string; toUnit: string; factor: Prisma.Decimal | number }>;
-  };
-};
-
-/**
- * O custo medio do estoque e expresso em "stockUnit" quando ele existe; caindo
- * para "unit" quando o produto ainda nao tem unidade de estoque definida.
- */
-export type ProdutoParaConversao = ItemComProduto["product"];
-
-/**
- * Conversoes que valem na ficha: as cadastradas no produto mais, quando o estoque conta em
- * UN/pacote/caixa, o peso ou volume lido do NOME ("FARINHA TRIGO 5KG"). Assim a receita
- * pode ser lancada em g/ml. A mesma lista vai para a tela (previa de custo) e para o calculo.
- */
-export function conversoesDaFicha(produto: Pick<ProdutoParaConversao, "name" | "unit" | "stockUnit" | "conversions">) {
-  const cadastradas = produto.conversions.map((c) => ({
-    fromUnit: c.fromUnit,
-    toUnit: c.toUnit,
-    factor: Number(c.factor)
-  }));
-  return conversoesDoProduto(produto.name, produto.stockUnit || produto.unit, cadastradas);
-}
-
-/** "1 UN = 5 KG (lido do nome)" quando a conversao e inferida; null quando nao ha. */
-export function textoDaEmbalagemInferida(produto: Pick<ProdutoParaConversao, "name" | "unit" | "stockUnit" | "conversions">): string | null {
-  const conversoes = conversoesDaFicha(produto);
-  if (!conversoes.some((c) => c.inferida)) return null;
-  const embalagem = embalagemDoNome(produto.name);
-  const base = normalizarUnidade(produto.stockUnit || produto.unit);
-  return embalagem ? `1 ${base} = ${embalagem.quantidade.toLocaleString("pt-BR")} ${embalagem.unidade} (lido do nome do produto)` : null;
-}
-
-export function toCostItem(item: ItemComProduto): CostItemInput {
-  return {
-    quantity: Number(item.quantity),
-    unit: item.unit,
-    wasteFactor: Number(item.wasteFactor),
-    product: {
-      unit: item.product.stockUnit || item.product.unit,
-      averageCost: item.product.inventoryStock?.averageCost == null
-        ? null
-        : Number(item.product.inventoryStock.averageCost),
-      conversions: conversoesDaFicha(item.product)
-    }
-  };
-}
-
+// O que o cálculo precisa de cada ingrediente vive em dish-itens (sem importação circular com a ficha de produção);
+// reexportado aqui para quem já importava deste arquivo.
+export { conversoesDaFicha, separarItensPorCardapio, textoDaEmbalagemInferida, toCostItem };
+export type { ClienteDoBanco, ItemComProduto, ProdutoParaConversao };
 
 /** Preço lançado à mão no ERP (iFood, Keeta, loja ainda não importada), em vez de vindo do cardápio da plataforma. */
 export const PREFIXO_MANUAL = "manual:";
@@ -78,14 +30,6 @@ export function categoriaResumida(
     parentId: categoria.parentId,
     parentName: categoria.parent?.name ?? null,
     menu: categoria.menu ?? null
-  };
-}
-
-/** Itens do cardapio principal do prato e, se ele e vendido em dois, os do outro cardapio. Item de outro cardapio qualquer e ignorado. */
-export function separarItensPorCardapio<T extends { menu: string }>(dish: { menu: string; alsoMenu: string | null; items: T[] }) {
-  return {
-    principais: dish.items.filter((item) => item.menu === dish.menu),
-    doOutro: dish.alsoMenu && dish.alsoMenu !== dish.menu ? dish.items.filter((item) => item.menu === dish.alsoMenu) : []
   };
 }
 
@@ -120,9 +64,11 @@ export async function carregarDetalhe(client: ClienteDoBanco, id: string) {
   });
   if (!dish) return null;
 
+  // Ingrediente pode ser um produto comprado ou outra ficha (de produção): as duas coisas entram no cálculo como "produto".
+  const itensDaFicha = await anexarFichas(client, dish.items);
   const salePrice = dish.salePriceDefault ? Number(dish.salePriceDefault) : null;
   // A quantidade do a la carte nao e a do delivery: cada cardapio tem a sua lista, e o custo de cada um sai da propria.
-  const { principais, doOutro } = separarItensPorCardapio(dish);
+  const { principais, doOutro } = separarItensPorCardapio({ menu: dish.menu, alsoMenu: dish.alsoMenu, items: itensDaFicha });
   const custo = calculateDishCost({
     yieldQty: Number(dish.yieldQty),
     salePrice,
@@ -134,12 +80,14 @@ export async function carregarDetalhe(client: ClienteDoBanco, id: string) {
     items: doOutro.map((item) => toCostItem(item))
   });
 
-  const mapear = (lista: typeof dish.items, calculo: typeof custo) => lista.map((item, index) => {
+  const mapear = (lista: typeof itensDaFicha, calculo: typeof custo) => lista.map((item, index) => {
     const calculado = calculo.items[index];
     return {
       id: item.id,
       productId: item.productId,
-      productCode: item.product.externalCode,
+      // Preenchido quando o ingrediente é outra ficha (de produção) em vez de um produto comprado.
+      componentDishId: item.componentDishId,
+      productCode: item.product.externalCode ?? null,
       productName: item.product.name,
       productUnit: item.product.stockUnit || item.product.unit,
       quantity: Number(item.quantity),
@@ -178,6 +126,7 @@ export async function carregarDetalhe(client: ClienteDoBanco, id: string) {
     // Preparação do buffet criada pelo desperdício: inativa por desenho (não é vendida), mas se edita e, pendente, aguarda a ficha.
     fichaDeBuffet: dish.fichaDeBuffet,
     fichaPendente: dish.fichaPendente,
+    fichaDeProducao: dish.fichaDeProducao,
     calculatedCost: custo.totalCost,
     custoPorcao: custo.costPerServing,
     margemBruta: custo.margemBruta,

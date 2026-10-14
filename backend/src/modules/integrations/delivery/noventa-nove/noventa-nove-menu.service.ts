@@ -116,7 +116,7 @@ export async function importarCardapios(): Promise<MenuImportResult> {
   //    procurar prato, mais outras 250 para procurar listagem.
   const pratosPorChave = new Map<string, { id: string }>();
   // Preparação de buffet criada pelo desperdício não é prato vendido: item da 99 de mesmo nome não se liga a ela.
-  for (const d of await prisma.dish.findMany({ where: { fichaDeBuffet: false }, select: { id: true, name: true } })) {
+  for (const d of await prisma.dish.findMany({ where: { fichaDeBuffet: false, fichaDeProducao: false }, select: { id: true, name: true } })) {
     const chave = chaveDoPrato(d.name);
     // Se a base ja tem dois pratos que colapsam na mesma chave, fica o primeiro —
     // criar um terceiro so pioraria. O Eli resolve o duplicado na tela.

@@ -12,6 +12,7 @@ vi.mock("../../../config/database.js", () => {
     dishCategory: { findMany: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), count: vi.fn() },
     product: { findMany: vi.fn(), findUnique: vi.fn() },
     productUnitConversion: { findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
+    $executeRaw: vi.fn(),
     $transaction: vi.fn()
   };
   return { prisma };
@@ -274,6 +275,7 @@ describe("histórico de versões", () => {
   test("criar, alterar, inativar e reativar deixam uma versão cada, com a ação certa", async () => {
     await request(app).post("/dishes").send({ name: "Pizza" });
     await request(app).put("/dishes/d1").send({ name: "Pizza" });
+    db.dishItem.count.mockResolvedValueOnce(0); // nenhuma outra ficha usa o prato como ingrediente
     await request(app).delete("/dishes/d1");
     await request(app).post("/dishes/d1/reactivate");
     expect(db.dishRevision.create.mock.calls.map((c: [{ data: { action: string } }]) => c[0].data.action)).toEqual(["CRIADA", "ALTERADA", "INATIVADA", "REATIVADA"]);

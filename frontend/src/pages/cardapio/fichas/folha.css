@@ -59,3 +59,9 @@
 .fp-assinaturas { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6mm; margin-top: 5mm; }
 .fp-assinaturas > div { border-top: 0.6pt solid #000; padding-top: 0.6mm; text-align: center; }
 .fp-assinaturas span { font-size: 6.8pt; text-transform: uppercase; color: #555; }
+
+/* Nome de produto comprido (ex.: "BATATA CONGELADA MCCAIN - MAIS BATATA - BEM BRASIL PACOTE") quebra em até 2 linhas em vez de ser cortado. */
+.fp-tabela td .fp-nome {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+  white-space: normal; line-height: 1.05; font-size: 8.2pt; overflow-wrap: anywhere;
+}

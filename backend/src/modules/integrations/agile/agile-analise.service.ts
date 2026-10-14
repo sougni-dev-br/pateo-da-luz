@@ -426,7 +426,7 @@ export async function vincularProdutoAoPrato(codigo: string, nome: string, prato
     return "ok";
   }
   const prato = await prisma.dish.findFirst({
-    where: { id: pratoId, isActive: true, OR: [{ menu: "CARDAPIO" }, { alsoMenu: "CARDAPIO" }] },
+    where: { id: pratoId, isActive: true, fichaDeProducao: false, OR: [{ menu: "CARDAPIO" }, { alsoMenu: "CARDAPIO" }] },
     select: { id: true }
   });
   if (!prato) return "prato-invalido";

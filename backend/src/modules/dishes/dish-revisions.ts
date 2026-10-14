@@ -9,6 +9,7 @@ export type AcaoDaRevisao = "CRIADA" | "ALTERADA" | "INATIVADA" | "REATIVADA";
  */
 const itemDoSnapshot = (item: DetalheDoPrato["items"][number]) => ({
   productId: item.productId,
+  componentDishId: item.componentDishId,
   productName: item.productName,
   quantity: item.quantity,
   unit: item.unit,
@@ -33,6 +34,8 @@ export function montarSnapshot(detalhe: DetalheDoPrato) {
     shelfLifeDays: detalhe.shelfLifeDays,
     notes: detalhe.notes,
     isActive: detalhe.isActive,
+    // Ficha de produção (não vendida) x prato vendido: o histórico mostra quando uma ficha mudou de tipo.
+    fichaDeProducao: detalhe.fichaDeProducao,
     // Preço em cada loja no momento: o histórico mostra quando o preço de uma loja mudou.
     canais: detalhe.listings
       .filter((listagem) => listagem.isActive)

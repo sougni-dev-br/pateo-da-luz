@@ -104,12 +104,13 @@ export function LinhaDeIngrediente({ item, erro, repetido, onAlterar, onRemover,
   const unidadeAtual = normalizarUnidade(item.unit);
   const idDaNota = `ft-nota-${item.tempId}`;
   // Conversão lida do nome: só avisa quando a unidade escolhida depende dela.
-  const usaEmbalagemDoNome = Boolean(item.embalagemInferida) && unidadeAtual !== normalizarUnidade(item.productUnit);
-  const medida = medidaInformavel(unidadeAtual);
+  const usaEmbalagemDoNome = !item.ehFicha && Boolean(item.embalagemInferida) && unidadeAtual !== normalizarUnidade(item.productUnit);
+  // Ficha de produção não tem "quanto vale 1 UN em g" para informar: a unidade é a de rendimento dela.
+  const medida = item.ehFicha ? null : medidaInformavel(unidadeAtual);
   const [corrigindo, setCorrigindo] = useState(false);
   const faltaConversao = item.unitCost > 0 && fatorConversao(item.unit, item.productUnit, item.conversions) == null && medida != null;
 
-  const opcoes = opcoesDeUnidade(item.productUnit, item.conversions, item.unit).map((opcao) => ({ value: opcao.value, label: opcao.label }));
+  const opcoes = opcoesDeUnidade(item.productUnit, item.conversions, item.unit, item.ehFicha).map((opcao) => ({ value: opcao.value, label: opcao.label }));
   const podeCorrigirALeitura = usaEmbalagemDoNome && !faltaConversao && medida != null;
   const textoDaNota = erro?.mensagem
     ?? (faltaConversao ? null : motivo)
@@ -122,11 +123,11 @@ export function LinhaDeIngrediente({ item, erro, repetido, onAlterar, onRemover,
     <li className={`ft-ingrediente${erro ? " ft-ingrediente--erro" : motivo ? " ft-ingrediente--alerta" : ""}`}>
       <div className="ft-ingrediente-linha">
         <div className="ft-ingrediente-produto">
-          <strong>{item.productName}</strong>
+          <strong>{item.productName}{item.ehFicha && <span className="ft-etiqueta-ficha">Ficha de produção</span>}</strong>
           <small>
             {item.unitCost > 0
-              ? <>Estoque: <Money value={item.unitCost} />{item.productUnit ? ` / ${item.productUnit}` : ""}</>
-              : "Sem custo no estoque"}
+              ? <>{item.ehFicha ? "Custo da ficha" : "Estoque"}: <Money value={item.unitCost} />{item.productUnit ? ` / ${item.productUnit}` : ""}</>
+              : item.ehFicha ? "Ficha de produção incompleta" : "Sem custo no estoque"}
           </small>
         </div>
 

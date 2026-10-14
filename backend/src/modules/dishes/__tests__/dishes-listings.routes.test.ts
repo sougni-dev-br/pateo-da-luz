@@ -167,3 +167,15 @@ describe("lojas e preços por canal", () => {
     expect((await request(app).delete("/dishes/d1/listings/zz")).status).toBe(404);
   });
 });
+
+describe("ficha de produção não tem preço nos canais", () => {
+  test("criar listagem para ficha de produção é recusado", async () => {
+    db.dish.findUnique.mockImplementation(async (arg: { where: { id: string }; select?: object }) =>
+      arg.select ? { id: arg.where.id, name: "Massa", fichaDeProducao: true } : detalheComListagens(arg.where.id));
+    const r = await request(app).post("/dishes/m1/listings").send({ deliveryStoreId: "s-ifood", price: 40 });
+    expect(r.status).toBe(400);
+    expect(r.body.message).toMatch(/Ficha de produção não é vendida/);
+    expect(db.dishListing.create).not.toHaveBeenCalled();
+  });
+});
+

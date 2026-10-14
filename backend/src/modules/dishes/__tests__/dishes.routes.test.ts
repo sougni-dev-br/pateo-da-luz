@@ -12,10 +12,11 @@ vi.mock("../../../config/database.js", () => {
     wasteEntry: { groupBy: vi.fn(), findMany: vi.fn(), update: vi.fn() },
     user: { findMany: vi.fn() },
     dishRevision: { create: vi.fn(), findMany: vi.fn() },
-    dishItem: { createMany: vi.fn(), deleteMany: vi.fn(), count: vi.fn(), groupBy: vi.fn() },
+    dishItem: { createMany: vi.fn(), deleteMany: vi.fn(), count: vi.fn(), groupBy: vi.fn(), findMany: vi.fn() },
     dishCategory: { findMany: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), count: vi.fn() },
     product: { findMany: vi.fn(), findUnique: vi.fn() },
     productUnitConversion: { findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
+    $executeRaw: vi.fn(),
     $transaction: vi.fn()
   };
   return { prisma };
@@ -446,3 +447,248 @@ describe("pratos aguardando ficha (criados pelo desperdício)", () => {
     erro.mockRestore();
   });
 });
+
+describe("ficha de produção como ingrediente (ficha dentro de ficha)", () => {
+  const fichaDeBaixo = { id: "massa", name: "Nhoque - Massa", yieldUnit: "UN", fichaDeProducao: true, items: [] as Array<{ componentDishId: string | null }> };
+  const itemFicha = { componentDishId: "massa", quantity: 1, unit: "UN" };
+
+  beforeEach(() => {
+    // O validador consulta as fichas pedidas por id (nome, unidade de rendimento e os ingredientes que são ficha).
+    db.dish.findMany.mockImplementation(async (arg: { where: { id?: { in?: string[] } } }) => (arg.where.id?.in ?? []).includes("massa") ? [fichaDeBaixo] : []);
+  });
+
+  test("grava o ingrediente-ficha sem produto, com a ficha de baixo no lugar", async () => {
+    const r = await request(app).post("/dishes").send({ ...pratoValido, items: [ingrediente, itemFicha] });
+    expect(r.status).toBe(200);
+    expect(db.dishItem.createMany).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({ productId: "p1", componentDishId: null }),
+        expect.objectContaining({ productId: null, componentDishId: "massa", quantity: 1, unit: "UN" }),
+      ]
+    });
+  });
+
+  test("ingrediente é produto OU ficha: os dois juntos ou nenhum dos dois é recusado", async () => {
+    const dois = await request(app).post("/dishes").send({ ...pratoValido, items: [{ ...itemFicha, productId: "p1" }] });
+    expect(dois.status).toBe(400);
+    const nenhum = await request(app).post("/dishes").send({ ...pratoValido, items: [{ quantity: 1, unit: "UN" }] });
+    expect(nenhum.status).toBe(400);
+    expect(db.dish.create).not.toHaveBeenCalled();
+  });
+
+  test("ficha de baixo que não existe é recusada antes de gravar", async () => {
+    const r = await request(app).post("/dishes").send({ ...pratoValido, items: [{ ...itemFicha, componentDishId: "fantasma" }] });
+    expect(r.status).toBe(400);
+    expect(r.body.message).toMatch(/Ficha de produção do ingrediente não encontrada/);
+    expect(db.dish.create).not.toHaveBeenCalled();
+  });
+
+  test("unidade que não é a de rendimento da ficha (g de uma ficha que rende em UN) é recusada com a explicação", async () => {
+    const r = await request(app).post("/dishes").send({ ...pratoValido, items: [{ ...itemFicha, unit: "G" }] });
+    expect(r.status).toBe(400);
+    expect(r.body.message).toMatch(/rende em UN/);
+  });
+
+  test("editar: uma ficha não pode ter a si mesma como ingrediente", async () => {
+    const r = await request(app).put("/dishes/massa").send({ ...pratoValido, items: [itemFicha] });
+    expect(r.status).toBe(400);
+    expect(r.body.message).toMatch(/a si mesma/);
+    expect(db.dishItem.createMany).not.toHaveBeenCalled();
+  });
+
+  test("editar: ciclo (a ficha escolhida já usa esta) é recusado", async () => {
+    db.dish.findMany.mockImplementation(async (arg: { where: { id?: { in?: string[] } } }) =>
+      (arg.where.id?.in ?? []).includes("massa") ? [{ ...fichaDeBaixo, items: [{ componentDishId: "d1" }] }] : []);
+    const r = await request(app).put("/dishes/d1").send({ ...pratoValido, items: [itemFicha] });
+    expect(r.status).toBe(400);
+    expect(r.body.message).toMatch(/já usa esta ficha/);
+  });
+});
+
+describe("busca de fichas para usar como ingrediente", () => {
+  test("volta no formato da busca de produtos, com a unidade de rendimento e o custo de uma unidade", async () => {
+    db.dish.findMany.mockImplementation(async (arg: { select?: { id?: boolean } }) =>
+      arg.select?.id && !("name" in (arg.select ?? {})) ? [{ id: "massa" }] : [{
+        id: "massa", name: "Nhoque - Massa", code: null, menu: "DELIVERY", alsoMenu: null, yieldQty: 12, yieldUnit: "UN",
+        items: [{ menu: "DELIVERY", quantity: 1000, unit: "G", wasteFactor: 0, componentDishId: null, product: { id: "p", externalCode: null, name: "FARINHA", unit: "KG", stockUnit: "KG", inventoryStock: { averageCost: 12, currentQuantity: 1 }, conversions: [] } }]
+      }]);
+    const r = await request(app).get("/dishes/fichas/search?search=nhoq&exclude=outro");
+    expect(r.status).toBe(200);
+    expect(r.body[0]).toMatchObject({ id: "massa", name: "Nhoque - Massa", unit: "UN", averageCost: 1, kind: "FICHA", incompleta: false });
+    const consulta = db.dish.findMany.mock.calls[0][0];
+    expect(consulta.where.id).toEqual({ not: "outro" });
+    expect(JSON.stringify(consulta.where)).toContain("nhoq");
+    // Prato vendido não é oferecido como ingrediente: só ficha de produção.
+    expect(consulta.where.fichaDeProducao).toBe(true);
+  });
+});
+
+describe("sugestões de ficha de produção para o prato", () => {
+  test("acha a massa copiada à mão e devolve o que trocar", async () => {
+    db.dish.findUnique.mockImplementation(async () => ({ id: "prato", menu: "DELIVERY", items: [
+      { id: "a", menu: "DELIVERY", productId: "farinha", componentDishId: null, quantity: 83.3333, unit: "G" },
+      { id: "b", menu: "DELIVERY", productId: "batata", componentDishId: null, quantity: 83.3333, unit: "G" },
+      { id: "c", menu: "DELIVERY", productId: "creme", componentDishId: null, quantity: 150, unit: "G" },
+    ] }));
+    db.dish.findMany.mockResolvedValue([{ id: "massa", name: "Nhoque - Massa", menu: "DELIVERY", yieldQty: 12, yieldUnit: "UN", items: [
+      { menu: "DELIVERY", productId: "farinha", quantity: 1000, unit: "G" }, { menu: "DELIVERY", productId: "batata", quantity: 1000, unit: "G" },
+    ] }]);
+    const r = await request(app).get("/dishes/prato/sugestoes-de-ficha");
+    expect(r.body).toHaveLength(1);
+    expect(r.body[0]).toMatchObject({ componentDishId: "massa", name: "Nhoque - Massa", quantity: 1, unit: "UN", itemIds: ["a", "b"] });
+    // O custo da ficha de baixo vem junto (aqui a ficha de mentira não tem produtos, então fica incompleta e sem custo).
+    expect(r.body[0]).toHaveProperty("unitCost");
+    expect(r.body[0]).toHaveProperty("incompleta");
+  });
+
+  test("prato que não existe é 404", async () => {
+    db.dish.findUnique.mockResolvedValue(null);
+    expect((await request(app).get("/dishes/x/sugestoes-de-ficha")).status).toBe(404);
+  });
+
+  test("ficha que já usa outra ficha não entra na comparação", async () => {
+    db.dish.findUnique.mockImplementation(async () => ({ id: "prato", menu: "DELIVERY", items: [{ id: "a", menu: "DELIVERY", productId: "farinha", componentDishId: null, quantity: 100, unit: "G" }, { id: "b", menu: "DELIVERY", productId: "x", componentDishId: null, quantity: 1, unit: "UN" }] }));
+    db.dish.findMany.mockResolvedValue([{ id: "mista", name: "Mista", menu: "DELIVERY", yieldQty: 1, yieldUnit: "UN", items: [{ menu: "DELIVERY", productId: "farinha", quantity: 100, unit: "G" }, { menu: "DELIVERY", productId: null, quantity: 1, unit: "UN" }] }]);
+    expect((await request(app).get("/dishes/prato/sugestoes-de-ficha")).body).toEqual([]);
+  });
+});
+
+describe("ficha de produção x prato vendido", () => {
+  const producao = { name: "Nhoque - Massa", yieldQty: 12, yieldUnit: "UN", items: [ingrediente] };
+
+  test("criar ficha de produção: sem preço, categoria nem segundo cardápio, mesmo que a tela mande", async () => {
+    const r = await request(app).post("/dishes").send({ ...producao, fichaDeProducao: true, salePriceDefault: 40, categoryId: "c1", alsoMenu: "DELIVERY", alsoCategoryId: "c2", alsoItems: [ingrediente] });
+    expect(r.status).toBe(200);
+    expect(db.dish.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ fichaDeProducao: true, salePriceDefault: null, categoryId: null, alsoMenu: null, alsoCategoryId: null })
+    });
+    // Só a lista principal é gravada.
+    expect(db.dishItem.createMany.mock.calls[0][0].data).toHaveLength(1);
+  });
+
+  test("prato comum nasce como prato vendido", async () => {
+    await request(app).post("/dishes").send(pratoValido);
+    expect(db.dish.create).toHaveBeenCalledWith({ data: expect.objectContaining({ fichaDeProducao: false }) });
+  });
+
+  test("a lista de pratos não traz ficha de produção, e ?tipo=producao traz só elas", async () => {
+    db.dish.findMany.mockResolvedValue([]);
+    await request(app).get("/dishes");
+    expect(db.dish.findMany.mock.calls[0][0].where).toMatchObject({ fichaDeProducao: false });
+    db.dish.findMany.mockClear();
+    await request(app).get("/dishes?tipo=producao");
+    expect(db.dish.findMany.mock.calls[0][0].where).toMatchObject({ fichaDeProducao: true });
+  });
+
+  test("prato vendido não entra como ingrediente de outra ficha", async () => {
+    db.dish.findMany.mockImplementation(async (arg: { where: { id?: { in?: string[] } } }) =>
+      (arg.where.id?.in ?? []).includes("massa") ? [{ id: "massa", name: "Nhoque ao molho", yieldUnit: "UN", fichaDeProducao: false, items: [] }] : []);
+    const r = await request(app).post("/dishes").send({ ...pratoValido, items: [{ componentDishId: "massa", quantity: 1, unit: "UN" }] });
+    expect(r.status).toBe(400);
+    expect(r.body.message).toMatch(/prato vendido, não uma ficha de produção/);
+    expect(db.dish.create).not.toHaveBeenCalled();
+  });
+
+  test("editar: ficha de produção que já é ingrediente de outra não vira prato vendido", async () => {
+    db.dish.findUnique.mockImplementation(async (arg: { where: { id: string }; select?: object }) =>
+      arg.select ? { menu: "CARDAPIO", alsoMenu: null, alsoCategoryId: null, fichaDeProducao: true } : detalheMinimo(arg.where.id));
+    db.dishItem.count.mockResolvedValue(2);
+    const r = await request(app).put("/dishes/massa").send({ ...producao, fichaDeProducao: false });
+    expect(r.status).toBe(400);
+    expect(r.body.message).toMatch(/ingrediente de 2 itens de outras fichas/);
+    expect(db.dish.update).not.toHaveBeenCalled();
+  });
+
+  test("editar: prato com preço nos canais não vira ficha de produção", async () => {
+    db.dishListing = { count: vi.fn().mockResolvedValue(1) };
+    db.agileProdutoPrato = { count: vi.fn().mockResolvedValue(0) };
+    const r = await request(app).put("/dishes/d1").send({ ...pratoValido, fichaDeProducao: true });
+    expect(r.status).toBe(400);
+    expect(r.body.message).toMatch(/preço nos canais/);
+    expect(db.dish.update).not.toHaveBeenCalled();
+  });
+
+  test("editar sem mandar o tipo (tela antiga) mantém a ficha de produção como está e continua sem preço", async () => {
+    db.dish.findUnique.mockImplementation(async (arg: { where: { id: string }; select?: object }) =>
+      arg.select ? { menu: "CARDAPIO", alsoMenu: null, alsoCategoryId: null, fichaDeProducao: true, yieldUnit: "UN" } : detalheMinimo(arg.where.id));
+    const r = await request(app).put("/dishes/massa").send({ ...producao, salePriceDefault: 40 });
+    expect(r.status).toBe(200);
+    expect(db.dish.update.mock.calls[0][0].data).toMatchObject({ fichaDeProducao: true, salePriceDefault: null, categoryId: null });
+  });
+});
+
+describe("ficha de produção em uso", () => {
+  const comoProducao = (extra: object = {}) => async (arg: { where: { id: string }; select?: object }) =>
+    arg.select
+      ? { menu: "CARDAPIO", alsoMenu: null, alsoCategoryId: null, fichaDeProducao: true, fichaDeBuffet: false, yieldUnit: "UN", ...extra }
+      : { ...detalheMinimo(arg.where.id), fichaDeProducao: true };
+  const producao = { name: "Nhoque - Massa", yieldQty: 12, yieldUnit: "UN", items: [ingrediente] };
+
+  test("inativar uma ficha de produção que é ingrediente de outra é recusado, com a contagem", async () => {
+    db.dishItem.count.mockResolvedValueOnce(3);
+    const r = await request(app).delete("/dishes/massa");
+    expect(r.status).toBe(400);
+    expect(r.body.message).toMatch(/ingrediente de 3 itens de outras fichas/);
+    expect(db.dish.update).not.toHaveBeenCalled();
+  });
+
+  test("trocar a unidade de rendimento de uma ficha em uso é recusado; sem uso, passa", async () => {
+    db.dish.findUnique.mockImplementation(comoProducao());
+    db.dishItem.count.mockResolvedValue(2);
+    const recusada = await request(app).put("/dishes/massa").send({ ...producao, yieldUnit: "KG" });
+    expect(recusada.status).toBe(400);
+    expect(recusada.body.message).toMatch(/não dá para trocar a unidade de rendimento/);
+    db.dishItem.count.mockResolvedValue(0);
+    const livre = await request(app).put("/dishes/massa").send({ ...producao, yieldUnit: "KG" });
+    expect(livre.status).toBe(200);
+  });
+
+  test("mudar só a quantidade do rendimento de uma ficha em uso é permitido", async () => {
+    db.dish.findUnique.mockImplementation(comoProducao());
+    db.dishItem.count.mockResolvedValue(2);
+    const r = await request(app).put("/dishes/massa").send({ ...producao, yieldQty: 10 });
+    expect(r.status).toBe(200);
+  });
+
+  test("o detalhe da ficha de produção diz em quais fichas ela é usada, sem repetir e em ordem", async () => {
+    db.dish.findUnique.mockImplementation(comoProducao());
+    db.dishItem.findMany.mockResolvedValue([
+      { dish: { id: "b", name: "Nhoque ao molho" } }, { dish: { id: "a", name: "Gnocchi 4 queijos" } }, { dish: { id: "b", name: "Nhoque ao molho" } },
+    ]);
+    const r = await request(app).get("/dishes/massa");
+    expect(r.status).toBe(200);
+    expect(r.body.usadaEm).toEqual([{ id: "a", name: "Gnocchi 4 queijos" }, { id: "b", name: "Nhoque ao molho" }]);
+  });
+
+  test("preparação do buffet do desperdício não vira ficha de produção", async () => {
+    db.dish.findUnique.mockImplementation(async (arg: { where: { id: string }; select?: object }) =>
+      arg.select ? { menu: "CARDAPIO", alsoMenu: null, alsoCategoryId: null, fichaDeProducao: false, fichaDeBuffet: true, yieldUnit: "UN" } : detalheMinimo(arg.where.id));
+    const r = await request(app).put("/dishes/pure").send({ ...producao, fichaDeProducao: true });
+    expect(r.status).toBe(400);
+    expect(r.body.message).toMatch(/buffet/);
+  });
+
+  test("mais de 300 ingredientes é recusado antes de consultar o banco", async () => {
+    const muitos = Array.from({ length: 301 }, (_, i) => ({ productId: `p${i}`, quantity: 1, unit: "G" }));
+    const r = await request(app).post("/dishes").send({ ...pratoValido, items: muitos });
+    expect(r.status).toBe(400);
+    expect(db.product.findMany).not.toHaveBeenCalled();
+  });
+
+  test("a revalidação dentro da transação trava as gravações de ficha e recusa o ciclo que outra gravação acabou de fechar", async () => {
+    // A validação isolada (fora da transação) não via nada; dentro da transação a ficha de baixo já usa esta.
+    let chamadas = 0;
+    db.dish.findMany.mockImplementation(async (arg: { where: { id?: { in?: string[] } } }) => {
+      chamadas += 1;
+      const ids = arg.where.id?.in ?? [];
+      if (!ids.includes("massa")) return [];
+      return [{ id: "massa", name: "Nhoque - Massa", yieldUnit: "UN", fichaDeProducao: true, items: chamadas > 1 ? [{ componentDishId: "d1" }] : [] }];
+    });
+    const r = await request(app).put("/dishes/d1").send({ ...pratoValido, items: [{ componentDishId: "massa", quantity: 1, unit: "UN" }] });
+    expect(r.status).toBe(400);
+    expect(r.body.message).toMatch(/já usa esta ficha/);
+    expect(db.$executeRaw).toHaveBeenCalled();
+    expect(db.dishItem.createMany).not.toHaveBeenCalled();
+  });
+});
+

@@ -1729,43 +1729,48 @@ model DishCategory {
 }
 
 model Dish {
-  id                 String              @id @default(cuid())
-  code               String?             @unique
-  name               String
-  categoryId         String?
-  category           DishCategory?       @relation("DishCategoria", fields: [categoryId], references: [id])
-  salePriceDefault   Decimal?            @db.Decimal(10, 2)
-  yieldQty           Decimal             @default(1) @db.Decimal(8, 3)
-  yieldUnit          String              @default("UN")
+  id                   String              @id @default(cuid())
+  code                 String?             @unique
+  name                 String
+  categoryId           String?
+  category             DishCategory?       @relation("DishCategoria", fields: [categoryId], references: [id])
+  salePriceDefault     Decimal?            @db.Decimal(10, 2)
+  yieldQty             Decimal             @default(1) @db.Decimal(8, 3)
+  yieldUnit            String              @default("UN")
   // Peso de cada porção em gramas (ex.: 160) e por quantos dias o preparo pode ser usado (ex.: 4). Opcionais.
-  portionWeightG   Decimal?       @db.Decimal(10, 3)
-  shelfLifeDays    Int?
-  notes              String?
-  isActive           Boolean             @default(true)
+  portionWeightG       Decimal?            @db.Decimal(10, 3)
+  shelfLifeDays        Int?
+  notes                String?
+  isActive             Boolean             @default(true)
   // Em que cardapio o prato vive: CARDAPIO (salao) ou DELIVERY. Salao e delivery sao cardapios
   // separados (regra do Eli); o mesmo nome em cada um e uma ficha propria.
-  menu               String              @default("CARDAPIO")
+  menu                 String              @default("CARDAPIO")
   // O mesmo prato vendido nos dois cardapios (ex.: um filé que sai no a la carte e no delivery): a ficha e uma
   // so, e aqui fica o OUTRO cardapio e a categoria dele. Nulo = vendido so em "menu".
-  alsoMenu           String?
-  alsoCategoryId     String?
-  alsoCategory       DishCategory?       @relation("DishCategoriaNoOutroCardapio", fields: [alsoCategoryId], references: [id])
+  alsoMenu             String?
+  alsoCategoryId       String?
+  alsoCategory         DishCategory?       @relation("DishCategoriaNoOutroCardapio", fields: [alsoCategoryId], references: [id])
   // Preparação do buffet criada pelo lançamento de desperdício (o purê, uma guarnição): nunca é vendida, então
   // nasce inativa e some de cardápio, preço e mix; existe para a perda poder ser valorada pela ficha.
-  fichaDeBuffet      Boolean             @default(false)
+  fichaDeBuffet        Boolean             @default(false)
+  // Ficha de producao (a massa do nhoque): preparo que entra como ingrediente de outras fichas. Nao e vendida: sem preco de
+  // venda, categoria, canal nem CMV proprio; so o custo por unidade de rendimento, que o prato vendido usa no CMV dele.
+  fichaDeProducao      Boolean             @default(false)
   // Aguardando alguém montar a ficha. Sai disto quando a ficha fica completa (custo conhecido).
-  fichaPendente      Boolean             @default(false)
-  pendenteDesde      DateTime?
-  pendentePorId      String?
-  pendenteObservacao String?
-  fichaConcluidaEm   DateTime?
-  items              DishItem[]
-  listings           DishListing[]
-  revisions          DishRevision[]
-  wasteEntries       WasteEntry[]
-  pdvProducts        AgileProdutoPrato[]
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
+  fichaPendente        Boolean             @default(false)
+  pendenteDesde        DateTime?
+  pendentePorId        String?
+  pendenteObservacao   String?
+  fichaConcluidaEm     DateTime?
+  items                DishItem[]
+  // Onde esta ficha entra como ingrediente de outra (ficha de producao).
+  usadaComoIngrediente DishItem[]          @relation("DishComponente")
+  listings             DishListing[]
+  revisions            DishRevision[]
+  wasteEntries         WasteEntry[]
+  pdvProducts          AgileProdutoPrato[]
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
 
   @@index([categoryId])
   @@index([alsoCategoryId])
@@ -1838,25 +1843,31 @@ model DishListing {
 }
 
 model DishItem {
-  id          String   @id @default(cuid())
-  dishId      String
-  dish        Dish     @relation(fields: [dishId], references: [id], onDelete: Cascade)
-  productId   String
-  product     Product  @relation(fields: [productId], references: [id])
-  quantity    Decimal  @db.Decimal(10, 4)
-  unit        String
-  wasteFactor Decimal  @default(0) @db.Decimal(5, 4)
-  notes       String?
-  sortOrder   Int      @default(0)
+  id              String   @id @default(cuid())
+  dishId          String
+  dish            Dish     @relation(fields: [dishId], references: [id], onDelete: Cascade)
+  // Ingrediente: um produto comprado OU outra ficha (ficha de producao, ex.: a massa do nhoque), nunca os dois
+  // (CHECK na migration). Ficha como item entra no custo pelo custo por unidade de rendimento dela.
+  productId       String?
+  // Restrict (e não o SetNull padrão de relação opcional): apagar o produto não pode deixar o item sem produto e sem ficha, que o CHECK proíbe.
+  product         Product? @relation(fields: [productId], references: [id], onDelete: Restrict)
+  componentDishId String?
+  componentDish   Dish?    @relation("DishComponente", fields: [componentDishId], references: [id], onDelete: Restrict)
+  quantity        Decimal  @db.Decimal(10, 4)
+  unit            String
+  wasteFactor     Decimal  @default(0) @db.Decimal(5, 4)
+  notes           String?
+  sortOrder       Int      @default(0)
   // Ficha por cardapio: a quantidade do a la carte nao e a do delivery. O item pertence ao cardapio (CARDAPIO|DELIVERY)
   // em que a quantidade vale; o prato vendido nos dois tem uma lista de itens para cada um.
-  menu        String   @default("CARDAPIO")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  menu            String   @default("CARDAPIO")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   @@index([dishId])
   @@index([dishId, menu])
   @@index([productId])
+  @@index([componentDishId])
 }
 
 // Plaquinhas do buffet: catálogo de nomes para impressão (português + inglês),

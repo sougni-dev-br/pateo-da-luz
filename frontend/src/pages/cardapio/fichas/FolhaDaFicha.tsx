@@ -2,13 +2,12 @@
 // e só aparece na impressão; "Salvar como PDF" na janela de impressão gera o PDF.
 import { createPortal } from "react-dom";
 import { useCallback, useEffect, useState } from "react";
-import { alturaDaLinha, linhasDaTabela, type FolhaDados } from "../../../lib/folhaDaFicha";
+import { alturaDaLinha, linhasDaTabela, linhasDoModoDePreparo, type FolhaDados } from "../../../lib/folhaDaFicha";
 import "./folha.css";
 
 export const CLASSE_IMPRIMINDO_FOLHAS = "imprimindo-folhas-fichas";
 
 const marca = (marcado: boolean, rotulo: string) => `(${marcado ? "X" : "  "}) ${rotulo}`;
-const LINHAS_DO_MODO_DE_PREPARO = 7;
 
 function Celula({ rotulo, valor, span }: { rotulo: string; valor?: string; span: number }) {
   return (
@@ -28,16 +27,29 @@ export function FolhaDaFicha({ folha, numero, total }: { folha: FolhaDados; nume
       <header className="fp-topo">
         <div>
           <p className="fp-marca">Pateo da Luz</p>
-          <h1 className="fp-titulo">Ficha técnica de prato</h1>
+          <h1 className="fp-titulo">{folha.producao ? "Ficha técnica de produção" : "Ficha técnica de prato"}</h1>
         </div>
         <p className="fp-pagina">{total > 1 ? `Folha ${numero} de ${total}` : ""}</p>
       </header>
 
       <h2 className="fp-secao">1. Identificação</h2>
       <div className="fp-linha-celulas">
-        <Celula rotulo="Prato" valor={folha.prato} span={8} />
+        <Celula rotulo={folha.producao ? "Ficha de produção" : "Prato"} valor={folha.prato} span={8} />
         <Celula rotulo="Código" valor={folha.codigo} span={4} />
       </div>
+      {folha.producao ? (
+        <>
+          <div className="fp-linha-celulas">
+            <Celula rotulo="Tipo" valor="Ficha de produção: preparo que não se vende, usado como ingrediente de outras fichas" span={12} />
+          </div>
+          <div className="fp-linha-celulas">
+            <Celula rotulo="Rendimento (quanto rende)" valor={folha.rendimento} span={4} />
+            <Celula rotulo="Unidade do rendimento" valor={folha.unidadeDoRendimento} span={4} />
+            <Celula rotulo="Data" valor="" span={4} />
+          </div>
+        </>
+      ) : (
+        <>
       <div className="fp-linha-celulas">
         <div className="fp-celula" style={{ gridColumn: "span 4" }}>
           <span className="fp-rotulo">Cardápio</span>
@@ -52,6 +64,8 @@ export function FolhaDaFicha({ folha, numero, total }: { folha: FolhaDados; nume
         <Celula rotulo="Preço de venda (R$)" valor={folha.preco} span={3} />
         <Celula rotulo="Data" valor="" span={3} />
       </div>
+        </>
+      )}
       <div className="fp-linha-celulas">
         <Celula rotulo="Peso da porção (g)" valor={folha.pesoDaPorcao} span={3} />
         <Celula rotulo="Validade de uso (dias)" valor={folha.validadeDeUso} span={3} />
@@ -74,7 +88,7 @@ export function FolhaDaFicha({ folha, numero, total }: { folha: FolhaDados; nume
           {linhas.map((linha, indice) => (
             <tr key={indice}>
               <td className="fp-n">{indice + 1}</td>
-              <td>{linha.nome}</td>
+              <td><span className="fp-nome">{linha.nome}</span></td>
               <td className="fp-cod">{linha.codigo}</td>
               <td className="fp-qtd">{linha.quantidade}</td>
               <td className="fp-un">{linha.unidade}</td>
@@ -86,7 +100,7 @@ export function FolhaDaFicha({ folha, numero, total }: { folha: FolhaDados; nume
       </table>
 
       <h2 className="fp-secao">3. Modo de preparo</h2>
-      <div className="fp-pautado" style={{ ["--fp-pauta" as string]: LINHAS_DO_MODO_DE_PREPARO }}>
+      <div className="fp-pautado" style={{ ["--fp-pauta" as string]: linhasDoModoDePreparo(folha.linhas, folha.modoDePreparo) }}>
         {textoDoPreparo && <p>{textoDoPreparo}</p>}
       </div>
 

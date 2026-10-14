@@ -4106,7 +4106,9 @@ export type DishCategoryRef = {
 
 export type DishIngredient = {
   id: string;
-  productId: string;
+  /** null quando o ingrediente é outra ficha (de produção): aí vem `componentDishId`. */
+  productId: string | null;
+  componentDishId?: string | null;
   productCode: string | null;
   productName: string;
   productUnit: string | null;
@@ -4145,6 +4147,8 @@ export type DishListItem = {
   /** Por quantos dias o preparo pode ser usado (opcional). */
   shelfLifeDays?: number | null;
   isActive: boolean;
+  /** Ficha de produção (a massa do nhoque): não é vendida, sem preço nem CMV; só entra como ingrediente de outras fichas. */
+  fichaDeProducao?: boolean;
   itemsCount: number;
   /** Quantas listagens ativas o prato tem nos canais (hoje, o cardapio da 99). */
   listingsCount: number;
@@ -4187,6 +4191,8 @@ export type DishDetail = Omit<DishListItem, "listingsCount" | "listingPriceMin" 
   fichaDeBuffet?: boolean;
   fichaPendente?: boolean;
   items: DishIngredient[];
+  /** Ficha de produção: as fichas que a usam como ingrediente (mudar o rendimento dela muda o custo de todas). */
+  usadaEm?: Array<{ id: string; name: string }>;
   /** Quantidades do outro cardápio (o delivery) do prato vendido nos dois. */
   alsoItems?: DishIngredient[];
   alsoCusto?: { calculatedCost: number; custoPorcao: number; custoIncompleto: boolean; itemsCount: number };
@@ -4206,8 +4212,9 @@ export function saveDishCategory(payload: Partial<DishCategory> & { name: string
   );
 }
 
-export function getDishes(params: { search?: string; categoryId?: string; showInactive?: boolean } = {}) {
+export function getDishes(params: { search?: string; categoryId?: string; showInactive?: boolean; tipo?: "producao" } = {}) {
   return request<DishListItem[]>(`/dishes${toQueryString({
+    tipo: params.tipo,
     search: params.search,
     categoryId: params.categoryId,
     showInactive: params.showInactive ? "true" : undefined
@@ -4302,9 +4309,9 @@ export type DishRevisionSnapshot = {
   custoPorcao: number;
   cmvPercentual: number | null;
   custoIncompleto: boolean;
-  items: Array<{ productId: string; productName: string; quantity: number; unit: string; wasteFactor: number; itemCost: number | null }>;
+  items: Array<{ productId: string | null; componentDishId?: string | null; productName: string; quantity: number; unit: string; wasteFactor: number; itemCost: number | null }>;
   /** Quantidades do delivery (prato vendido nos dois). */
-  alsoItems?: Array<{ productId: string; productName: string; quantity: number; unit: string; wasteFactor: number; itemCost: number | null }>;
+  alsoItems?: Array<{ productId: string | null; componentDishId?: string | null; productName: string; quantity: number; unit: string; wasteFactor: number; itemCost: number | null }>;
   alsoCustoPorcao?: number | null;
 };
 
@@ -4362,6 +4369,11 @@ export type DishProductSearchResult = {
   averageCost: number;
   conversions: DishUnitConversion[];
   embalagemInferida: string | null;
+  /** "FICHA" quando o resultado é uma ficha de produção (outra ficha usada como ingrediente), não um produto comprado. */
+  kind?: "FICHA";
+  /** Ficha de produção sem custo conhecido (incompleta) e o motivo. */
+  incompleta?: boolean;
+  motivo?: string | null;
 };
 
 /** "1 UN = 1.200 G": grava a conversão no produto e devolve a lista efetiva para a ficha. */
@@ -4374,6 +4386,27 @@ export function saveDishProductConversion(productId: string, payload: { unit: st
 
 export function searchDishProducts(search: string) {
   return request<DishProductSearchResult[]>(`/dishes/products/search${toQueryString({ search })}`);
+}
+
+/** Fichas que podem entrar como ingrediente de outra (ficha de produção), no mesmo formato da busca de produtos. */
+export function searchDishFichas(search: string, exclude?: string) {
+  return request<DishProductSearchResult[]>(`/dishes/fichas/search${toQueryString({ search, exclude })}`);
+}
+
+/** "Estes ingredientes são a ficha X": o que o prato repete de uma ficha de produção, e quantas unidades dela usa. */
+export type FichaSuggestion = {
+  componentDishId: string;
+  name: string;
+  quantity: number;
+  unit: string;
+  itemIds: string[];
+  unitCost: number;
+  incompleta: boolean;
+  motivo: string | null;
+};
+
+export function getDishFichaSuggestions(id: string) {
+  return request<FichaSuggestion[]>(`/dishes/${id}/sugestoes-de-ficha`);
 }
 
 // ──────────────────────────────────────────────
