@@ -3,7 +3,7 @@ import { z } from "zod";
 import { getSessionUser, type SessionUser } from "../../security/security-utils.js";
 import { userHasPermission } from "../../security/menu-permissions.js";
 import {
-  obterCancelamentos, obterDemanda, obterDescontos, obterItensCancelados, obterPerdas, obterResumo, obterVendasPorPessoa
+  obterCancelamentos, obterCardapio, obterDemanda, obterDescontos, obterItensCancelados, obterPerdas, obterResumo, obterVendasPorPessoa
 } from "./agile-analise.service.js";
 
 export const agileAnaliseRouter = Router();
@@ -106,6 +106,7 @@ agileAnaliseRouter.get("/descontos", exigirAnaliseSalao, async (request, respons
 const ROTAS_DE_VISAO = [
   { caminho: "/resumo", obter: obterResumo, rotulo: "o resumo do salão" },
   { caminho: "/demanda", obter: obterDemanda, rotulo: "a análise de demanda do salão" },
+  { caminho: "/cardapio", obter: obterCardapio, rotulo: "a análise do cardápio do salão" },
   { caminho: "/perdas", obter: obterPerdas, rotulo: "a análise de perdas do salão" }
 ] as const;
 
