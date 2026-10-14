@@ -1,6 +1,6 @@
 import type {
   AnaliseCancelamentos, AnaliseDemanda, AnaliseDescontos, AnaliseIndicadores, AnaliseItensCancelados, AnalisePerdas, AnaliseResumo,
-  AnaliseCardapio, AnaliseMargem, AnaliseMargemAFazer, AnaliseMargemBebidas, AnaliseMargemBebidasAFazer, AnaliseMargemBebidasLinha, AnaliseMargemLinha, AnaliseIndicadorDeMeta, AnaliseItemDeAtencao, AnaliseMetaIndicador, AnaliseMetas, AnaliseSituacaoDaMeta, AnaliseProdutoAbc, AnaliseSerieDia, AnaliseTaxaDoItem, AnaliseVariacao, AnaliseVendasPorPessoa
+  AnaliseCardapio, AnaliseMargem, AnaliseMargemAFazer, AnaliseMargemBebidas, AnaliseMargemBebidasAFazer, AnaliseMargemBebidasLinha, AnaliseMargemBuffet, AnaliseBuffetMes, AnaliseMargemLinha, AnaliseIndicadorDeMeta, AnaliseItemDeAtencao, AnaliseMetaIndicador, AnaliseMetas, AnaliseSituacaoDaMeta, AnaliseProdutoAbc, AnaliseSerieDia, AnaliseTaxaDoItem, AnaliseVariacao, AnaliseVendasPorPessoa
 } from "../api/client";
 
 // Dados de demonstração da tela "Análise do Salão" (modo ?mock-user=1, só em dev local).
@@ -643,6 +643,63 @@ function margemBebidasDoCorpo(url: string, method: string, corpo: unknown): unkn
   return margemBebidas(periodoDaUrl(url));
 }
 
+// Custo informado por mês na demonstração (mês "AAAA-M" -> valor). Começa vazio: a pessoa informa e vê a margem aparecer.
+const custosBuffetMock = new Map<string, number>();
+
+function margemBuffet(periodo: { inicio: string; fim: string }): AnaliseMargemBuffet {
+  const base = [
+    { ano: 2026, mes: 9, comandas: 400, pessoas: 800, receita: 40000 },
+    { ano: 2026, mes: 10, comandas: 200, pessoas: 400, receita: 22000 }
+  ];
+  const meses: AnaliseBuffetMes[] = base.map((m) => {
+    const custo = custosBuffetMock.get(`${m.ano}-${m.mes}`) ?? null;
+    const ticket = m.receita / m.pessoas;
+    return {
+      ...m, receitaPorPessoa: ticket, custoPorPessoa: custo, margemPorPessoa: custo === null ? null : ticket - custo,
+      margemTotal: custo === null ? null : m.receita - custo * m.pessoas, margemPct: custo === null ? null : (ticket - custo) / ticket,
+      status: custo === null ? "sem-custo" : "com-custo"
+    };
+  });
+  const comCusto = meses.filter((m) => m.custoPorPessoa !== null);
+  const pessoasComCusto = comCusto.reduce((t, m) => t + m.pessoas, 0);
+  const receitaComCusto = comCusto.reduce((t, m) => t + m.receita, 0);
+  const custoTotal = comCusto.reduce((t, m) => t + (m.custoPorPessoa ?? 0) * m.pessoas, 0);
+  const pessoas = 1200;
+  const ultimo = [...custosBuffetMock.entries()].sort().pop();
+  return {
+    periodo, hojeFicouDeFora: false,
+    buffet: { comandas: 600, pessoas, receita: 62000, receitaPorPessoa: Math.round((62000 / pessoas) * 100) / 100, pctDaReceita: 0.62 },
+    faixas: [
+      { produto: "BUFFET PROMO 20", comandas: 400, pessoas: 800, receita: 40000, receitaPorPessoa: 50, pctReceita: 0.645 },
+      { produto: "BUFFET PROMO 15", comandas: 200, pessoas: 400, receita: 22000, receitaPorPessoa: 55, pctReceita: 0.355 }
+    ],
+    meses,
+    margem: comCusto.length === 0 ? null : {
+      pessoas: pessoasComCusto, receita: receitaComCusto, custo: custoTotal, margem: receitaComCusto - custoTotal,
+      custoPorPessoa: custoTotal / pessoasComCusto, margemPorPessoa: (receitaComCusto - custoTotal) / pessoasComCusto, margemPct: (receitaComCusto - custoTotal) / receitaComCusto
+    },
+    cobertura: { pessoasComCusto, pessoasTotal: pessoas, pctComCusto: pessoasComCusto / pessoas, mesesSemCusto: meses.length - comCusto.length },
+    referencia: ultimo ? { ano: Number(ultimo[0].split("-")[0]), mes: Number(ultimo[0].split("-")[1]), valor: ultimo[1] } : null,
+    insights: comCusto.length === 0
+      ? [{ id: "sem-custo-informado", tom: "info", secao: "margem", hipotese: false, impactoMes: null, titulo: "Sem custo de comida por pessoa informado neste período", detalhe: "O sistema não sabe o custo do buffet: ele não existe por prato nem por refeição. Sem o custo informado só dá para ver o lado da receita.", acao: "Informe o custo médio de comida por pessoa de cada mês na tabela abaixo." }]
+      : []
+  };
+}
+
+function margemBuffetDoCorpo(url: string, method: string, corpo: unknown): unknown {
+  if (method.toUpperCase() === "PUT") {
+    try {
+      const dados = JSON.parse(String(corpo)) as { ano: number; mes: number; valor: number | null };
+      if (dados.valor === null) custosBuffetMock.delete(`${dados.ano}-${dados.mes}`);
+      else custosBuffetMock.set(`${dados.ano}-${dados.mes}`, dados.valor);
+    } catch {
+      // Corpo inválido na demonstração: nada muda.
+    }
+    return { ok: true };
+  }
+  return margemBuffet(periodoDaUrl(url));
+}
+
 export function mockAnaliseSalao(url: string, method = "GET", corpo?: unknown): unknown | undefined {
   const path = new URL(url, "http://localhost").pathname;
   if (path.endsWith("/integrations/agile/analise/cancelamentos")) return cancelamentos(periodoDaUrl(url));
@@ -654,6 +711,7 @@ export function mockAnaliseSalao(url: string, method = "GET", corpo?: unknown): 
   if (path.endsWith("/integrations/agile/analise/perdas")) return perdas(periodoDaUrl(url));
   if (path.endsWith("/integrations/agile/analise/cardapio")) return cardapio(periodoDaUrl(url));
   if (path.endsWith("/integrations/agile/analise/metas")) return metasDoCorpo(url, method, corpo);
+  if (path.endsWith("/integrations/agile/analise/margem-buffet") || path.endsWith("/integrations/agile/analise/margem-buffet/custo")) return margemBuffetDoCorpo(url, method, corpo);
   if (path.endsWith("/integrations/agile/analise/margem-bebidas") || path.endsWith("/integrations/agile/analise/margem-bebidas/vinculo")) return margemBebidasDoCorpo(url, method, corpo);
   if (path.endsWith("/integrations/agile/analise/margem") || path.endsWith("/integrations/agile/analise/margem/vinculo")) return margemDoCorpo(url, method, corpo);
   return undefined;

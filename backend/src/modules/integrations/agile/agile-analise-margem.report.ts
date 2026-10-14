@@ -1,4 +1,4 @@
-import { CATEGORIAS_BEBIDA } from "./agile-categorias.js";
+import { CATEGORIAS_BEBIDA, ehBuffet } from "./agile-categorias.js";
 import { sugerirPratos, type SugestaoDePrato } from "./agile-nomes.js";
 import type { Insight } from "./agile-analise-insights.js";
 import type { Periodo } from "./agile-analise.report.js";
@@ -16,7 +16,6 @@ export const MIN_RECEITA_PARA_AVISO = 500;
 export const MAX_INSIGHTS_MARGEM = 4;
 // Produto cujo nome começa por BUFFET é a refeição por quilo/pessoa, não um prato: a margem dele é custo
 // de comida por pessoa e não cabe numa ficha de prato.
-const EH_BUFFET = /^\s*buffet\b/i;
 // Bebida é revenda: a margem dela é preço menos custo de COMPRA, não ficha de prato. Fica fora desta conta.
 const ehBebida = (p: ProdutoVendido) => (CATEGORIAS_BEBIDA as readonly string[]).includes(p.categoria ?? "");
 
@@ -67,9 +66,9 @@ export function montarMargem({ periodo, produtos, pratos, vinculos }: { periodo:
   const comVenda = produtos.filter((p) => p.valor > 0);
   const receitaTotal = comVenda.reduce((s, p) => s + p.valor, 0);
 
-  const buffet = comVenda.filter((p) => EH_BUFFET.test(p.nome));
-  const bebidas = comVenda.filter((p) => !EH_BUFFET.test(p.nome) && ehBebida(p));
-  const doSalao = comVenda.filter((p) => !EH_BUFFET.test(p.nome) && !ehBebida(p));
+  const buffet = comVenda.filter((p) => ehBuffet(p.nome));
+  const bebidas = comVenda.filter((p) => !ehBuffet(p.nome) && ehBebida(p));
+  const doSalao = comVenda.filter((p) => !ehBuffet(p.nome) && !ehBebida(p));
   const receitaBuffet = buffet.reduce((s, p) => s + p.valor, 0);
   const receitaBebidas = bebidas.reduce((s, p) => s + p.valor, 0);
   const receitaPratos = doSalao.reduce((s, p) => s + p.valor, 0);

@@ -4002,3 +4002,17 @@ model WasteEntryPhoto {
 
   @@index([createdAt])
 }
+
+// Custo medio de comida por pessoa do buffet, informado por mes. O PDV nao tem o custo da refeicao (nao ha ficha por pessoa) e o CMV
+// fechado so existe para alguns meses: quem sabe o numero informa. Dado analitico da Analise do Salao: nao alimenta DRE nem CMV.
+model AgileBuffetCusto {
+  id          String   @id @default(cuid())
+  ano         Int
+  mes         Int
+  valor       Decimal  @db.Decimal(10, 2)
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([ano, mes], map: "agbuffetcusto_mes_key")
+}
