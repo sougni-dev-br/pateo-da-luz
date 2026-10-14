@@ -5291,7 +5291,7 @@ export type AnaliseInsight = {
   acao: string;
   impactoMes: number | null;
   hipotese: boolean;
-  secao: "demanda" | "perdas" | "resumo";
+  secao: "demanda" | "perdas" | "resumo" | "cardapio";
 };
 
 export type AnaliseSerieDia = { data: string; faturamento: number; pessoas: number; comandas: number; temMovimento: boolean };
@@ -5390,6 +5390,85 @@ export type AnalisePerdas = {
   descontos: AnaliseDescontos;
   hojeFicouDeFora: boolean;
 };
+
+export type AnaliseItemDeAtencao = "bebida" | "alcool" | "cafe" | "sobremesa";
+
+export type AnaliseTaxaDoItem = {
+  pctComandas: number;
+  porPessoa: number;
+  receitaPorPessoa: number;
+  precoMedio: number;
+  quantidade: number;
+  valor: number;
+  pctComandasAnterior: number | null;
+  variacaoPontos: number | null;
+};
+
+export type AnaliseAttachBloco = {
+  comandas: number;
+  pessoas: number;
+  comandasAnterior: number;
+  itens: Record<AnaliseItemDeAtencao, AnaliseTaxaDoItem>;
+};
+
+export type AnaliseMixLinha = {
+  nome: string;
+  valor: number;
+  participacao: number;
+  produtos: number;
+  quantidade: number;
+  precoMedio: number;
+  participacaoAnterior: number | null;
+  variacaoPontos: number | null;
+};
+
+export type AnaliseProdutoAbc = {
+  posicao: number;
+  produto: string;
+  grupo: string;
+  categoria: string;
+  quantidade: number;
+  valor: number;
+  participacao: number;
+  acumulada: number;
+  classe: "A" | "B" | "C";
+};
+
+export type AnaliseCardapio = {
+  periodo: AnalisePeriodo;
+  hojeFicouDeFora: boolean;
+  cobertura: { produtosVendidos: number; comandas: number; pessoas: number };
+  resumo: {
+    faturamentoItens: number;
+    produtosVendidos: number;
+    produtosClasseA: number;
+    produtosCaudaLonga: number;
+    participacaoCauda: number;
+    maiorProduto: { produto: string; participacao: number } | null;
+    semPrecoProdutos: number;
+    semPrecoUnidades: number;
+  };
+  categorias: AnaliseMixLinha[];
+  grupos: AnaliseMixLinha[];
+  abc: {
+    classes: Array<{ classe: "A" | "B" | "C"; produtos: number; valor: number; participacao: number }>;
+    limiteA: number;
+    limiteB: number;
+    itens: AnaliseProdutoAbc[];
+  };
+  cauda: { limite: number; produtos: number; valor: number; participacao: number; exemplos: AnaliseProdutoAbc[] };
+  semPreco: Array<{ produto: string; categoria: string; unidades: number }>;
+  attach: {
+    turnos: Array<{ turno: "ALMOCO" | "JANTAR" | "OUTRO"; rotulo: string } & AnaliseAttachBloco>;
+    geral: AnaliseAttachBloco;
+  };
+  simulacoes: Array<{ item: AnaliseItemDeAtencao; rotulo: string; ponto: number; precoMedio: number; comandasPorMes: number; valorMes: number | null }>;
+  insights: AnaliseInsight[];
+};
+
+export function getAnaliseCardapio(periodo: AnalisePeriodo, signal?: AbortSignal) {
+  return request<AnaliseCardapio>(`/integrations/agile/analise/cardapio?${queryPeriodo(periodo)}`, { signal });
+}
 
 export function getAnaliseResumo(periodo: AnalisePeriodo, signal?: AbortSignal) {
   return request<AnaliseResumo>(`/integrations/agile/analise/resumo?${queryPeriodo(periodo)}`, { signal });

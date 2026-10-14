@@ -1,6 +1,6 @@
 import type {
   AnaliseCancelamentos, AnaliseDemanda, AnaliseDescontos, AnaliseIndicadores, AnaliseItensCancelados, AnalisePerdas, AnaliseResumo,
-  AnaliseSerieDia, AnaliseVariacao, AnaliseVendasPorPessoa
+  AnaliseCardapio, AnaliseItemDeAtencao, AnaliseProdutoAbc, AnaliseSerieDia, AnaliseTaxaDoItem, AnaliseVariacao, AnaliseVendasPorPessoa
 } from "../api/client";
 
 // Dados de demonstração da tela "Análise do Salão" (modo ?mock-user=1, só em dev local).
@@ -325,6 +325,108 @@ function perdas(periodo: Periodo): AnalisePerdas {
   };
 }
 
+
+// ---------------------------------------------------------------------------
+// Cardapio: produtos, categorias e taxas inventados (valores redondos, nomes genericos).
+// ---------------------------------------------------------------------------
+
+const PRODUTOS_MOCK: Array<[string, string, string, number, number]> = [
+  // nome, grupo, categoria, quantidade, receita
+  ["BUFFET A", "BUFFETS", "ALIMENTOS", 1000, 50000],
+  ["BUFFET B", "BUFFETS", "ALIMENTOS", 150, 7000],
+  ["REFRIGERANTE", "BUFFETS", "BEBIDAS", 700, 5000],
+  ["AGUA COM GAS", "BUFFETS", "BEBIDAS", 400, 3000],
+  ["PRATO DO DIA", "PRATOS", "PRATOS", 90, 5000],
+  ["PIZZA MARGHERITA", "PIZZAS", "PIZZAS", 60, 4500],
+  ["PIZZA CALABRESA", "PIZZAS", "PIZZAS", 50, 4000],
+  ["CAFE EXPRESSO", "BUFFETS", "BEBIDAS", 300, 3500],
+  ["SUCO NATURAL", "BUFFETS", "BEBIDAS", 150, 2800],
+  ["CERVEJA LONG NECK", "CERVEJAS", "BEBIDAS ALCOOLICAS", 180, 2500],
+  ["FILE AO MOLHO", "CARNES", "ALIMENTOS", 30, 2400],
+  ["MASSA DA CASA", "MASSAS", "ALIMENTOS", 28, 1800],
+  ["VINHO TINTO TACA", "VINHOS", "VINHOS", 60, 1500],
+  ["SALADA ESPECIAL", "SALADAS", "ALIMENTOS", 20, 900]
+];
+for (let i = 1; i <= 26; i += 1) PRODUTOS_MOCK.push([`ITEM ${String(i).padStart(2, "0")}`, "DIVERSOS", i % 3 === 0 ? "BEBIDAS ALCOOLICAS" : "ALIMENTOS", 6, Math.max(8, 520 - i * 20)]);
+PRODUTOS_MOCK.push(["BRINDE DO DIA", "DIVERSOS", "ALIMENTOS", 40, 0]);
+
+function abcMock(): AnaliseProdutoAbc[] {
+  const ordenados = PRODUTOS_MOCK.map(([produto, grupo, categoria, quantidade, valor]) => ({ produto, grupo, categoria, quantidade, valor })).sort((a, b) => b.valor - a.valor);
+  const total = ordenados.reduce((acc, p) => acc + p.valor, 0);
+  let antes = 0;
+  return ordenados.map((p, i) => {
+    const classe: "A" | "B" | "C" = antes < 0.8 * total ? "A" : antes < 0.95 * total ? "B" : "C";
+    antes += p.valor;
+    return { posicao: i + 1, ...p, participacao: p.valor / total, acumulada: antes / total, classe };
+  });
+}
+
+const taxa = (pct: number, pp: number, preco: number, anterior: number | null): AnaliseTaxaDoItem => ({
+  pctComandas: pct, porPessoa: pct * 1.1, receitaPorPessoa: Math.round(pct * 1.1 * preco * 100) / 100, precoMedio: preco, quantidade: pct * 1000, valor: pct * 1000 * preco,
+  pctComandasAnterior: anterior, variacaoPontos: anterior === null ? null : Math.round((pct - anterior) * 10000) / 10000
+});
+
+function cardapio(periodo: Periodo): AnaliseCardapio {
+  const itens = abcMock();
+  const total = itens.reduce((acc, i) => acc + i.valor, 0);
+  const cauda = itens.filter((i) => i.valor > 0 && i.valor / total < 0.001);
+  const semPreco = itens.filter((i) => i.valor === 0);
+  const bloco = (almoco: boolean) => ({
+    comandas: almoco ? 700 : 300, pessoas: almoco ? 1400 : 600, comandasAnterior: almoco ? 720 : 310,
+    itens: {
+      bebida: taxa(almoco ? 0.82 : 0.94, 0, almoco ? 12 : 16, almoco ? 0.8 : 0.95),
+      alcool: taxa(almoco ? 0.05 : 0.44, 0, 24, almoco ? 0.05 : 0.46),
+      cafe: taxa(almoco ? 0.2 : 0.05, 0, 11, almoco ? 0.19 : 0.05),
+      sobremesa: taxa(almoco ? 0.004 : 0.03, 0, 22, almoco ? 0.004 : 0.025)
+    } as Record<AnaliseItemDeAtencao, AnaliseTaxaDoItem>
+  });
+  const almoco = bloco(true);
+  const jantar = bloco(false);
+  const geral = {
+    comandas: 1000, pessoas: 2000, comandasAnterior: 1030,
+    itens: {
+      bebida: taxa(0.86, 0, 14, 0.84), alcool: taxa(0.17, 0, 24, 0.18), cafe: taxa(0.15, 0, 11, 0.14), sobremesa: taxa(0.011, 0, 22, 0.01)
+    } as Record<AnaliseItemDeAtencao, AnaliseTaxaDoItem>
+  };
+  const categoria = (nome: string, valor: number, anterior: number) => ({
+    nome, valor, participacao: valor / total, produtos: 5, quantidade: 100, precoMedio: Math.round((valor / 100) * 100) / 100,
+    participacaoAnterior: anterior, variacaoPontos: Math.round((valor / total - anterior) * 10000) / 10000
+  });
+  return {
+    periodo, hojeFicouDeFora: true,
+    cobertura: { produtosVendidos: itens.length, comandas: 1000, pessoas: 2000 },
+    resumo: {
+      faturamentoItens: total, produtosVendidos: itens.length, produtosClasseA: itens.filter((i) => i.classe === "A").length,
+      produtosCaudaLonga: cauda.length, participacaoCauda: cauda.reduce((acc, i) => acc + i.valor, 0) / total,
+      maiorProduto: { produto: itens[0].produto, participacao: itens[0].participacao }, semPrecoProdutos: semPreco.length, semPrecoUnidades: semPreco.reduce((acc, i) => acc + i.quantidade, 0)
+    },
+    categorias: [categoria("ALIMENTOS", total * 0.7, 0.72), categoria("BEBIDAS", total * 0.14, 0.13), categoria("PIZZAS", total * 0.07, 0.065), categoria("PRATOS", total * 0.05, 0.05), categoria("BEBIDAS ALCOOLICAS", total * 0.03, 0.03), categoria("VINHOS", total * 0.01, 0.01)],
+    grupos: [],
+    abc: {
+      classes: (["A", "B", "C"] as const).map((classe) => {
+        const doGrupo = itens.filter((i) => i.classe === classe);
+        const valor = doGrupo.reduce((acc, i) => acc + i.valor, 0);
+        return { classe, produtos: doGrupo.length, valor, participacao: valor / total };
+      }),
+      limiteA: 0.8, limiteB: 0.95, itens: itens.slice(0, 30)
+    },
+    cauda: { limite: 0.001, produtos: cauda.length, valor: cauda.reduce((acc, i) => acc + i.valor, 0), participacao: cauda.reduce((acc, i) => acc + i.valor, 0) / total, exemplos: cauda.slice(0, 12) },
+    semPreco: semPreco.map((i) => ({ produto: i.produto, categoria: i.categoria, unidades: i.quantidade })),
+    attach: { turnos: [{ turno: "ALMOCO", rotulo: "Almoço", ...almoco }, { turno: "JANTAR", rotulo: "Jantar", ...jantar }], geral },
+    simulacoes: [
+      { item: "bebida", rotulo: "Bebida", ponto: 0.01, precoMedio: 14, comandasPorMes: 1000, valorMes: 140 },
+      { item: "alcool", rotulo: "Álcool", ponto: 0.01, precoMedio: 24, comandasPorMes: 1000, valorMes: 240 },
+      { item: "cafe", rotulo: "Café", ponto: 0.01, precoMedio: 11, comandasPorMes: 1000, valorMes: 110 },
+      { item: "sobremesa", rotulo: "Sobremesa", ponto: 0.01, precoMedio: 22, comandasPorMes: 1000, valorMes: 220 }
+    ],
+    insights: [
+      { id: "vendido-a-zero", tom: "alerta", secao: "cardapio", hipotese: false, impactoMes: null, titulo: "1 produto vendido a R$ 0", detalhe: "40 unidades sem valor lançado, como BRINDE DO DIA.", acao: "Confira se é cortesia ou promoção de propósito, ou se o preço não está cadastrado no PDV." },
+      { id: "sobremesa-baixa", tom: "oportunidade", secao: "cardapio", hipotese: true, impactoMes: 220, titulo: "Sobremesa em só 1,1% das comandas", detalhe: "Cada ponto percentual a mais de comandas com sobremesa valeria cerca de R$ 220 por mês, ao preço médio de R$ 22.", acao: "Confirme com a equipe se toda sobremesa é lançada no PDV. Se for, vale oferecer na hora da conta; se não, o número não mostra a venda real." },
+      { id: "dependencia", tom: "info", secao: "cardapio", hipotese: false, impactoMes: null, titulo: `${itens[0].produto} é ${Math.round(itens[0].participacao * 100)}% da receita`, detalhe: "O faturamento depende de um produto só: qualquer mudança nele mexe no resultado inteiro.", acao: "Acompanhe o preço e o volume desse produto de perto antes de qualquer promoção ou reajuste." }
+    ]
+  };
+}
+
 export function mockAnaliseSalao(url: string): unknown | undefined {
   const path = new URL(url, "http://localhost").pathname;
   if (path.endsWith("/integrations/agile/analise/cancelamentos")) return cancelamentos(periodoDaUrl(url));
@@ -334,5 +436,6 @@ export function mockAnaliseSalao(url: string): unknown | undefined {
   if (path.endsWith("/integrations/agile/analise/resumo")) return resumo(periodoDaUrl(url));
   if (path.endsWith("/integrations/agile/analise/demanda")) return demanda(periodoDaUrl(url));
   if (path.endsWith("/integrations/agile/analise/perdas")) return perdas(periodoDaUrl(url));
+  if (path.endsWith("/integrations/agile/analise/cardapio")) return cardapio(periodoDaUrl(url));
   return undefined;
 }

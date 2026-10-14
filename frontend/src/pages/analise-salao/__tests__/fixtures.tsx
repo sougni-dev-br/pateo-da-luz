@@ -1,7 +1,7 @@
 import type { ReactElement } from "react";
 import { render } from "@testing-library/react";
 import type {
-  AnaliseCancelamentos, AnaliseDemanda, AnaliseDescontos, AnaliseIndicadores, AnaliseItensCancelados, AnalisePerdas, AnaliseResumo, AnaliseVariacao
+  AnaliseCardapio, AnaliseCancelamentos, AnaliseDemanda, AnaliseDescontos, AnaliseIndicadores, AnaliseItensCancelados, AnalisePerdas, AnaliseResumo, AnaliseVariacao
 } from "../../../api/client";
 import { SessionContext, type SessionContextValue } from "../../../context/SessionContext";
 import { HideValuesProvider } from "../../../design-system";
@@ -150,6 +150,51 @@ export function perdas(over: Partial<AnalisePerdas> = {}): AnalisePerdas {
       { pessoa: "(não informado)", canceladas: 4, valorCancelado: 450, valorRefeito: 0, itens: 0, valorItens: 0, descontos: 0, valorDescontos: 0, perda: 450 }
     ],
     cancelamentos: cancelamentos(), itens: itensCancelados(), descontos: descontos(), hojeFicouDeFora: false,
+    ...over
+  };
+}
+
+const produtoAbc = (posicao: number, produto: string, valor: number, acumulada: number, classe: "A" | "B" | "C", over = {}) => ({
+  posicao, produto, grupo: "G", categoria: "ALIMENTOS", quantidade: 10, valor, participacao: valor / 10000, acumulada, classe, ...over
+});
+
+const taxa = (pct: number, ant: number | null, preco = 20) => ({
+  pctComandas: pct, porPessoa: pct, receitaPorPessoa: pct * preco, precoMedio: preco, quantidade: pct * 1000, valor: pct * 1000 * preco,
+  pctComandasAnterior: ant, variacaoPontos: ant === null ? null : pct - ant
+});
+
+export function cardapio(over: Partial<AnaliseCardapio> = {}): AnaliseCardapio {
+  const bloco = (comandas: number, pessoas: number, bebida: number) => ({
+    comandas, pessoas, comandasAnterior: comandas,
+    itens: { bebida: taxa(bebida, bebida - 0.02), alcool: taxa(0.1, 0.1), cafe: taxa(0.2, 0.2), sobremesa: taxa(0.01, 0.01) }
+  });
+  return {
+    periodo: PERIODO, hojeFicouDeFora: false,
+    cobertura: { produtosVendidos: 41, comandas: 1000, pessoas: 2000 },
+    resumo: { faturamentoItens: 100408, produtosVendidos: 41, produtosClasseA: 8, produtosCaudaLonga: 6, participacaoCauda: 0.003, maiorProduto: { produto: "PRODUTO ALFA", participacao: 0.5 }, semPrecoProdutos: 1, semPrecoUnidades: 40 },
+    categorias: [
+      { nome: "ALIMENTOS", valor: 70000, participacao: 0.7, produtos: 5, quantidade: 100, precoMedio: 700, participacaoAnterior: 0.72, variacaoPontos: -0.02 },
+      { nome: "BEBIDAS", valor: 14000, participacao: 0.14, produtos: 3, quantidade: 100, precoMedio: 140, participacaoAnterior: 0.13, variacaoPontos: 0.01 }
+    ],
+    grupos: [],
+    abc: {
+      classes: [{ classe: "A", produtos: 8, valor: 80000, participacao: 0.8 }, { classe: "B", produtos: 10, valor: 15000, participacao: 0.15 }, { classe: "C", produtos: 23, valor: 5000, participacao: 0.05 }],
+      limiteA: 0.8, limiteB: 0.95,
+      itens: [produtoAbc(1, "PRODUTO ALFA", 5000, 0.5, "A"), produtoAbc(2, "PRODUTO BETA", 3000, 0.8, "A"), produtoAbc(3, "PRODUTO GAMA", 1500, 0.95, "B"), produtoAbc(4, "PRODUTO DELTA", 500, 1, "C")]
+    },
+    cauda: { limite: 0.001, produtos: 6, valor: 300, participacao: 0.003, exemplos: [produtoAbc(40, "ITEM RARO", 20, 1, "C")] },
+    semPreco: [{ produto: "BRINDE DO DIA", categoria: "ALIMENTOS", unidades: 40 }],
+    attach: { turnos: [{ turno: "ALMOCO", rotulo: "Almoço", ...bloco(700, 1400, 0.8) }, { turno: "JANTAR", rotulo: "Jantar", ...bloco(300, 600, 0.95) }], geral: bloco(1000, 2000, 0.85) },
+    simulacoes: [
+      { item: "bebida", rotulo: "Bebida", ponto: 0.01, precoMedio: 14, comandasPorMes: 1000, valorMes: 140 },
+      { item: "alcool", rotulo: "Álcool", ponto: 0.01, precoMedio: 24, comandasPorMes: 1000, valorMes: 240 },
+      { item: "cafe", rotulo: "Café", ponto: 0.01, precoMedio: 11, comandasPorMes: 1000, valorMes: null },
+      { item: "sobremesa", rotulo: "Sobremesa", ponto: 0.01, precoMedio: 22, comandasPorMes: 1000, valorMes: 220 }
+    ],
+    insights: [
+      { id: "vendido-a-zero", tom: "alerta", titulo: "1 produto vendido a R$ 0", detalhe: "40 unidades sem valor lançado.", acao: "Confira o preço cadastrado.", impactoMes: null, hipotese: false, secao: "cardapio" },
+      { id: "sobremesa-baixa", tom: "oportunidade", titulo: "Sobremesa em só 1% das comandas", detalhe: "Cada ponto valeria R$ 220 por mês.", acao: "Confirme se toda sobremesa é lançada.", impactoMes: 220, hipotese: true, secao: "cardapio" }
+    ],
     ...over
   };
 }

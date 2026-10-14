@@ -5,12 +5,13 @@ import type { AnaliseVendasPorPessoa } from "../../api/client";
 vi.mock("../../api/client", () => ({
   getAnaliseResumo: vi.fn(),
   getAnaliseDemanda: vi.fn(),
+  getAnaliseCardapio: vi.fn(),
   getAnalisePerdas: vi.fn(),
   getAnaliseVendasPorPessoa: vi.fn()
 }));
 
-import { getAnaliseDemanda, getAnalisePerdas, getAnaliseResumo, getAnaliseVendasPorPessoa } from "../../api/client";
-import { demanda, perdas, PERIODO, renderComSessao, resumo } from "../analise-salao/__tests__/fixtures";
+import { getAnaliseCardapio, getAnaliseDemanda, getAnalisePerdas, getAnaliseResumo, getAnaliseVendasPorPessoa } from "../../api/client";
+import { cardapio, demanda, perdas, PERIODO, renderComSessao, resumo } from "../analise-salao/__tests__/fixtures";
 import { AnaliseSalao } from "../AnaliseSalao";
 
 const equipe: AnaliseVendasPorPessoa = {
@@ -28,6 +29,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(getAnaliseResumo).mockResolvedValue(resumo());
   vi.mocked(getAnaliseDemanda).mockResolvedValue(demanda());
+  vi.mocked(getAnaliseCardapio).mockResolvedValue(cardapio());
   vi.mocked(getAnalisePerdas).mockResolvedValue(perdas());
   vi.mocked(getAnaliseVendasPorPessoa).mockResolvedValue(equipe);
 });
@@ -44,9 +46,33 @@ describe("Análise do Salão — estrutura", () => {
     expect(getAnaliseVendasPorPessoa).not.toHaveBeenCalled();
   });
 
-  test("tem as quatro secoes, nesta ordem", () => {
+  test("tem as cinco secoes, nesta ordem", () => {
     renderizar();
-    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Resumo", "Quando vendemos", "Perdas", "Equipe"]);
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Resumo", "Quando vendemos", "Cardápio", "Perdas", "Equipe"]);
+  });
+
+  test("cardapio: nao busca ate abrir, e uma vez aberto nao refaz ao voltar", async () => {
+    renderizar();
+    await screen.findByText("Faturamento por dia");
+    expect(getAnaliseCardapio).not.toHaveBeenCalled();
+    fireEvent.click(aba("Cardápio"));
+    await screen.findByText(/Curva ABC/);
+    fireEvent.click(aba("Resumo"));
+    await screen.findByText("Faturamento por dia");
+    fireEvent.click(aba("Cardápio"));
+    await screen.findByText(/Curva ABC/);
+    expect(getAnaliseCardapio).toHaveBeenCalledTimes(1);
+  });
+
+  test("cardapio: erro da API aparece e nao vaza para as outras secoes", async () => {
+    vi.mocked(getAnaliseCardapio).mockRejectedValue(new Error("Falha no cardápio."));
+    renderizar();
+    await screen.findByText("Faturamento por dia");
+    fireEvent.click(aba("Cardápio"));
+    expect(await screen.findByText("Falha no cardápio.")).toBeTruthy();
+    fireEvent.click(aba("Resumo"));
+    expect(await screen.findByText("Faturamento por dia")).toBeTruthy();
+    expect(screen.queryByText("Falha no cardápio.")).toBeNull();
   });
 
   test("cada secao busca o seu relatorio", async () => {
@@ -54,11 +80,13 @@ describe("Análise do Salão — estrutura", () => {
     await screen.findByText("Faturamento por dia");
     fireEvent.click(aba("Quando vendemos"));
     expect(await screen.findByText(/Quantas pessoas chegam, por dia da semana e hora/)).toBeTruthy();
+    fireEvent.click(aba("Cardápio"));
+    expect(await screen.findByText(/Curva ABC: poucos produtos sustentam a receita/)).toBeTruthy();
     fireEvent.click(aba("Perdas"));
     expect(await screen.findByText("Do cancelado à perda potencial")).toBeTruthy();
     fireEvent.click(aba("Equipe"));
     expect(await screen.findByText("Carla Fictícia")).toBeTruthy();
-    expect([getAnaliseDemanda, getAnalisePerdas, getAnaliseVendasPorPessoa].map((f) => vi.mocked(f).mock.calls.length)).toEqual([1, 1, 1]);
+    expect([getAnaliseDemanda, getAnaliseCardapio, getAnalisePerdas, getAnaliseVendasPorPessoa].map((f) => vi.mocked(f).mock.calls.length)).toEqual([1, 1, 1, 1]);
   });
 
   test("voltar para uma secao ja carregada, no mesmo periodo, nao refaz a consulta", async () => {
