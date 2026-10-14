@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { cronHabilitado } from "../noventa-nove-cron.service.js";
+import { cronHabilitado, importacaoDoCardapioHabilitada } from "../noventa-nove-cron.service.js";
 
 // O banco local tem a credencial e as lojas reais da 99. Com o cron ligado por
 // padrão, cada backend local de desenvolvimento chamava a API real às 04:00 BRT,
@@ -28,5 +28,16 @@ describe("cronHabilitado", () => {
 
   test("false desliga sempre, inclusive em produção", () => {
     expect(cronHabilitado({ NODE_ENV: "production", RENDER: "true", NOVENTA_NOVE_CRON_ENABLED: "false" })).toBe(false);
+  });
+});
+
+describe("importacaoDoCardapioHabilitada", () => {
+  test("vem ligada junto com o cron (a rodada diária só roda onde o cron roda)", () => {
+    expect(importacaoDoCardapioHabilitada({})).toBe(true);
+  });
+
+  test("pode ser desligada sozinha, sem desligar o sync de vendas", () => {
+    expect(importacaoDoCardapioHabilitada({ NOVENTA_NOVE_MENU_CRON_ENABLED: "false" })).toBe(false);
+    expect(cronHabilitado({ NODE_ENV: "production", NOVENTA_NOVE_MENU_CRON_ENABLED: "false" })).toBe(true);
   });
 });
