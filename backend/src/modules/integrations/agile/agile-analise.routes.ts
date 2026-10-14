@@ -3,7 +3,7 @@ import { z } from "zod";
 import { getSessionUser, type SessionUser } from "../../security/security-utils.js";
 import { userHasPermission } from "../../security/menu-permissions.js";
 import {
-  obterCancelamentos, obterCardapio, obterDemanda, obterDescontos, obterItensCancelados, obterMetas, obterPerdas, obterResumo, obterVendasPorPessoa, salvarMeta
+  obterCancelamentos, obterCardapio, obterDemanda, obterDescontos, obterItensCancelados, obterMargem, obterMetas, obterPerdas, obterResumo, obterVendasPorPessoa, salvarMeta, vincularProdutoAoPrato
 } from "./agile-analise.service.js";
 import { INDICADORES_DE_META } from "./agile-analise-metas.report.js";
 
@@ -108,6 +108,7 @@ const ROTAS_DE_VISAO = [
   { caminho: "/resumo", obter: obterResumo, rotulo: "o resumo do salão" },
   { caminho: "/demanda", obter: obterDemanda, rotulo: "a análise de demanda do salão" },
   { caminho: "/cardapio", obter: obterCardapio, rotulo: "a análise do cardápio do salão" },
+  { caminho: "/margem", obter: obterMargem, rotulo: "a margem por prato do salão" },
   { caminho: "/perdas", obter: obterPerdas, rotulo: "a análise de perdas do salão" }
 ] as const;
 
@@ -167,5 +168,38 @@ agileAnaliseRouter.put("/metas", exigirAnaliseSalao, async (request, response) =
   } catch (error: unknown) {
     console.error("Falha ao salvar a meta do salão", error);
     response.status(500).json({ message: "Não foi possível salvar a meta." });
+  }
+});
+
+// Vinculo produto do PDV <-> prato da ficha do salao. Gravar exige a permissao de editar.
+const vinculoSchema = z.object({
+  codigo: z.string().trim().min(1).max(60),
+  nome: z.string().trim().min(1).max(200),
+  // null desfaz o vinculo.
+  pratoId: z.string().trim().min(1).max(60).nullable()
+});
+
+agileAnaliseRouter.put("/margem/vinculo", exigirAnaliseSalao, async (request, response) => {
+  const user = await getSessionUser(request);
+  if (!user || !(await userHasPermission(user as SessionUser, "analise-salao", "edit"))) {
+    response.status(403).json({ message: "Usuário sem permissão para editar vínculos da margem." });
+    return;
+  }
+  const parsed = vinculoSchema.safeParse(request.body);
+  if (!parsed.success) {
+    response.status(400).json({ message: "Vínculo inválido: informe o código e o nome do produto e o prato (ou null para desfazer)." });
+    return;
+  }
+  try {
+    const { codigo, nome, pratoId } = parsed.data;
+    const resultado = await vincularProdutoAoPrato(codigo, nome, pratoId, user.id);
+    if (resultado === "prato-invalido") {
+      response.status(400).json({ message: "Prato inválido: escolha um prato ativo do cardápio do salão." });
+      return;
+    }
+    response.json({ ok: true });
+  } catch (error: unknown) {
+    console.error("Falha ao salvar o vínculo produto-prato", error);
+    response.status(500).json({ message: "Não foi possível salvar o vínculo." });
   }
 });

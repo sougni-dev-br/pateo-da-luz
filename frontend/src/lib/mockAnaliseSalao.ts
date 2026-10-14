@@ -1,6 +1,6 @@
 import type {
   AnaliseCancelamentos, AnaliseDemanda, AnaliseDescontos, AnaliseIndicadores, AnaliseItensCancelados, AnalisePerdas, AnaliseResumo,
-  AnaliseCardapio, AnaliseIndicadorDeMeta, AnaliseItemDeAtencao, AnaliseMetaIndicador, AnaliseMetas, AnaliseSituacaoDaMeta, AnaliseProdutoAbc, AnaliseSerieDia, AnaliseTaxaDoItem, AnaliseVariacao, AnaliseVendasPorPessoa
+  AnaliseCardapio, AnaliseMargem, AnaliseMargemAFazer, AnaliseMargemLinha, AnaliseIndicadorDeMeta, AnaliseItemDeAtencao, AnaliseMetaIndicador, AnaliseMetas, AnaliseSituacaoDaMeta, AnaliseProdutoAbc, AnaliseSerieDia, AnaliseTaxaDoItem, AnaliseVariacao, AnaliseVendasPorPessoa
 } from "../api/client";
 
 // Dados de demonstração da tela "Análise do Salão" (modo ?mock-user=1, só em dev local).
@@ -491,6 +491,81 @@ function metasDoCorpo(url: string, method: string, corpo: unknown): AnaliseMetas
   return metas(ano, mes);
 }
 
+// Margem: produtos, pratos e custos inventados; só os vínculos mudam (memória da aba) para exercitar
+// vincular e desfazer no modo de demonstração.
+const PRODUTOS_MARGEM = [
+  { codigo: "A1", nome: "PRATO ALFA", quantidade: 100, valor: 6000 },
+  { codigo: "B1", nome: "PRATO BETA", quantidade: 50, valor: 2000 },
+  { codigo: "G1", nome: "PRATO GAMA COM ARROZ", quantidade: 80, valor: 4000 },
+  { codigo: "D1", nome: "PRATO DELTA", quantidade: 30, valor: 1500 }
+];
+const PRATOS_MARGEM = [
+  { id: "p-alfa", nome: "Prato Alfa", custo: 20, itens: 3 },
+  { id: "p-beta", nome: "Prato Beta", custo: 45, itens: 3 },
+  { id: "p-gama", nome: "Prato Gama", custo: 18, itens: 2 },
+  { id: "p-delta", nome: "Prato Delta", custo: null as number | null, itens: 0 }
+];
+const vinculosDoMock = new Map<string, string>([["A1", "p-alfa"], ["B1", "p-beta"], ["D1", "p-delta"]]);
+
+function margem(periodo: { inicio: string; fim: string }): AnaliseMargem {
+  const receitaPratos = PRODUTOS_MARGEM.reduce((t, p) => t + p.valor, 0);
+  const porPrato = new Map<string, typeof PRODUTOS_MARGEM>();
+  const aFazer: AnaliseMargemAFazer[] = [];
+  for (const produto of PRODUTOS_MARGEM) {
+    const prato = PRATOS_MARGEM.find((x) => x.id === vinculosDoMock.get(produto.codigo));
+    const base = { codigo: produto.codigo, nome: produto.nome, categoria: "PRATOS", quantidade: produto.quantidade, receita: produto.valor, pctReceita: Math.round((produto.valor / receitaPratos) * 10000) / 10000 };
+    if (!prato) aFazer.push({ ...base, situacao: "sem-vinculo", pratoId: null, prato: null, sugestoes: produto.codigo === "G1" ? [{ pratoId: "p-gama", nome: "Prato Gama", similaridade: 0.75 }] : [] });
+    else if (prato.custo === null) aFazer.push({ ...base, situacao: "sem-ficha", pratoId: prato.id, prato: prato.nome, sugestoes: [] });
+    else porPrato.set(prato.id, [...(porPrato.get(prato.id) ?? []), produto]);
+  }
+  const linhas: AnaliseMargemLinha[] = [...porPrato.entries()].map(([id, lista]) => {
+    const prato = PRATOS_MARGEM.find((x) => x.id === id) as (typeof PRATOS_MARGEM)[number];
+    const quantidade = lista.reduce((t, p) => t + p.quantidade, 0);
+    const receita = lista.reduce((t, p) => t + p.valor, 0);
+    const precoMedio = receita / quantidade;
+    const custo = prato.custo as number;
+    return {
+      pratoId: id, prato: prato.nome, produtosPdv: lista.map((p) => ({ codigo: p.codigo, nome: p.nome })), quantidade, receita,
+      precoMedio, precoFicha: null, custoPorcao: custo, margemUnitaria: precoMedio - custo,
+      margemPct: Math.round(((precoMedio - custo) / precoMedio) * 10000) / 10000, cmvPct: Math.round((custo / precoMedio) * 10000) / 10000,
+      margemTotal: (precoMedio - custo) * quantidade
+    };
+  }).sort((a, b) => b.margemTotal - a.margemTotal);
+  const receitaComMargem = linhas.reduce((t, l) => t + l.receita, 0);
+  const receitaSemFicha = aFazer.filter((x) => x.situacao === "sem-ficha").reduce((t, x) => t + x.receita, 0);
+  const receitaSemVinculo = aFazer.filter((x) => x.situacao === "sem-vinculo").reduce((t, x) => t + x.receita, 0);
+  const receitaTotal = receitaPratos + 60000 + 20000;
+  return {
+    periodo, hojeFicouDeFora: false,
+    cobertura: {
+      receitaTotal, receitaBuffet: 60000, receitaBebidas: 20000, receitaPratos, receitaComMargem, receitaSemFicha, receitaCustoIncompleto: 0, receitaSemVinculo, receitaPratoIndisponivel: 0,
+      pctComMargem: Math.round((receitaComMargem / receitaPratos) * 10000) / 10000, pctVinculadoSemCusto: Math.round((receitaSemFicha / receitaPratos) * 10000) / 10000,
+      pctSemVinculo: Math.round((receitaSemVinculo / receitaPratos) * 10000) / 10000, pctDaReceitaTotalComMargem: Math.round((receitaComMargem / receitaTotal) * 10000) / 10000, pratosComMargem: linhas.length
+    },
+    linhas,
+    aFazer: aFazer.sort((a, b) => b.receita - a.receita),
+    pratosParaVincular: PRATOS_MARGEM.map((p) => ({ id: p.id, nome: p.nome })),
+    // O aviso só existe enquanto o Prato Beta tem vínculo (some se a demonstração o desfizer).
+    insights: vinculosDoMock.get("B1") !== "p-beta" ? [] : [
+      { id: "margem-negativa", tom: "alerta", secao: "margem", hipotese: false, impactoMes: null, titulo: "Prato Beta vende abaixo do custo", detalhe: "Preço médio de R$ 40 contra custo de R$ 45 por porção: cada prato vendido perde R$ 5 só nos ingredientes.", acao: "Confira a ficha (quantidades e custo dos insumos) e o preço no PDV antes de reajustar ou tirar do cardápio." }
+    ]
+  };
+}
+
+function margemDoCorpo(url: string, method: string, corpo: unknown): unknown {
+  if (method.toUpperCase() === "PUT") {
+    try {
+      const dados = JSON.parse(String(corpo)) as { codigo: string; pratoId: string | null };
+      if (dados.pratoId === null) vinculosDoMock.delete(dados.codigo);
+      else vinculosDoMock.set(dados.codigo, dados.pratoId);
+    } catch {
+      // Corpo inválido na demonstração: nada muda.
+    }
+    return { ok: true };
+  }
+  return margem(periodoDaUrl(url));
+}
+
 export function mockAnaliseSalao(url: string, method = "GET", corpo?: unknown): unknown | undefined {
   const path = new URL(url, "http://localhost").pathname;
   if (path.endsWith("/integrations/agile/analise/cancelamentos")) return cancelamentos(periodoDaUrl(url));
@@ -502,5 +577,6 @@ export function mockAnaliseSalao(url: string, method = "GET", corpo?: unknown): 
   if (path.endsWith("/integrations/agile/analise/perdas")) return perdas(periodoDaUrl(url));
   if (path.endsWith("/integrations/agile/analise/cardapio")) return cardapio(periodoDaUrl(url));
   if (path.endsWith("/integrations/agile/analise/metas")) return metasDoCorpo(url, method, corpo);
+  if (path.endsWith("/integrations/agile/analise/margem") || path.endsWith("/integrations/agile/analise/margem/vinculo")) return margemDoCorpo(url, method, corpo);
   return undefined;
 }

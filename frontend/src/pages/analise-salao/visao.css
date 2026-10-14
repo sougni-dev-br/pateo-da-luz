@@ -484,3 +484,20 @@
 @media (max-width: 720px) {
   .metas-grade { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* ── Margem por prato ──────────────────────────────────────────────────── */
+
+.margem-produto {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+.margem-vincular {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+  min-width: 260px;
+}
+.margem-select { flex: 1 1 220px; min-width: 0; }

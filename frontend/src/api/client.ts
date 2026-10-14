@@ -5233,6 +5233,64 @@ export type AnaliseDescontos = {
   }>;
 };
 
+export type AnaliseSugestaoDePrato = { pratoId: string; nome: string; similaridade: number };
+export type AnaliseMargemSituacao = "sem-vinculo" | "prato-indisponivel" | "sem-ficha" | "custo-incompleto";
+
+export type AnaliseMargemLinha = {
+  pratoId: string;
+  prato: string;
+  produtosPdv: Array<{ codigo: string; nome: string }>;
+  quantidade: number;
+  receita: number;
+  precoMedio: number;
+  precoFicha: number | null;
+  custoPorcao: number;
+  margemUnitaria: number;
+  margemPct: number;
+  cmvPct: number;
+  margemTotal: number;
+};
+
+export type AnaliseMargemAFazer = {
+  codigo: string | null;
+  nome: string;
+  categoria: string | null;
+  quantidade: number;
+  receita: number;
+  pctReceita: number;
+  situacao: AnaliseMargemSituacao;
+  pratoId: string | null;
+  prato: string | null;
+  sugestoes: AnaliseSugestaoDePrato[];
+};
+
+export type AnaliseMargem = {
+  periodo: AnalisePeriodo;
+  hojeFicouDeFora: boolean;
+  cobertura: {
+    receitaTotal: number; receitaBuffet: number; receitaBebidas: number; receitaPratos: number; receitaComMargem: number;
+    receitaSemFicha: number; receitaCustoIncompleto: number; receitaSemVinculo: number; receitaPratoIndisponivel: number;
+    pctComMargem: number; pctVinculadoSemCusto: number; pctSemVinculo: number; pctDaReceitaTotalComMargem: number; pratosComMargem: number;
+  };
+  linhas: AnaliseMargemLinha[];
+  aFazer: AnaliseMargemAFazer[];
+  pratosParaVincular: Array<{ id: string; nome: string }>;
+  insights: AnaliseInsight[];
+};
+
+export function getAnaliseMargem(periodo: AnalisePeriodo, signal?: AbortSignal) {
+  return request<AnaliseMargem>(`/integrations/agile/analise/margem?${queryPeriodo(periodo)}`, { signal });
+}
+
+// pratoId null desfaz o vínculo do produto do PDV.
+export function vincularProdutoAnaliseMargem(corpo: { codigo: string; nome: string; pratoId: string | null }) {
+  return request<{ ok: boolean }>("/integrations/agile/analise/margem/vinculo", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(corpo)
+  });
+}
+
 export type AnaliseIndicadorDeMeta = "faturamento" | "pessoas" | "ticketPessoa" | "perdaPct";
 export type AnaliseSituacaoDaMeta = "sem-meta" | "sem-dado" | "atingida" | "no-ritmo" | "abaixo";
 
@@ -5329,7 +5387,7 @@ export type AnaliseInsight = {
   acao: string;
   impactoMes: number | null;
   hipotese: boolean;
-  secao: "demanda" | "perdas" | "resumo" | "cardapio";
+  secao: "demanda" | "perdas" | "resumo" | "cardapio" | "margem";
 };
 
 export type AnaliseSerieDia = { data: string; faturamento: number; pessoas: number; comandas: number; temMovimento: boolean };
