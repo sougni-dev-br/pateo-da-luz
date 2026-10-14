@@ -38,6 +38,17 @@ const rendimento = z.preprocess(
   z.coerce.number({ invalid_type_error: "rendimento invalido" }).gt(0, "rendimento deve ser maior que zero").max(99_999, "rendimento alto demais")
 );
 
+/** Campo opcional que, ausente no corpo, NÃO mexe no valor gravado (undefined); vazio ou null limpa; senão é o número. */
+const numeroOpcionalQueNaoApagaAoOmitir = (mensagem: string, maximo: number, inteiro = false) =>
+  z.preprocess(
+    (valor) => (valor === undefined ? undefined : numeroOuAusente(valor)),
+    (inteiro ? z.coerce.number({ invalid_type_error: mensagem }).int(mensagem) : z.coerce.number({ invalid_type_error: mensagem }))
+      .gt(0, mensagem)
+      .max(maximo, mensagem)
+      .nullable()
+      .optional()
+  );
+
 const textoOpcional = z.string().trim().nullish().transform((valor) => valor || null);
 
 const dishItemsSchema = z.array(
@@ -57,6 +68,10 @@ const dishBodySchema = z.object({
   salePriceDefault: precoOpcional,
   yieldQty: rendimento,
   yieldUnit: z.string().trim().nullish().transform((valor) => valor || "UN"),
+  /** Peso de cada porção, em gramas. */
+  portionWeightG: numeroOpcionalQueNaoApagaAoOmitir("peso da porcao invalido (em gramas, maior que zero)", 100_000),
+  /** Validade de uso do preparo, em dias. */
+  shelfLifeDays: numeroOpcionalQueNaoApagaAoOmitir("validade invalida (em dias inteiros, maior que zero)", 3650, true),
   notes: textoOpcional,
   isActive: z.boolean().optional(),
   menu: z.enum(MENUS).optional(),
@@ -200,6 +215,8 @@ dishesRouter.get("/", async (request, response) => {
       salePriceDefault: salePrice,
       yieldQty: Number(dish.yieldQty),
       yieldUnit: dish.yieldUnit,
+      portionWeightG: dish.portionWeightG == null ? null : Number(dish.portionWeightG),
+      shelfLifeDays: dish.shelfLifeDays,
       notes: dish.notes,
       isActive: dish.isActive,
       itemsCount: principais.length,
@@ -403,6 +420,8 @@ dishesRouter.post("/", async (request, response) => {
           salePriceDefault: body.salePriceDefault,
           yieldQty: body.yieldQty,
           yieldUnit: body.yieldUnit,
+          portionWeightG: body.portionWeightG ?? null,
+          shelfLifeDays: body.shelfLifeDays ?? null,
           notes: body.notes
         }
       });
@@ -495,6 +514,8 @@ dishesRouter.put("/:id", async (request, response) => {
           salePriceDefault: body.salePriceDefault,
           yieldQty: body.yieldQty,
           yieldUnit: body.yieldUnit,
+          portionWeightG: body.portionWeightG,
+          shelfLifeDays: body.shelfLifeDays,
           notes: body.notes,
           isActive: body.isActive !== false
         }

@@ -171,6 +171,8 @@ export async function carregarDetalhe(client: ClienteDoBanco, id: string) {
     salePriceDefault: salePrice,
     yieldQty: Number(dish.yieldQty),
     yieldUnit: dish.yieldUnit,
+    portionWeightG: dish.portionWeightG == null ? null : Number(dish.portionWeightG),
+    shelfLifeDays: dish.shelfLifeDays,
     notes: dish.notes,
     isActive: dish.isActive,
     // Preparação do buffet criada pelo desperdício: inativa por desenho (não é vendida), mas se edita e, pendente, aguarda a ficha.

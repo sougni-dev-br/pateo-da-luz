@@ -17,7 +17,7 @@ const lidoDoNome = (kg: number): DishUnitConversion[] => [
 ];
 type ItemMock = [produto: string, quantidade: number, unidade: string, perda?: number];
 type PratoMock = {
-  id: string; name: string; code?: string; category?: string; menu?: "CARDAPIO" | "DELIVERY"; alsoMenu?: "CARDAPIO" | "DELIVERY"; alsoCategory?: string; price?: number | null; yieldQty?: number; yieldUnit?: string;
+  id: string; name: string; code?: string; category?: string; menu?: "CARDAPIO" | "DELIVERY"; alsoMenu?: "CARDAPIO" | "DELIVERY"; alsoCategory?: string; price?: number | null; yieldQty?: number; yieldUnit?: string; portionWeightG?: number; shelfLifeDays?: number;
   notes?: string; active?: boolean; items?: ItemMock[]; /** Quantidades do delivery (prato nos dois cardápios). */ alsoItems?: ItemMock[]; listings?: Array<[loja: string, preco: number]>;
 };
 
@@ -44,7 +44,7 @@ const PRATOS: PratoMock[] = [
     listings: [[LOJAS[0], 59.9], [LOJAS[1], 84.9]] },
   { id: "d-camarao-alho", menu: "CARDAPIO", alsoMenu: "DELIVERY", alsoCategory: "Pratos executivos", name: "Camarão ao alho (porção)", category: "A la carte", price: 59.9, items: [["p-camarao", 400, "G", 0.03]], alsoItems: [["p-camarao", 250, "G", 0.03]] },
   { id: "d-funghi", name: "Risoto de funghi", category: "Risotos", price: 69.9, yieldQty: 2, yieldUnit: "PORÇÃO", items: [["p-arroz", 240, "G"], ["p-parmesao", 40, "G"], ["p-sem-custo", 1, "UN"]] },
-  { id: "d-pao", name: "Pão da casa (fornada)", category: "Buffet", price: null, yieldQty: 20, yieldUnit: "UN", items: [["p-farinha", 1, "KG"], ["p-azeite", 50, "ML"]] },
+  { id: "d-pao", name: "Pão da casa (fornada)", category: "Buffet", price: null, yieldQty: 20, yieldUnit: "UN", portionWeightG: 60, shelfLifeDays: 2, items: [["p-farinha", 1, "KG"], ["p-azeite", 50, "ML"]] },
   { id: "d-antigo", name: "Prato antigo desativado", category: "A la carte", price: 45, active: false, items: [["p-cebola", 100, "G"]] },
   { id: "d-contra", menu: "DELIVERY", name: "Contra Filé em tiras + Batatas Bravas", listings: [[LOJAS[0], 59.42], [LOJAS[2], 119.9]] },
   { id: "d-salmao", menu: "DELIVERY", name: "Salmão Grelhado com risoto", listings: [[LOJAS[0], 59.9], [LOJAS[2], 76.42]] },
@@ -118,7 +118,7 @@ function resumo(prato: PratoMock) {
   const precos = (prato.listings ?? []).map(([, preco]) => preco);
   return {
     id: prato.id, code: prato.code ?? null, name: prato.name, menu: prato.menu ?? "CARDAPIO", category: nomeDaCategoria(prato), alsoMenu: prato.alsoMenu ?? null, alsoCategory: nomeDaCategoria(prato, prato.alsoCategory), salePriceDefault: prato.price ?? null,
-    yieldQty: prato.yieldQty ?? 1, yieldUnit: prato.yieldUnit ?? "UN", notes: prato.notes ?? null, isActive: prato.active !== false,
+    yieldQty: prato.yieldQty ?? 1, yieldUnit: prato.yieldUnit ?? "UN", portionWeightG: prato.portionWeightG ?? null, shelfLifeDays: prato.shelfLifeDays ?? null, notes: prato.notes ?? null, isActive: prato.active !== false,
     itemsCount: conta.itens.length, alsoItemsCount: calcular(prato, prato.alsoItems).itens.length,
     alsoCustoPorcao: calcular(prato, prato.alsoItems).custoPorcao, alsoCustoIncompleto: calcular(prato, prato.alsoItems).incompleto, listingsCount: precos.length + (prato.id === "d-camarao-alho" ? 1 : 0),
     canais: [

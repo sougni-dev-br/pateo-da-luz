@@ -6,9 +6,11 @@ import type { StatusTone } from "../../../design-system";
 import {
   CMV_ALTO,
   CMV_BOM,
+  custoPorKg,
   faixaDeCmv,
   formatarQuantidade,
   normalizarUnidade,
+  rotuloDeDias,
   rotuloDoCanal,
   situacaoDaFicha
 } from "../../../lib/fichaTecnica";
@@ -211,6 +213,17 @@ function Ingredientes({ titulo, idBase, itens, total, rendimento }: { titulo: st
   );
 }
 
+const dinheiroCurto = (valor: number) => `R$ ${valor.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/** Embaixo do custo por porção: a receita inteira (quando rende mais de 1) e o custo por kg (quando o peso da porção foi informado). */
+function ajudaDoCustoPorPorcao(prato: DishDetail): string | undefined {
+  const partes: string[] = [];
+  if (prato.yieldQty !== 1) partes.push(`receita inteira: ${dinheiroCurto(prato.calculatedCost)}`);
+  const porKg = prato.items.length > 0 && !prato.custoIncompleto ? custoPorKg(prato.custoPorcao, prato.portionWeightG) : null;
+  if (porKg != null) partes.push(`${dinheiroCurto(porKg)} por kg`);
+  return partes.length > 0 ? partes.join(" · ") : undefined;
+}
+
 export function DetalheDoPrato({ prato, canEdit, onEditar, onCopiar, onAlternarAtivo, onImprimir, onFechar, onPrecosMudaram, notificar }: Props) {
   const semFicha = prato.items.length === 0;
   const faixa = faixaDeCmv(prato.cmvPercentual);
@@ -231,6 +244,8 @@ export function DetalheDoPrato({ prato, canEdit, onEditar, onCopiar, onAlternarA
             ))}
             {prato.code && <span>Código {prato.code}</span>}
             <span>Rende {formatarQuantidade(prato.yieldQty)} {prato.yieldUnit}</span>
+            {prato.portionWeightG != null && <span>Porção de {formatarQuantidade(prato.portionWeightG)} g</span>}
+            {prato.shelfLifeDays != null && <span>Validade de uso: {rotuloDeDias(prato.shelfLifeDays)}</span>}
             <span>Atualizado em {dataHora(prato.updatedAt)}</span>
           </p>
           {!editavel(prato) && <StatusBadge tone="danger">Inativo</StatusBadge>}
@@ -265,7 +280,7 @@ export function DetalheDoPrato({ prato, canEdit, onEditar, onCopiar, onAlternarA
         </div>
 
         <div className="ft-trio">
-          <Metrica rotulo={prato.alsoMenu ? "Custo por porção (a la carte)" : "Custo por porção"} ajuda={prato.yieldQty !== 1 ? `receita inteira: R$ ${prato.calculatedCost.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : undefined}>
+          <Metrica rotulo={prato.alsoMenu ? "Custo por porção (a la carte)" : "Custo por porção"} ajuda={ajudaDoCustoPorPorcao(prato)}>
             {semFicha ? "—" : <Money value={prato.custoPorcao} />}
           </Metrica>
           <Metrica rotulo={prato.alsoMenu ? "Preço no a la carte" : "Preço de venda"} ajuda={prato.salePriceDefault == null ? "não definido" : undefined}>

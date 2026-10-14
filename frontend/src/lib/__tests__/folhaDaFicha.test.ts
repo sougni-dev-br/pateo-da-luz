@@ -43,6 +43,11 @@ describe("folha da ficha técnica", () => {
     expect(folha.ingredientes[1]).toMatchObject({ quantidade: "0,5", unidade: "UN", perda: "", codigo: "" });
   });
 
+  it("peso da porção e validade de uso vão para a folha só quando informados", () => {
+    expect(folhaDoPrato(detalhe)).toMatchObject({ pesoDaPorcao: "", validadeDeUso: "" });
+    expect(folhaDoPrato({ ...detalhe, portionWeightG: 160, shelfLifeDays: 4 })).toMatchObject({ pesoDaPorcao: "160", validadeDeUso: "4" });
+  });
+
   it("a tabela completa as linhas em branco depois dos ingredientes", () => {
     const linhas = linhasDaTabela(folhaDoPrato(detalhe));
     expect(linhas).toHaveLength(16);

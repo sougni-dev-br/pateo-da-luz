@@ -52,6 +52,10 @@ export function FolhaDaFicha({ folha, numero, total }: { folha: FolhaDados; nume
         <Celula rotulo="Preço de venda (R$)" valor={folha.preco} span={3} />
         <Celula rotulo="Data" valor="" span={3} />
       </div>
+      <div className="fp-linha-celulas">
+        <Celula rotulo="Peso da porção (g)" valor={folha.pesoDaPorcao} span={3} />
+        <Celula rotulo="Validade de uso (dias)" valor={folha.validadeDeUso} span={3} />
+      </div>
 
       <h2 className="fp-secao">2. Ingredientes <small>informe como é pesado ou medido de fato: g, ml ou unidade</small></h2>
       <table className="fp-tabela">

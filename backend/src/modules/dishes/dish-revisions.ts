@@ -29,6 +29,8 @@ export function montarSnapshot(detalhe: DetalheDoPrato) {
     salePriceDefault: detalhe.salePriceDefault,
     yieldQty: detalhe.yieldQty,
     yieldUnit: detalhe.yieldUnit,
+    portionWeightG: detalhe.portionWeightG,
+    shelfLifeDays: detalhe.shelfLifeDays,
     notes: detalhe.notes,
     isActive: detalhe.isActive,
     // Preço em cada loja no momento: o histórico mostra quando o preço de uma loja mudou.
