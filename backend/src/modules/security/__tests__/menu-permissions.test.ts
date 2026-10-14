@@ -108,10 +108,10 @@ describe("resolvePermissionContext — Análise do Salão", () => {
   // Um prefixo novo sem mapeamento ficaria público (requireMenuAccess deixa passar o que não resolve).
   const LEITURAS = [
     "/integrations/agile/analise/resumo", "/integrations/agile/analise/demanda", "/integrations/agile/analise/cardapio", "/integrations/agile/analise/perdas",
-    "/integrations/agile/analise/margem", "/integrations/agile/analise/margem-bebidas", "/integrations/agile/analise/metas", "/integrations/agile/analise/vendas-por-pessoa",
+    "/integrations/agile/analise/margem", "/integrations/agile/analise/margem-bebidas", "/integrations/agile/analise/margem-buffet", "/integrations/agile/analise/metas", "/integrations/agile/analise/vendas-por-pessoa",
     "/integrations/agile/analise/cancelamentos", "/integrations/agile/analise/itens-cancelados", "/integrations/agile/analise/descontos"
   ];
-  const GRAVACOES = ["/integrations/agile/analise/metas", "/integrations/agile/analise/margem/vinculo", "/integrations/agile/analise/margem-bebidas/vinculo"];
+  const GRAVACOES = ["/integrations/agile/analise/metas", "/integrations/agile/analise/margem/vinculo", "/integrations/agile/analise/margem-bebidas/vinculo", "/integrations/agile/analise/margem-buffet/custo"];
 
   it.each(LEITURAS)("GET %s exige ver a análise do salão", async (caminho) => {
     expect(await ctx("GET", caminho)).toEqual({ menuId: "analise-salao", action: "view" });
