@@ -102,7 +102,10 @@ export function AnaliseSalao() {
   const valido = periodoValido(periodo);
   const conteudo = useRef<HTMLDivElement>(null);
   const { user } = useSession();
+  // A margem mostra custos (de ficha, de compra e do buffet): exige a permissão de custos, como o Estoque. O servidor também barra.
+  const podeVerCustos = hasPermission(user, "inventory-costs", "view");
   const podeEditar = hasPermission(user, "analise-salao", "edit");
+  const abas = podeVerCustos ? ABAS : ABAS.filter((a) => a.value !== "margem");
 
   const resumo = useRelatorio(getAnaliseResumo, periodo, aba === "resumo");
   const demanda = useRelatorio(getAnaliseDemanda, periodo, aba === "demanda");
@@ -153,6 +156,7 @@ export function AnaliseSalao() {
   // Ao abrir outra seção por um link (o botão que foi clicado some), leva a rolagem e o foco para o
   // conteúdo revelado em vez de deixar o foco no <body>.
   function abrirSecao(secao: Aba) {
+    if (secao === "margem" && !podeVerCustos) return;
     setAba(secao);
     requestAnimationFrame(() => {
       conteudo.current?.focus({ preventScroll: true });
@@ -178,7 +182,7 @@ export function AnaliseSalao() {
       </div>
       )}
 
-      <Tabs tabs={ABAS} value={aba} onChange={(v) => setAba(v as Aba)} aria-label="Seções da análise do salão" />
+      <Tabs tabs={abas} value={aba} onChange={(v) => setAba(v as Aba)} aria-label="Seções da análise do salão" />
 
       <div className="analise-conteudo" aria-busy={atual.carregando} ref={conteudo} tabIndex={-1}>
         {/* Só o status é anunciado: ler as tabelas inteiras a cada carga seria ruído. */}
