@@ -17,7 +17,7 @@ export type Insight = {
   impactoMes: number | null;
   // true = depende de uma suposição (ex.: "se o dia chegasse a 70% do melhor"), não de medição.
   hipotese: boolean;
-  secao: "demanda" | "perdas" | "resumo";
+  secao: "demanda" | "perdas" | "resumo" | "cardapio";
 };
 
 // Duas semanas inteiras: com 7 a 13 dias, um período com sábado e domingo e outro sem eles viram "queda".

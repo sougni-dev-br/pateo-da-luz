@@ -303,6 +303,53 @@
 .detalhe[open] > summary { border-bottom: 1px solid var(--line); }
 .detalhe > :not(summary) { padding: 16px; }
 
+/* ── Cardápio ──────────────────────────────────────────────────────────── */
+
+.subsecao { margin-top: 18px; }
+.lista-simples { margin: 8px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.6; color: var(--ink-soft); }
+
+.mix-rolagem { overflow-x: auto; }
+.mix-rolagem:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; border-radius: 4px; }
+.mix { width: 100%; border-collapse: collapse; font-size: 13px; }
+.mix th, .mix td { padding: 9px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
+.mix thead th { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; white-space: nowrap; }
+.mix tbody th { font-weight: 600; color: var(--ink); }
+.mix .direita { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mix-barra { display: flex; align-items: center; gap: 10px; min-width: 180px; }
+.mix-trilho { flex: 1 1 100px; height: 8px; background: var(--paper-soft); border-radius: 4px; overflow: hidden; }
+.mix-preenchimento { display: block; height: 100%; background: var(--gold); border-radius: 4px; }
+.mix-variacao { color: var(--muted); }
+.venda-base, .venda-sub { display: block; font-size: 11px; font-weight: 500; color: var(--muted); text-transform: none; letter-spacing: 0; }
+.venda-comanda td strong { font-size: 15px; }
+.venda-variacao { font-weight: 600; }
+
+.classe-abc { display: inline-block; min-width: 22px; padding: 1px 7px; border-radius: 999px; text-align: center; font-size: 11px; font-weight: 700; }
+.classe-abc-A { background: var(--gold-tint); color: var(--gold-dark); border: 1px solid var(--gold-soft); }
+.classe-abc-B { background: var(--paper-soft); color: var(--ink-soft); border: 1px solid var(--line-strong); }
+.classe-abc-C { background: var(--paper); color: var(--muted); border: 1px dashed var(--line-strong); }
+
+.abc { margin: 8px 0 14px; }
+.abc-classes { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-wrap: wrap; gap: 10px 22px; font-size: 13px; color: var(--ink-soft); }
+.abc-classe { display: flex; align-items: center; gap: 8px; }
+.abc-letra { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; font-size: 12px; font-weight: 700; background: var(--paper-soft); color: var(--ink); }
+.abc-classe-A .abc-letra { background: var(--gold); color: var(--ink); }
+.abc-valor { color: var(--muted); }
+.abc-grafico { display: block; width: 100%; height: 180px; background: linear-gradient(to top, var(--paper-soft) 0, transparent 1px) 0 0 / 100% 25%; border-bottom: 1px solid var(--line-strong); }
+.abc-barra-A { fill: var(--gold); }
+.abc-barra-B { fill: var(--ink-soft); opacity: 0.7; }
+.abc-barra-C { fill: var(--line-strong); }
+.abc-acumulada { stroke: var(--ink); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.abc-limite { stroke: var(--gold-dark); stroke-width: 1; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; }
+.abc-legenda { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 6px 0 0; font-size: 11.5px; color: var(--muted); }
+.abc-linha-amostra { display: inline-block; width: 16px; border-top: 2px solid var(--ink); vertical-align: middle; margin-right: 4px; }
+.abc-limite-amostra { display: inline-block; width: 16px; border-top: 1px dashed var(--gold-dark); vertical-align: middle; margin-right: 4px; }
+
+.simulacao-lista { list-style: none; margin: 8px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
+.simulacao { display: flex; flex-direction: column; gap: 2px; padding: 12px 16px; background: var(--paper); border: 1px solid var(--line); border-left: 4px solid var(--gold); border-radius: var(--radius-md); }
+.simulacao-item { font-size: 11px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); }
+.simulacao-valor { font-size: 22px; line-height: 1.15; font-variant-numeric: tabular-nums; color: var(--ink); }
+.simulacao-sub { font-size: 12px; color: var(--muted); }
+
 /* ── Responsivo ────────────────────────────────────────────────────────── */
 
 @media (max-width: 1100px) {
