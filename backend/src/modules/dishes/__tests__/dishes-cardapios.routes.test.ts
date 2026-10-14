@@ -500,3 +500,44 @@ describe("endurecimento: tela antiga e troca de cardápio", () => {
     expect(db.dishItem.updateMany).not.toHaveBeenCalled();
   });
 });
+
+describe("peso da porção e validade de uso", () => {
+  test("grava o peso (g) e a validade (dias) ao criar", async () => {
+    const r = await request(app).post("/dishes").send({ name: "Nhoque - Massa", menu: "DELIVERY", yieldQty: 12, portionWeightG: "160", shelfLifeDays: 4 });
+    expect(r.status).toBe(200);
+    expect(db.dish.create).toHaveBeenLastCalledWith({ data: expect.objectContaining({ portionWeightG: 160, shelfLifeDays: 4 }) });
+  });
+
+  test("sem os campos ao criar, ficam nulos", async () => {
+    await request(app).post("/dishes").send({ name: "Pizza" });
+    expect(db.dish.create).toHaveBeenLastCalledWith({ data: expect.objectContaining({ portionWeightG: null, shelfLifeDays: null }) });
+  });
+
+  test("editar sem os campos (tela antiga) NÃO apaga o que já estava gravado", async () => {
+    await request(app).put("/dishes/d1").send({ name: "Nhoque" });
+    const dados = db.dish.update.mock.calls.at(-1)[0].data;
+    expect(dados.portionWeightG).toBeUndefined();
+    expect(dados.shelfLifeDays).toBeUndefined();
+  });
+
+  test("campo vazio ou null limpa", async () => {
+    await request(app).put("/dishes/d1").send({ name: "Nhoque", portionWeightG: "", shelfLifeDays: null });
+    const dados = db.dish.update.mock.calls.at(-1)[0].data;
+    expect(dados.portionWeightG).toBeNull();
+    expect(dados.shelfLifeDays).toBeNull();
+  });
+
+  test.each([
+    [{ portionWeightG: 0 }, /peso da porcao/],
+    [{ portionWeightG: -5 }, /peso da porcao/],
+    [{ portionWeightG: "abc" }, /peso da porcao/],
+    [{ shelfLifeDays: 0 }, /validade/],
+    [{ shelfLifeDays: 2.5 }, /validade/],
+    [{ shelfLifeDays: 99999 }, /validade/]
+  ])("rejeita valor inválido %j", async (extra, mensagem) => {
+    const r = await request(app).put("/dishes/d1").send({ name: "Nhoque", ...extra });
+    expect(r.status).toBe(400);
+    expect(JSON.stringify(r.body)).toMatch(mensagem);
+    expect(db.dish.update).not.toHaveBeenCalled();
+  });
+});

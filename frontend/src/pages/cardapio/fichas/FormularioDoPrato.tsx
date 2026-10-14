@@ -49,7 +49,7 @@ const OPCOES_ONDE_VENDE: Array<{ valor: OndeVende; rotulo: string; titulo: strin
 ];
 
 const camposVazios = (menu: DishMenu): CamposDaFicha => ({
-  name: "", code: "", menu, categoryId: "", alsoMenu: null, alsoCategoryId: "", salePriceDefault: "", yieldQty: "1", yieldUnit: "UN", notes: ""
+  name: "", code: "", menu, categoryId: "", alsoMenu: null, alsoCategoryId: "", salePriceDefault: "", yieldQty: "1", yieldUnit: "UN", portionWeightG: "", shelfLifeDays: "", notes: ""
 });
 
 const itemDoDetalhe = (item: DishDetail["items"][number], copia: boolean): ItemDaFicha => ({
@@ -82,6 +82,8 @@ function montarInicial(modo: ModoDoFormulario, base: DishDetail | null, menuPadr
       salePriceDefault: base.salePriceDefault != null ? String(base.salePriceDefault) : "",
       yieldQty: String(base.yieldQty),
       yieldUnit: base.yieldUnit,
+      portionWeightG: base.portionWeightG != null ? String(base.portionWeightG) : "",
+      shelfLifeDays: base.shelfLifeDays != null ? String(base.shelfLifeDays) : "",
       notes: base.notes ?? ""
     },
     itens: base.items.map((item) => itemDoDetalhe(item, copia)),
@@ -185,7 +187,11 @@ export function FormularioDoPrato({ modo, base, categorias, menuPadrao, onCancel
         ? "ft-preco"
         : encontrados.yieldQty
           ? "ft-rendimento"
-          : encontrados.semQuantidadesDoOutro
+          : encontrados.portionWeightG
+            ? "ft-peso-porcao"
+            : encontrados.shelfLifeDays
+              ? "ft-validade"
+              : encontrados.semQuantidadesDoOutro
             ? "ft-busca-ingrediente-delivery"
             : `${erroDoItem?.campo === "wasteFactor" ? "ft-perda" : "ft-qtd"}-${idDoItem}`;
     // O erro só aparece depois do render seguinte.
@@ -359,6 +365,30 @@ export function FormularioDoPrato({ modo, base, categorias, menuPadrao, onCancel
               value={campos.yieldUnit}
               onChange={(evento) => alterarCampo("yieldUnit", evento.target.value.toUpperCase())}
               maxLength={12}
+            />
+          </FormField>
+          <FormField label="Peso da porção (g)" hint="Opcional. Quanto pesa cada porção pronta; com ele a ficha mostra o custo por kg." error={mostrarErros.portionWeightG}>
+            <TextField
+              id="ft-peso-porcao"
+              type="number"
+              inputMode="decimal"
+              step="any"
+              min="0"
+              placeholder="Ex.: 160"
+              value={campos.portionWeightG}
+              onChange={(evento) => alterarCampo("portionWeightG", evento.target.value)}
+            />
+          </FormField>
+          <FormField label="Validade de uso (dias)" hint="Opcional. Por quantos dias o preparo pode ser usado." error={mostrarErros.shelfLifeDays}>
+            <TextField
+              id="ft-validade"
+              type="number"
+              inputMode="numeric"
+              step="1"
+              min="1"
+              placeholder="Ex.: 4"
+              value={campos.shelfLifeDays}
+              onChange={(evento) => alterarCampo("shelfLifeDays", evento.target.value)}
             />
           </FormField>
           {/* Fora do FormField: com dois filhos ele não consegue ligar o rótulo ao campo. */}

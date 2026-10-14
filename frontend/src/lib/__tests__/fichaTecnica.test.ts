@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { DishListItem } from "../../api/client";
 import {
   contarPorSituacao,
+  custoPorKg,
+  rotuloDeDias,
   converterAoTrocarUnidade,
   ondeVende,
   trocarOndeVende,
@@ -290,7 +292,7 @@ describe("lista", () => {
 });
 
 describe("formulário da ficha", () => {
-  const campos = { name: "Risoto", code: "", menu: "CARDAPIO" as const, categoryId: "", alsoMenu: null, alsoCategoryId: "", salePriceDefault: "79,90", yieldQty: "1", yieldUnit: "un", notes: "" };
+  const campos = { name: "Risoto", code: "", menu: "CARDAPIO" as const, categoryId: "", alsoMenu: null, alsoCategoryId: "", salePriceDefault: "79,90", yieldQty: "1", yieldUnit: "un", portionWeightG: "", shelfLifeDays: "", notes: "" };
   const item = (parcial: Partial<ItemDaFicha> = {}): ItemDaFicha => ({
     ...ingrediente(), tempId: "t1", productId: "p1", productName: "CAMARAO", notes: "", ...parcial
   });
@@ -379,7 +381,7 @@ describe("converter a quantidade ao trocar a unidade", () => {
 });
 
 describe("prato vendido nos dois cardápios (formulário)", () => {
-  const base = { name: "Filé", code: "", menu: "CARDAPIO" as const, categoryId: "c-salao", alsoMenu: null, alsoCategoryId: "", salePriceDefault: "", yieldQty: "1", yieldUnit: "UN", notes: "" };
+  const base = { name: "Filé", code: "", menu: "CARDAPIO" as const, categoryId: "c-salao", alsoMenu: null, alsoCategoryId: "", salePriceDefault: "", yieldQty: "1", yieldUnit: "UN", portionWeightG: "", shelfLifeDays: "", notes: "" };
 
   it("passar para 'nos dois' guarda o outro cardápio, sem categoria ainda", () => {
     expect(ondeVende(base)).toBe("CARDAPIO");
@@ -426,5 +428,48 @@ describe("prato vendido nos dois cardápios (formulário)", () => {
     const dois = montarPayloadDaFicha({ ...base, alsoMenu: "DELIVERY", alsoCategoryId: "c-delivery" }, []);
     expect(dois).toMatchObject({ menu: "CARDAPIO", alsoMenu: "DELIVERY", alsoCategoryId: "c-delivery" });
     expect(montarPayloadDaFicha({ ...base, alsoCategoryId: "sobrou" }, [])).toMatchObject({ alsoMenu: null, alsoCategoryId: "" });
+  });
+});
+
+describe("peso da porção e validade de uso", () => {
+  const campos = { name: "Nhoque - Massa", code: "", menu: "DELIVERY" as const, categoryId: "", alsoMenu: null, alsoCategoryId: "", salePriceDefault: "", yieldQty: "12", yieldUnit: "UN", portionWeightG: "160", shelfLifeDays: "4", notes: "" };
+  const item: ItemDaFicha = { ...ingrediente(), tempId: "t1", productId: "p1", productName: "FARINHA", notes: "" };
+
+  it("campos preenchidos e válidos não geram erro", () => {
+    expect(temErros(validarFicha(campos, [item]))).toBe(false);
+  });
+
+  it("campos vazios são opcionais", () => {
+    expect(temErros(validarFicha({ ...campos, portionWeightG: "", shelfLifeDays: "" }, [item]))).toBe(false);
+  });
+
+  it("peso zero, negativo ou texto é erro", () => {
+    for (const ruim of ["0", "-5", "abc"]) {
+      expect(validarFicha({ ...campos, portionWeightG: ruim }, [item]).portionWeightG).toMatch(/peso da porção/);
+    }
+  });
+
+  it("validade precisa ser inteira e maior que zero", () => {
+    for (const ruim of ["0", "-1", "2,5", "x"]) {
+      expect(validarFicha({ ...campos, shelfLifeDays: ruim }, [item]).shelfLifeDays).toMatch(/validade/);
+    }
+    expect(temErros(validarFicha({ ...campos, shelfLifeDays: "10" }, [item]))).toBe(false);
+  });
+
+  it("o payload leva os números, e vazio vira null (limpa o que estava gravado)", () => {
+    expect(montarPayloadDaFicha(campos, [item])).toMatchObject({ portionWeightG: 160, shelfLifeDays: 4 });
+    expect(montarPayloadDaFicha({ ...campos, portionWeightG: "", shelfLifeDays: "" }, [item])).toMatchObject({ portionWeightG: null, shelfLifeDays: null });
+  });
+
+  it("custo por kg: custo da porção ÷ peso da porção × 1000", () => {
+    expect(custoPorKg(2.4, 160)).toBeCloseTo(15);
+    expect(custoPorKg(2.4, null)).toBeNull();
+    expect(custoPorKg(2.4, 0)).toBeNull();
+    expect(custoPorKg(null, 160)).toBeNull();
+  });
+
+  it("rótulo de dias no singular e no plural", () => {
+    expect(rotuloDeDias(1)).toBe("1 dia");
+    expect(rotuloDeDias(4)).toBe("4 dias");
   });
 });

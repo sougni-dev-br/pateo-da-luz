@@ -1737,6 +1737,9 @@ model Dish {
   salePriceDefault   Decimal?            @db.Decimal(10, 2)
   yieldQty           Decimal             @default(1) @db.Decimal(8, 3)
   yieldUnit          String              @default("UN")
+  // Peso de cada porção em gramas (ex.: 160) e por quantos dias o preparo pode ser usado (ex.: 4). Opcionais.
+  portionWeightG   Decimal?       @db.Decimal(10, 3)
+  shelfLifeDays    Int?
   notes              String?
   isActive           Boolean             @default(true)
   // Em que cardapio o prato vive: CARDAPIO (salao) ou DELIVERY. Salao e delivery sao cardapios

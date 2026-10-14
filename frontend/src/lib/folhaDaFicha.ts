@@ -22,6 +22,9 @@ export type FolhaDados = {
   subcategoria: string;
   rendimento: string;
   unidadeDoRendimento: string;
+  /** Peso de cada porção e validade de uso, quando informados na ficha. */
+  pesoDaPorcao: string;
+  validadeDeUso: string;
   preco: string;
   modoDePreparo: string;
   observacoes: string;
@@ -52,7 +55,7 @@ function normalizarLinhas(linhas: number): number {
 }
 
 const base = (linhas: number): FolhaDados => ({
-  prato: "", codigo: "", menu: null, categoria: "", subcategoria: "", rendimento: "", unidadeDoRendimento: "", preco: "",
+  prato: "", codigo: "", menu: null, categoria: "", subcategoria: "", rendimento: "", unidadeDoRendimento: "", pesoDaPorcao: "", validadeDeUso: "", preco: "",
   modoDePreparo: "", observacoes: "", ingredientes: [], linhas: normalizarLinhas(linhas)
 });
 
@@ -67,7 +70,7 @@ export function folhaEmBranco(opcoes: { linhas?: number; menu?: DishMenu | null;
 }
 
 /** Folha de um prato que ainda não tem ficha: nome, cardápio e categoria preenchidos; ingredientes em branco. */
-export function folhaDoNome(prato: Pick<DishListItem, "name" | "code" | "menu" | "category" | "yieldQty" | "yieldUnit">, linhas = LINHAS_PADRAO): FolhaDados {
+export function folhaDoNome(prato: Pick<DishListItem, "name" | "code" | "menu" | "category" | "yieldQty" | "yieldUnit"> & Partial<Pick<DishListItem, "portionWeightG" | "shelfLifeDays">>, linhas = LINHAS_PADRAO): FolhaDados {
   return {
     ...base(linhas),
     prato: prato.name,
@@ -76,7 +79,9 @@ export function folhaDoNome(prato: Pick<DishListItem, "name" | "code" | "menu" |
     categoria: prato.category?.parentName ?? prato.category?.name ?? "",
     subcategoria: prato.category?.parentName ? prato.category.name : "",
     rendimento: formatarQuantidade(prato.yieldQty),
-    unidadeDoRendimento: prato.yieldUnit
+    unidadeDoRendimento: prato.yieldUnit,
+    pesoDaPorcao: prato.portionWeightG != null ? formatarQuantidade(prato.portionWeightG) : "",
+    validadeDeUso: prato.shelfLifeDays != null ? String(prato.shelfLifeDays) : ""
   };
 }
 
