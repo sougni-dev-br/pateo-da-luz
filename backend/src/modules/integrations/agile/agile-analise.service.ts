@@ -4,10 +4,12 @@ import { montarDemanda } from "./agile-analise-demanda.report.js";
 import { CATEGORIAS_ALCOOL, CATEGORIAS_BEBIDA, CATEGORIA_SOBREMESA, PADRAO_GRUPO_SOBREMESA, PADRAO_NOME_CAFE } from "./agile-categorias.js";
 import { descontarHoje, hojeEmSaoPaulo } from "./agile-analise-hoje.js";
 import { montarPerdas } from "./agile-analise-perdas.report.js";
+import { montarMargem, type ProdutoVendido } from "./agile-analise-margem.report.js";
 import { DIAS_DA_JANELA_DE_RITMO, limitesDoMes, montarMetas, type IndicadorDeMeta, type MesDoHistorico } from "./agile-analise-metas.report.js";
 import { montarResumo } from "./agile-analise-resumo.js";
 import { calcularIndicadores, periodoAnteriorDe, type VendaVisao } from "./agile-analise-visao.report.js";
 import { prisma } from "../../../config/database.js";
+import { carregarPratosDoSalaoComCusto } from "../../dishes/dish-custo-salao.js";
 import { toCalendarDateKey } from "../../../shared/utils/calendar-date.js";
 import {
   montarCancelamentos,
@@ -252,8 +254,7 @@ async function produtosPorJanela(deAnterior: Date, de: Date, ate: Date): Promise
     grupo: (l.grupo as string | null) ?? null,
     categoria: (l.categoria as string | null) ?? null,
     quantidade: n(l.quantidade),
-    valor: n(l.valor),
-    comandas: n(l.comandas)
+    valor: n(l.valor)
   }));
 }
 
@@ -377,4 +378,57 @@ export async function salvarMeta(ano: number, mes: number, indicador: IndicadorD
     create: { ano, mes, indicador, valor, updatedById: usuarioId },
     update: { valor, updatedById: usuarioId }
   });
+}
+
+// ---------------------------------------------------------------------------
+// Margem por prato: venda do PDV x custo da ficha do salao, pelo vinculo produto <-> prato.
+// ---------------------------------------------------------------------------
+
+async function produtosVendidosDoPeriodo(de: Date, ate: Date): Promise<ProdutoVendido[]> {
+  const linhas = await prisma.$queryRaw<LinhaBruta[]>`
+    SELECT MAX(i."productCode") AS codigo, MAX(i."productName") AS nome, MAX(i."productCategory") AS categoria,
+           COALESCE(SUM(i.quantity), 0) AS quantidade, COALESCE(SUM(i."totalAmount"), 0) AS valor
+    FROM "AgileSaleItem" i
+    WHERE i."saleStatus" = ${SITUACAO_RECEBIDA} AND i."movementDate" >= ${de} AND i."movementDate" < ${ate}
+    GROUP BY COALESCE(i."productCode", i."productName")`;
+  return linhas.map((l) => ({
+    codigo: (l.codigo as string | null) ?? null,
+    nome: String(l.nome),
+    categoria: (l.categoria as string | null) ?? null,
+    quantidade: n(l.quantidade),
+    valor: n(l.valor)
+  }));
+}
+
+export async function obterMargem(pedido: Periodo, hoje: string = hojeEmSaoPaulo()) {
+  const { periodo, hojeFicouDeFora, vazio } = descontarHoje(pedido, hoje);
+  const { de, ate } = intervaloDoPeriodo(periodo);
+  const [produtos, pratos, vinculos] = await Promise.all([
+    vazio ? Promise.resolve<ProdutoVendido[]>([]) : produtosVendidosDoPeriodo(de, ate),
+    carregarPratosDoSalaoComCusto(prisma),
+    prisma.agileProdutoPrato.findMany({ select: { productCode: true, dishId: true } })
+  ]);
+  return {
+    ...montarMargem({ periodo, produtos, pratos, vinculos: vinculos.map((v) => ({ codigo: v.productCode, pratoId: v.dishId })) }),
+    hojeFicouDeFora
+  };
+}
+
+// pratoId null desfaz o vinculo do produto. O prato tem que ser do cardapio do salao e estar ativo.
+export async function vincularProdutoAoPrato(codigo: string, nome: string, pratoId: string | null, usuarioId: string | null): Promise<"ok" | "prato-invalido"> {
+  if (pratoId === null) {
+    await prisma.agileProdutoPrato.deleteMany({ where: { productCode: codigo } });
+    return "ok";
+  }
+  const prato = await prisma.dish.findFirst({
+    where: { id: pratoId, isActive: true, OR: [{ menu: "CARDAPIO" }, { alsoMenu: "CARDAPIO" }] },
+    select: { id: true }
+  });
+  if (!prato) return "prato-invalido";
+  await prisma.agileProdutoPrato.upsert({
+    where: { productCode: codigo },
+    create: { productCode: codigo, productName: nome, dishId: pratoId, updatedById: usuarioId },
+    update: { productName: nome, dishId: pratoId, updatedById: usuarioId }
+  });
+  return "ok";
 }

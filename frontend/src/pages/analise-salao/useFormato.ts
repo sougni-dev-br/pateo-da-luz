@@ -1,5 +1,5 @@
 import { useHideValues } from "../../design-system";
-import { mascararReais, reaisCompacto, reaisInteiro } from "./formato";
+import { mascararReais, reaisCentavos, reaisCompacto, reaisInteiro } from "./formato";
 
 const OCULTO = "R$ ••••";
 
@@ -9,6 +9,7 @@ export function useFormato() {
   return {
     reais: (n: number) => (hidden ? OCULTO : reaisInteiro(n)),
     reaisCompacto: (n: number) => (hidden ? OCULTO : reaisCompacto(n)),
+    reaisCentavos: (n: number) => (hidden ? OCULTO : reaisCentavos(n)),
     // Para frases prontas do servidor que carregam reais no texto.
     mascarar: (texto: string) => (hidden ? mascararReais(texto) : texto)
   };

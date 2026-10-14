@@ -2,10 +2,10 @@ import { ArrowRight } from "lucide-react";
 import type { AnaliseInsight } from "../../api/client";
 import { useFormato } from "./useFormato";
 
-export type SecaoDaAnalise = "resumo" | "demanda" | "cardapio" | "perdas";
+export type SecaoDaAnalise = "resumo" | "demanda" | "cardapio" | "margem" | "perdas";
 
 const ROTULO_TOM: Record<AnaliseInsight["tom"], string> = { alerta: "Atenção", oportunidade: "Oportunidade", info: "Para conferir" };
-const ROTULO_SECAO: Record<Exclude<SecaoDaAnalise, "resumo">, string> = { demanda: "Quando vendemos", cardapio: "Cardápio", perdas: "Perdas" };
+const ROTULO_SECAO: Record<Exclude<SecaoDaAnalise, "resumo">, string> = { demanda: "Quando vendemos", cardapio: "Cardápio", margem: "Margem", perdas: "Perdas" };
 
 // Um aviso de decisão: o que mudou, a evidência, o que fazer e quanto está em jogo. O impacto é
 // sempre rotulado como estimativa; quando depende de suposição, diz que é hipótese. Os textos vêm
