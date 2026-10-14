@@ -28,6 +28,7 @@ import {
 } from "../../../lib/fichaTecnica";
 import { cardapioCombina, categoriaCombina, contarPorCardapio, type FiltroDeCardapio } from "../../../lib/categoriasDasFichas";
 import { folhaDoNome, folhaDoPrato, type FolhaDados } from "../../../lib/folhaDaFicha";
+import { montarFilaAPreencher } from "../../../lib/fichasAPreencher";
 import { montarPainel } from "../../../lib/painelFichas";
 import { useNavigationGuard } from "../../../lib/navigationGuard";
 import { hasPermission } from "../../../lib/permissions";
@@ -39,14 +40,14 @@ import { DialogoDeImpressao } from "./DialogoDeImpressao";
 import { DialogoDeLote, type EscolhaDoLote } from "./DialogoDeLote";
 import { useImpressaoDeFolhas } from "./FolhaDaFicha";
 import { FormularioDoPrato, type ModoDoFormulario } from "./FormularioDoPrato";
-import { ListaDoBuffet } from "./ListaDoBuffet";
+import { ListaAPreencher } from "./ListaAPreencher";
 import { ListaDePratos } from "./ListaDePratos";
 import { PainelDasFichasView } from "./PainelDasFichas";
 import { SeletorDeCardapio } from "./SeletorDeCardapio";
 import "./fichas.css";
 import "./painel.css";
 
-type Aba = "painel" | "fichas" | "buffet" | "cmv" | "categorias";
+type Aba = "painel" | "fichas" | "preencher" | "cmv" | "categorias";
 /** `chave` muda a cada abertura: reabrir "Novo prato" precisa de um formulário zerado, não do anterior. */
 type Editor = { modo: ModoDoFormulario; base: DishDetail | null; chave: number };
 
@@ -321,7 +322,8 @@ export function FichasTecnicas() {
   );
   const contagemDosChips = useMemo(() => contarPorSituacao(pratosDosChips, filtro.mostrarInativos), [pratosDosChips, filtro.mostrarInativos]);
 
-  const buffetAguardando = useMemo(() => buffet.filter((p) => p.pending).length, [buffet]);
+  // O que ainda falta preencher: preparações do desperdício, pratos sem ficha e fichas incompletas (aba "A preencher").
+  const fila = useMemo(() => montarFilaAPreencher(pratos, buffet), [pratos, buffet]);
   const detalheDoSelecionado = detalhe && detalhe.id === selecionadoId ? detalhe : null;
   const painelAberto = selecionadoId !== null || editor !== null;
 
@@ -411,7 +413,7 @@ export function FichasTecnicas() {
         tabs={[
           { value: "painel", label: "Painel" },
           { value: "fichas", label: "Pratos" },
-          { value: "buffet", label: buffetAguardando > 0 ? `Buffet (${buffetAguardando} aguardando)` : "Buffet" },
+          { value: "preencher", label: fila.total > 0 ? `A preencher (${fila.total})` : "A preencher" },
           { value: "cmv", label: "CMV por canal" },
           { value: "categorias", label: "Categorias" }
         ]}
@@ -439,13 +441,13 @@ export function FichasTecnicas() {
             onImprimirEmBranco={() => setDialogoDeImpressao(true)}
           />
         )
-      ) : aba === "buffet" ? (
+      ) : aba === "preencher" ? (
         <ListDetailLayout
           className="ft-layout"
           detailActive={painelAberto}
           onBack={voltar}
           backLabel={editor?.base ? "Voltar à ficha" : "Voltar à lista"}
-          list={<ListaDoBuffet pratos={buffet} selecionadoId={selecionadoId} carregando={carregando} onSelecionar={selecionar} />}
+          list={<ListaAPreencher fila={fila} selecionadoId={selecionadoId} carregando={carregando} onSelecionar={selecionar} onImprimir={imprimir} onImprimirEmBranco={() => setDialogoDeImpressao(true)} />}
           detail={<div ref={revelarRef} className="scroll-target ft-painel">{renderizarPainel()}</div>}
         />
       ) : aba === "cmv" ? (

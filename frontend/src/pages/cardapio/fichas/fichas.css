@@ -393,3 +393,13 @@
 .ft-buffet-obs { font-size: 12px; color: var(--ink); }
 .ft-buffet-vazio { padding: 24px 8px; color: var(--ink-soft); }
 .ft-buffet-vazio h2 { margin: 0 0 6px; font-size: 16px; color: var(--ink); }
+
+/* A preencher: fila de fichas com seleção para imprimir. */
+.ft-preencher-barra { display: grid; gap: 10px; padding-bottom: 4px; }
+.ft-preencher-barra .ds-text-field { max-width: 360px; }
+.ft-preencher-acoes { display: flex; flex-wrap: wrap; gap: 8px; }
+.ft-preencher-dica { margin: 0; font-size: 12px; color: var(--ink-soft); }
+.ft-preencher-linha { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px; }
+.ft-preencher-check { width: 20px; height: 20px; margin: 0; accent-color: var(--ink); cursor: pointer; }
+.ft-preencher-check:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.ft-buffet-grupo summary { min-height: 44px; display: flex; align-items: center; font-size: 14px; font-weight: 600; cursor: pointer; }

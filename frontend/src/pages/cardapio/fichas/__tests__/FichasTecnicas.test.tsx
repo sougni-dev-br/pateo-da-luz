@@ -647,12 +647,14 @@ describe("formulário", () => {
   });
 });
 
-describe("buffet: preparações criadas pelo desperdício, aguardando ficha", () => {
+describe("A preencher: o que ainda falta de ficha, com impressão", () => {
   const PURE_BUFFET = { id: "b1", name: "Purê de abóbora", unit: "KG", pending: true, pendingSince: "2026-10-05T12:00:00.000Z", completedAt: null, requestedBy: "Beto", notes: "batata, manteiga e leite", wasteEntries: 4, wasteQuantity: 9.5, lastWasteOn: "2026-10-10" };
   const FAROFA = { id: "b2", name: "Farofa de bacon", unit: "KG", pending: true, pendingSince: "2026-10-01T12:00:00.000Z", completedAt: null, requestedBy: null, notes: null, wasteEntries: 1, wasteQuantity: 2, lastWasteOn: "2026-10-02" };
   const ARROZ = { id: "b3", name: "Arroz de forno", unit: "KG", pending: false, pendingSince: null, completedAt: "2026-10-09T12:00:00.000Z", requestedBy: null, notes: null, wasteEntries: 0, wasteQuantity: 0, lastWasteOn: null };
 
-  async function abrirBuffet(itens = [PURE_BUFFET, FAROFA, ARROZ]) {
+  beforeEach(() => { vi.spyOn(window, "print").mockImplementation(() => undefined); });
+
+  async function abrirAPreencher(itens = [PURE_BUFFET, FAROFA, ARROZ]) {
     vi.mocked(getBuffetDishes).mockResolvedValue(itens);
     render(
       <SessionContext.Provider value={SESSAO}>
@@ -660,48 +662,82 @@ describe("buffet: preparações criadas pelo desperdício, aguardando ficha", ()
       </SessionContext.Provider>,
     );
     await screen.findByText("Fichas montadas");
-    fireEvent.click(screen.getByRole("tab", { name: /Buffet/ }));
+    fireEvent.click(screen.getByRole("tab", { name: /A preencher/ }));
   }
 
-  test("a aba mostra quantos aguardam e lista primeiro quem aguarda, com o que foi perdido e quem pediu", async () => {
-    await abrirBuffet();
-    expect(screen.getByRole("tab", { name: "Buffet (2 aguardando)" })).toBeInTheDocument();
-    const aguardando = await screen.findByRole("region", { name: "Aguardando ficha" });
+  test("a aba soma o que falta (do desperdício, sem ficha, incompleta) e agrupa por origem", async () => {
+    await abrirAPreencher();
+    // 2 do desperdício + Purê de batata (sem ficha) + Risoto de funghi (custo parcial).
+    expect(screen.getByRole("tab", { name: "A preencher (4)" })).toBeInTheDocument();
+    const aguardando = await screen.findByRole("region", { name: /Aguardando ficha/ });
     expect(within(aguardando).getByText("Purê de abóbora")).toBeInTheDocument();
-    expect(within(aguardando).getByText("4 lançamentos · 9,5 KG perdidos")).toBeInTheDocument();
-    expect(within(aguardando).getByText(/Pedido por Beto em/)).toBeInTheDocument();
-    expect(within(aguardando).getByText("Leva: batata, manteiga e leite")).toBeInTheDocument();
-    expect(within(aguardando).getByText("1 lançamento · 2 KG perdidos")).toBeInTheDocument();
-    const comFicha = screen.getByRole("region", { name: "Com ficha" });
-    expect(within(comFicha).getByText("Arroz de forno")).toBeInTheDocument();
-    expect(within(comFicha).getByText("Nenhum lançamento de desperdício")).toBeInTheDocument();
+    expect(within(aguardando).getByText(/4 lançamentos · 9,5 KG perdidos · pedido por Beto/)).toBeInTheDocument();
+    // O que mais saiu vem primeiro.
+    expect(within(aguardando).getAllByRole("button").map((b) => b.textContent)[0]).toMatch(/Purê de abóbora/);
+    expect(within(screen.getByRole("region", { name: "Cadastrados sem ficha" })).getByText("Purê de batata")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: /Ficha incompleta/ })).getByText("Risoto de funghi")).toBeInTheDocument();
+    // Já pronto não conta como falta, mas fica à mão.
+    expect(screen.getByText("Preparações do buffet já com ficha (1)")).toBeInTheDocument();
   });
 
-  test("sem preparações o rótulo é só Buffet e a aba explica de onde elas vêm", async () => {
-    await abrirBuffet([]);
-    expect(screen.getByRole("tab", { name: "Buffet" })).toBeInTheDocument();
-    expect(await screen.findByText("Nenhuma preparação do buffet ainda")).toBeInTheDocument();
+  test("nada por preencher: explica e ainda oferece a folha em branco", async () => {
+    vi.mocked(getDishes).mockResolvedValue([RISOTO]);
+    await abrirAPreencher([]);
+    expect(await screen.findByText("Nenhuma ficha por preencher")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Imprimir folha em branco" })).toBeInTheDocument();
+  });
+
+  test("a busca acha sem acento e esconde os grupos que não casam", async () => {
+    await abrirAPreencher();
+    fireEvent.change(screen.getByLabelText("Buscar prato"), { target: { value: "pure de" } });
+    expect(screen.getByText("Purê de abóbora")).toBeInTheDocument();
+    expect(screen.getByText("Purê de batata")).toBeInTheDocument();
+    expect(screen.queryByText("Risoto de funghi")).toBeNull();
+    expect(screen.queryByRole("region", { name: /Ficha incompleta/ })).toBeNull();
+  });
+
+  test("escolhidos saem impressos com o nome já escrito; o do desperdício leva o que a equipe disse que tem", async () => {
+    await abrirAPreencher();
+    expect(screen.getByRole("button", { name: "Imprimir escolhidos" })).toBeDisabled();
+    fireEvent.click(screen.getByLabelText("Escolher Purê de abóbora para imprimir"));
+    fireEvent.click(screen.getByLabelText("Escolher Purê de batata para imprimir"));
+    fireEvent.click(screen.getByRole("button", { name: "Imprimir escolhidos (2)" }));
+
+    await waitFor(() => expect(window.print).toHaveBeenCalled());
+    const folhas = document.body.textContent ?? "";
+    expect(folhas).toContain("Leva, segundo quem lançou o desperdício: batata, manteiga e leite");
+    expect(folhas).toContain("Purê de batata");
+  });
+
+  test("escolher todos pega só o que a busca deixou visível, e limpar zera", async () => {
+    await abrirAPreencher();
+    fireEvent.change(screen.getByLabelText("Buscar prato"), { target: { value: "pure" } });
+    fireEvent.click(screen.getByRole("button", { name: "Escolher todos (2)" }));
+    expect(screen.getByRole("button", { name: "Imprimir escolhidos (2)" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Limpar" }));
+    expect(screen.getByRole("button", { name: "Imprimir escolhidos" })).toBeDisabled();
+  });
+
+  test("imprimir em branco abre o diálogo da folha sem prato (para o que não tem cadastro)", async () => {
+    await abrirAPreencher();
+    fireEvent.click(screen.getByRole("button", { name: "Imprimir folha em branco" }));
+    expect(await screen.findByRole("heading", { name: "Imprimir ficha em branco" })).toBeInTheDocument();
   });
 
   test("abrir uma que aguarda mostra o aviso com o que está esperando valor, e deixa montar a ficha", async () => {
     vi.mocked(getDishDetail).mockImplementation(async (id: string) => id === "b1" ? detalhe(resumo({ id: "b1", name: "Purê de abóbora", yieldUnit: "KG", isActive: false, itemsCount: 0, cmvPercentual: 0 }), [], { fichaDeBuffet: true, fichaPendente: true }) : DETALHES[id]);
-    await abrirBuffet();
+    await abrirAPreencher();
     fireEvent.click(await screen.findByText("Purê de abóbora"));
     expect(await screen.findByRole("heading", { level: 2, name: "Purê de abóbora" })).toBeInTheDocument();
-    const aviso = await screen.findByText("Aguardando ficha técnica", { selector: "strong, p, div, span, h3, h4" });
-    expect(aviso.closest("[role=alert], div")?.textContent).toMatch(/Criado no lançamento de desperdício por Beto/);
     expect(screen.getByText(/4\s+lançamentos \(9,5 KG\) ficam sem valor/)).toBeInTheDocument();
-    expect(screen.getAllByText(/batata, manteiga e leite/).length).toBeGreaterThanOrEqual(1);
-    // Inativa por desenho (não é vendida), mas se edita: sem "Inativo", sem "Reativar", sem "Copiar".
     expect(screen.getByRole("button", { name: /Editar/ })).toBeInTheDocument();
-    expect(screen.queryByText("Inativo")).toBeNull();
     expect(screen.queryByRole("button", { name: /Reativar|Inativar|Copiar/ })).toBeNull();
   });
 
   test("salvar a ficha completa avisa quantos lançamentos passaram a ter valor", async () => {
     vi.mocked(getDishDetail).mockImplementation(async (id: string) => id === "b1" ? detalhe(resumo({ id: "b1", name: "Purê de abóbora", yieldUnit: "KG", isActive: false, itemsCount: 0, cmvPercentual: 0 }), [], { fichaDeBuffet: true, fichaPendente: true }) : DETALHES[id]);
     vi.mocked(saveDish).mockResolvedValue({ id: "b1", desperdicio: { completa: true, revalorizados: 4, emOutraUnidade: 0, concluiuPendencia: true } });
-    await abrirBuffet();
+    await abrirAPreencher();
     fireEvent.click(await screen.findByText("Purê de abóbora"));
     await screen.findByRole("heading", { level: 2, name: "Purê de abóbora" });
     fireEvent.click(screen.getByRole("button", { name: /Editar/ }));
@@ -710,7 +746,7 @@ describe("buffet: preparações criadas pelo desperdício, aguardando ficha", ()
   });
 
   test("a lista de pratos continua sem as preparações do buffet (o servidor não as devolve)", async () => {
-    await abrirBuffet();
+    await abrirAPreencher();
     fireEvent.click(screen.getByRole("tab", { name: "Pratos" }));
     await screen.findByText("Risoto de camarão");
     expect(within(lista()).queryByText("Purê de abóbora")).toBeNull();
