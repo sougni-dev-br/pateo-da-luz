@@ -3,7 +3,7 @@ import { z } from "zod";
 import { getSessionUser, type SessionUser } from "../../security/security-utils.js";
 import { userHasPermission } from "../../security/menu-permissions.js";
 import {
-  obterCancelamentos, obterCardapio, obterDemanda, obterDescontos, obterItensCancelados, obterMargem, obterMargemBebidas, obterMetas, obterPerdas, obterResumo, obterVendasPorPessoa, salvarMeta, UNIDADES_DE_CONSUMO, vincularBebidaAoInsumo, vincularProdutoAoPrato
+  obterCancelamentos, obterCardapio, obterDemanda, obterDescontos, obterItensCancelados, obterMargem, obterMargemBebidas, obterMargemBuffet, obterMetas, obterPerdas, obterResumo, obterVendasPorPessoa, salvarCustoBuffet, salvarMeta, UNIDADES_DE_CONSUMO, vincularBebidaAoInsumo, vincularProdutoAoPrato
 } from "./agile-analise.service.js";
 import { INDICADORES_DE_META } from "./agile-analise-metas.report.js";
 
@@ -110,6 +110,7 @@ const ROTAS_DE_VISAO = [
   { caminho: "/cardapio", obter: obterCardapio, rotulo: "a análise do cardápio do salão" },
   { caminho: "/margem", obter: obterMargem, rotulo: "a margem por prato do salão" },
   { caminho: "/margem-bebidas", obter: obterMargemBebidas, rotulo: "a margem das bebidas do salão" },
+  { caminho: "/margem-buffet", obter: obterMargemBuffet, rotulo: "a margem do buffet do salão" },
   { caminho: "/perdas", obter: obterPerdas, rotulo: "a análise de perdas do salão" }
 ] as const;
 
@@ -238,5 +239,30 @@ agileAnaliseRouter.put("/margem-bebidas/vinculo", exigirAnaliseSalao, async (req
   } catch (error: unknown) {
     console.error("Falha ao salvar o vínculo bebida-insumo", error);
     response.status(500).json({ message: "Não foi possível salvar o vínculo." });
+  }
+});
+
+// Custo de comida por pessoa do buffet, por mes (null apaga). Ler vem junto com /margem-buffet; gravar exige editar.
+const LIMITE_DO_CUSTO_DO_BUFFET = 10_000;
+const custoBuffetSchema = mesSchema.extend({ valor: z.number().finite().positive().max(LIMITE_DO_CUSTO_DO_BUFFET).nullable() });
+
+agileAnaliseRouter.put("/margem-buffet/custo", exigirAnaliseSalao, async (request, response) => {
+  const user = await getSessionUser(request);
+  if (!user || !(await userHasPermission(user as SessionUser, "analise-salao", "edit"))) {
+    response.status(403).json({ message: "Usuário sem permissão para informar o custo do buffet." });
+    return;
+  }
+  const parsed = custoBuffetSchema.safeParse(request.body);
+  if (!parsed.success) {
+    response.status(400).json({ message: `Custo inválido: informe o mês e um valor maior que zero e até R$ ${LIMITE_DO_CUSTO_DO_BUFFET.toLocaleString("pt-BR")} por pessoa (ou null para apagar).` });
+    return;
+  }
+  try {
+    const { ano, mes, valor } = parsed.data;
+    await salvarCustoBuffet(ano, mes, valor, user.id);
+    response.json({ ok: true });
+  } catch (error: unknown) {
+    console.error("Falha ao salvar o custo do buffet", error);
+    response.status(500).json({ message: "Não foi possível salvar o custo." });
   }
 });
