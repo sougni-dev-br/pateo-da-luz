@@ -2,7 +2,9 @@ import { Router, type NextFunction, type Request, type Response } from "express"
 import { z } from "zod";
 import { getSessionUser, type SessionUser } from "../../security/security-utils.js";
 import { userHasPermission } from "../../security/menu-permissions.js";
-import { obterCancelamentos, obterDescontos, obterItensCancelados, obterVendasPorPessoa } from "./agile-analise.service.js";
+import {
+  obterCancelamentos, obterDemanda, obterDescontos, obterItensCancelados, obterPerdas, obterResumo, obterVendasPorPessoa
+} from "./agile-analise.service.js";
 
 export const agileAnaliseRouter = Router();
 
@@ -99,3 +101,23 @@ agileAnaliseRouter.get("/descontos", exigirAnaliseSalao, async (request, respons
     response.status(500).json({ message: "Não foi possível gerar o relatório de descontos." });
   }
 });
+
+// Visao de decisao: o que mudou, quando vendemos e onde perdemos dinheiro.
+const ROTAS_DE_VISAO = [
+  { caminho: "/resumo", obter: obterResumo, rotulo: "o resumo do salão" },
+  { caminho: "/demanda", obter: obterDemanda, rotulo: "a análise de demanda do salão" },
+  { caminho: "/perdas", obter: obterPerdas, rotulo: "a análise de perdas do salão" }
+] as const;
+
+for (const { caminho, obter, rotulo } of ROTAS_DE_VISAO) {
+  agileAnaliseRouter.get(caminho, exigirAnaliseSalao, async (request, response) => {
+    const periodo = lerPeriodo(request, response);
+    if (!periodo) return;
+    try {
+      response.json(await obter(periodo));
+    } catch (error: unknown) {
+      console.error(`Falha ao montar ${rotulo}`, error);
+      response.status(500).json({ message: `Não foi possível gerar ${rotulo}.` });
+    }
+  });
+}
