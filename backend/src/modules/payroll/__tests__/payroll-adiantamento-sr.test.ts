@@ -69,4 +69,22 @@ describe("lançar adiantamento dos sem registro", () => {
     expect(r.created).toBe(0);
     expect(db.payrollItem.upsert).not.toHaveBeenCalled();
   });
+
+  test("excluído à mão (com autor): não volta como a lançar nem é recriado; avisa", async () => {
+    db.payrollItem.findMany.mockImplementation(async (a: { where: { deletedAt?: unknown } }) => (a.where.deletedAt === null ? [] : [
+      { employeeId: "semregMarcado", deletedAt: d("2026-10-10"), deletedById: "u9" },
+    ]));
+    const r = await generatePayroll(2026, 10, "u1", "ADIANTAMENTO_SR");
+    expect(r.created).toBe(0);
+    expect(db.payrollItem.upsert).not.toHaveBeenCalled();
+    expect(r.avisos).toEqual(expect.arrayContaining([expect.stringContaining("semregMarcado de Tal: adiantamento de 10/2026 excluído à mão")]));
+  });
+
+  test("excluído sem autor (legado): continua sendo regerado", async () => {
+    db.payrollItem.findMany.mockImplementation(async (a: { where: { deletedAt?: unknown } }) => (a.where.deletedAt === null ? [] : [
+      { employeeId: "semregMarcado", deletedAt: d("2026-10-10"), deletedById: null },
+    ]));
+    const r = await generatePayroll(2026, 10, "u1", "ADIANTAMENTO_SR");
+    expect(r.created).toBe(1);
+  });
 });

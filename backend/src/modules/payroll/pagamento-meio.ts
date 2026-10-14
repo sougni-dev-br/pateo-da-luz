@@ -11,6 +11,8 @@ export type SituacaoPagamentoMeio = "A_LANCAR" | "LANCADO" | "PAGO";
 /** ADIANTAMENTO já gravado na competência (sem os excluídos). */
 export type LancadoMeio = {
   id: string; employeeId: string; amount: number; dueDate: Date; paymentDate: Date | null; paidAmount: number | null; details: unknown;
+  /** EXTRATO_RH = veio do extrato da contabilidade (CLT). */
+  source?: string | null;
 };
 /** Item do cálculo da folha (computePayroll). */
 export type PrevistoMeio = {
@@ -26,6 +28,8 @@ export type LinhaPagamentoMeio = {
   employeeId: string; nome: string; grupo: string; origem: "EXTRATO" | "SEM_REGISTRO"; valor: number;
   situacao: SituacaoPagamentoMeio; vencimento: string; pagoEm: string | null; valorPago: number | null; payrollItemId: string | null;
   pix: string | null; pixTipo: string | null; contaBancaria: string | null; aviso: string | null;
+  /** 1ª quinzena em aberto com valor diferente do cálculo de hoje: o valor que o botão "lançar" vai gravar. */
+  atualizarPara: number | null;
 };
 
 export const GRUPO_SEM_REGISTRO = "Sem registro";
@@ -47,9 +51,9 @@ function grupoDe(semRegistro: boolean, d: unknown, pessoa: PessoaMeio | undefine
   return nome?.trim() ? nome.trim().toUpperCase() : GRUPO_SEM_EMPRESA;
 }
 
-function avisoDe(l: { semRegistro: boolean; valor: number; valorPago: number | null; pago: boolean }, d: unknown, pessoa: PessoaMeio | undefined, calculado: number | null): string | null {
+function avisoDe(l: { semRegistro: boolean; doExtrato: boolean; valor: number; valorPago: number | null; pago: boolean }, d: unknown, pessoa: PessoaMeio | undefined, calculado: number | null): string | null {
   const avisos: string[] = [];
-  if (!l.semRegistro && pessoa?.semRegistro) avisos.push("No cadastro está sem registro, mas veio da contabilidade: confira o vínculo em Funcionários.");
+  if (l.doExtrato && pessoa?.semRegistro) avisos.push("No cadastro está sem registro, mas veio da contabilidade: confira o vínculo em Funcionários.");
   if (!l.semRegistro && pessoa && !pessoa.semRegistro && !pessoa.empresa) avisos.push("Sem empresa no cadastro (Funcionários → Trabalho).");
   if (det(d).complemento === true) avisos.push("Complemento.");
   if (l.pago && l.valorPago != null && Math.abs(l.valorPago - l.valor) >= 0.005) avisos.push(`Pago ${reais(l.valorPago)} (título de ${reais(l.valor)}).`);
@@ -68,6 +72,8 @@ function ordenar(linhas: LinhaPagamentoMeio[]): LinhaPagamentoMeio[] {
 export type ResumoSituacao = { pessoas: number; total: number };
 export type PagamentoMeio = {
   tipo: TipoPagamentoMeio; linhas: LinhaPagamentoMeio[]; total: number;
+  /** CLT que o cálculo espera com adiantamento e não tem título no mês (extrato não importado ou pessoa fora dele). */
+  cltSemTitulo: string[];
   aLancar: ResumoSituacao; lancado: ResumoSituacao; pago: ResumoSituacao;
 };
 
@@ -80,8 +86,12 @@ export function montarPagamentoMeio(
 
   const dosLancados = lancados.filter((i) => doTipo(tipo, i.details)).map((i): LinhaPagamentoMeio => {
     const pessoa = pessoas.get(i.employeeId);
-    const semRegistro = det(i.details).semRegistro === true;
+    const d = det(i.details);
+    const doExtrato = i.source === "EXTRATO_RH" || (typeof d.empresa === "string" && d.empresa.trim() !== "");
+    // Marca do gerador; lançado à mão não tem a marca: vale o cadastro, se não veio do extrato.
+    const semRegistro = d.semRegistro === true || (!doExtrato && pessoa?.semRegistro === true);
     const pago = i.paymentDate != null;
+    const atualizarPara = !pago && semRegistro ? desatualizado.get(i.employeeId) ?? null : null;
     const valor = round2(i.amount);
     const valorPago = pago ? round2(i.paidAmount ?? i.amount) : null;
     return {
@@ -89,7 +99,7 @@ export function montarPagamentoMeio(
       origem: semRegistro ? "SEM_REGISTRO" : "EXTRATO", valor,
       situacao: pago ? "PAGO" : "LANCADO", vencimento: dia(i.dueDate), pagoEm: pago ? dia(i.paymentDate!) : null, valorPago,
       payrollItemId: i.id, pix: pessoa?.pix ?? null, pixTipo: pessoa?.pixTipo ?? null, contaBancaria: pessoa?.contaBancaria ?? null,
-      aviso: avisoDe({ semRegistro, valor, valorPago, pago }, i.details, pessoa, !pago && semRegistro ? desatualizado.get(i.employeeId) ?? null : null),
+      aviso: avisoDe({ semRegistro, doExtrato, valor, valorPago, pago }, i.details, pessoa, atualizarPara), atualizarPara,
     };
   });
 
@@ -99,17 +109,23 @@ export function montarPagamentoMeio(
       employeeId: p.employeeId, nome: pessoa?.nome ?? "—", grupo: GRUPO_SEM_REGISTRO, origem: "SEM_REGISTRO", valor: round2(p.amount),
       situacao: "A_LANCAR", vencimento: dia(p.dueDate), pagoEm: null, valorPago: null, payrollItemId: null,
       pix: pessoa?.pix ?? null, pixTipo: pessoa?.pixTipo ?? null, contaBancaria: pessoa?.contaBancaria ?? null,
-      aviso: `Ainda não está no Contas a Pagar: vence ${ddmm(dia(p.dueDate))}.`,
+      aviso: `Ainda não está no Contas a Pagar: vence ${ddmm(dia(p.dueDate))}.`, atualizarPara: null,
     };
   });
 
   const linhas = ordenar([...dosLancados, ...aLancar]);
+  // No "pago" vale o que saiu do banco (valor pago), não o do título.
   const resumo = (s: SituacaoPagamentoMeio): ResumoSituacao => {
     const doTipoS = linhas.filter((l) => l.situacao === s);
-    return { pessoas: doTipoS.length, total: round2(doTipoS.reduce((a, l) => a + l.valor, 0)) };
+    return { pessoas: doTipoS.length, total: round2(doTipoS.reduce((a, l) => a + (s === "PAGO" ? l.valorPago ?? l.valor : l.valor), 0)) };
   };
+  // Só no adiantamento: CLT recebe pelo extrato da contabilidade, não tem 1ª quinzena.
+  const cltSemTitulo = tipo === "QUINZENA" ? [] : previstos
+    .filter((p) => p.type === "ADIANTAMENTO" && det(p.details).semRegistro !== true && !ehQuinzena(p.details) && !p.exists && p.amount > 0)
+    .map((p) => pessoas.get(p.employeeId)?.nome ?? "—")
+    .sort((a, b) => a.localeCompare(b, "pt-BR"));
   return {
-    tipo, linhas, total: round2(linhas.reduce((a, l) => a + l.valor, 0)),
+    tipo, linhas, cltSemTitulo, total: round2(linhas.reduce((a, l) => a + l.valor, 0)),
     aLancar: resumo("A_LANCAR"), lancado: resumo("LANCADO"), pago: resumo("PAGO"),
   };
 }

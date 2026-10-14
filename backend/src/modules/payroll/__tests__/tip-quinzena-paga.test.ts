@@ -96,7 +96,7 @@ describe("lista de pagamento: 1ª quinzena pelo título lançado", () => {
     periodo([participante()]);
     const comp = await computeTipCommission(2026, 9, { incluirDadosPessoais: true });
     expect(comp.participants[0].primeiraQuinzena).toBe(1000);
-    expect(avisosDaQuinzena(comp.warnings)).toEqual([expect.stringMatching(/falta lançar a 1ª quinzena de 09\/2026.*Gerar 1ª quinzena \(sem registro\).*Beltrano Quinzena/)]);
+    expect(avisosDaQuinzena(comp.warnings)).toEqual([expect.stringMatching(/falta lançar a 1ª quinzena de 09\/2026.*lista de pagamento "1ª quinzena \(dia 15\)".*Beltrano Quinzena/)]);
   });
 
   test("o aviso de falta lançar sai também sem a permissão de Funcionários", async () => {

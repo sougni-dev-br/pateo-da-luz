@@ -145,4 +145,14 @@ describe("gerar a 1ª quinzena dos sem registro", () => {
     const q = items.find((i) => i.employeeId === "quinzenal" && i.periodLabel === "1ª quinzena");
     expect(q).toMatchObject({ exists: true, desatualizado: true, amount: 1300 });
   });
+
+  test("valor ajustado à mão (prévia ou edição): não fica desatualizado, o botão não desfaz o ajuste", async () => {
+    db.payrollItem.findMany.mockResolvedValue([{
+      id: "q1", employeeId: "quinzenal", type: "ADIANTAMENTO", periodLabel: "1ª quinzena", amount: 1000, paymentDate: null,
+      periodStart: null, details: { primeiraQuinzena: true, semRegistro: true, ajusteManual: true }, status: "PENDING", source: "GENERATED",
+    }]);
+    const { items } = await computePayroll(2026, 10);
+    const q = items.find((i) => i.employeeId === "quinzenal" && i.periodLabel === "1ª quinzena");
+    expect(q).toMatchObject({ exists: true, desatualizado: false });
+  });
 });

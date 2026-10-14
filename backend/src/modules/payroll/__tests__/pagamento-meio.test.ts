@@ -103,3 +103,39 @@ describe("montarPagamentoMeio — 1ª quinzena", () => {
     expect(r.linhas[0].aviso).toContain("lançar de novo atualiza");
   });
 });
+
+describe("montarPagamentoMeio — correções da auditoria", () => {
+  test("adiantamento de sem registro lançado à mão (sem marca) fica no grupo Sem registro, sem aviso de vínculo", () => {
+    const r = montarPagamentoMeio("ADIANTAMENTO", [lancado("m", "s1", { amount: 880, details: { lancamentoManual: true }, source: "MANUAL" })], [], PESSOAS);
+    expect(r.linhas[0]).toMatchObject({ grupo: GRUPO_SEM_REGISTRO, origem: "SEM_REGISTRO", aviso: null });
+  });
+
+  test("veio do extrato para quem está sem registro no cadastro: grupo da empresa e aviso de vínculo", () => {
+    const r = montarPagamentoMeio("ADIANTAMENTO", [lancado("e", "s1", { details: { empresa: "BETA EXEMPLO LTDA" }, source: "EXTRATO_RH" })], [], PESSOAS);
+    expect(r.linhas[0]).toMatchObject({ grupo: "BETA EXEMPLO LTDA", origem: "EXTRATO" });
+    expect(r.linhas[0].aviso).toContain("No cadastro está sem registro");
+  });
+
+  test("total pago é o que saiu do banco", () => {
+    const r = montarPagamentoMeio("ADIANTAMENTO", [
+      lancado("a", "s1", { amount: 1040, details: { semRegistro: true }, paymentDate: new Date("2026-10-20T00:00:00Z"), paidAmount: 966.5 }),
+    ], [], PESSOAS);
+    expect(r.pago).toEqual({ pessoas: 1, total: 966.5 });
+  });
+
+  test("CLT esperado sem título no mês é listado; quem já tem título não", () => {
+    const r = montarPagamentoMeio("ADIANTAMENTO", [lancado("i1", "c1")], [
+      previsto("c1", { details: {}, exists: true }), previsto("c2", { details: {}, exists: false, amount: 1200 }),
+    ], PESSOAS);
+    expect(r.cltSemTitulo).toEqual(["Ana Exemplo"]);
+    expect(montarPagamentoMeio("QUINZENA", [], [previsto("c2", { details: {} })], PESSOAS).cltSemTitulo).toEqual([]);
+  });
+
+  test("quinzena desatualizada devolve o valor novo em atualizarPara", () => {
+    const r = montarPagamentoMeio("QUINZENA", [
+      lancado("iq", "q1", { details: { semRegistro: true, primeiraQuinzena: true } }),
+    ], [previsto("q1", { amount: 1100, details: { semRegistro: true, primeiraQuinzena: true }, exists: true, desatualizado: true })], PESSOAS);
+    expect(r.linhas[0].atualizarPara).toBe(1100);
+  });
+});
+

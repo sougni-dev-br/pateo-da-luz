@@ -15,7 +15,7 @@ vi.mock("../payroll.service.js", () => ({ computePayroll: vi.fn() }));
 import { getSessionUser } from "../../security/security-utils.js";
 import { podeVerDadosPessoais } from "../dados-pessoais.js";
 import { computePayroll } from "../payroll.service.js";
-import { pagamentoMeioRouter } from "../pagamento-meio.routes.js";
+import { avisoDoPagamento, pagamentoMeioRouter } from "../pagamento-meio.routes.js";
 
 const app = express();
 app.use("/payroll", pagamentoMeioRouter);
@@ -47,7 +47,7 @@ describe("GET /payroll/pagamento-meio", () => {
     const r = await request(app).get(url);
     expect(r.status).toBe(200);
     expect(computePayroll).toHaveBeenCalledWith(2026, 10);
-    expect(prismaFalso.payrollItem.findMany.mock.calls[0][0].where).toMatchObject({ competenceYear: 2026, competenceMonth: 10, type: "ADIANTAMENTO", deletedAt: null });
+    expect(prismaFalso.payrollItem.findMany.mock.calls[0][0].where).toMatchObject({ competenceYear: 2026, competenceMonth: 10, type: "ADIANTAMENTO", deletedAt: null, status: { not: "CANCELED" } });
     expect(r.body.competencia).toBe("10/2026");
     expect(r.body.linhas.map((l: { nome: string; situacao: string }) => [l.nome, l.situacao])).toEqual([["Ana Exemplo", "LANCADO"], ["Dora Exemplo", "A_LANCAR"]]);
     expect(r.body.linhas[0]).toMatchObject({ valor: 1034, pix: "ana@exemplo.com", grupo: "ALFA EXEMPLO LTDA" });
@@ -72,3 +72,14 @@ describe("GET /payroll/pagamento-meio", () => {
     expect((await request(app).get("/payroll/pagamento-meio?year=2026&month=13&tipo=QUINZENA")).status).toBe(400);
   });
 });
+
+describe("avisoDoPagamento", () => {
+  test("filtra os avisos do cálculo pelo pagamento, sem VT, extrato e categoria", () => {
+    expect(avisoDoPagamento("ADIANTAMENTO", "Fulano: adiantamento de 10/2026 excluído à mão; não gerado de novo.")).toBe(true);
+    expect(avisoDoPagamento("ADIANTAMENTO", "Fulano: adiantamento de 10/2026 já veio do extrato da contabilidade; não gerado de novo.")).toBe(false);
+    expect(avisoDoPagamento("ADIANTAMENTO", "Categoria Folha de Pagamento não encontrada: salario e adiantamento vao ficar sem categoria.")).toBe(false);
+    expect(avisoDoPagamento("QUINZENA", "Fulano: 1ª quinzena excluída à mão em 10/2026; não gerada de novo.")).toBe(true);
+    expect(avisoDoPagamento("QUINZENA", "Fulano: VT 1ª quinzena de 10/2026 não gerado — vale de R$ 0,00.")).toBe(false);
+  });
+});
+
