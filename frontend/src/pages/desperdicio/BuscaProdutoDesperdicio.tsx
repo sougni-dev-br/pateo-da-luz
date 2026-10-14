@@ -1,6 +1,7 @@
 import { Loader2, Search, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { searchWasteDishes, searchWasteProducts, type WasteProductHit } from "../../api/client";
+import { getWasteDishSuggestions, searchWasteDishes, searchWasteProducts, type WasteDishSuggestion, type WasteProductHit } from "../../api/client";
+import { NovoPratoPendente } from "./NovoPratoPendente";
 
 const MINIMO_CARACTERES = 2;
 const ESPERA_DIGITACAO_MS = 300;
@@ -24,6 +25,9 @@ export function BuscaProdutoDesperdicio({ modo, selecionado, onSelecionar, idDoC
   const [sugestoes, setSugestoes] = useState<WasteProductHit[]>([]);
   const [buscando, setBuscando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  // Itens do buffet que ainda não são prato, e o cadastro de prato novo (nome de partida) quando aberto.
+  const [dicasDoBuffet, setDicasDoBuffet] = useState<WasteDishSuggestion[]>([]);
+  const [novo, setNovo] = useState<string | null>(null);
   const [devolverFoco, setDevolverFoco] = useState(false);
   const requisicaoAtual = useRef(0);
   const campo = useRef<HTMLInputElement>(null);
@@ -34,6 +38,7 @@ export function BuscaProdutoDesperdicio({ modo, selecionado, onSelecionar, idDoC
     const marca = ++requisicaoAtual.current;
     if (termo.length < MINIMO_CARACTERES) {
       setSugestoes([]);
+      setDicasDoBuffet([]);
       setBuscando(false);
       setErro(null);
       return undefined;
@@ -41,13 +46,19 @@ export function BuscaProdutoDesperdicio({ modo, selecionado, onSelecionar, idDoC
     setBuscando(true);
     const id = window.setTimeout(async () => {
       try {
-        const achados = await (modo === "PRATO" ? searchWasteDishes(termo) : searchWasteProducts(termo));
+        // As dicas do buffet são um extra: se falharem, a busca de pratos segue sem elas.
+        const [achados, dicas] = await Promise.all([
+          modo === "PRATO" ? searchWasteDishes(termo) : searchWasteProducts(termo),
+          modo === "PRATO" ? getWasteDishSuggestions(termo).catch(() => [] as WasteDishSuggestion[]) : Promise.resolve([] as WasteDishSuggestion[]),
+        ]);
         if (marca !== requisicaoAtual.current) return;
         setSugestoes(achados);
+        setDicasDoBuffet(dicas);
         setErro(null);
       } catch (falha) {
         if (marca !== requisicaoAtual.current) return;
         setSugestoes([]);
+        setDicasDoBuffet([]);
         setErro(falha instanceof Error ? falha.message : "Não foi possível buscar.");
       } finally {
         if (marca === requisicaoAtual.current) setBuscando(false);
@@ -70,6 +81,7 @@ export function BuscaProdutoDesperdicio({ modo, selecionado, onSelecionar, idDoC
         <div>
           <strong>{selecionado.name}</strong>
           <span>{[selecionado.code, selecionado.sectorName].filter(Boolean).join(" · ") || "Sem código"}</span>
+          {selecionado.pendente && <span className="waste-pending-tag">Aguardando ficha técnica: o valor aparece quando ela for concluída</span>}
         </div>
         <button
           type="button"
@@ -113,11 +125,36 @@ export function BuscaProdutoDesperdicio({ modo, selecionado, onSelecionar, idDoC
             <li key={produto.id}>
               <button type="button" onClick={() => { setBusca(""); setSugestoes([]); onSelecionar(produto); }}>
                 <strong>{produto.name}</strong>
-                <span>{[produto.code, produto.sectorName, produto.unit].filter(Boolean).join(" · ")}</span>
+                <span>{[produto.code, produto.sectorName, produto.unit, produto.pendente ? "aguardando ficha" : null].filter(Boolean).join(" · ")}</span>
               </button>
             </li>
           ))}
         </ul>
+      )}
+      {modo === "PRATO" && !termoCurto && !buscando && !erro && novo === null && (
+        <div className="waste-novo">
+          <p className="waste-search-note">{sugestoes.length === 0 ? "Não achou o prato?" : "Não é nenhum destes?"}</p>
+          {dicasDoBuffet.length > 0 && (
+            <ul className="waste-search-list" aria-label="Itens do buffet sem ficha">
+              {dicasDoBuffet.map((dica) => (
+                <li key={dica.name}>
+                  <button type="button" onClick={() => setNovo(dica.name)}>
+                    <strong>Cadastrar “{dica.name}”</strong>
+                    <span>{dica.category} · item do buffet, ainda sem ficha</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <button type="button" className="waste-link" onClick={() => setNovo(busca.trim())}>Cadastrar “{busca.trim()}” como prato novo</button>
+        </div>
+      )}
+      {novo !== null && (
+        <NovoPratoPendente
+          nomeInicial={novo}
+          onCancelar={() => setNovo(null)}
+          onCriado={(prato) => { setNovo(null); setBusca(""); setSugestoes([]); setDicasDoBuffet([]); onSelecionar(prato); }}
+        />
       )}
     </div>
   );

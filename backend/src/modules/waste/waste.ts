@@ -37,10 +37,17 @@ export type LancamentoValido = {
   quantity: number;
   /** Unidade em que a pessoa digitou (G, ML, KG...), normalizada; null = a do estoque do item. */
   unit: string | null;
+  /** "1 UN = 500 G": o peso/volume que a pessoa informou na hora, para itens que ainda não convertem. */
+  perUnit: PesoPorUnidade | null;
   reason: WasteReasonValue;
   occurredOn: string;
   notes: string | null;
 };
+
+/** Quanto vale 1 unidade do estoque, em massa ou volume (G, KG, ML, L). */
+export type PesoPorUnidade = { quantity: number; unit: string };
+
+const MEDIDAS_INFORMAVEIS = new Set(["G", "KG", "ML", "L"]);
 
 export type ResultadoValidacao = { ok: true; valor: LancamentoValido } | { ok: false; erro: string };
 
@@ -66,6 +73,18 @@ function lerQuantidade(entrada: unknown): number | null {
   return Number.isFinite(n) && n >= 0.0001 && n <= MAX_QUANTIDADE ? n : null;
 }
 
+function lerPesoPorUnidade(entrada: unknown): { ok: true; valor: PesoPorUnidade | null } | { ok: false; erro: string } {
+  if (entrada == null || entrada === "") return { ok: true, valor: null };
+  if (typeof entrada !== "object" || Array.isArray(entrada)) return { ok: false, erro: "Peso ou volume informado inválido." };
+  const { quantity, unit } = entrada as Record<string, unknown>;
+  const medida = normalizarUnidade(unit);
+  if (!MEDIDAS_INFORMAVEIS.has(medida)) return { ok: false, erro: "Informe o peso ou volume de 1 unidade em g, kg, ml ou l." };
+  if (pareceMilhar(String(quantity ?? ""))) return { ok: false, erro: "Use vírgula para decimais no peso ou volume (0,5). \"1.500\" é ambíguo." };
+  const n = lerQuantidade(quantity);
+  if (n == null) return { ok: false, erro: "Informe quanto pesa ou mede 1 unidade (maior que zero)." };
+  return { ok: true, valor: { quantity: n, unit: medida } };
+}
+
 /** `hoje` é o dia de São Paulo (YYYY-MM-DD); o servidor roda em UTC. */
 export function validarLancamento(entrada: Record<string, unknown>, hoje: string): ResultadoValidacao {
   const productId = String(entrada.productId ?? "").trim();
@@ -78,6 +97,9 @@ export function validarLancamento(entrada: Record<string, unknown>, hoje: string
 
   const unidadeDigitada = String(entrada.unit ?? "").trim();
   if (unidadeDigitada && !/^[A-Za-zÀ-ú.]{1,8}$/.test(unidadeDigitada)) return { ok: false, erro: "Unidade inválida." };
+
+  const peso = lerPesoPorUnidade(entrada.perUnit);
+  if (!peso.ok) return { ok: false, erro: peso.erro };
 
   const reason = String(entrada.reason ?? "");
   if (!REASON_VALUES.has(reason)) return { ok: false, erro: "Escolha o motivo do desperdício." };
@@ -93,14 +115,14 @@ export function validarLancamento(entrada: Record<string, unknown>, hoje: string
   if (notes && notes.length > MAX_OBSERVACAO) return { ok: false, erro: `Observação muito longa (máximo ${MAX_OBSERVACAO}).` };
   if (exigeObservacao(reason) && !notes) return { ok: false, erro: "Descreva na observação o que aconteceu." };
 
-  return { ok: true, valor: { productId: productId || null, dishId: dishId || null, quantity, unit: unidadeDigitada ? normalizarUnidade(unidadeDigitada) : null, reason: reason as WasteReasonValue, occurredOn, notes } };
+  return { ok: true, valor: { productId: productId || null, dishId: dishId || null, quantity, unit: unidadeDigitada ? normalizarUnidade(unidadeDigitada) : null, perUnit: peso.valor, reason: reason as WasteReasonValue, occurredOn, notes } };
 }
 
 /** A coluna é DECIMAL(16,6): 1 g de uma embalagem de 25 kg (0,00004) ainda cabe. */
 const CASAS_DA_QUANTIDADE = 1_000_000;
 
 export type ResultadoDaConversao =
-  | { ok: true; quantidade: number; fator: number }
+  | { ok: true; quantidade: number; fator: number; /** A conversão veio do peso informado agora, não do cadastro. */ usouPesoInformado: boolean }
   | { ok: false; erro: string };
 
 /**
@@ -113,17 +135,29 @@ export function converterQuantidade(
   quantidadeDigitada: number,
   unidadeDigitada: string | null,
   unidadeDoEstoque: string | null,
-  conversoes: UnitConversion[]
+  conversoes: UnitConversion[],
+  pesoInformado: PesoPorUnidade | null = null
 ): ResultadoDaConversao {
   const base = normalizarUnidade(unidadeDoEstoque);
   const digitada = normalizarUnidade(unidadeDigitada) || base;
-  const fator = resolveUnitFactor(digitada, base, conversoes);
+  let fator = resolveUnitFactor(digitada, base, conversoes);
+  let usouPesoInformado = false;
+  // O que já está cadastrado (ou lido do nome) manda; o peso informado só preenche o que falta.
+  if (fator == null && pesoInformado && base) {
+    // O peso vem em kg e se lança em g? Põe os dois na mesma unidade antes: a física não encadeia sozinha (G→KG→UN).
+    const emDigitada = resolveUnitFactor(pesoInformado.unit, digitada, []);
+    if (emDigitada == null) {
+      return { ok: false, erro: `O peso informado (${pesoInformado.unit}) não é da mesma medida que ${digitada}. Informe quanto 1 ${base} vale em ${digitada === "ML" || digitada === "L" ? "ml ou l" : "g ou kg"}.` };
+    }
+    fator = resolveUnitFactor(digitada, base, [{ fromUnit: base, toUnit: digitada, factor: pesoInformado.quantity * emDigitada }]);
+    usouPesoInformado = fator != null;
+  }
   if (fator == null) {
-    return { ok: false, erro: `Não sei converter ${digitada} para ${base || "a unidade do estoque"} neste item. Lance em ${base || "a unidade do estoque"} ou informe o peso/volume do item na ficha técnica.` };
+    return { ok: false, erro: `Não sei converter ${digitada} para ${base || "a unidade do estoque"} neste item. Informe quanto pesa ou mede 1 ${base || "unidade"}, ou lance em ${base || "a unidade do estoque"}.` };
   }
   const quantidade = Math.round(quantidadeDigitada * fator * CASAS_DA_QUANTIDADE) / CASAS_DA_QUANTIDADE;
   if (!(quantidade > 0)) return { ok: false, erro: "Quantidade pequena demais para a unidade do estoque deste item." };
-  return { ok: true, quantidade, fator };
+  return { ok: true, quantidade, fator, usouPesoInformado };
 }
 
 /** Custo ausente ou zero não vira R$ 0,00: fica sem valor para não esconder a falta de custo. */
