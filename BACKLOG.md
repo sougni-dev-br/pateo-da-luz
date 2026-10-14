@@ -162,7 +162,7 @@ a uma revisão consciente.
 
 ### OBS-014 — Sistema de cartão de crédito bloqueava compras quando competência calculada apontava para fatura fechada (RESOLVIDO no PR #16)
 
-- **Origem:** relato de operação em produção (a operação) após deploy do PR #15 (`0da7cca`). Tentativa de lançar compra via CC em 04/07/2026 disparava: *"Fatura do cartão da empresa está fechada e não pode receber novos lançamentos. Reabra a fatura antes de lançar esta compra."*
+- **Origem:** relato de operação em produção (a operação) após deploy do PR #15 (`0da7cca`). Tentativa de lançar compra via CC em 04/07/2026 disparava: *"Fatura do cartão da empresa (titular e dígitos omitidos) está fechada e não pode receber novos lançamentos. Reabra a fatura antes de lançar esta compra."*
 - **Status:** **RESOLVIDO no PR #16** (SHA `aa454a1`, merged 2026-07-04). Mantido aqui para rastreabilidade histórica — segue padrão dos OBS-006/007 que também foram registrados antes de virarem fix.
 - **O que era:**
   - `getCardStatementPeriod` ([cards.service.ts:31-47](pateo-da-luz/backend/src/modules/cards/cards.service.ts#L31)) calcula competência rigidamente por `day <= closingDay ? mês atual : próximo mês`.
