@@ -78,7 +78,7 @@ async function main() {
       legs: [["IDA", ONIBUS], ["VOLTA", ONIBUS]],
     },
     {
-      id: "demo-5", firstName: "[nome omitido]", lastName: "Cardoso", cargo: "Auxiliar de cozinha", setor: "Cozinha", sexo: "MASCULINO",
+      id: "demo-5", firstName: "Marcos Paulo", lastName: "Exemplo", cargo: "Auxiliar de cozinha", setor: "Cozinha", sexo: "MASCULINO",
       cenario: "Cenario da planilha: ida pela integracao onibus+metro (9,38), volta so de metro (5,40) = R$ 14,78/dia.",
       legs: [["IDA", INTEGRACAO], ["VOLTA", METRO]],
     },
