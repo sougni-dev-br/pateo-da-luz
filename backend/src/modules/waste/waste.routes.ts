@@ -275,7 +275,7 @@ wasteRouter.post("/", async (request, response) => {
 
   const validado = validarLancamento(request.body ?? {}, todayInSaoPaulo());
   if (!validado.ok) return void response.status(400).json({ message: validado.erro });
-  const { productId, dishId, quantity: digitada, unit: unidadeDigitada, reason, occurredOn, notes } = validado.valor;
+  const { productId, dishId, quantity: digitada, unit: unidadeDigitada, perUnit, reason, occurredOn, notes } = validado.valor;
 
   // O custo é do servidor: o cliente não manda valor, e quem lança pode nem ter permissão de ver custo.
   const item = dishId ? await itemDoPrato(dishId) : await itemDoInsumo(productId!, occurredOn);
@@ -283,7 +283,7 @@ wasteRouter.post("/", async (request, response) => {
 
   // A pessoa digita em g, ml, kg...; o servidor guarda na unidade do estoque (a da conferência e do custo),
   // com a mesma regra da ficha técnica, e mantém o que foi digitado para mostrar e auditar.
-  const conversao = converterQuantidade(digitada, unidadeDigitada, item.unit, item.conversions);
+  const conversao = converterQuantidade(digitada, unidadeDigitada, item.unit, item.conversions, perUnit);
   if (!conversao.ok) return void response.status(400).json({ message: conversao.erro });
   const quantity = conversao.quantidade;
   const informouOutraUnidade = unidadeDigitada != null && normalizarUnidade(unidadeDigitada) !== normalizarUnidade(item.unit);
@@ -317,7 +317,7 @@ wasteRouter.post("/", async (request, response) => {
   // A auditoria é rastro, não condição do registro: se ela falhar, o lançamento (já gravado) é entregue
   // e a falha vai para o log, em vez de um 500 que convida a lançar de novo.
   try {
-    await auditLog({ userId: user.id, action: "CREATE_WASTE_ENTRY", entity: "WasteEntry", entityId: id, newValue: { productId, dishId, quantity, unit: item.unit, enteredQuantity: informouOutraUnidade ? digitada : null, enteredUnit: informouOutraUnidade ? unidadeDigitada : null, reason, occurredOn, notes }, ...auditMeta(request) });
+    await auditLog({ userId: user.id, action: "CREATE_WASTE_ENTRY", entity: "WasteEntry", entityId: id, newValue: { productId, dishId, quantity, unit: item.unit, enteredQuantity: informouOutraUnidade ? digitada : null, enteredUnit: informouOutraUnidade ? unidadeDigitada : null, ...(conversao.usouPesoInformado ? { pesoInformado: perUnit } : {}), reason, occurredOn, notes }, ...auditMeta(request) });
   } catch (falha) {
     console.error("[desperdicio] auditoria do lançamento falhou:", falha instanceof Error ? falha.message : falha);
   }

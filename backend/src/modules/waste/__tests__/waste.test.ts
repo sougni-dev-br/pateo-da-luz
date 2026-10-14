@@ -118,12 +118,12 @@ describe("converterQuantidade: o que se digita (g, ml, kg...) vira a unidade do 
   ];
 
   test("500 g de um pacote de 5 kg são 0,1 UN", () => {
-    expect(converterQuantidade(500, "G", "UN", arroz)).toEqual({ ok: true, quantidade: 0.1, fator: 0.0002 });
+    expect(converterQuantidade(500, "G", "UN", arroz)).toEqual({ ok: true, quantidade: 0.1, fator: 0.0002, usouPesoInformado: false });
   });
 
   test("a própria unidade do estoque não converte nada", () => {
-    expect(converterQuantidade(2, "UN", "UN", arroz)).toEqual({ ok: true, quantidade: 2, fator: 1 });
-    expect(converterQuantidade(2, null, "UN", arroz)).toEqual({ ok: true, quantidade: 2, fator: 1 });
+    expect(converterQuantidade(2, "UN", "UN", arroz)).toEqual({ ok: true, quantidade: 2, fator: 1, usouPesoInformado: false });
+    expect(converterQuantidade(2, null, "UN", arroz)).toEqual({ ok: true, quantidade: 2, fator: 1, usouPesoInformado: false });
   });
 
   test("aceita as grafias que o sistema já trata como a mesma unidade (gr, kgs, und)", () => {
@@ -132,15 +132,45 @@ describe("converterQuantidade: o que se digita (g, ml, kg...) vira a unidade do 
   });
 
   test("massa e volume convertem entre si por física, sem cadastro", () => {
-    expect(converterQuantidade(250, "G", "KG", [])).toEqual({ ok: true, quantidade: 0.25, fator: 0.001 });
-    expect(converterQuantidade(1.5, "L", "ML", [])).toEqual({ ok: true, quantidade: 1500, fator: 1000 });
+    expect(converterQuantidade(250, "G", "KG", [])).toEqual({ ok: true, quantidade: 0.25, fator: 0.001, usouPesoInformado: false });
+    expect(converterQuantidade(1.5, "L", "ML", [])).toEqual({ ok: true, quantidade: 1500, fator: 1000, usouPesoInformado: false });
   });
 
   test("unidade sem conversão é recusada com a explicação, em vez de gravar número errado", () => {
     const r = converterQuantidade(500, "G", "UN", []);
     expect(r).toMatchObject({ ok: false });
     expect(r.ok === false && r.erro).toMatch(/G.*UN/);
-    expect(r.ok === false && r.erro).toMatch(/ficha técnica/i);
+    expect(r.ok === false && r.erro).toMatch(/quanto pesa ou mede 1 UN/i);
+  });
+
+  describe("peso informado na hora (1 UN = 500 G)", () => {
+    test("converte o que o cadastro não sabia: 250 g de um item de 500 g são 0,5 UN", () => {
+      expect(converterQuantidade(250, "G", "UN", [], { quantity: 500, unit: "G" })).toEqual({ ok: true, quantidade: 0.5, fator: 0.002, usouPesoInformado: true });
+    });
+
+    test("o peso pode vir em outra unidade da mesma medida (1 UN = 0,5 KG, lançado em g)", () => {
+      expect(converterQuantidade(250, "G", "UN", [], { quantity: 0.5, unit: "KG" })).toMatchObject({ ok: true, quantidade: 0.5, usouPesoInformado: true });
+    });
+
+    test("serve para embalagem que não é UN (1 PCT = 2 KG)", () => {
+      expect(converterQuantidade(500, "G", "PCT", [], { quantity: 2, unit: "KG" })).toMatchObject({ ok: true, quantidade: 0.25, usouPesoInformado: true });
+    });
+
+    test("o que já está cadastrado manda: o peso informado é ignorado", () => {
+      const cadastrado = [{ fromUnit: "UN", toUnit: "G", factor: 1200 }];
+      expect(converterQuantidade(300, "G", "UN", cadastrado, { quantity: 10, unit: "G" })).toMatchObject({ ok: true, quantidade: 0.25, usouPesoInformado: false });
+    });
+
+    test("peso em g não serve para quem lança em ml (medidas diferentes) e a mensagem diz o que informar", () => {
+      const r = converterQuantidade(100, "ML", "UN", [], { quantity: 500, unit: "G" });
+      expect(r.ok).toBe(false);
+      expect(r.ok === false && r.erro).toMatch(/não é da mesma medida/);
+      expect(r.ok === false && r.erro).toMatch(/ml ou l/);
+    });
+
+    test("sem peso informado nem cadastro continua recusando", () => {
+      expect(converterQuantidade(100, "G", "UN", [], null).ok).toBe(false);
+    });
   });
 
   test("g para ml não converte (grandezas diferentes)", () => {
@@ -179,5 +209,30 @@ describe("validarLancamento: unidade informada", () => {
   test("recusa unidade absurda (texto longo ou com símbolos)", () => {
     expect(validarLancamento({ ...base, unit: "x".repeat(20) }, HOJE).ok).toBe(false);
     expect(validarLancamento({ ...base, unit: "<b>g</b>" }, HOJE).ok).toBe(false);
+  });
+});
+
+describe("validarLancamento: peso informado (perUnit)", () => {
+  const base = { productId: "p1", quantity: "250", unit: "G", reason: "EXPIRED", occurredOn: "2026-10-13", notes: "" };
+
+  test("aceita 1 unidade = 500 g, com vírgula e grafias da casa", () => {
+    expect(validarLancamento({ ...base, perUnit: { quantity: "0,5", unit: "kgs" } }, HOJE)).toMatchObject({ ok: true, valor: { perUnit: { quantity: 0.5, unit: "KG" } } });
+  });
+
+  test("sem peso informado o campo vem nulo", () => {
+    expect(validarLancamento(base, HOJE)).toMatchObject({ ok: true, valor: { perUnit: null } });
+  });
+
+  test.each([
+    [{ quantity: "0", unit: "G" }],
+    [{ quantity: "abc", unit: "G" }],
+    [{ quantity: "500", unit: "UN" }],
+    [{ quantity: "500", unit: "" }],
+    [{ quantity: "1.500", unit: "G" }],
+    [{ quantity: "2000000", unit: "G" }],
+    ["500g"],
+    [["500", "G"]],
+  ])("recusa peso informado inválido %j", (perUnit) => {
+    expect(validarLancamento({ ...base, perUnit }, HOJE).ok).toBe(false);
   });
 });

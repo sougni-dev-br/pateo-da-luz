@@ -36,6 +36,14 @@
   .waste-row { grid-template-columns: minmax(0, 1fr) 110px; grid-template-areas: "qtd un" "data data"; }
 }
 .waste-hint { margin: -6px 0 0; font-size: 13px; color: var(--ink-soft); }
+.waste-peso { display: grid; gap: 8px; padding: 12px; background: var(--paper-soft); border: 1px solid var(--line); border-radius: var(--radius-md); }
+.waste-peso-titulo { margin: 0; font-size: 13px; color: var(--ink); }
+.waste-peso-campos { display: grid; grid-template-columns: auto minmax(0, 1fr) 110px; align-items: end; gap: 10px; }
+.waste-peso-igual { padding-bottom: 12px; font-size: 14px; font-weight: 600; white-space: nowrap; }
+@media (max-width: 560px) {
+  .waste-peso-campos { grid-template-columns: minmax(0, 1fr) 100px; }
+  .waste-peso-igual { grid-column: 1 / -1; padding-bottom: 0; }
+}
 .waste-hint--aviso { color: var(--ink); background: var(--paper-soft); border: 1px solid var(--line); border-radius: var(--radius-md); padding: 8px 10px; margin-top: 0; }
 
 /* Botão de enviar: no celular fica fixo no pé da tela, para não sumir atrás de 8 motivos e da foto. */
