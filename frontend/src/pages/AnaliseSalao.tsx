@@ -11,6 +11,7 @@ import { Alert, Button, PageHeader, Select, Tabs, TextField } from "../design-sy
 import { AvisoHoje } from "./analise-salao/AvisoHoje";
 import { CardapioPanel } from "./analise-salao/CardapioPanel";
 import { DemandaPanel } from "./analise-salao/DemandaPanel";
+import { MetasPanel } from "./analise-salao/MetasPanel";
 import type { SecaoDaAnalise } from "./analise-salao/InsightCard";
 import { PerdasPanel } from "./analise-salao/PerdasPanel";
 import { ResumoPanel } from "./analise-salao/ResumoPanel";
@@ -18,7 +19,7 @@ import { VendasPorPessoaPanel } from "./analise-salao/VendasPorPessoaPanel";
 import { PRESETS, periodoDoPreset, periodoValido, type PresetPeriodo } from "./analise-salao/periodo";
 import "./AnaliseSalao.css";
 
-type Aba = SecaoDaAnalise | "equipe";
+type Aba = SecaoDaAnalise | "equipe" | "metas";
 type Preset = PresetPeriodo | "personalizado";
 
 const ABAS = [
@@ -26,11 +27,13 @@ const ABAS = [
   { value: "demanda", label: "Quando vendemos" },
   { value: "cardapio", label: "Cardápio" },
   { value: "perdas", label: "Perdas" },
-  { value: "equipe", label: "Equipe" }
+  { value: "equipe", label: "Equipe" },
+  { value: "metas", label: "Metas" }
 ];
 const OPCOES_PERIODO = [...PRESETS, { value: "personalizado", label: "Personalizado" }];
 const AVISO_PERIODO = "Confira as datas: o início deve ser anterior ao fim, em até 366 dias.";
 const MENSAGEM_ERRO = "Não foi possível carregar o relatório.";
+const SEM_RELATORIO = { dados: null, carregando: false, erro: null, recarregar: () => undefined };
 
 // Estado de UMA consulta, sempre amarrado à chave do período: dado, erro ou "carregando" de um
 // período nunca é lido sob outro, e voltar a um período cuja consulta foi abortada refaz a busca.
@@ -87,7 +90,8 @@ export function AnaliseSalao() {
   const cardapio = useRelatorio(getAnaliseCardapio, periodo, aba === "cardapio");
   const perdas = useRelatorio(getAnalisePerdas, periodo, aba === "perdas");
   const equipe = useRelatorio(getAnaliseVendasPorPessoa, periodo, aba === "equipe");
-  const atual = { resumo, demanda, cardapio, perdas, equipe }[aba];
+  // Metas é por mês e se carrega sozinha: não usa o período do topo.
+  const atual = aba === "metas" ? SEM_RELATORIO : { resumo, demanda, cardapio, perdas, equipe }[aba];
 
   function escolherPreset(valor: string) {
     if (valor === "personalizado") {
@@ -113,7 +117,7 @@ export function AnaliseSalao() {
     });
   }
 
-  const pronto = valido && !atual.carregando && !atual.erro;
+  const pronto = aba !== "metas" && valido && !atual.carregando && !atual.erro;
 
   return (
     <div className="analise-salao">
@@ -123,18 +127,20 @@ export function AnaliseSalao() {
         description="Para decidir: como o salão está indo, quando vende e onde perde dinheiro, a partir das vendas do PDV."
       />
 
+      {aba !== "metas" && (
       <div className="analise-filtros">
         <Select label="Período" value={preset} options={OPCOES_PERIODO} onChange={(e) => escolherPreset(e.target.value)} />
         <TextField label="De" type="date" value={periodo.inicio} max={periodo.fim || undefined} onChange={(e) => editarData("inicio", e.target.value)} />
         <TextField label="Até" type="date" value={periodo.fim} min={periodo.inicio || undefined} onChange={(e) => editarData("fim", e.target.value)} />
       </div>
+      )}
 
       <Tabs tabs={ABAS} value={aba} onChange={(v) => setAba(v as Aba)} aria-label="Seções da análise do salão" />
 
       <div className="analise-conteudo" aria-busy={atual.carregando} ref={conteudo} tabIndex={-1}>
         {/* Só o status é anunciado: ler as tabelas inteiras a cada carga seria ruído. */}
         <div aria-live="polite">
-          {!valido && <Alert tone="warning">{AVISO_PERIODO}</Alert>}
+          {aba !== "metas" && !valido && <Alert tone="warning">{AVISO_PERIODO}</Alert>}
           {valido && atual.erro && (
             <Alert tone="error">
               {atual.erro}{" "}
@@ -145,6 +151,7 @@ export function AnaliseSalao() {
           )}
           {valido && atual.carregando && <p className="analise-nota">Carregando…</p>}
         </div>
+        {aba === "metas" && <MetasPanel />}
         {pronto && aba === "resumo" && resumo.dados && <ResumoPanel dados={resumo.dados} onAbrir={abrirSecao} />}
         {pronto && aba === "demanda" && demanda.dados && <DemandaPanel dados={demanda.dados} />}
         {pronto && aba === "cardapio" && cardapio.dados && <CardapioPanel dados={cardapio.dados} />}

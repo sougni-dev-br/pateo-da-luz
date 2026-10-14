@@ -3,8 +3,9 @@ import { z } from "zod";
 import { getSessionUser, type SessionUser } from "../../security/security-utils.js";
 import { userHasPermission } from "../../security/menu-permissions.js";
 import {
-  obterCancelamentos, obterCardapio, obterDemanda, obterDescontos, obterItensCancelados, obterPerdas, obterResumo, obterVendasPorPessoa
+  obterCancelamentos, obterCardapio, obterDemanda, obterDescontos, obterItensCancelados, obterMetas, obterPerdas, obterResumo, obterVendasPorPessoa, salvarMeta
 } from "./agile-analise.service.js";
+import { INDICADORES_DE_META } from "./agile-analise-metas.report.js";
 
 export const agileAnaliseRouter = Router();
 
@@ -122,3 +123,49 @@ for (const { caminho, obter, rotulo } of ROTAS_DE_VISAO) {
     }
   });
 }
+
+// Metas mensais. Ler exige a permissao de ver a analise; gravar exige a de editar.
+const mesSchema = z.object({ ano: z.coerce.number().int().min(2020).max(2100), mes: z.coerce.number().int().min(1).max(12) });
+const LIMITE_DA_META = { faturamento: 100_000_000, pessoas: 1_000_000, ticketPessoa: 10_000, perdaPct: 1 } as const;
+const metaSchema = mesSchema.extend({
+  indicador: z.enum(INDICADORES_DE_META),
+  // null apaga a meta.
+  valor: z.number().finite().positive().nullable()
+}).superRefine((m, ctx) => {
+  if (m.valor !== null && m.valor > LIMITE_DA_META[m.indicador]) ctx.addIssue({ code: "custom", path: ["valor"], message: "valor acima do limite aceito" });
+});
+
+agileAnaliseRouter.get("/metas", exigirAnaliseSalao, async (request, response) => {
+  const parsed = mesSchema.safeParse(request.query);
+  if (!parsed.success) {
+    response.status(400).json({ message: "Mês inválido: informe ano e mês." });
+    return;
+  }
+  try {
+    response.json(await obterMetas(parsed.data.ano, parsed.data.mes));
+  } catch (error: unknown) {
+    console.error("Falha ao montar as metas do salão", error);
+    response.status(500).json({ message: "Não foi possível gerar as metas do salão." });
+  }
+});
+
+agileAnaliseRouter.put("/metas", exigirAnaliseSalao, async (request, response) => {
+  const user = await getSessionUser(request);
+  if (!user || !(await userHasPermission(user as SessionUser, "analise-salao", "edit"))) {
+    response.status(403).json({ message: "Usuário sem permissão para editar as metas do salão." });
+    return;
+  }
+  const parsed = metaSchema.safeParse(request.body);
+  if (!parsed.success) {
+    response.status(400).json({ message: `Meta inválida: ${parsed.error.issues[0]?.message ?? "confira os campos"}.` });
+    return;
+  }
+  try {
+    const { ano, mes, indicador, valor } = parsed.data;
+    await salvarMeta(ano, mes, indicador, valor, user.id);
+    response.json(await obterMetas(ano, mes));
+  } catch (error: unknown) {
+    console.error("Falha ao salvar a meta do salão", error);
+    response.status(500).json({ message: "Não foi possível salvar a meta." });
+  }
+});
