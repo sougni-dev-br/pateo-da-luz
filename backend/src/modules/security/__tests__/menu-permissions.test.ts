@@ -103,3 +103,31 @@ describe("resolvePermissionContext — desperdício", () => {
     expect(await ctx("PUT", "/WASTE/Settings/")).toEqual({ menuId: "inventory-waste", action: "admin" });
   });
 });
+
+describe("resolvePermissionContext — Análise do Salão", () => {
+  // Um prefixo novo sem mapeamento ficaria público (requireMenuAccess deixa passar o que não resolve).
+  const LEITURAS = [
+    "/integrations/agile/analise/resumo", "/integrations/agile/analise/demanda", "/integrations/agile/analise/cardapio", "/integrations/agile/analise/perdas",
+    "/integrations/agile/analise/margem", "/integrations/agile/analise/margem-bebidas", "/integrations/agile/analise/metas", "/integrations/agile/analise/vendas-por-pessoa",
+    "/integrations/agile/analise/cancelamentos", "/integrations/agile/analise/itens-cancelados", "/integrations/agile/analise/descontos"
+  ];
+  const GRAVACOES = ["/integrations/agile/analise/metas", "/integrations/agile/analise/margem/vinculo", "/integrations/agile/analise/margem-bebidas/vinculo"];
+
+  it.each(LEITURAS)("GET %s exige ver a análise do salão", async (caminho) => {
+    expect(await ctx("GET", caminho)).toEqual({ menuId: "analise-salao", action: "view" });
+  });
+
+  it.each(GRAVACOES)("PUT %s exige EDITAR (ver não basta)", async (caminho) => {
+    expect(await ctx("PUT", caminho)).toEqual({ menuId: "analise-salao", action: "edit" });
+  });
+
+  it("maiúsculas, barra no fim e barras duplas já normalizadas não escapam", async () => {
+    expect(await ctx("GET", "/INTEGRATIONS/AGILE/ANALISE/Margem-Bebidas/")).toEqual({ menuId: "analise-salao", action: "view" });
+    expect(await ctx("PUT", "/Integrations/Agile/Analise/Metas/")).toEqual({ menuId: "analise-salao", action: "edit" });
+  });
+
+  it("o sync e o heartbeat do agente ficam fora do portão (têm token próprio), sem virar a análise", async () => {
+    expect(await ctx("POST", "/integrations/agile/sync")).toBeNull();
+    expect(await ctx("POST", "/integrations/agile/heartbeat")).toBeNull();
+  });
+});

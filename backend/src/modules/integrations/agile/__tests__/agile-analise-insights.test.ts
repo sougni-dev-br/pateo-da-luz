@@ -132,6 +132,18 @@ describe("gerarInsights — dia ocioso", () => {
     expect(i?.impactoMes).toBe(demanda.capacidade.turnos[0].folgas[0].faturamentoMesPotencial);
   });
 
+  test("artigo concorda com o dia: 'na segunda' e 'para a segunda'; 'no domingo' e 'para o domingo'", () => {
+    const iSegunda = gerar(base(), null, montarDemanda([...quinta, ...segunda], periodo)).find((x) => x.id === "dia-ocioso-almoco");
+    expect(iSegunda?.detalhe).toMatch(/contra 100 na quinta\./);
+    expect(iSegunda?.acao).toMatch(/Teste uma ação para a segunda /);
+    const domingos = ["2026-10-04", "2026-10-11", "2026-10-18"].map((d) => venda({ movementDate: dia(d), people: 30, totalAmount: 3000 }));
+    const sabados = ["2026-10-03", "2026-10-10", "2026-10-17"].map((d) => venda({ movementDate: dia(d), people: 100, totalAmount: 10000 }));
+    const iDomingo = gerar(base(), null, montarDemanda([...sabados, ...domingos], periodo)).find((x) => x.id === "dia-ocioso-almoco");
+    expect(iDomingo?.detalhe).toMatch(/contra 100 no sábado\./);
+    expect(iDomingo?.acao).toMatch(/Teste uma ação para o domingo /);
+    expect(`${iDomingo?.detalhe} ${iDomingo?.acao}`).not.toMatch(/na sábado|na domingo|para a domingo|para a sábado/);
+  });
+
   test("folga com potencial abaixo do minimo nao aparece", () => {
     const pequena = ["2026-10-05", "2026-10-12", "2026-10-19"].map((d) => venda({ movementDate: dia(d), people: 3, totalAmount: 30 }));
     const quintaPequena = ["2026-10-01", "2026-10-08", "2026-10-15"].map((d) => venda({ movementDate: dia(d), people: 5, totalAmount: 50 }));

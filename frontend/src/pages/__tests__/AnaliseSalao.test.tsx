@@ -180,6 +180,36 @@ describe("Análise do Salão — estrutura", () => {
     expect(document.activeElement?.textContent).toMatch(/Vínculo de BEBIDA UM salvo/);
   });
 
+  test("margem: logo depois de vincular o aviso diz 'Recalculando' (nunca 'recalculada' antes da releitura) e o foco ainda nao se move", async () => {
+    let terminar: (v: unknown) => void = () => undefined;
+    const base = {
+      periodo: PERIODO, hojeFicouDeFora: false,
+      cobertura: { receitaTotal: 1000, receitaBuffet: 0, receitaBebidas: 0, receitaPratos: 1000, receitaComMargem: 0, receitaSemFicha: 0, receitaCustoIncompleto: 0, receitaSemVinculo: 1000, receitaPratoIndisponivel: 0, pctComMargem: 0, pctVinculadoSemCusto: 0, pctSemVinculo: 1, pctDaReceitaTotalComMargem: 0, pratosComMargem: 0 },
+      linhas: [], pratosParaVincular: [{ id: "p1", nome: "Prato Um" }], insights: [],
+      aFazer: [{ codigo: "X1", nome: "PRATO UM", categoria: "PRATOS", quantidade: 10, receita: 1000, pctReceita: 1, situacao: "sem-vinculo" as const, pratoId: null, prato: null, sugestoes: [] }]
+    };
+    vi.mocked(getAnaliseMargem).mockResolvedValueOnce(base).mockReturnValueOnce(new Promise((resolve) => { terminar = resolve as (v: unknown) => void; }) as never);
+    vi.mocked(vincularProdutoAnaliseMargem).mockResolvedValue({ ok: true });
+    render(
+      <MemoryRouter>
+        <SessionContext.Provider value={{ ...sessao(), user: { id: "u", role: "ADMIN" } } as unknown as SessionContextValue}>
+          <HideValuesProvider>
+            <AnaliseSalao />
+          </HideValuesProvider>
+        </SessionContext.Provider>
+      </MemoryRouter>
+    );
+    await screen.findByText("Faturamento por dia");
+    fireEvent.click(aba("Margem"));
+    fireEvent.change(await screen.findByLabelText(/Prato da ficha para PRATO UM/), { target: { value: "p1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Vincular PRATO UM" }));
+    expect(await screen.findByText(/PRATO UM vinculado\. Recalculando a margem…/)).toBeTruthy();
+    expect(screen.queryByText(/Margem recalculada/)).toBeNull();
+    expect(document.activeElement?.getAttribute("role")).not.toBe("status");
+    terminar(base);
+    expect(await screen.findByText(/PRATO UM vinculado\. Margem recalculada\./)).toBeTruthy();
+  });
+
   test("margem: se a releitura depois de vincular falha, o aviso nao diz que recalculou", async () => {
     vi.mocked(getAnaliseMargemBebidas).mockResolvedValueOnce({
       periodo: PERIODO, hojeFicouDeFora: false,
@@ -260,6 +290,25 @@ describe("Análise do Salão — estrutura", () => {
     fireEvent.click(aba("Margem"));
     expect(await screen.findByText(/Falha nas bebidas/)).toBeTruthy();
     expect(screen.getByText(/Margem por prato/)).toBeTruthy();
+  });
+
+  test("resumo: periodo curto explica por que nao compara; base fraca tem o outro texto", async () => {
+    vi.mocked(getAnaliseResumo).mockResolvedValueOnce({ ...resumo(), anteriorConfiavel: false, motivoSemComparacao: "periodo-curto", comparacao: null });
+    renderizar();
+    expect(await screen.findByText(/Períodos de menos de 14 dias não são comparados/)).toBeTruthy();
+    expect(screen.queryByText(/O período anterior tem poucos dias com movimento/)).toBeNull();
+  });
+
+  test("resumo: base anterior fraca em periodo longo mantem o texto da base", async () => {
+    vi.mocked(getAnaliseResumo).mockResolvedValueOnce({ ...resumo(), anteriorConfiavel: false, motivoSemComparacao: "base-fraca", comparacao: null });
+    renderizar();
+    expect(await screen.findByText(/O período anterior tem poucos dias com movimento/)).toBeTruthy();
+    expect(screen.queryByText(/Períodos de menos de 14 dias/)).toBeNull();
+  });
+
+  test("resumo: diz que faturamento inclui a taxa de servico e que cardapio e margem nao", async () => {
+    renderizar();
+    expect(await screen.findByText(/inclui a taxa de serviço.*sem a taxa de serviço e antes dos descontos/)).toBeTruthy();
   });
 
   test("cardapio: nao busca ate abrir, e uma vez aberto nao refaz ao voltar", async () => {

@@ -1,5 +1,6 @@
 import type { AnaliseMargem } from "../../api/client";
 import { Alert, KpiCard, PanelEyebrow } from "../../design-system";
+import { AlertaSemVenda } from "./AlertaSemVenda";
 import { AvisoHoje } from "./AvisoHoje";
 import { InsightCard } from "./InsightCard";
 import { ListaAFazer } from "./ListaAFazer";
@@ -24,7 +25,7 @@ export function MargemPanel({ dados, podeEditar, onVincular }: Props) {
     return (
       <div className="analise-stack">
         <AvisoHoje ativo={dados.hojeFicouDeFora} />
-        <Alert tone="info">Ainda não há item vendido neste período. O agente do PDV precisa estar atualizado e o período precisa ser reimportado.</Alert>
+        <AlertaSemVenda dados={dados}>Ainda não há item vendido neste período. O agente do PDV precisa estar atualizado e o período precisa ser reimportado.</AlertaSemVenda>
       </div>
     );
   }
@@ -49,7 +50,7 @@ export function MargemPanel({ dados, podeEditar, onVincular }: Props) {
     <div className="analise-stack">
       <p className="analise-contexto">
         <strong>{intervalo(dados.periodo)}</strong> · margem = preço médio cobrado no PDV menos o custo da porção da ficha técnica do salão, <strong>só ingredientes</strong>: não
-        inclui mão de obra, perdas nem ocupação, e o preço do item vem do PDV antes dos descontos da comanda. Cada unidade vendida conta como uma porção da ficha: meia porção, combo ou executivo distorcem o número. O <strong>buffet</strong> ({percentual(pctBuffet, 0)} da receita) e as <strong>bebidas</strong> ({percentual(pctBebidas, 0)}) ficam
+        inclui mão de obra, perdas nem ocupação, o custo da porção é o da ficha de HOJE, aplicado às vendas do período, e o preço do item vem do PDV antes dos descontos da comanda. Cada unidade vendida conta como uma porção da ficha: meia porção, combo ou executivo distorcem o número. O <strong>buffet</strong> ({percentual(pctBuffet, 0)} da receita) e as <strong>bebidas</strong> ({percentual(pctBebidas, 0)}) ficam
         fora: a margem do buffet é custo de comida por pessoa, e a da bebida é preço menos custo de compra.
       </p>
       <AvisoHoje ativo={dados.hojeFicouDeFora} />
@@ -98,7 +99,7 @@ export function MargemPanel({ dados, podeEditar, onVincular }: Props) {
 
       <section aria-labelledby="margem-afazer">
         <PanelEyebrow id="margem-afazer">O que falta para calcular a margem, do que mais vende ao que menos vende</PanelEyebrow>
-        <ListaAFazer itens={dados.aFazer} pratos={dados.pratosParaVincular} podeEditar={podeEditar} onVincular={(codigo, nome, pratoId) => onVincular(codigo, nome, pratoId)} />
+        <ListaAFazer itens={dados.aFazer} total={dados.totalAFazer} pratos={dados.pratosParaVincular} podeEditar={podeEditar} onVincular={(codigo, nome, pratoId) => onVincular(codigo, nome, pratoId)} />
       </section>
     </div>
   );
