@@ -1,6 +1,6 @@
 import type {
   AnaliseCancelamentos, AnaliseDemanda, AnaliseDescontos, AnaliseIndicadores, AnaliseItensCancelados, AnalisePerdas, AnaliseResumo,
-  AnaliseCardapio, AnaliseMargem, AnaliseMargemAFazer, AnaliseMargemLinha, AnaliseIndicadorDeMeta, AnaliseItemDeAtencao, AnaliseMetaIndicador, AnaliseMetas, AnaliseSituacaoDaMeta, AnaliseProdutoAbc, AnaliseSerieDia, AnaliseTaxaDoItem, AnaliseVariacao, AnaliseVendasPorPessoa
+  AnaliseCardapio, AnaliseMargem, AnaliseMargemAFazer, AnaliseMargemBebidas, AnaliseMargemBebidasAFazer, AnaliseMargemBebidasLinha, AnaliseMargemLinha, AnaliseIndicadorDeMeta, AnaliseItemDeAtencao, AnaliseMetaIndicador, AnaliseMetas, AnaliseSituacaoDaMeta, AnaliseProdutoAbc, AnaliseSerieDia, AnaliseTaxaDoItem, AnaliseVariacao, AnaliseVendasPorPessoa
 } from "../api/client";
 
 // Dados de demonstração da tela "Análise do Salão" (modo ?mock-user=1, só em dev local).
@@ -566,6 +566,83 @@ function margemDoCorpo(url: string, method: string, corpo: unknown): unknown {
   return margem(periodoDaUrl(url));
 }
 
+// Bebidas (revenda): bebidas e insumos inventados; só os vínculos mudam (memória da aba).
+const BEBIDAS_MOCK = [
+  { codigo: "R1", nome: "REFRIGERANTE LATA", quantidade: 200, valor: 2400 },
+  { codigo: "T1", nome: "TACA DA CASA", quantidade: 80, valor: 1920 },
+  { codigo: "S1", nome: "SUCO DA CASA", quantidade: 60, valor: 1080 },
+  { codigo: "P1", nome: "DOSE PROMOCIONAL", quantidade: 100, valor: 500 }
+];
+const INSUMOS_MOCK = [
+  { id: "i-lata", nome: "REFRIGERANTE LATA 350ML", unidade: "UN", custo: 3.5 },
+  { id: "i-vinho", nome: "VINHO DA CASA 750ML", unidade: "UN", custo: 30 },
+  { id: "i-polpa", nome: "POLPA DE FRUTA 1KG", unidade: "UN", custo: 12 },
+  { id: "i-destilado", nome: "DESTILADO 700ML", unidade: "UN", custo: 70 }
+];
+const vinculosBebidasMock = new Map<string, { insumoId: string; quantidade: number; unidade: string }>([
+  ["R1", { insumoId: "i-lata", quantidade: 1, unidade: "UN" }],
+  ["T1", { insumoId: "i-vinho", quantidade: 150, unidade: "ML" }],
+  ["P1", { insumoId: "i-destilado", quantidade: 100, unidade: "ML" }]
+]);
+
+function margemBebidas(periodo: { inicio: string; fim: string }): AnaliseMargemBebidas {
+  const receitaBebidas = BEBIDAS_MOCK.reduce((t, b) => t + b.valor, 0);
+  const linhas: AnaliseMargemBebidasLinha[] = [];
+  const aFazer: AnaliseMargemBebidasAFazer[] = [];
+  for (const b of BEBIDAS_MOCK) {
+    const v = vinculosBebidasMock.get(b.codigo);
+    const insumo = INSUMOS_MOCK.find((i) => i.id === v?.insumoId);
+    const base = { codigo: b.codigo, nome: b.nome, categoria: "BEBIDAS", quantidade: b.quantidade, receita: b.valor, pctReceita: Math.round((b.valor / receitaBebidas) * 10000) / 10000 };
+    if (!v || !insumo) {
+      aFazer.push({ ...base, situacao: "sem-vinculo", insumo: null, problema: null, sugestoes: b.codigo === "S1" ? [{ insumoId: "i-polpa", nome: "POLPA DE FRUTA 1KG", similaridade: 0.5 }] : [] });
+      continue;
+    }
+    // Garrafa/pacote: 750 ML, 700 ML ou 1 KG; o resto é 1 UN por venda.
+    const embalagem = insumo.id === "i-vinho" ? 750 : insumo.id === "i-destilado" ? 700 : insumo.id === "i-polpa" ? 1000 : 1;
+    // L e KG valem 1.000 ML e 1.000 G: o consumo é levado à unidade da embalagem antes de dividir.
+    const consumoBase = v.unidade === "L" || v.unidade === "KG" ? v.quantidade * 1000 : v.quantidade;
+    const custoPorVenda = v.unidade === "UN" ? insumo.custo * v.quantidade : (insumo.custo * consumoBase) / embalagem;
+    const precoMedio = b.valor / b.quantidade;
+    linhas.push({
+      codigo: b.codigo, nome: b.nome, categoria: "BEBIDAS", quantidade: b.quantidade, quantidadeSemCobranca: 0, receita: b.valor, precoMedio, insumo: insumo.nome,
+      consumo: `${v.quantidade} ${v.unidade} de ${insumo.nome}`, custoPorVenda, margemUnitaria: precoMedio - custoPorVenda,
+      margemPct: Math.round(((precoMedio - custoPorVenda) / precoMedio) * 10000) / 10000, cmvPct: Math.round((custoPorVenda / precoMedio) * 10000) / 10000,
+      margemTotal: (precoMedio - custoPorVenda) * b.quantidade
+    });
+  }
+  linhas.sort((a, b) => b.margemTotal - a.margemTotal);
+  const receitaComMargem = linhas.reduce((t, l) => t + l.receita, 0);
+  const receitaSemVinculo = aFazer.reduce((t, x) => t + x.receita, 0);
+  return {
+    periodo, hojeFicouDeFora: false,
+    cobertura: {
+      receitaBebidas, receitaComMargem, receitaSemVinculo, receitaCustoIncompleto: 0,
+      pctComMargem: Math.round((receitaComMargem / receitaBebidas) * 10000) / 10000, pctSemVinculo: Math.round((receitaSemVinculo / receitaBebidas) * 10000) / 10000,
+      pctCustoIncompleto: 0, bebidasComMargem: linhas.length
+    },
+    linhas, aFazer: aFazer.sort((a, b) => b.receita - a.receita),
+    insumosParaVincular: aFazer.length === 0 ? [] : INSUMOS_MOCK.map((i) => ({ id: i.id, nome: i.nome, unidade: i.unidade })),
+    insumosTruncados: false,
+    insights: vinculosBebidasMock.has("P1")
+      ? [{ id: "margem-negativa", tom: "alerta", secao: "margem", hipotese: false, impactoMes: null, titulo: "DOSE PROMOCIONAL vende abaixo do custo de compra", detalhe: "Preço médio de R$ 5,00 contra custo de R$ 10,00 por venda (100 ML de DESTILADO 700ML): cada venda perde R$ 5,00.", acao: "Confira o vínculo (quantidade e unidade consumidas) e o preço no PDV antes de reajustar ou tirar do cardápio." }]
+      : []
+  };
+}
+
+function margemBebidasDoCorpo(url: string, method: string, corpo: unknown): unknown {
+  if (method.toUpperCase() === "PUT") {
+    try {
+      const dados = JSON.parse(String(corpo)) as { codigo: string; insumoId: string | null; quantidade?: number; unidade?: string };
+      if (dados.insumoId === null) vinculosBebidasMock.delete(dados.codigo);
+      else vinculosBebidasMock.set(dados.codigo, { insumoId: dados.insumoId, quantidade: dados.quantidade ?? 1, unidade: dados.unidade ?? "UN" });
+    } catch {
+      // Corpo inválido na demonstração: nada muda.
+    }
+    return { ok: true };
+  }
+  return margemBebidas(periodoDaUrl(url));
+}
+
 export function mockAnaliseSalao(url: string, method = "GET", corpo?: unknown): unknown | undefined {
   const path = new URL(url, "http://localhost").pathname;
   if (path.endsWith("/integrations/agile/analise/cancelamentos")) return cancelamentos(periodoDaUrl(url));
@@ -577,6 +654,7 @@ export function mockAnaliseSalao(url: string, method = "GET", corpo?: unknown): 
   if (path.endsWith("/integrations/agile/analise/perdas")) return perdas(periodoDaUrl(url));
   if (path.endsWith("/integrations/agile/analise/cardapio")) return cardapio(periodoDaUrl(url));
   if (path.endsWith("/integrations/agile/analise/metas")) return metasDoCorpo(url, method, corpo);
+  if (path.endsWith("/integrations/agile/analise/margem-bebidas") || path.endsWith("/integrations/agile/analise/margem-bebidas/vinculo")) return margemBebidasDoCorpo(url, method, corpo);
   if (path.endsWith("/integrations/agile/analise/margem") || path.endsWith("/integrations/agile/analise/margem/vinculo")) return margemDoCorpo(url, method, corpo);
   return undefined;
 }
