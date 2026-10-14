@@ -90,10 +90,13 @@ export function PrecosPorCanal({ prato, canEdit, onEditarPrato, onMudou, notific
 
   if (!vendeNoDelivery && listagens.length === 0) return null;
 
-  // Plataforma sem nenhuma loja com preço para este prato: aparece como uma linha para lançar.
-  const semPreco = vendeNoDelivery
-    ? PLATAFORMAS_DO_DELIVERY.filter((plataforma) => !listagens.some((listagem) => listagem.channel === plataforma))
-    : [];
+  // Ordem fixa: 99, iFood, Keeta e, depois, qualquer outro canal que já tenha preço. As plataformas de delivery sem
+  // preço entram como uma linha para lançar (ou para avisar que a 99 vem do cardápio dela).
+  const canais = [
+    ...(vendeNoDelivery ? PLATAFORMAS_DO_DELIVERY : PLATAFORMAS_DO_DELIVERY.filter((canal) => listagens.some((listagem) => listagem.channel === canal))),
+    ...Array.from(new Set(listagens.map((listagem) => listagem.channel))).filter((canal) => !(PLATAFORMAS_DO_DELIVERY as readonly string[]).includes(canal))
+  ];
+  const colunas = 3 + (comLiquido ? 2 : 0) + (podeEditar ? 1 : 0);
 
   async function remover(listagem: DishListing) {
     setRemovendo(listagem.id);
@@ -112,11 +115,10 @@ export function PrecosPorCanal({ prato, canEdit, onEditarPrato, onMudou, notific
     <section className="ft-secao" aria-labelledby="ft-precos">
       <h3 id="ft-precos" className="ft-secao-titulo">Preços por canal</h3>
       <div className="ft-tabela-rolagem">
-        <table className="ft-tabela">
+        <table className="ft-tabela ft-tabela--precos">
           <thead>
             <tr>
-              <th scope="col">Onde</th>
-              <th scope="col">Loja</th>
+              <th scope="col">Onde / loja</th>
               <th scope="col" className="ft-num">Preço</th>
               <th scope="col" className="ft-num">CMV</th>
               {comLiquido && <th scope="col" className="ft-num" title="O que chega ao caixa: o preço × a média medida da loja">Líquido estimado</th>}
@@ -128,13 +130,12 @@ export function PrecosPorCanal({ prato, canEdit, onEditarPrato, onMudou, notific
             {vendeNoSalao && (
               <tr>
                 <th scope="row" data-rotulo="Onde">Salão (a la carte)</th>
-                <td data-rotulo="Loja">—</td>
                 <td className="ft-num" data-rotulo="Preço">
                   {prato.salePriceDefault != null ? <Money value={prato.salePriceDefault} /> : "—"}
                 </td>
                 <td className="ft-num" data-rotulo="CMV"><CmvDoPreco custo={custo} preco={prato.salePriceDefault} /></td>
-                {comLiquido && <td className="ft-num" data-rotulo="Líquido estimado">—</td>}
-                {comLiquido && <td className="ft-num" data-rotulo="CMV sobre o líquido">—</td>}
+                {comLiquido && <td className="ft-num ft-vazio-estreito" data-rotulo="Líquido estimado">—</td>}
+                {comLiquido && <td className="ft-num ft-vazio-estreito" data-rotulo="CMV sobre o líquido">—</td>}
                 {podeEditar && (
                   <td className="ft-acoes-linha">
                     <button type="button" className="ft-link" onClick={onEditarPrato}>
@@ -144,69 +145,80 @@ export function PrecosPorCanal({ prato, canEdit, onEditarPrato, onMudou, notific
                 )}
               </tr>
             )}
-            {listagens.map((listagem) => (
-              <tr key={listagem.id} className={listagem.isActive ? undefined : "ft-linha-inativa"}>
-                <th scope="row" data-rotulo="Onde">{rotuloDoCanal(listagem.channel)}</th>
-                <td data-rotulo="Loja">
-                  {listagem.storeName ?? "Sem loja"}
-                  {!listagem.isActive && <StatusBadge tone="neutral" className="ft-etiqueta">Pausado</StatusBadge>}
-                </td>
-                <td className="ft-num" data-rotulo="Preço"><Money value={listagem.price} /></td>
-                <td className="ft-num" data-rotulo="CMV">
-                  {faltaQuantidadeDoDelivery
-                    ? <span className="ft-sem-valor" title="Informe as quantidades do delivery: as do a la carte não valem para ele.">falta delivery</span>
-                    : <CmvDoPreco custo={custoDoDelivery} preco={listagem.price} />}
-                </td>
-                {comLiquido && (
-                  <td className="ft-num" data-rotulo="Líquido estimado">
-                    {liquidoDa(listagem) != null ? <Money value={liquidoDa(listagem) as number} /> : "—"}
-                  </td>
-                )}
-                {comLiquido && (
-                  <td className="ft-num" data-rotulo="CMV sobre o líquido">
-                    {faltaQuantidadeDoDelivery ? "—" : <CmvDoPreco custo={custoDoDelivery} preco={liquidoDa(listagem)} />}
-                  </td>
-                )}
-                {podeEditar && (
-                  <td className="ft-acoes-linha">
-                    {listagem.manual ? (
-                      <>
-                        <button type="button" className="ft-link" onClick={() => setDialogo({ listagem })}>Alterar</button>
-                        <button
-                          type="button"
-                          className="ft-link ft-link--perigo"
-                          disabled={removendo === listagem.id}
-                          onClick={() => void remover(listagem)}
-                        >
-                          Remover
-                        </button>
-                      </>
-                    ) : (
-                      <span className="ft-nota" title="Este preço vem do cardápio da plataforma; para mudar, altere no portal dela.">da plataforma</span>
+            {canais.map((canal) => {
+              const doCanal = listagens.filter((listagem) => listagem.channel === canal);
+              if (doCanal.length === 0) {
+                // Só aparecem plataformas de delivery sem preço quando o prato é vendido no delivery.
+                if (!vendeNoDelivery) return null;
+                return (
+                  <tr key={`sem-${canal}`} className="ft-linha-sem-preco">
+                    <th scope="row" data-rotulo="Onde">{rotuloDoCanal(canal)}</th>
+                    <td colSpan={2 + (comLiquido ? 2 : 0)} data-rotulo="Preço" className="ft-nota">
+                      Nenhuma loja com preço{canal === "NOVENTA_NOVE" ? " — vem do cardápio da 99, quando importado" : ""}
+                    </td>
+                    {podeEditar && (
+                      <td className="ft-acoes-linha">
+                        {canal !== "NOVENTA_NOVE" && (
+                          <button type="button" className="ft-link" onClick={() => setDialogo({ listagem: null, plataforma: canal })}>Lançar preço</button>
+                        )}
+                      </td>
                     )}
-                  </td>
-                )}
-              </tr>
-            ))}
-            {semPreco.map((plataforma) => (
-              <tr key={`sem-${plataforma}`} className="ft-linha-sem-preco">
-                <th scope="row" data-rotulo="Onde">{rotuloDoCanal(plataforma)}</th>
-                <td data-rotulo="Loja" className="ft-nota">Nenhuma loja com preço</td>
-                <td className="ft-num" data-rotulo="Preço">—</td>
-                <td className="ft-num" data-rotulo="CMV">—</td>
-                {comLiquido && <td className="ft-num" data-rotulo="Líquido estimado">—</td>}
-                {comLiquido && <td className="ft-num" data-rotulo="CMV sobre o líquido">—</td>}
-                {podeEditar && (
-                  <td className="ft-acoes-linha">
-                    {plataforma === "NOVENTA_NOVE" ? (
-                      <span className="ft-nota" title="O preço da 99 vem do cardápio dela, importado.">vem do cardápio da 99</span>
-                    ) : (
-                      <button type="button" className="ft-link" onClick={() => setDialogo({ listagem: null, plataforma })}>Lançar preço</button>
+                  </tr>
+                );
+              }
+              const automatico = doCanal.every((listagem) => !listagem.manual);
+              return [
+                <tr key={`grupo-${canal}`} className="ft-canal-grupo">
+                  <th scope="rowgroup" colSpan={colunas}>
+                    {rotuloDoCanal(canal)}
+                    <span className="ft-origem">{automatico ? "preço automático, do cardápio da plataforma" : "preço lançado à mão"}</span>
+                  </th>
+                </tr>,
+                ...doCanal.map((listagem) => (
+                  <tr key={listagem.id} className={listagem.isActive ? "ft-linha-loja" : "ft-linha-loja ft-linha-inativa"}>
+                    <th scope="row" data-rotulo="Loja">
+                      {listagem.storeName ?? "Sem loja"}
+                      {!listagem.isActive && <StatusBadge tone="neutral" className="ft-etiqueta">Pausado</StatusBadge>}
+                    </th>
+                    <td className="ft-num" data-rotulo="Preço"><Money value={listagem.price} /></td>
+                    <td className="ft-num" data-rotulo="CMV">
+                      {faltaQuantidadeDoDelivery
+                        ? <span className="ft-sem-valor" title="Informe as quantidades do delivery: as do a la carte não valem para ele.">falta delivery</span>
+                        : <CmvDoPreco custo={custoDoDelivery} preco={listagem.price} />}
+                    </td>
+                    {comLiquido && (
+                      <td className="ft-num ft-num--secundario" data-rotulo="Líquido estimado">
+                        {liquidoDa(listagem) != null ? <Money value={liquidoDa(listagem) as number} /> : "—"}
+                      </td>
                     )}
-                  </td>
-                )}
-              </tr>
-            ))}
+                    {comLiquido && (
+                      <td className="ft-num ft-num--secundario" data-rotulo="CMV sobre o líquido">
+                        {faltaQuantidadeDoDelivery ? "—" : <CmvDoPreco custo={custoDoDelivery} preco={liquidoDa(listagem)} />}
+                      </td>
+                    )}
+                    {podeEditar && (
+                      <td className="ft-acoes-linha">
+                        {listagem.manual ? (
+                          <>
+                            <button type="button" className="ft-link" onClick={() => setDialogo({ listagem })}>Alterar</button>
+                            <button
+                              type="button"
+                              className="ft-link ft-link--perigo"
+                              disabled={removendo === listagem.id}
+                              onClick={() => void remover(listagem)}
+                            >
+                              Remover
+                            </button>
+                          </>
+                        ) : (
+                          <span className="ft-nota" title="Este preço vem do cardápio da plataforma; para mudar, altere no portal dela.">da plataforma</span>
+                        )}
+                      </td>
+                    )}
+                  </tr>
+                ))
+              ];
+            })}
           </tbody>
         </table>
       </div>

@@ -347,3 +347,34 @@
 /* Preços por canal: ações da linha (alterar / remover) */
 .ft-acoes-linha { display: flex; justify-content: flex-end; gap: 12px; white-space: nowrap; }
 .ft-link--perigo { color: var(--danger); }
+
+/* ── Dois cardápios: explicação e preços por canal agrupados ── */
+.ft-explica {
+  margin: 0; padding: 10px 12px; border-left: 3px solid var(--accent, var(--ink)); border-radius: var(--radius-sm);
+  background: var(--paper-soft); color: var(--ink); font-size: var(--fs-sm); line-height: var(--lh-body);
+}
+.ft-tabela--precos tbody tr.ft-canal-grupo { background: var(--paper-soft); }
+.ft-tabela--precos tbody tr.ft-canal-grupo:hover { background: var(--paper-soft); }
+.ft-tabela--precos tbody tr.ft-canal-grupo > th {
+  padding: 8px 12px; color: var(--ink); font-size: var(--fs-xs); font-weight: var(--fw-semibold); letter-spacing: var(--ls-eyebrow); text-transform: uppercase;
+}
+.ft-origem { margin-left: 10px; color: var(--muted); font-size: var(--fs-2xs); font-weight: var(--fw-medium); letter-spacing: 0; text-transform: none; }
+.ft-tabela--precos tbody tr.ft-linha-loja > th { padding-left: 24px; font-weight: var(--fw-regular, 400); }
+.ft-tabela--precos .ft-num--secundario { color: var(--muted); }
+
+@container ft-painel (max-width: 640px) {
+  /* Uma linha curta por loja (loja · preço · CMV), com o líquido em letra menor logo abaixo — em vez de um cartão por loja. */
+  .ft-tabela--precos tbody tr.ft-canal-grupo { display: block; margin: 10px 0 2px; padding: 0; border: 0; border-radius: var(--radius-sm); }
+  .ft-tabela--precos tbody tr.ft-canal-grupo > th { display: block; padding: 6px 10px; }
+  .ft-tabela--precos tbody tr.ft-linha-loja, .ft-tabela--precos tbody tr.ft-linha-sem-preco {
+    grid-template-columns: minmax(0, 1fr) auto auto; padding: 8px 10px; margin-bottom: 0; border-width: 0 0 1px; border-radius: 0; gap: 2px 14px;
+  }
+  .ft-tabela--precos tbody tr.ft-linha-loja > th { grid-column: 1; padding-left: 0; font-size: var(--fs-sm); }
+  .ft-tabela--precos tbody tr.ft-linha-loja > td[data-rotulo="Preço"], .ft-tabela--precos tbody tr.ft-linha-loja > td[data-rotulo="CMV"] { text-align: right; }
+  .ft-tabela--precos td[data-rotulo="Preço"]::before, .ft-tabela--precos td[data-rotulo="CMV"]::before { display: none; }
+  .ft-tabela--precos .ft-num--secundario { grid-column: 1 / -1; font-size: var(--fs-xs); }
+  .ft-tabela--precos .ft-num--secundario { display: flex; gap: 6px; }
+  .ft-tabela--precos .ft-num--secundario::before { display: inline !important; }
+  .ft-tabela--precos .ft-acoes-linha { grid-column: 1 / -1; }
+  .ft-tabela--precos .ft-vazio-estreito { display: none; }
+}
