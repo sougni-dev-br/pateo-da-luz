@@ -26,6 +26,7 @@ import { dadosDoEstorno, gravarBaixaDoItem, lerCamposDaBaixa, registroNaoEncontr
 import { recusaDoItemMudado, recusaPorLote } from "./folha-lote.service.js";
 import { folhaLoteRouter } from "./folha-lote.routes.js";
 import { folhaRecibosRouter } from "./recibo-pagamento.routes.js";
+import { pagamentoMeioRouter } from "./pagamento-meio.routes.js";
 
 export const payrollRouter = Router();
 // Lançamento manual (POST /) e conferência do lote antes da baixa (POST /pay-check).
@@ -36,6 +37,8 @@ payrollRouter.use("/afastamentos", afastamentoRouter);
 payrollRouter.use("/folha-lotes", folhaLoteRouter);
 // Recibo da 1ª quinzena e do adiantamento de quem não tem registro (só leitura).
 payrollRouter.use(folhaRecibosRouter);
+// Lista do adiantamento / 1ª quinzena para conferir e pagar.
+payrollRouter.use(pagamentoMeioRouter);
 
 function parseYearMonth(q: { year?: unknown; month?: unknown }) {
   const now = new Date();
@@ -1183,6 +1186,10 @@ payrollRouter.patch("/:id", async (request, response) => {
   const det = existing.details && typeof existing.details === "object" ? existing.details as Record<string, unknown> : null;
   const mudouValor = Math.abs(Number(existing.amount) - round2(amount)) >= 0.005 || dueDate.getTime() !== existing.dueDate.getTime();
   if (det?.origem === ORIGEM_ACERTO && mudouValor) data.details = { ...det, editadoAMao: true } as Prisma.InputJsonValue;
+  // 1ª quinzena com o valor editado à mão: marca o ajuste, para "lançar de novo" não voltar ao calculado.
+  if (det?.primeiraQuinzena === true && Math.abs(Number(existing.amount) - round2(amount)) >= 0.005) {
+    data.details = { ...det, ajusteManual: true } as Prisma.InputJsonValue;
+  }
 
   // Condicionado a continuar fora de lote e sem baixa: liberar a folha entre a checagem acima
   // e aqui não deixa um membro de lote editado sozinho.

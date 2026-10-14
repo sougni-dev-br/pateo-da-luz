@@ -46,14 +46,14 @@ export const menuCatalog = [
   { id: "requisitions", label: "Requisições", group: "Estoque" },
   { id: "suppliers", label: "Fornecedores", group: "Cadastros" },
   { id: "companies", label: "Empresas", group: "Cadastros" },
-  { id: "employees", label: "Funcionarios", group: "RH" },
+  { id: "employees", label: "Funcionarios", group: "Pessoas" },
   // Gerar link da ficha cadastral, ver os documentos enviados e concluir. Concluir também
   // exige criar/editar Funcionarios (checado na rota), porque grava no cadastro.
-  { id: "employee-forms", label: "Fichas cadastrais", group: "RH" },
-  { id: "schedule", label: "Escala", group: "RH" },
-  { id: "payroll", label: "Folha e VT (inclui Rescisões)", group: "RH" },
-  { id: "payroll-tips", label: "Apuração de gorjeta (inclui Retorno do RH)", group: "RH" },
-  { id: "extras", label: "Extras (diárias)", group: "RH" },
+  { id: "employee-forms", label: "Fichas cadastrais", group: "Pessoas" },
+  { id: "schedule", label: "Escala", group: "Pessoas" },
+  { id: "payroll", label: "Folha de pagamento (inclui Vale-transporte, Adiantamento e Rescisões)", group: "Folha" },
+  { id: "payroll-tips", label: "Apuração de gorjeta (inclui Retorno do RH)", group: "Folha" },
+  { id: "extras", label: "Extras (diárias)", group: "Folha" },
   { id: "import", label: "Importacoes", group: "Dados" },
   { id: "catalog-imports", label: "Importar cadastros", group: "Dados" },
   { id: "payment-methods", label: "Metodos de pagamento", group: "Configuracoes" },
@@ -176,6 +176,9 @@ export function isMenuId(value: string): value is MenuId {
 const MENUS_AUXILIARES: Record<string, MenuId> = {
   rescisoes: "payroll",
   "rh-retorno": "payroll-tips",
+  // A antiga "Folha e VT" virou três telas (14/10/2026); as duas novas herdam a da Folha.
+  "payroll-vt": "payroll",
+  "payroll-adiantamento": "payroll",
 };
 
 /** Módulo que autoriza um item de menu favoritado (o próprio, ou o herdado), ou null se não existe. */

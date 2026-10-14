@@ -6,7 +6,7 @@ import { SEM_DADOS_BANCARIOS, linhasDadosBancarios } from "./dadosBancarios";
 import { nomeNoEnvio, textoPdf } from "./envioContabilidade";
 import { MONTHS, fmtDate, money } from "./gorjetaUtils";
 import {
-  AMBAR, type AutoTable, BEGE, CINZA, type Doc, LINHA, LISTRA, M, MARROM, TINTA, cabecalhoPdf, caixasResumo, faixaTotal, rodapePdf,
+  AMBAR, type AutoTable, BEGE, CINZA, type Doc, LINHA, LISTRA, M, MARROM, type Selo, TINTA, cabecalhoPdf, caixasResumo, faixaTotal, rodapePdf,
 } from "./pdfTema";
 
 const reais = (v: number) => textoPdf(money(v));
@@ -35,6 +35,18 @@ export const COLUNAS_OPCIONAIS_PDF: Array<{ chave: ColunaOpcionalPdf; rotulo: st
 type Coluna = "nome" | "valor" | ColunaOpcionalPdf;
 const TITULO: Record<Coluna, string> = { nome: "Funcionário", empresa: "Empresa", valor: "Líquido", banco: "Dados bancários", pago: "Pago" };
 
+/** O que muda entre a folha de líquidos e a lista do adiantamento / 1ª quinzena; o desenho é o mesmo. */
+export type ListaPagamentoPdf = {
+  linhas: TipLinhaFolha[];
+  total: number;
+  jaPagos?: Array<{ nome: string; valor: number; pagoEm: string }>;
+};
+export type OpcoesListaPagamentoPdf = {
+  titulo: string; apoio: string; codigo: string; selo: Selo; regras: string[];
+  rotuloValor: string; rotuloTotal: string; subtituloGrupo: (grupo: string) => string;
+  rodape: string; arquivo: string; modo: ModoImpressaoFolha; ocultas?: ReadonlySet<string>;
+};
+
 /** rotuloSubtotal null: sem linha de subtotal (lista única, o total já vem na faixa logo abaixo). */
 type Bloco = { titulo: string; subtitulo: string; comEmpresa: boolean; rotuloSubtotal: string | null };
 
@@ -62,32 +74,46 @@ export function ordemAlfabetica(linhas: TipLinhaFolha[]): TipLinhaFolha[] {
   return [...linhas].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR", { sensitivity: "base" }));
 }
 
+/** "Outubro/2026". */
+export function competenciaPdf(year: number, month: number): string {
+  const mes = MONTHS[month - 1];
+  return `${mes.charAt(0).toUpperCase()}${mes.slice(1).toLowerCase()}/${year}`;
+}
+
 export async function gerarPdfFolhaLiquidos(
   folha: TipFolhaLiquidos,
   opcoes: { year: number; month: number; liberada: boolean; modo: ModoImpressaoFolha; ocultas?: ReadonlySet<string> },
 ) {
+  const competencia = competenciaPdf(opcoes.year, opcoes.month);
+  await gerarPdfListaPagamento(folha, {
+    titulo: "Folha salarial - líquidos a pagar",
+    apoio: `Competência ${competencia}   |   ${folha.label}`,
+    codigo: folha.code,
+    selo: opcoes.liberada ? { texto: "LIBERADA PARA PAGAMENTO", tom: "ok" } : { texto: "PRÉVIA - FALTA O OK DA CONTABILIDADE", tom: "aviso" },
+    regras: REGRAS, rotuloValor: TITULO.valor, rotuloTotal: "Total a pagar",
+    subtituloGrupo: (g) => (g === "Sem registro" ? "valor pela apuração da gorjeta" : "valor pelo extrato da contabilidade"),
+    rodape: `Folha líquidos ${competencia} - ${folha.code}`, arquivo: `Folha_Liquidos_${folha.code}.pdf`,
+    modo: opcoes.modo, ocultas: opcoes.ocultas,
+  });
+}
+
+/** Lista para pagar no banco: um bloco por empresa (ou todos em ordem alfabética), total, regras, já pagos e assinatura. */
+export async function gerarPdfListaPagamento(folha: ListaPagamentoPdf, opcoes: OpcoesListaPagamentoPdf) {
   const ocultas = opcoes.ocultas ?? new Set<string>();
   const { jsPDF } = await import("jspdf");
   const autoTable = (await import("jspdf-autotable")).default as unknown as AutoTable;
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" }) as unknown as Doc;
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();
-  const mes = MONTHS[opcoes.month - 1];
-  const competencia = `${mes.charAt(0).toUpperCase()}${mes.slice(1).toLowerCase()}/${opcoes.year}`;
   const emitido = new Date();
 
-  cabecalhoPdf(doc, {
-    titulo: "Folha salarial - líquidos a pagar",
-    apoio: `Competência ${competencia}   |   ${folha.label}`,
-    codigo: folha.code,
-    selo: opcoes.liberada ? { texto: "LIBERADA PARA PAGAMENTO", tom: "ok" } : { texto: "PRÉVIA - FALTA O OK DA CONTABILIDADE", tom: "aviso" },
-  });
+  cabecalhoPdf(doc, { titulo: opcoes.titulo, apoio: opcoes.apoio, codigo: opcoes.codigo, selo: opcoes.selo });
 
   const semRegistro = folha.linhas.filter((l) => l.origem === "SEM_REGISTRO");
   const clt = folha.linhas.filter((l) => l.origem !== "SEM_REGISTRO");
   const semDados = folha.linhas.filter((l) => linhasDadosBancarios(l).length === 0).length;
   let y = caixasResumo(doc, 33, [
-    ["Total a pagar", reais(folha.total), 1.5],
+    [opcoes.rotuloTotal, reais(folha.total), 1.5],
     ["Pessoas", String(folha.linhas.length), 0.7],
     ["CLT", reais(soma(clt)), 1.1],
     ["Sem registro", reais(soma(semRegistro)), 1.1],
@@ -148,7 +174,7 @@ export async function gerarPdfFolhaLiquidos(
       headStyles: { fillColor: [...MARROM], textColor: 255, fontStyle: "bold", fontSize: 8 },
       footStyles: { fillColor: [...BEGE], textColor: [...TINTA], fontStyle: "bold" },
       alternateRowStyles: { fillColor: [...LISTRA] },
-      head: [cols.map((c) => TITULO[c])],
+      head: [cols.map((c) => (c === "valor" ? opcoes.rotuloValor : TITULO[c]))],
       body: lista.map((l) => cols.map((c) => celula(c, l))),
       foot: bloco.rotuloSubtotal == null ? [] : [cols.map((c) => (c === "nome" ? textoPdf(bloco.rotuloSubtotal!) : c === "valor" ? reais(soma(lista)) : ""))],
       columnStyles: Object.fromEntries(cols.map((c, i) => [i, ESTILO[c]])),
@@ -203,25 +229,24 @@ export async function gerarPdfFolhaLiquidos(
     });
   } else {
     for (const grupo of [...new Set(folha.linhas.map((l) => l.grupo))]) {
-      const semReg = grupo === "Sem registro";
       desenharBloco(folha.linhas.filter((l) => l.grupo === grupo), {
-        titulo: grupo, subtitulo: semReg ? "valor pela apuração da gorjeta" : "valor pelo extrato da contabilidade",
-        comEmpresa: false, rotuloSubtotal: semReg ? "Subtotal sem registro" : "Subtotal",
+        titulo: grupo, subtitulo: opcoes.subtituloGrupo(grupo),
+        comEmpresa: false, rotuloSubtotal: grupo === "Sem registro" ? "Subtotal sem registro" : "Subtotal",
       });
     }
   }
 
   // O fechamento (total, regras, já pagos e assinatura) vai inteiro para a página seguinte só se não couber.
   const jaPagosQtd = (folha.jaPagos ?? []).length;
-  const fechamento = 14 + REGRAS.length * 3.8 + (jaPagosQtd > 0 ? 7 + jaPagosQtd * 4 : 0) + 24;
+  const fechamento = 14 + opcoes.regras.length * 3.8 + (jaPagosQtd > 0 ? 7 + jaPagosQtd * 4 : 0) + 24;
   if (y + fechamento > H - 16) { doc.addPage(); y = 20; }
-  faixaTotal(doc, y, `Total a pagar   (${plural(folha.linhas.length, "pessoa", "pessoas")})`, reais(folha.total));
+  faixaTotal(doc, y, `${opcoes.rotuloTotal}   (${plural(folha.linhas.length, "pessoa", "pessoas")})`, reais(folha.total));
   y += 14;
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
   doc.setTextColor(...CINZA);
-  for (const regra of REGRAS) {
+  for (const regra of opcoes.regras) {
     const partes = doc.splitTextToSize(textoPdf(regra), W - 2 * M);
     doc.text(partes, M, y);
     y += partes.length * 3.8;
@@ -260,6 +285,6 @@ export async function gerarPdfFolhaLiquidos(
   doc.text("Pago e conferido por", M, y + 4);
   doc.text("Data", M + 105, y + 4);
 
-  rodapePdf(doc, `Folha líquidos ${competencia} - ${folha.code}`, emitido);
-  doc.save(`Folha_Liquidos_${folha.code}.pdf`);
+  rodapePdf(doc, opcoes.rodape, emitido);
+  doc.save(opcoes.arquivo);
 }
