@@ -42,6 +42,8 @@ export type LinhaDeMargem = {
   prato: string;
   produtosPdv: Array<{ codigo: string; nome: string }>;
   quantidade: number;
+  // Unidades vendidas sem cobrança (cortesia, item de combo sem preço): contam no custo, não no preço médio.
+  quantidadeSemCobranca: number;
   receita: number;
   precoMedio: number;
   precoFicha: number | null;
@@ -97,8 +99,10 @@ export function montarMargem({ periodo, produtos, pratos, vinculos }: { periodo:
     .map(([id, lista]): LinhaDeMargem => {
       const prato = pratoPorId.get(id) as PratoDoSalao;
       const quantidade = lista.reduce((s, p) => s + p.quantidade, 0);
+      const quantidadePaga = lista.reduce((s, p) => s + (p.quantidadePaga ?? p.quantidade), 0);
       const receita = lista.reduce((s, p) => s + p.valor, 0);
-      const precoMedio = razao(receita, quantidade);
+      // Preço médio só das unidades PAGAS: cortesia não dilui o preço (mesma regra das bebidas).
+      const precoMedio = razao(receita, quantidadePaga);
       const custoPorcao = prato.custoPorcao as number;
       const margemUnitaria = precoMedio - custoPorcao;
       return {
@@ -106,14 +110,18 @@ export function montarMargem({ periodo, produtos, pratos, vinculos }: { periodo:
         prato: prato.nome,
         produtosPdv: lista.map((p) => ({ codigo: p.codigo as string, nome: p.nome })),
         quantidade: round2(quantidade),
+        quantidadeSemCobranca: round2(Math.max(0, quantidade - quantidadePaga)),
         receita: round2(receita),
         precoMedio: round2(precoMedio),
         precoFicha: prato.precoFicha,
         custoPorcao: round2(custoPorcao),
         margemUnitaria: round2(margemUnitaria),
-        margemPct: round4(razao(margemUnitaria, precoMedio)),
-        cmvPct: round4(razao(custoPorcao, precoMedio)),
-        margemTotal: round2(margemUnitaria * quantidade),
+        // Percentuais sobre a RECEITA da linha (inclui o custo das unidades sem cobrança): com cortesia, margemUnitaria x quantidade
+        // não fecha com margemTotal, e o percentual não pode contar uma margem que a linha não tem.
+        margemPct: round4(razao(receita - custoPorcao * quantidade, receita)),
+        cmvPct: round4(razao(custoPorcao * quantidade, receita)),
+        // Receita menos o custo de TODAS as unidades, inclusive as sem cobrança.
+        margemTotal: round2(receita - custoPorcao * quantidade),
         situacao: "completa"
       };
     })
@@ -141,7 +149,8 @@ export function montarMargem({ periodo, produtos, pratos, vinculos }: { periodo:
       pratoId: prato?.id ?? null,
       prato: prato?.nome ?? null,
       // Quem precisa (re)escolher o prato recebe sugestão: sem vínculo ou com o prato indisponível.
-      sugestoes: situacao === "sem-vinculo" || situacao === "prato-indisponivel" ? sugestoesPara(produto.nome) : []
+      // Sem código não dá para vincular, então sugerir seria inútil.
+      sugestoes: (situacao === "sem-vinculo" || situacao === "prato-indisponivel") && produto.codigo ? sugestoesPara(produto.nome) : []
     }));
 
   const pctComMargem = round4(razao(receitaComMargem, receitaPratos));
@@ -165,6 +174,8 @@ export function montarMargem({ periodo, produtos, pratos, vinculos }: { periodo:
     },
     linhas,
     aFazer,
+    // Total de pendências (a lista mostra só as MAX_A_FAZER primeiras).
+    totalAFazer: aFazerBruto.length,
     pratosParaVincular: pratos.map((p) => ({ id: p.id, nome: p.nome })).sort((a, b) => a.nome.localeCompare(b.nome)),
     insights: gerarInsights(linhas, pctComMargem, receitaPratos)
   };

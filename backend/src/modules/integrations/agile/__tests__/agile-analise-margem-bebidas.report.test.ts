@@ -77,6 +77,13 @@ describe("margem de revenda", () => {
     expect(r.aFazer[0]).toMatchObject({ codigo: null, situacao: "sem-vinculo", sugestoes: [] });
   });
 
+  test("totalAFazer conta todas as pendencias, mesmo as que a lista corta", () => {
+    const muitas = Array.from({ length: MAX_A_FAZER_BEBIDAS + 4 }, (_, i) => beb(`c${i}`, `BEBIDA ${i}`, 100 + i, 1));
+    const r = montar(muitas);
+    expect(r.aFazer).toHaveLength(MAX_A_FAZER_BEBIDAS);
+    expect(r.totalAFazer).toBe(MAX_A_FAZER_BEBIDAS + 4);
+  });
+
   test("limita a lista a fazer", () => {
     const muitas = Array.from({ length: MAX_A_FAZER_BEBIDAS + 5 }, (_, i) => beb(`c${i}`, `BEBIDA ${i}`, 100 + i, 1));
     expect(montar(muitas).aFazer).toHaveLength(MAX_A_FAZER_BEBIDAS);
@@ -92,7 +99,8 @@ describe("margem de revenda", () => {
   test("cortesia nao dilui o preco: o preco medio sai das unidades PAGAS e o custo conta todas", () => {
     // 100 unidades, 20 delas sem cobranca: 80 pagas somam R$ 960 (preco 12). Custo 4 x 100 = 400.
     const r = montar([{ ...beb("1", "COCA", 960, 100), quantidadePaga: 80 }], [vinc("1", 4)]);
-    expect(r.linhas[0]).toMatchObject({ quantidade: 100, quantidadeSemCobranca: 20, precoMedio: 12, margemUnitaria: 8, margemTotal: 560 });
+    // Receita 960; custo 4 x 100 = 400: margem real 560 / 960 = 58,33%, CMV 41,67% (nao os 66,7% de uma unidade paga).
+    expect(r.linhas[0]).toMatchObject({ quantidade: 100, quantidadeSemCobranca: 20, precoMedio: 12, margemUnitaria: 8, margemTotal: 560, margemPct: 0.5833, cmvPct: 0.4167 });
   });
 
   test("sem cortesia a conta e a de sempre", () => {
@@ -174,6 +182,29 @@ describe("custo do vinculo (insumo, quantidade e unidade)", () => {
     const r = custoDoVinculo(insumo({ name: "COCA COLA LATA" }), 100, "ML");
     expect(r).toMatchObject({ custoPorVenda: null, custoCompleto: false });
     expect(r.problema).toMatch(/conversao|conversão/i);
+  });
+
+  test("estoque em CX com medida no nome: a embalagem inferida nao e confiavel, entao custo incompleto com o motivo", () => {
+    const caixa = insumo({ name: "CERVEJA PILSEN 350ML", unit: "CX", stockUnit: "CX", averageCost: 48 });
+    const r = custoDoVinculo(caixa, 350, "ML");
+    expect(r).toMatchObject({ custoPorVenda: null, custoCompleto: false });
+    expect(r.problema).toMatch(/conta em CX.*cadastre a conversão/);
+  });
+
+  test("estoque em CX: se o vinculo consome na propria unidade do estoque (1 CX), nao precisa de conversao", () => {
+    const caixa = insumo({ name: "CERVEJA PILSEN 350ML", unit: "CX", stockUnit: "CX", averageCost: 48 });
+    expect(custoDoVinculo(caixa, 1, "CX" as never)).toMatchObject({ custoPorVenda: 48, custoCompleto: true });
+  });
+
+  test("estoque em CX COM conversao cadastrada: usa a cadastrada (a caixa tem 12)", () => {
+    const caixa = insumo({ name: "CERVEJA PILSEN 350ML", unit: "CX", stockUnit: "CX", averageCost: 48, conversions: [{ fromUnit: "UN", toUnit: "CX", factor: 1 / 12 }] });
+    const r = custoDoVinculo(caixa, 1, "UN");
+    expect(r.custoCompleto).toBe(true);
+    expect(r.custoPorVenda).toBeCloseTo(4, 5);
+  });
+
+  test("estoque em UN com medida no nome continua inferindo (1 UN = 750 ML)", () => {
+    expect(custoDoVinculo(insumo({ name: "VINHO 750ML", averageCost: 30 }), 150, "ML")).toMatchObject({ custoCompleto: true });
   });
 
   test("quantidade zero ou negativa nao serve", () => {

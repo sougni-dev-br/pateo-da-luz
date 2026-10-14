@@ -1,5 +1,6 @@
 import type { AnaliseCardapio } from "../../api/client";
 import { Alert, KpiCard, PanelEyebrow } from "../../design-system";
+import { AlertaSemVenda } from "./AlertaSemVenda";
 import { AvisoHoje } from "./AvisoHoje";
 import { CurvaAbc } from "./CurvaAbc";
 import { InsightCard } from "./InsightCard";
@@ -19,10 +20,10 @@ export function CardapioPanel({ dados }: { dados: AnaliseCardapio }) {
     return (
       <div className="analise-stack">
         <AvisoHoje ativo={dados.hojeFicouDeFora} />
-        <Alert tone="info">
+        <AlertaSemVenda dados={dados}>
           Ainda não há item vendido neste período. O agente do PDV precisa estar atualizado e o período precisa ser reimportado para o histórico
           aparecer aqui.
-        </Alert>
+        </AlertaSemVenda>
       </div>
     );
   }

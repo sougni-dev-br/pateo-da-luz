@@ -166,7 +166,9 @@ function unixToDate(unixSeconds: number | undefined): Date | null {
 // para o valor recebido, senao seria chute.
 export function shopIdCandidates(bruto: string | number | undefined, rawBody: string): string[] {
   if (bruto === undefined || bruto === null) return [];
-  if (typeof bruto === "string") return [bruto];
+  // O corpo é JSON público sem validação: só texto ou número vira candidato (um objeto viraria filtro do Prisma).
+  if (typeof bruto !== "string" && typeof bruto !== "number") return [];
+  if (typeof bruto === "string") return bruto.length <= LIMITE_DO_ID_DE_LOJA ? [bruto] : [];
 
   const arredondado = String(bruto);
   if (Number.isSafeInteger(bruto)) return [arredondado];
@@ -177,6 +179,9 @@ export function shopIdCandidates(bruto: string | number | undefined, rawBody: st
   }
   return [...candidatos];
 }
+
+// Ids de loja da 99 são curtos (19 dígitos o shop_id); acima disso é lixo ou tentativa de abuso.
+const LIMITE_DO_ID_DE_LOJA = 200;
 
 async function findStoreForCallback(
   envelope: WebhookEnvelope,
@@ -194,7 +199,9 @@ async function findStoreForCallback(
   // "Sincronizar lojas da 99" que ainda tem o valor arredondado no banco, e
   // elas precisam continuar casando ate serem reconciliadas.
   const candidatosRemote = shopIdCandidates(bruto, rawBody);
-  const appShopId = envelope.app_shop_id ?? orderInfo?.shop?.app_shop_id ?? null;
+  // Só texto: se vier um objeto (`{ "startsWith": "" }`), o Prisma o tomaria como filtro e casaria com qualquer loja.
+  const appShopId = [envelope.app_shop_id, orderInfo?.shop?.app_shop_id]
+    .find((v): v is string => typeof v === "string" && v.length > 0 && v.length <= LIMITE_DO_ID_DE_LOJA) ?? null;
 
   if (candidatosRemote.length > 0) {
     const byRemote = await prisma.deliveryStore.findFirst({

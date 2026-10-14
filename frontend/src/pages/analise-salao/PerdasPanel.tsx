@@ -1,6 +1,7 @@
 import type { AnalisePerdas } from "../../api/client";
 import { Alert, PanelEyebrow, Table } from "../../design-system";
 import { formatDate } from "../../utils/format";
+import { AlertaSemVenda } from "./AlertaSemVenda";
 import { AvisoHoje } from "./AvisoHoje";
 import { Barra } from "./Barra";
 import { CancelamentosPanel } from "./CancelamentosPanel";
@@ -21,10 +22,10 @@ export function PerdasPanel({ dados }: { dados: AnalisePerdas }) {
     return (
       <div className="analise-stack">
         <AvisoHoje ativo={dados.hojeFicouDeFora} />
-        <Alert tone="info">
+        <AlertaSemVenda dados={dados}>
           Ainda não há venda detalhada neste período. O agente do PDV precisa estar atualizado e o período precisa ser reimportado para o
           histórico aparecer aqui.
-        </Alert>
+        </AlertaSemVenda>
       </div>
     );
   }

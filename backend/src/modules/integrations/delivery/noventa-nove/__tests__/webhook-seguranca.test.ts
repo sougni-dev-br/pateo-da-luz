@@ -259,3 +259,68 @@ describe("textoSeguro", () => {
     expect(textoSeguro("x".repeat(500))).toHaveLength(60);
   });
 });
+
+describe("ajuste — o envelope publico nao vira filtro do Prisma", () => {
+  const externalIds = () => db.deliveryStore.findFirst.mock.calls.map((c: Array<{ where: { externalId?: unknown } }>) => c[0].where.externalId).filter((v: unknown) => v !== undefined);
+
+  test("app_shop_id como OBJETO ({ startsWith: '' }) nunca chega ao banco como filtro", async () => {
+    const e = { type: "orderNew", app_shop_id: { startsWith: "" }, data: { order_info: { order_id: "900000000000009", shop: { shop_id: undefined, app_shop_id: { contains: "" } }, create_time: 1_760_000_000, price: { order_price: 100, real_price: 100 } } } } as unknown as WebhookEnvelope;
+    db.deliveryStore.findFirst.mockResolvedValue(null);
+    await handleWebhook(e, corpo(e), null);
+    expect(externalIds().every((v: unknown) => typeof v === "string")).toBe(true);
+    expect(externalIds()).toEqual([]); // sem id de texto valido, nem consulta por externalId
+  });
+
+  test("shop_id como objeto tambem nao vira candidato", () => {
+    expect(servico.shopIdCandidates({ in: ["x"] } as unknown as string, "{}")).toEqual([]);
+    expect(servico.shopIdCandidates(true as unknown as string, "{}")).toEqual([]);
+  });
+
+  test("id de loja gigante e descartado; id normal segue valendo", async () => {
+    expect(servico.shopIdCandidates("x".repeat(500), "{}")).toEqual([]);
+    expect(servico.shopIdCandidates("123", "{}")).toEqual(["123"]);
+    const gigante = { ...envelope("DELIVERY"), app_shop_id: "L".repeat(500) } as unknown as WebhookEnvelope;
+    (gigante as unknown as { data: { order_info: { shop: { app_shop_id: string } } } }).data.order_info.shop.app_shop_id = "M".repeat(500);
+    db.deliveryStore.findFirst.mockResolvedValue(null);
+    await handleWebhook(gigante, corpo(gigante), null);
+    expect(externalIds()).toEqual([]);
+  });
+
+  test("app_shop_id texto normal continua achando a loja pelo externalId", async () => {
+    const e = envelope("DELIVERY");
+    (e as unknown as { data: { order_info: { shop: { shop_id?: string } } } }).data.order_info.shop.shop_id = undefined;
+    db.deliveryStore.findFirst.mockResolvedValue({ id: "s1", externalId: "LOJA-FICTICIA", shopIdRemote: "111" });
+    await handleWebhook(e, corpo(e), null);
+    expect(externalIds()).toContain("LOJA-FICTICIA");
+  });
+});
+
+describe("corpo do webhook publico (mesma ordem de parsers do app.ts)", () => {
+  // Reproduz a ordem: parser pequeno e especifico do webhook ANTES do parser geral grande.
+  const montar = () => {
+    const a = express();
+    a.use("/public/delivery/noventa-nove", express.json({ limit: "256kb", verify: (req, _res, buf) => { (req as express.Request & { rawBody?: string }).rawBody = buf.toString("utf8"); } }));
+    a.use(express.json({ limit: "25mb" }));
+    a.post("/public/delivery/noventa-nove/webhook", (req, res) => res.json({ raw: (req as express.Request & { rawBody?: string }).rawBody ?? null, tipo: req.body?.type }));
+    a.post("/outra-rota", (req, res) => res.json({ tamanho: JSON.stringify(req.body).length }));
+    a.use((err: { status?: number }, _req: express.Request, res: express.Response, _next: express.NextFunction) => res.status(err.status ?? 500).json({ erro: true }));
+    return a;
+  };
+
+  test("corpo acima de 256 KB no webhook: 413 (nao entra no banco nem na memoria)", async () => {
+    const r = await request(montar()).post("/public/delivery/noventa-nove/webhook").set("Content-Type", "application/json").send(JSON.stringify({ type: "orderNew", lixo: "x".repeat(300_000) }));
+    expect(r.status).toBe(413);
+  });
+
+  test("corpo normal: passa e o rawBody original fica guardado (a assinatura depende dele)", async () => {
+    const bruto = '{"type":"orderNew",  "data":{}}';
+    const r = await request(montar()).post("/public/delivery/noventa-nove/webhook").set("Content-Type", "application/json").send(bruto);
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ raw: bruto, tipo: "orderNew" });
+  });
+
+  test("as outras rotas seguem com o limite grande (o agente do PDV manda megabytes)", async () => {
+    const r = await request(montar()).post("/outra-rota").set("Content-Type", "application/json").send(JSON.stringify({ itens: "y".repeat(2_000_000) }));
+    expect(r.status).toBe(200);
+  });
+});
