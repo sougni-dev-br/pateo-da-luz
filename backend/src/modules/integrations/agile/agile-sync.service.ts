@@ -577,7 +577,7 @@ export async function importAgileSync(payload: AgileSyncPayload): Promise<AgileS
       // vindo de planilha — criando um segundo. Foi o que aconteceu quando a
       // integracao entrou no ar em 07/07/2026 e reimportou o historico desde
       // janeiro: abril e maio de 2026 ficaram com o faturamento de salao
-      // DOBRADO, R$ 461.456,08 contados duas vezes.
+      // DOBRADO, R$ [valor] contados duas vezes.
       //
       // O PDV e a fonte autoritativa do salao, entao quando existe lancamento de
       // outra origem para o mesmo dia e canal nos assumimos aquele registro em vez

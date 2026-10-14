@@ -151,8 +151,8 @@ export function consolidateSummaries(summaries: NoventaNovePeriodSummary[], year
   //
   // O caso que expos isso: a loja PEPOSO-FREI-CANECA esta ativa e nunca vendeu
   // (a 99 nao liberou o CNPJ novo), entao caia no mock TODO mes. Em junho/2026 o
-  // consolidado mostrava 2.250 pedidos e R$ 108.930,59 contra 1.400 e
-  // R$ 63.353,14 reais — R$ 400.764,05 inventados entre abril e setembro.
+  // consolidado mostrava 2.250 pedidos e R$ [valor] contra 1.400 e
+  // R$ [valor] reais — R$ [valor] inventados entre abril e setembro.
   const reais = summaries.filter((summary) => !summary.isMock);
   const consideradas = reais.length > 0 ? reais : summaries;
 

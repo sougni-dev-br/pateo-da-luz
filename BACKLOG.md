@@ -125,14 +125,14 @@ a uma revisão consciente.
 
 ### OBS-016 — Escalonamento de fatura de cartão pós-PR #16 é silencioso; sem feedback visual da competência real
 
-- **Origem:** validação empírica do PR #16 em produção (SHA `aa454a1`). Compra parcelada de R$ 30,00 em 04/07/2026 (Sicredi Marcos C M., `closingDay=5`) escalou globalmente `shift=1` para 08/2026 (parcela 1) e 09/2026 (parcela 2). Compra e itens vinculados corretamente no banco, mas operador que tentou conferir em `/financeiro/cartoes` com filtro em Julho/2026 (competência natural do dashboard) não viu a compra — teve que trocar o filtro para Agosto para encontrá-la.
+- **Origem:** validação empírica do PR #16 em produção (SHA `aa454a1`). Compra parcelada de R$ 30,00 em 04/07/2026 (cartão da empresa, `closingDay=5`) escalou globalmente `shift=1` para 08/2026 (parcela 1) e 09/2026 (parcela 2). Compra e itens vinculados corretamente no banco, mas operador que tentou conferir em `/financeiro/cartoes` com filtro em Julho/2026 (competência natural do dashboard) não viu a compra — teve que trocar o filtro para Agosto para encontrá-la.
 - **O que é:**
   - Fix do OBS-014 (PR #16, [cards.service.ts:191-229](pateo-da-luz/backend/src/modules/cards/cards.service.ts#L191)) escala competência automaticamente quando fatura calculada está em `CLOSED`/`PAID`/`CANCELLED`.
   - Escalonamento é silencioso: nenhum feedback visual mostra ao usuário que a compra foi parar em Ago/Set/Out/Nov em vez de Jul.
   - Em compras à vista, a fricção é menor (1 competência só).
   - Em compras parceladas, a fricção aumenta: parcela N pode cair em ano diferente da N-1 dependendo do shift + número de parcelas.
   - Conferência manual exige navegar por múltiplas competências até achar.
-- **Impacto:** nenhum bug funcional. Fricção operacional para Rafael/Valéria durante conferência. Confusão potencial ao lançar compra e não encontrar imediatamente em `/financeiro/cartoes`.
+- **Impacto:** nenhum bug funcional. Fricção operacional para a operação durante conferência. Confusão potencial ao lançar compra e não encontrar imediatamente em `/financeiro/cartoes`.
 - **Ideias de melhoria (não urgentes):**
   1. **Toast pós-submit em `/compras/nova`** mostrando competência real onde a compra caiu. Já usa padrão `setNotice({ tone: "success" })` em vários lugares — trivial adicionar competência no message. Idealmente com link direto para a fatura correspondente.
   2. **Chip preview pré-submit** em `/compras/nova` mostrando qual fatura receberá antes de clicar Salvar. Requer endpoint de preview no backend ou cálculo espelhado no frontend duplicando `resolveOpenStatementShift`.
@@ -162,18 +162,18 @@ a uma revisão consciente.
 
 ### OBS-014 — Sistema de cartão de crédito bloqueava compras quando competência calculada apontava para fatura fechada (RESOLVIDO no PR #16)
 
-- **Origem:** relato de operação em produção (Rafael/Valéria) após deploy do PR #15 (`0da7cca`). Tentativa de lançar compra via CC em 04/07/2026 disparava: *"Fatura Marcos C Morra 07/2026 está fechada e não pode receber novos lançamentos. Reabra a fatura antes de lançar esta compra."*
+- **Origem:** relato de operação em produção (a operação) após deploy do PR #15 (`0da7cca`). Tentativa de lançar compra via CC em 04/07/2026 disparava: *"Fatura do cartão da empresa (titular e dígitos omitidos) está fechada e não pode receber novos lançamentos. Reabra a fatura antes de lançar esta compra."*
 - **Status:** **RESOLVIDO no PR #16** (SHA `aa454a1`, merged 2026-07-04). Mantido aqui para rastreabilidade histórica — segue padrão dos OBS-006/007 que também foram registrados antes de virarem fix.
 - **O que era:**
   - `getCardStatementPeriod` ([cards.service.ts:31-47](pateo-da-luz/backend/src/modules/cards/cards.service.ts#L31)) calcula competência rigidamente por `day <= closingDay ? mês atual : próximo mês`.
   - `findOrCreateStatementForPurchase` e `syncCardStatementItemsForPurchase` (ambos em `cards.service.ts`) usavam o resultado direto sem verificar se a fatura da competência resultante aceitava novos lançamentos.
   - Se a fatura estava em `CLOSED`/`PAID`/`CANCELLED`, disparavam `throw` — sem escalonamento para próxima competência disponível.
 - **Cenário confirmado em produção (query `scripts/audit-obs-014-statements.sql`):**
-  - Cartão Sicredi 3890, `closingDay=5`, `dueDay=18`.
+  - Cartão da empresa, `closingDay=5`, `dueDay=18`.
   - Fatura 07/2026 em `CLOSED`.
   - Faturas 08/2026, 09/2026, 10/2026 em `OPEN` (pré-criadas por compra parcelada anterior).
   - Compra em 04/07/2026 (dia 4 ≤ closingDay 5) → competência calculada 07/2026 → encontrava Julho fechada → throw. Não escalava para Agosto que já existia aberta.
-- **Impacto original:** **alto** — bloqueio total de operação. Rafael/Valéria não conseguiam lançar compras via CC até que a próxima competência natural virasse alvo (06/07 seguiria a mesma lógica; só destravava naturalmente após passar o `closingDay`).
+- **Impacto original:** **alto** — bloqueio total de operação. a operação não conseguiam lançar compras via CC até que a próxima competência natural virasse alvo (06/07 seguiria a mesma lógica; só destravava naturalmente após passar o `closingDay`).
 - **Fix aplicado (PR #16):**
   - Novo helper privado `resolveOpenStatementShift` ([cards.service.ts:191-229](pateo-da-luz/backend/src/modules/cards/cards.service.ts#L191)) que testa se todas as N competências consecutivas a partir de um `shift` estão livres (não `CLOSED`/`PAID`/`CANCELLED`). Retorna o menor `shift` que satisfaz. Limite `MAX_SCALE=12`.
   - `shift` global aplicado a todas as parcelas — preserva espaçamento entre parcelas e evita colisão.

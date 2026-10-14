@@ -86,7 +86,7 @@ export function ticketMedio(bruto: number, pedidos: number): number {
  * Percentual para TEXTO em pt-BR: "52,4%" e nao "52.4%".
  *
  * As mensagens de alerta saiam com ponto decimal no meio de frases em portugues
- * que ja escreviam "R$ 26.951,17" — duas convencoes na mesma linha.
+ * que ja escreviam "R$ [valor]" — duas convencoes na mesma linha.
  */
 export function pct(valor: number, casas = 1): string {
   return valor.toLocaleString("pt-BR", { minimumFractionDigits: casas, maximumFractionDigits: casas });
@@ -127,8 +127,8 @@ export type PrecoDeTabela = {
  *
  * O painel mostrava "ficou com a loja: 89,4%", verdade sobre o bruto. So que o
  * bruto ja e a receita DEPOIS do desconto: sobre o preco de tabela ficam 42,5%.
- * Medido em set/2026 sobre os pedidos faturados: tabela R$ 72.089,81, liquido no
- * caixa R$ 30.663,70. E a serie piora — 46,7% (jul), 46,0% (ago), 42,5% (set).
+ * Medido em set/2026 sobre os pedidos faturados: tabela R$ [valor], liquido no
+ * caixa R$ [valor]. E a serie piora — 46,7% (jul), 46,0% (ago), 42,5% (set).
  *
  * `bancadoPelaLoja` e o `shopActivityOutcome` da 99: a parte do desconto que sai
  * do bolso da loja (~70% do total). O resto e promocao da plataforma.

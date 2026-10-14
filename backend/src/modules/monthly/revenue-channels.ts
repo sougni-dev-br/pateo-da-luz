@@ -19,9 +19,9 @@ export const REVENUE_CHANNEL_DELIVERY = "Delivery";
  * O relatorio de faturamento agrupa por esse campo, entao a mesma plataforma aparecia
  * em DUAS linhas na tela de Faturamento. Medido em producao em 11/09/2026:
  *
- *   "99Food"        planilha     abr-mai   R$ 143.745,84
- *   "NOVENTA_NOVE"  integracao   ago-set   R$  31.548,50
- *   "iFood"         planilha     abr-mai   R$  32.557,16
+ *   "99Food"        planilha     abr-mai   R$ [valor]
+ *   "NOVENTA_NOVE"  integracao   ago-set   R$  [valor]
+ *   "iFood"         planilha     abr-mai   R$  [valor]
  *
  * normalizePlatform() existe para que a EXIBICAO nao dependa de qual caminho gravou.
  * Os dados nao sao alterados: o rotulo bruto continua guardado e diz de onde veio.

@@ -278,10 +278,10 @@ async function readSummaryFromDb(store: NoventaNoveStoreView, year: number, mont
   //
   // Sem este filtro a tela somava tambem o que o webhook grava (channel = o
   // delivery_type numerico do payload, tipicamente "1"), que e pedido CRIADO, nao
-  // pedido faturado — 101 vendas e R$ 8.426,96 que a plataforma nunca pagou — e
+  // pedido faturado — 101 vendas e R$ [valor] que a plataforma nunca pagou — e
   // 339 vendas de channel nulo valendo R$ 0,00, que nao mexem no valor mas contam
   // como pedido e derrubam o ticket medio. Em setembro/2026 a tela mostrava
-  // R$ 42.417,34 contra os R$ 34.291,27 do razao.
+  // R$ [valor] contra os R$ [valor] do razao.
   //
   // Ver a justificativa completa em reflectSalesIntoRevenueEntries.
   const sales = await prisma.noventaNoveSale.findMany({

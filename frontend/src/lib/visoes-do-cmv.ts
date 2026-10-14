@@ -6,7 +6,7 @@
 // comparava cerca de quarenta números para descobrir o que, no fim, é uma
 // única informação: a gerencial inclui categorias que a contábil não inclui.
 //
-// Em junho/2026 a diferença é de R$ 3.288,63, e ela está inteira em duas
+// Em junho/2026 a diferença é de R$ [valor], e ela está inteira em duas
 // categorias: Material de Limpeza e Descartáveis. Dizer isso é mais útil do
 // que mostrar as duas tabelas e deixar a subtração para quem lê.
 
