@@ -1,10 +1,11 @@
 import { ehRecebida, SITUACAO_CANCELADA, SITUACAO_RECEBIDA } from "./agile-situacao.js";
 import { montarCardapio, type LinhaAttach, type LinhaProduto } from "./agile-analise-cardapio.report.js";
 import { montarDemanda } from "./agile-analise-demanda.report.js";
-import { CATEGORIAS_ALCOOL, CATEGORIAS_BEBIDA, CATEGORIA_SOBREMESA, PADRAO_GRUPO_SOBREMESA, PADRAO_NOME_CAFE } from "./agile-categorias.js";
+import { CATEGORIAS_ALCOOL, CATEGORIAS_BEBIDA, CATEGORIA_SOBREMESA, PADRAO_GRUPO_SOBREMESA, PADRAO_NOME_BUFFET, PADRAO_NOME_CAFE } from "./agile-categorias.js";
 import { descontarHoje, hojeEmSaoPaulo } from "./agile-analise-hoje.js";
 import { montarPerdas } from "./agile-analise-perdas.report.js";
 import { montarMargemBebidas, type VinculoDeBebida } from "./agile-analise-margem-bebidas.report.js";
+import { montarMargemBuffet } from "./agile-analise-margem-buffet.report.js";
 import { montarMargem, type ProdutoVendido } from "./agile-analise-margem.report.js";
 import { custoDoVinculo } from "./agile-bebidas-custo.js";
 import { DIAS_DA_JANELA_DE_RITMO, limitesDoMes, montarMetas, type IndicadorDeMeta, type MesDoHistorico } from "./agile-analise-metas.report.js";
@@ -520,4 +521,93 @@ export async function vincularBebidaAoInsumo(
     update: { productName: nome, insumoId, quantity: quantidade, unit: unidade, updatedById: usuarioId }
   });
   return "ok";
+}
+
+// ---------------------------------------------------------------------------
+// Margem do buffet por pessoa: receita e pessoas do PDV x custo de comida por pessoa informado por mes.
+// ---------------------------------------------------------------------------
+
+const MESES_DE_HISTORICO_DE_CUSTO = 12;
+
+function mesesDoPeriodo({ inicio, fim }: Periodo): Array<{ ano: number; mes: number }> {
+  const out: Array<{ ano: number; mes: number }> = [];
+  let ano = Number(inicio.slice(0, 4));
+  let mes = Number(inicio.slice(5, 7));
+  const anoFim = Number(fim.slice(0, 4));
+  const mesFim = Number(fim.slice(5, 7));
+  while (ano < anoFim || (ano === anoFim && mes <= mesFim)) {
+    out.push({ ano, mes });
+    mes += 1;
+    if (mes > 12) { mes = 1; ano += 1; }
+  }
+  return out;
+}
+
+export async function obterMargemBuffet(pedido: Periodo, hoje: string = hojeEmSaoPaulo()) {
+  const { periodo, hojeFicouDeFora, vazio } = descontarHoje(pedido, hoje);
+  const { de, ate } = intervaloDoPeriodo(periodo);
+  const meses = mesesDoPeriodo(periodo);
+
+  const [faixas, porMes, total, custos, historico] = await Promise.all([
+    vazio ? Promise.resolve<LinhaBruta[]>([]) : prisma.$queryRaw<LinhaBruta[]>`
+      WITH b AS (
+        SELECT i."saleId" AS venda, i."productName" AS produto, SUM(i."totalAmount") AS valor
+        FROM "AgileSaleItem" i
+        WHERE i."saleStatus" = ${SITUACAO_RECEBIDA} AND i."movementDate" >= ${de} AND i."movementDate" < ${ate}
+          AND i."productName" ~* ${PADRAO_NOME_BUFFET}
+        GROUP BY i."saleId", i."productName")
+      -- Comanda com mais de um produto buffet: as pessoas dela são rateadas entre os produtos (pela receita; partes iguais se
+      -- nenhum cobrou), para que a soma das faixas feche com o total e a pessoa não seja contada em cada faixa.
+      , r AS (
+        SELECT b.produto, b.valor, s.people,
+               s.people * COALESCE(b.valor / NULLIF(SUM(b.valor) OVER (PARTITION BY b.venda), 0), 1.0 / COUNT(*) OVER (PARTITION BY b.venda)) AS rateio
+        FROM b JOIN "AgileSale" s ON s."saleId" = b.venda AND s."saleStatus" = ${SITUACAO_RECEBIDA})
+      SELECT produto, COUNT(*)::int AS comandas, COALESCE(ROUND(SUM(rateio)), 0)::int AS pessoas, SUM(valor) AS receita,
+             COALESCE(SUM(valor) FILTER (WHERE people > 0), 0) AS receita_com_pessoas
+      FROM r GROUP BY produto`,
+    vazio ? Promise.resolve<LinhaBruta[]>([]) : prisma.$queryRaw<LinhaBruta[]>`
+      WITH b AS (
+        SELECT i."saleId" AS venda, SUM(i."totalAmount") AS valor
+        FROM "AgileSaleItem" i
+        WHERE i."saleStatus" = ${SITUACAO_RECEBIDA} AND i."movementDate" >= ${de} AND i."movementDate" < ${ate}
+          AND i."productName" ~* ${PADRAO_NOME_BUFFET}
+        GROUP BY i."saleId")
+      SELECT EXTRACT(YEAR FROM s."movementDate")::int AS ano, EXTRACT(MONTH FROM s."movementDate")::int AS mes,
+             COUNT(*)::int AS comandas, COALESCE(SUM(s.people), 0)::int AS pessoas, SUM(b.valor) AS receita,
+             COALESCE(SUM(b.valor) FILTER (WHERE s.people > 0), 0) AS receita_com_pessoas
+      FROM b JOIN "AgileSale" s ON s."saleId" = b.venda AND s."saleStatus" = ${SITUACAO_RECEBIDA}
+      GROUP BY 1, 2`,
+    vazio ? Promise.resolve({ _sum: { totalAmount: null } }) : prisma.agileSaleItem.aggregate({
+      _sum: { totalAmount: true },
+      where: { saleStatus: SITUACAO_RECEBIDA, movementDate: { gte: de, lt: ate } }
+    }),
+    prisma.agileBuffetCusto.findMany({ where: { OR: meses.map(({ ano, mes }) => ({ ano, mes })) }, select: { ano: true, mes: true, valor: true } }),
+    prisma.agileBuffetCusto.findMany({ orderBy: [{ ano: "desc" }, { mes: "desc" }], take: MESES_DE_HISTORICO_DE_CUSTO, select: { ano: true, mes: true, valor: true } })
+  ]);
+
+  const numero = (v: unknown) => (v == null ? 0 : Number(v));
+  return {
+    ...montarMargemBuffet({
+      periodo,
+      faixas: faixas.map((l) => ({ produto: String(l.produto), comandas: numero(l.comandas), pessoas: numero(l.pessoas), receita: numero(l.receita), receitaComPessoas: numero(l.receita_com_pessoas) })),
+      meses: porMes.map((l) => ({ ano: numero(l.ano), mes: numero(l.mes), comandas: numero(l.comandas), pessoas: numero(l.pessoas), receita: numero(l.receita), receitaComPessoas: numero(l.receita_com_pessoas) })),
+      custos: custos.map((c) => ({ ano: c.ano, mes: c.mes, valor: Number(c.valor) })),
+      historicoDeCustos: historico.map((c) => ({ ano: c.ano, mes: c.mes, valor: Number(c.valor) })),
+      receitaTotalDoSalao: numero(total._sum.totalAmount)
+    }),
+    hojeFicouDeFora
+  };
+}
+
+// valor null apaga o custo do mes.
+export async function salvarCustoBuffet(ano: number, mes: number, valor: number | null, usuarioId: string | null) {
+  if (valor === null) {
+    await prisma.agileBuffetCusto.deleteMany({ where: { ano, mes } });
+    return;
+  }
+  await prisma.agileBuffetCusto.upsert({
+    where: { ano_mes: { ano, mes } },
+    create: { ano, mes, valor, updatedById: usuarioId },
+    update: { valor, updatedById: usuarioId }
+  });
 }

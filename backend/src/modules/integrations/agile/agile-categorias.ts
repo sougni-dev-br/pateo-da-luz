@@ -12,6 +12,11 @@ export const PADRAO_GRUPO_SOBREMESA = "SOBREMESA";
 // Palavra inteira: "CAFETEIRA" e "DESCAFEINADO" não são café.
 export const PADRAO_NOME_CAFE = "\\mCAF(E|É)S?\\M";
 
+// Produto cujo nome começa por BUFFET (palavra inteira) é a refeição por pessoa, não um prato. "BUFFETE" e "PACOTE BUFFET" não são.
+export const PADRAO_NOME_BUFFET = "^\\s*buffet\\M";
+const EH_BUFFET = /^\s*buffet\b/i;
+export const ehBuffet = (nome: string): boolean => EH_BUFFET.test(nome);
+
 export type ItemDeAtencao = "bebida" | "alcool" | "cafe" | "sobremesa";
 export const ITENS_DE_ATENCAO: ItemDeAtencao[] = ["bebida", "alcool", "cafe", "sobremesa"];
 export const ROTULO_ITEM: Record<ItemDeAtencao, string> = { bebida: "Bebida", alcool: "Álcool", cafe: "Café", sobremesa: "Sobremesa" };

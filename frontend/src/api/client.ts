@@ -5367,6 +5367,40 @@ export function vincularBebidaAnaliseMargem(corpo: { codigo: string; nome: strin
   });
 }
 
+export type AnaliseBuffetMes = {
+  ano: number; mes: number; comandas: number; pessoas: number; receita: number; receitaPorPessoa: number;
+  // null = custo não informado neste mês.
+  custoPorPessoa: number | null; margemPorPessoa: number | null; margemTotal: number | null; margemPct: number | null;
+  status: "com-custo" | "sem-custo" | "sem-pessoas";
+};
+
+export type AnaliseMargemBuffet = {
+  periodo: AnalisePeriodo;
+  hojeFicouDeFora: boolean;
+  buffet: { comandas: number; pessoas: number; receita: number; receitaPorPessoa: number; pctDaReceita: number };
+  faixas: Array<{ produto: string; comandas: number; pessoas: number; receita: number; receitaPorPessoa: number; pctReceita: number }>;
+  meses: AnaliseBuffetMes[];
+  // Só dos meses COM custo informado; null quando nenhum mês tem custo.
+  margem: { pessoas: number; receita: number; custo: number; margem: number; custoPorPessoa: number; margemPorPessoa: number; margemPct: number | null } | null;
+  cobertura: { pessoasComCusto: number; pessoasTotal: number; pctComCusto: number; mesesSemCusto: number };
+  // Último custo informado (qualquer mês), para partir dele ao informar o próximo.
+  referencia: { ano: number; mes: number; valor: number } | null;
+  insights: AnaliseInsight[];
+};
+
+export function getAnaliseMargemBuffet(periodo: AnalisePeriodo, signal?: AbortSignal) {
+  return request<AnaliseMargemBuffet>(`/integrations/agile/analise/margem-buffet?${queryPeriodo(periodo)}`, { signal });
+}
+
+// valor null apaga o custo do mês.
+export function salvarCustoBuffetAnalise(corpo: { ano: number; mes: number; valor: number | null }) {
+  return request<{ ok: boolean }>("/integrations/agile/analise/margem-buffet/custo", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(corpo)
+  });
+}
+
 export type AnaliseIndicadorDeMeta = "faturamento" | "pessoas" | "ticketPessoa" | "perdaPct";
 export type AnaliseSituacaoDaMeta = "sem-meta" | "sem-dado" | "atingida" | "no-ritmo" | "abaixo";
 
