@@ -61,12 +61,12 @@ export function DemandaPanel({ dados }: { dados: AnaliseDemanda }) {
       )}
 
       <section aria-labelledby="mapa-titulo">
-        <PanelEyebrow id="mapa-titulo">Quantas pessoas chegam, por dia da semana e hora</PanelEyebrow>
+        <PanelEyebrow as="h2" id="mapa-titulo">Quantas pessoas chegam, por dia da semana e hora</PanelEyebrow>
         <MapaDeCalor mapa={dados.mapa} diasDaSemana={dados.diasDaSemana} />
       </section>
 
       <section aria-labelledby="dias-titulo">
-        <PanelEyebrow id="dias-titulo">Dias da semana: almoço e jantar</PanelEyebrow>
+        <PanelEyebrow as="h2" id="dias-titulo">Dias da semana: almoço e jantar</PanelEyebrow>
         <div className="dia-legenda" aria-hidden>
           <span>
             <i className="dia-amostra dia-amostra-almoco" /> almoço
@@ -79,7 +79,7 @@ export function DemandaPanel({ dados }: { dados: AnaliseDemanda }) {
       </section>
 
       <section aria-labelledby="folga-titulo">
-        <PanelEyebrow id="folga-titulo">Onde há capacidade sobrando</PanelEyebrow>
+        <PanelEyebrow as="h2" id="folga-titulo">Onde há capacidade sobrando</PanelEyebrow>
         <FolgasDeCapacidade capacidade={dados.capacidade} />
       </section>
 

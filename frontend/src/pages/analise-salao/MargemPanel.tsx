@@ -78,7 +78,7 @@ export function MargemPanel({ dados, podeEditar, onVincular }: Props) {
 
       {dados.insights.length > 0 && (
         <section aria-labelledby="margem-prioridades">
-          <PanelEyebrow id="margem-prioridades">Prioridades: o que a margem mostra</PanelEyebrow>
+          <PanelEyebrow as="h2" id="margem-prioridades">Prioridades: o que a margem mostra</PanelEyebrow>
           <ul className="insights">
             {dados.insights.map((i) => (
               <InsightCard key={i.id} insight={i} />
@@ -88,7 +88,7 @@ export function MargemPanel({ dados, podeEditar, onVincular }: Props) {
       )}
 
       <section aria-labelledby="margem-tabela">
-        <PanelEyebrow id="margem-tabela">Margem por prato</PanelEyebrow>
+        <PanelEyebrow as="h2" id="margem-tabela">Margem por prato</PanelEyebrow>
         {melhor && melhor.margemTotal > 0 && (
           <p className="analise-nota">
             O prato que mais deixa no período é <strong>{melhor.prato}</strong>, com {reais(melhor.margemTotal)} depois dos ingredientes.
@@ -98,7 +98,7 @@ export function MargemPanel({ dados, podeEditar, onVincular }: Props) {
       </section>
 
       <section aria-labelledby="margem-afazer">
-        <PanelEyebrow id="margem-afazer">O que falta para calcular a margem, do que mais vende ao que menos vende</PanelEyebrow>
+        <PanelEyebrow as="h2" id="margem-afazer">O que falta para calcular a margem, do que mais vende ao que menos vende</PanelEyebrow>
         <ListaAFazer itens={dados.aFazer} total={dados.totalAFazer} pratos={dados.pratosParaVincular} podeEditar={podeEditar} onVincular={(codigo, nome, pratoId) => onVincular(codigo, nome, pratoId)} />
       </section>
     </div>

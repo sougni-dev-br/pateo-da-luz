@@ -184,6 +184,14 @@ describe("Análise do Salão — estrutura", () => {
     expect(getAnaliseMargemBuffet).not.toHaveBeenCalled();
   });
 
+  test("as secoes da Margem sao titulos (h2) ligados as suas regioes, para leitor de tela", async () => {
+    renderizar();
+    await screen.findByText("Faturamento por dia");
+    fireEvent.click(aba("Margem"));
+    expect(await screen.findByRole("heading", { level: 2, name: "Bebidas: margem de revenda" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { level: 2, name: "Buffet: margem por pessoa" })).toBeTruthy();
+  });
+
   test("margem: o buffet e buscado junto, so ao abrir, e informar o custo grava, recarrega so o buffet e anuncia", async () => {
     vi.mocked(salvarCustoBuffetAnalise).mockResolvedValue({ ok: true });
     render(

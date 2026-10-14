@@ -16,6 +16,13 @@ export type InsumoDoBanco = {
 
 export type CustoDoVinculo = { custoPorVenda: number | null; custoCompleto: boolean; problema: string | null };
 
+// A unidade do consumo chega à unidade de estoque do insumo (por regra padrão, conversão cadastrada ou embalagem lida do nome)?
+// Sem isso o vínculo nunca calcula custo: melhor recusar na gravação do que aceitar e mostrar "sem conversão" depois.
+export function unidadeConverte(insumo: Pick<InsumoDoBanco, "name" | "unit" | "stockUnit" | "conversions">, unidade: string): boolean {
+  const conversoes = conversoesDaFicha({ name: insumo.name, unit: insumo.unit, stockUnit: insumo.stockUnit ?? null, conversions: insumo.conversions as never });
+  return resolveUnitFactor(unidade, normalizarUnidade(insumo.stockUnit || insumo.unit), conversoes) != null;
+}
+
 export function custoDoVinculo(insumo: InsumoDoBanco, quantidade: number, unidade: string): CustoDoVinculo {
   if (!Number.isFinite(quantidade) || quantidade <= 0) {
     return { custoPorVenda: null, custoCompleto: false, problema: "A quantidade consumida por venda deve ser maior que zero." };
