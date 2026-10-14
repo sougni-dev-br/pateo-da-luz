@@ -92,8 +92,12 @@ export function lerNumeroBr(texto: string): number | null {
   const limpo = texto.replace(/R\$|%|\s/g, "");
   if (limpo === "") return null;
   let normal: string;
-  if (limpo.includes(",")) normal = limpo.replace(/\./g, "").replace(",", ".");
-  else if (/^\d{1,3}(\.\d{3})+$/.test(limpo)) normal = limpo.replace(/\./g, "");
+  if (limpo.includes(",")) {
+    // Com vírgula decimal, o que vem antes só pode ser inteiro ou agrupado de mil em mil ("1.234,5").
+    // "1,234.56" (formato inglês) ou "12.34,5" são recusados em vez de lidos de qualquer jeito.
+    if (!/^(\d+|\d{1,3}(\.\d{3})+),\d+$/.test(limpo)) return null;
+    normal = limpo.replace(/\./g, "").replace(",", ".");
+  } else if (/^\d{1,3}(\.\d{3})+$/.test(limpo)) normal = limpo.replace(/\./g, "");
   else normal = limpo;
   if (!/^\d+(\.\d+)?$/.test(normal)) return null;
   const n = Number(normal);

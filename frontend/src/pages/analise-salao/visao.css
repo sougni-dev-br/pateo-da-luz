@@ -418,6 +418,7 @@
 
 .meta-topo {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
@@ -467,6 +468,12 @@
   gap: 4px 14px;
   font-size: 13px;
   color: var(--muted);
+}
+.meta-erro {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--danger);
 }
 .meta-editor-acoes {
   display: flex;

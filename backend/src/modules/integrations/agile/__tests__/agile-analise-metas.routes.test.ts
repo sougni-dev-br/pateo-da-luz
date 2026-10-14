@@ -89,6 +89,28 @@ describe("obterMetas: janelas consultadas", () => {
     expect(intervalos).toContainEqual(["2026-08-20", "2026-10-15"]); // 56 dias fechados
     expect(intervalos).toContainEqual(["2026-04-01", "2026-10-01"]); // 6 meses antes
   });
+
+  test("itens cancelados so ate ontem (item de hoje com a venda de hoje de fora inflaria a perda)", async () => {
+    await obterMetas(2026, 10, "2026-10-15");
+    const chamada = db.$queryRaw.mock.calls[0].slice(1) as Date[];
+    const datas = chamada.filter((p) => p instanceof Date).map((d) => d.toISOString().slice(0, 10));
+    // [de, ate): o item de hoje (15/10) fica de fora.
+    expect(datas).toContain("2026-10-15");
+    expect(datas).not.toContain("2026-11-01");
+  });
+
+  test("mes futuro: o historico nao inclui o mes de hoje, que esta incompleto", async () => {
+    await obterMetas(2026, 12, "2026-10-15");
+    const historico = db.agileSale.findMany.mock.calls
+      .map((c: Array<{ where: { movementDate: { gte: Date; lt: Date } } }>) => [c[0].where.movementDate.gte.toISOString().slice(0, 10), c[0].where.movementDate.lt.toISOString().slice(0, 10)])
+      .find(([de]: string[]) => de === "2026-06-01");
+    expect(historico).toEqual(["2026-06-01", "2026-10-01"]);
+  });
+
+  test("mes encerrado nao le o ritmo (projeta o proprio realizado)", async () => {
+    await obterMetas(2026, 9, "2026-10-15");
+    expect(db.agileSale.findMany).toHaveBeenCalledTimes(2); // mes e historico
+  });
 });
 
 describe("PUT /metas", () => {
