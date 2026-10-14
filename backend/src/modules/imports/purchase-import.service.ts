@@ -927,7 +927,7 @@ export async function confirmPurchaseImport(
   // Linha recusada com o valor que ela carregava. spreadsheetTotal e somado ANTES
   // desta validacao, entao tudo que cai aqui vira differenceTotal no lote — e ate
   // 09/2026 sumia sem deixar rastro: a lista de erros so existia na resposta HTTP.
-  // Foi o que aconteceu com R$ 16.444,10 nas tres partes de 05/07/2026, que ficou
+  // Foi o que aconteceu com R$ [valor] nas tres partes de 05/07/2026, que ficou
   // impossivel de reconstruir depois. Agora vai para o AuditLog.
   const recusadas: Array<{ linha: number; motivo: string; valor: number; dados: unknown }> = [];
 

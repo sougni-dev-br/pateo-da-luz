@@ -105,7 +105,7 @@ export async function getCmvAttributedToMonth(year: number, month: number) {
 //
 // Ate 18/09/2026 `salon` era um SELECT sobre TODO o RevenueEntry (sem filtrar
 // origem) e o total somava `salon + ifood + noventaNove` — contando o delivery
-// duas vezes, R$ 398.262,10 entre abril e setembro. Ver faturamento-do-mes.ts.
+// duas vezes, R$ [valor] entre abril e setembro. Ver faturamento-do-mes.ts.
 async function getRevenueSummary(year: number, month: number) {
   const { start, end } = monthRange(year, month);
 
@@ -179,7 +179,7 @@ async function getRevenueSummary(year: number, month: number) {
 // Nota lancada pelo total, sem itemizar. O financeiro usa Purchase.totalAmount
 // e o CMV soma PurchaseItem.totalPrice — entao a nota sem item entra em contas
 // a pagar e no DRE, e vale ZERO no CMV. Em jun/jul/ago de 2026 isso escondeu
-// R$ 67.045,32 de hortifruti, entre 7,6% e 10,3% das compras do mes.
+// R$ [valor] de hortifruti, entre 7,6% e 10,3% das compras do mes.
 //
 // Fatura de cartao entra aqui com total zero e sem item por desenho, entao o
 // filtro exige totalAmount > 0.
@@ -187,9 +187,9 @@ async function getRevenueSummary(year: number, month: number) {
 // competenceDate IS NOT NULL, entao ele some do relatorio, e como nao cai em
 // nenhum mes, nenhum checklist mensal o acusa. Fica invisivel nas duas pontas.
 //
-// Medido em producao 09/2026: 5 lancamentos vivos e PAGOS, somando R$ 17.350,31.
-// Os dois maiores sao DAS do Simples pagos em 19/05/2026 (R$ 9.150,15 e
-// R$ 6.666,35). Dinheiro que saiu do banco e nao aparece em DRE nenhum.
+// Medido em producao 09/2026: 5 lancamentos vivos e PAGOS, somando R$ [valor].
+// Os dois maiores sao DAS do Simples pagos em 19/05/2026 (R$ [valor] e
+// R$ [valor]). Dinheiro que saiu do banco e nao aparece em DRE nenhum.
 //
 // Nao da para deduzir a competencia da data de pagamento: imposto costuma se
 // referir ao mes anterior ao vencimento, entao chutar erraria o mes. Por isso a
@@ -257,7 +257,7 @@ export async function folhaSemCategoriaDre(year: number, month: number) {
 // periodo em que a mercadoria nao foi comprada e falta no periodo em que foi.
 //
 // Medido em 11/09/2026: de 814 compras ativas, 16 divergem, e 15 sao de um mes so.
-// A unica com dois meses ou mais era a NF 12337 da PESCADOS POPO — 31 kg de tilapia
+// A unica com dois meses ou mais era a NF de uma peixaria — 31 kg de tilapia
 // congelada com purchaseDate em 02/03 e competencia 09/2026, criada em 04/09 com
 // parcela vencendo em 24/09. Marco no lugar de setembro.
 //

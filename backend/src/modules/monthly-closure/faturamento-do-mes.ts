@@ -8,8 +8,8 @@
 // 99 Food, iFood e Keeta dentro. Em seguida o painel e o `lockMonthlyClosure`
 // faziam `salon + ifood + noventaNove`, somando o delivery de novo:
 //
-//   junho/2026: tela mostrava R$ 362.383,72 contra R$ 299.030,58 do razao
-//   abril a setembro: R$ 398.262,10 contados duas vezes
+//   junho/2026: tela mostrava R$ [valor] contra R$ [valor] do razao
+//   abril a setembro: R$ [valor] contados duas vezes
 //
 // A correcao nao e mexer na soma, e parar de precisar dela: o razao
 // (`RevenueEntry`) ja e a fonte unica e ja contem tudo. As partes existem para

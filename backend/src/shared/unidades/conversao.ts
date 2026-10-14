@@ -7,7 +7,7 @@
 //
 // Caso real (SACO AMOSTRA TARJA 12X30 C800, agosto/2026): a caixa de 800 entrou
 // como "1 UN a R$ 113,16", a contagem registrou "720 UN", e o inventario valorou
-// 720 x 113,16 = R$ 81.475,20 em vez de R$ 101,84. O inventario de agosto ficou
+// 720 x 113,16 = R$ [valor] em vez de R$ 101,84. O inventario de agosto ficou
 // 2,4x maior que o mes anterior por causa de um item.
 //
 // Nada aqui aplica conversao sozinho. `detectarEmbalagem` SUGERE a partir do nome

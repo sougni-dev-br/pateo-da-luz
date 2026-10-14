@@ -631,7 +631,7 @@ supplierCyclesRouter.post("/:id/close", async (request, response) => {
     // Duas requisicoes simultaneas passavam as duas pela validacao e cada uma criava sua
     // Purchase e suas PaymentInstallment — dois titulos a pagar para o mesmo ciclo, com
     // o segundo sobrescrevendo o generatedPurchaseId e deixando o primeiro orfao e
-    // invisivel. O ciclo da DISTRIBUIDORA, por exemplo, vale R$ 5.220,66.
+    // invisivel. O ciclo da DISTRIBUIDORA, por exemplo, vale R$ [valor].
     //
     // Com a condicao, a segunda transacao altera 0 linhas, este bloco lanca, e o rollback
     // leva junto a Purchase e as parcelas que ela tinha acabado de inserir.

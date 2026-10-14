@@ -1598,7 +1598,7 @@ async function createInventorySnapshotFromOperationalInventory(id: string, user:
   `;
   // Encadeia o inventario inicial do mes seguinte, como a importacao por
   // planilha ja fazia. Sem isto, o mes seguinte abre com estoque inicial ZERO
-  // e o CMV sai menor do que e: em 07/2026 faltaram os R$ 95.251,09 que junho
+  // e o CMV sai menor do que e: em 07/2026 faltaram os R$ [valor] que junho
   // havia fechado, 31% do CMV do mes.
   //
   // Se o mes seguinte ja tem inicial MANUAL, cloneFinalAsNextInitial recusa
