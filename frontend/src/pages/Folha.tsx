@@ -15,6 +15,7 @@ import { hasPermission } from "../lib/permissions";
 import { maskMoney, moneyToMasked } from "../utils/format";
 import { AfastamentoModal } from "./folha/AfastamentoModal";
 import { LancamentoManualModal } from "./folha/LancamentoManualModal";
+import { PagamentoMeio } from "./folha/PagamentoMeio";
 import { adiantamentosSrAGerar, quinzenasSrAGerar, reciboDoLancamento } from "./folha/semRegistro";
 import { AvisoReciboImpresso, useImprimirRecibos } from "./gorjeta/ImprimirRecibos";
 
@@ -762,6 +763,14 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
             <SummaryCard compact label="Pago" moneyValue={s.paid} tone="success" icon={<Check size={16} />} />
             <SummaryCard compact label="Pendente" moneyValue={s.pending} tone={s.overdue > 0 ? "danger" : "warning"} detail={s.overdue > 0 ? `${money(s.overdue)} vencido` : undefined} icon={<Clock size={16} />} />
           </div>
+        )}
+
+        {/* Adiantamento e 1ª quinzena: conferir o que está no Contas a Pagar, lançar o que falta e imprimir para pagar. */}
+        {podeRecibo && (
+          <PagamentoMeio year={year} month={month} canEdit={canEdit}
+            percentAdiantamento={settings ? Number(settings.advancePercent) : null}
+            versao={(list?.items ?? []).filter((i) => i.type === "ADIANTAMENTO").map((i) => `${i.id}:${i.amount}:${i.status}`).join("|")}
+            onLancado={() => void load()} />
         )}
 
         {/* Vale-transporte — por quinzena (direto na tela) */}
