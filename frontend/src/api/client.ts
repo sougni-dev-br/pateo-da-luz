@@ -67,10 +67,20 @@ function shouldKeepPreviousError(previous: Error | null, next: Error) {
 async function fetchWithTimeout(url: string, options?: RequestInit, timeoutMs = REQUEST_TIMEOUT_MS) {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  // O signal de quem chamou (trocar de período, de aba ou sair da tela) tem que chegar ao fetch: sem isso a consulta
+  // pesada continuava no servidor depois de a tela já ter desistido dela.
+  const externo = options?.signal ?? null;
+  const aoCancelar = () => controller.abort(externo?.reason);
+  if (externo?.aborted) {
+    window.clearTimeout(timeout);
+    throw externo.reason instanceof Error ? externo.reason : new DOMException("A requisição foi cancelada.", "AbortError");
+  }
+  externo?.addEventListener("abort", aoCancelar, { once: true });
   try {
     return await fetch(url, { ...options, signal: controller.signal });
   } finally {
     window.clearTimeout(timeout);
+    externo?.removeEventListener("abort", aoCancelar);
   }
 }
 
@@ -125,6 +135,8 @@ async function request<T>(path: string, options?: RequestInit, timeoutMs = REQUE
       throw new ApiError(errorBody?.message as string ?? `Erro HTTP ${response.status}`, response.status, errorBody ?? undefined);
     } catch (error) {
       if (error instanceof ApiError) throw error;
+      // Cancelada por quem chamou: não é timeout, não tem segunda tentativa, e quem chamou espera o AbortError original.
+      if (options?.signal?.aborted) throw error;
       const normalizedError = normalizeRequestError(error, path);
       if (!shouldKeepPreviousError(lastError, normalizedError)) {
         lastError = normalizedError;
@@ -5241,6 +5253,7 @@ export type AnaliseMargemLinha = {
   prato: string;
   produtosPdv: Array<{ codigo: string; nome: string }>;
   quantidade: number;
+  quantidadeSemCobranca: number;
   receita: number;
   precoMedio: number;
   precoFicha: number | null;
@@ -5274,6 +5287,8 @@ export type AnaliseMargem = {
   };
   linhas: AnaliseMargemLinha[];
   aFazer: AnaliseMargemAFazer[];
+  // Total de pendências (a lista mostra só as que mais vendem).
+  totalAFazer?: number;
   pratosParaVincular: Array<{ id: string; nome: string }>;
   insights: AnaliseInsight[];
 };
@@ -5332,6 +5347,7 @@ export type AnaliseMargemBebidas = {
   };
   linhas: AnaliseMargemBebidasLinha[];
   aFazer: AnaliseMargemBebidasAFazer[];
+  totalAFazer?: number;
   insumosParaVincular: Array<{ id: string; nome: string; unidade: string }>;
   // A lista de insumos passou do limite do servidor e foi cortada.
   insumosTruncados: boolean;
@@ -5459,6 +5475,8 @@ export type AnaliseResumo = {
   atual: AnaliseIndicadores;
   anterior: AnaliseIndicadores | null;
   anteriorConfiavel: boolean;
+  // Por que não há comparação: período curto (menos de 14 dias) ou base anterior fraca ou inexistente; null quando há comparação.
+  motivoSemComparacao: "periodo-curto" | "base-fraca" | null;
   comparacao: {
     faturamentoPorDia: AnaliseVariacao;
     pessoasPorDia: AnaliseVariacao;

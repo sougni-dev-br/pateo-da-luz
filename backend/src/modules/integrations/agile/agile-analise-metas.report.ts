@@ -50,7 +50,9 @@ export function limitesDoMes(ano: number, mes: number) {
   return { inicio, fim: `${ano}-${String(mes).padStart(2, "0")}-${String(diasNoMes).padStart(2, "0")}`, diasNoMes };
 }
 
-type RitmoDoDia = { aberto: boolean; faturamento: number; pessoas: number };
+// frequencia: em que fração das ocorrências da janela o dia abriu (1 = sempre). Um dia que abre metade das vezes entra na
+// projeção com metade do peso: somar a média cheia superestimaria o mês.
+type RitmoDoDia = { aberto: boolean; frequencia: number; faturamento: number; pessoas: number };
 
 // Por dia da semana: abre ou não, e o quanto vende em média nos dias em que abre.
 function ritmoPorDiaDaSemana(vendasRitmo: VendaVisao[], hoje: string) {
@@ -71,7 +73,7 @@ function ritmoPorDiaDaSemana(vendasRitmo: VendaVisao[], hoje: string) {
     porDia.set(dia, a);
   }
 
-  const ritmo: RitmoDoDia[] = Array.from({ length: 7 }, () => ({ aberto: false, faturamento: 0, pessoas: 0 }));
+  const ritmo: RitmoDoDia[] = Array.from({ length: 7 }, () => ({ aberto: false, frequencia: 0, faturamento: 0, pessoas: 0 }));
   const abertos = new Array<number>(7).fill(0);
   for (const [dia, a] of porDia) {
     const w = diaDaSemana(dia);
@@ -80,7 +82,8 @@ function ritmoPorDiaDaSemana(vendasRitmo: VendaVisao[], hoje: string) {
     ritmo[w].pessoas += a.pessoas;
   }
   for (let w = 0; w < 7; w++) {
-    ritmo[w].aberto = ocorrencias[w] > 0 && abertos[w] / ocorrencias[w] >= MIN_FREQUENCIA_DIA_ABERTO;
+    ritmo[w].frequencia = ocorrencias[w] > 0 ? abertos[w] / ocorrencias[w] : 0;
+    ritmo[w].aberto = ritmo[w].frequencia >= MIN_FREQUENCIA_DIA_ABERTO;
     if (abertos[w] > 0) {
       ritmo[w].faturamento /= abertos[w];
       ritmo[w].pessoas /= abertos[w];
@@ -134,7 +137,8 @@ export function montarMetas(entrada: Entrada) {
   const { ritmo, diasComMovimento: diasDoRitmo } = ritmoPorDiaDaSemana(entrada.vendasRitmo, hoje);
   const podeProjetar = diasDoRitmo >= MIN_DIAS_PARA_PROJETAR;
 
-  // Dias que ainda vão acontecer: de hoje (em andamento) ao fim do mês.
+  // Dias que ainda vão acontecer: de hoje (em andamento) ao fim do mês. `diasRestantes` conta os dias que costumam abrir inteiros
+  // (é o número que a tela mostra); a projeção, abaixo, pesa cada um pela frequência com que abre.
   let diasRestantes = 0;
   let falta = { faturamento: 0, pessoas: 0 };
   if (!encerrado) {
@@ -143,7 +147,7 @@ export function montarMetas(entrada: Entrada) {
       const r = ritmo[diaDaSemana(iso(t))];
       if (!r.aberto) continue;
       diasRestantes++;
-      falta = { faturamento: falta.faturamento + r.faturamento, pessoas: falta.pessoas + r.pessoas };
+      falta = { faturamento: falta.faturamento + r.faturamento * r.frequencia, pessoas: falta.pessoas + r.pessoas * r.frequencia };
     }
   }
 
@@ -156,7 +160,9 @@ export function montarMetas(entrada: Entrada) {
     const menorEMelhor = indicador === "perdaPct";
 
     let valor: number | null;
-    if (ehSoma) valor = indicador === "faturamento" ? realizado.faturamento : realizado.pessoas;
+    // Mês já encerrado sem nenhuma venda registrada (agente ainda não enviava dados): é falta de dado, não um mês de zero.
+    if (ehSoma && encerrado && realizado.diasComMovimento === 0) valor = null;
+    else if (ehSoma) valor = indicador === "faturamento" ? realizado.faturamento : realizado.pessoas;
     else if (!taxaConfiavel || (indicador === "ticketPessoa" && realizado.pessoas === 0)) valor = null;
     else valor = indicador === "ticketPessoa" ? realizado.ticketPessoa : realizado.perdaPct;
 

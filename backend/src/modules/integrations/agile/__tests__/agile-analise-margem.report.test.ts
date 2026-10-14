@@ -51,6 +51,40 @@ describe("margem por prato", () => {
     expect(r.linhas).toEqual([expect.objectContaining({ pratoId: "d1", quantidade: 100, receita: 5000, precoMedio: 50, custoPorcao: 20, margemUnitaria: 30, margemPct: 0.6, margemTotal: 3000, cmvPct: 0.4, situacao: "completa" })]);
   });
 
+  test("cortesia nao dilui o preco do prato: preco medio das unidades pagas, custo de todas", () => {
+    // 100 unidades, 20 sem cobranca; 80 pagas somam R$ 4.000 (preco 50). Custo 18 x 100 = 1.800.
+    const r = montar([{ ...prod("1", "BABY BEEF", 4000, 100), quantidadePaga: 80 }], [prato("d1", "Baby beef", 18)], [{ codigo: "1", pratoId: "d1" }]);
+    // Margem real da linha: 2.200 / 4.000 = 55% (nao os 64% de uma unidade paga); CMV real: 1.800 / 4.000 = 45%.
+    expect(r.linhas[0]).toMatchObject({ quantidade: 100, quantidadeSemCobranca: 20, precoMedio: 50, margemUnitaria: 32, margemPct: 0.55, cmvPct: 0.45, margemTotal: 2200 });
+  });
+
+  test("sem cortesia: quantidadeSemCobranca zero e a conta de sempre", () => {
+    const r = montar([{ ...prod("1", "BABY BEEF", 5000, 100), quantidadePaga: 100 }], [prato("d1", "Baby beef", 20)], [{ codigo: "1", pratoId: "d1" }]);
+    expect(r.linhas[0]).toMatchObject({ quantidadeSemCobranca: 0, precoMedio: 50, margemTotal: 3000 });
+  });
+
+  test("cortesia vinda de varios codigos do mesmo prato soma as unidades pagas de cada um", () => {
+    const r = montar(
+      [{ ...prod("1", "A", 1000, 30), quantidadePaga: 20 }, { ...prod("2", "B", 2000, 40), quantidadePaga: 40 }],
+      [prato("d1", "Prato", 10)],
+      [{ codigo: "1", pratoId: "d1" }, { codigo: "2", pratoId: "d1" }]
+    );
+    expect(r.linhas[0]).toMatchObject({ quantidade: 70, quantidadeSemCobranca: 10, receita: 3000 });
+    expect(r.linhas[0].precoMedio).toBe(50); // 3.000 / 60 pagas
+  });
+
+  test("produto sem codigo: sem sugestao (nao da para vincular)", () => {
+    const r = montar([{ codigo: null, nome: "BABY BEEF", categoria: "PRATOS", quantidade: 10, valor: 1000 }], [prato("d1", "Baby beef", 20)]);
+    expect(r.aFazer[0]).toMatchObject({ codigo: null, situacao: "sem-vinculo", sugestoes: [] });
+  });
+
+  test("totalAFazer conta TODAS as pendencias, mesmo as que a lista corta", () => {
+    const muitos = Array.from({ length: MAX_A_FAZER + 7 }, (_, i) => prod(`c${i}`, `PRATO ${i}`, 100 + i, 1));
+    const r = montar(muitos);
+    expect(r.aFazer).toHaveLength(MAX_A_FAZER);
+    expect(r.totalAFazer).toBe(MAX_A_FAZER + 7);
+  });
+
   test("varios codigos do PDV no mesmo prato somam receita e quantidade", () => {
     const r = montar([prod("1", "BABY BEEF", 3000, 60), prod("2", "BABY BEEF ALMOCO", 2000, 40)], [prato("d1", "Baby beef", 20)], [{ codigo: "1", pratoId: "d1" }, { codigo: "2", pratoId: "d1" }]);
     expect(r.linhas).toHaveLength(1);

@@ -201,7 +201,7 @@ function resumo(periodo: Periodo): AnaliseResumo {
   return {
     periodo, periodoAnterior: anteriorPeriodo,
     cobertura: { diasNoPeriodo: dias, diasComMovimento: dias, primeiroDia: periodo.inicio, ultimoDia: periodo.fim, vendasComDetalhe: atual.comandas },
-    atual, anterior, anteriorConfiavel: true, hojeFicouDeFora: true,
+    atual, anterior, anteriorConfiavel: true, motivoSemComparacao: null, hojeFicouDeFora: true,
     comparacao: {
       faturamentoPorDia: variacao(atual.faturamentoPorDia, anterior.faturamentoPorDia),
       pessoasPorDia: variacao(atual.pessoasPorDia, anterior.pessoasPorDia),
@@ -525,7 +525,7 @@ function margem(periodo: { inicio: string; fim: string }): AnaliseMargem {
     const precoMedio = receita / quantidade;
     const custo = prato.custo as number;
     return {
-      pratoId: id, prato: prato.nome, produtosPdv: lista.map((p) => ({ codigo: p.codigo, nome: p.nome })), quantidade, receita,
+      pratoId: id, prato: prato.nome, produtosPdv: lista.map((p) => ({ codigo: p.codigo, nome: p.nome })), quantidade, quantidadeSemCobranca: 0, receita,
       precoMedio, precoFicha: null, custoPorcao: custo, margemUnitaria: precoMedio - custo,
       margemPct: Math.round(((precoMedio - custo) / precoMedio) * 10000) / 10000, cmvPct: Math.round((custo / precoMedio) * 10000) / 10000,
       margemTotal: (precoMedio - custo) * quantidade

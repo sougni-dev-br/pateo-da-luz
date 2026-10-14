@@ -88,8 +88,9 @@ export function montarMargemBebidas({ periodo, bebidas, vinculos, insumos }: { p
       consumo: `${numeroCurto(v.quantidade)} ${v.unidade} de ${v.insumo}`,
       custoPorVenda: round2(v.custoPorVenda),
       margemUnitaria: round2(margemUnitaria),
-      margemPct: round4(razao(margemUnitaria, precoMedio)),
-      cmvPct: round4(razao(v.custoPorVenda, precoMedio)),
+      // Percentuais sobre a RECEITA da linha (inclui o custo das unidades sem cobrança).
+      margemPct: round4(razao(b.valor - v.custoPorVenda * b.quantidade, b.valor)),
+      cmvPct: round4(razao(v.custoPorVenda * b.quantidade, b.valor)),
       // Receita menos o custo de TODAS as unidades, inclusive as sem cobrança.
       margemTotal: round2(b.valor - v.custoPorVenda * b.quantidade)
     });
@@ -135,6 +136,8 @@ export function montarMargemBebidas({ periodo, bebidas, vinculos, insumos }: { p
     },
     linhas,
     aFazer,
+    // Total de pendências (a lista mostra só as MAX_A_FAZER_BEBIDAS primeiras).
+    totalAFazer: aFazerBruto.length,
     // Só quando há o que vincular: a lista inteira de insumos não precisa viajar a cada consulta.
     insumosParaVincular: aFazer.length === 0 ? [] : insumos.map((i) => ({ id: i.id, nome: i.nome, unidade: i.unidade })).sort((a, b) => a.nome.localeCompare(b.nome)),
     insights: gerarInsights(linhas, pctComMargem, receitaBebidas)
