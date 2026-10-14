@@ -1473,9 +1473,6 @@ model AgileSaleItem {
   @@index([productName], map: "agitem_product_name_idx")
 }
 
-// Uma linha por venda de MESA do PDV, inclusive a cancelada (o agregado diario em
-// RevenueEntry descarta o cancelamento). Dado analitico: nao alimenta DRE nem CMV e,
-// como AgileSaleItem, nao respeita trava de periodo.
 // Meta mensal do salão (Análise do Salão > Metas). Uma linha por mês e indicador; sem linha = sem meta.
 // valor está na unidade do indicador: R$ (faturamento, ticketPessoa), pessoas, ou fração (perdaPct = 0,02 é 2%).
 model AgileSalaoMeta {
@@ -1491,6 +1488,9 @@ model AgileSalaoMeta {
   @@unique([ano, mes, indicador], map: "agsalaometa_mes_indicador_key")
 }
 
+// Uma linha por venda de MESA do PDV, inclusive a cancelada (o agregado diario em
+// RevenueEntry descarta o cancelamento). Dado analitico: nao alimenta DRE nem CMV e,
+// como AgileSaleItem, nao respeita trava de periodo.
 model AgileSale {
   id              String   @id @default(cuid())
   // Chave natural do PDV (nrseqvenda). Torna o import idempotente.

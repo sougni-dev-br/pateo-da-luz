@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AnaliseMetaIndicador, AnaliseMetas } from "../../api/client";
 import { Button, StatusBadge } from "../../design-system";
 import { Barra } from "./Barra";
@@ -22,7 +22,20 @@ const SOMAS = ["faturamento", "pessoas"] as const;
 export function MetaCard({ indicador: i, mes, diasRestantes, podeEditar, onSalvar }: Props) {
   const { reais } = useFormato();
   const [editando, setEditando] = useState(false);
-  const selo = seloDaSituacao(i);
+  const acaoRef = useRef<HTMLSpanElement>(null);
+  const voltarFoco = useRef(false);
+  const selo = seloDaSituacao(i, mes.encerrado);
+
+  // Ao fechar o editor o botão que o abriu volta a existir: o foco volta para ele em vez de cair no <body>.
+  useEffect(() => {
+    if (editando || !voltarFoco.current) return;
+    voltarFoco.current = false;
+    acaoRef.current?.querySelector("button")?.focus();
+  }, [editando]);
+  const fechar = () => {
+    voltarFoco.current = true;
+    setEditando(false);
+  };
   const ehSoma = (SOMAS as readonly string[]).includes(i.indicador);
   const valor = (n: number) => formatarValor(i.indicador, n, reais);
   const porDia = (n: number) => `${formatarValor(i.indicador, n, reais, true)} por dia`;
@@ -46,7 +59,7 @@ export function MetaCard({ indicador: i, mes, diasRestantes, podeEditar, onSalva
 
       {ehSoma && i.progresso !== null && <Barra razao={i.progresso} tom={i.situacao === "abaixo" ? "perigo" : "neutro"} />}
 
-      <div className="meta-detalhes">{detalhes(i, mes, diasRestantes, valor, porDia)}</div>
+      <div className="meta-detalhes">{detalhes(i, mes, diasRestantes, podeEditar, valor, porDia)}</div>
 
       {i.referencia && (
         <p className="meta-referencia">
@@ -56,17 +69,19 @@ export function MetaCard({ indicador: i, mes, diasRestantes, podeEditar, onSalva
       )}
 
       {podeEditar && !editando && (
-        <Button variant="secondary" size="sm" onClick={() => setEditando(true)}>
-          {i.meta === null ? "Definir meta" : "Editar meta"}
-        </Button>
+        <span ref={acaoRef} className="meta-acao">
+          <Button variant="secondary" size="sm" onClick={() => setEditando(true)}>
+            {i.meta === null ? "Definir meta" : "Editar meta"}
+          </Button>
+        </span>
       )}
-      {podeEditar && editando && <EditorDeMeta indicador={i} onSalvar={onSalvar} onFechar={() => setEditando(false)} />}
+      {podeEditar && editando && <EditorDeMeta indicador={i} onSalvar={onSalvar} onFechar={fechar} />}
     </li>
   );
 }
 
-function detalhes(i: AnaliseMetaIndicador, mes: AnaliseMetas["mes"], diasRestantes: number, valor: (n: number) => string, porDia: (n: number) => string) {
-  if (i.meta === null) return <p>Defina uma meta para acompanhar o ritmo do mês.</p>;
+function detalhes(i: AnaliseMetaIndicador, mes: AnaliseMetas["mes"], diasRestantes: number, podeEditar: boolean, valor: (n: number) => string, porDia: (n: number) => string) {
+  if (i.meta === null) return <p>{podeEditar ? "Defina uma meta para acompanhar o ritmo do mês." : "Nenhuma meta definida para este mês."}</p>;
   if (i.realizado === null) {
     return <p>{mes.futuro ? "O mês ainda não começou." : "Ainda faltam dias com venda para calcular esta taxa com segurança."}</p>;
   }
@@ -74,7 +89,7 @@ function detalhes(i: AnaliseMetaIndicador, mes: AnaliseMetas["mes"], diasRestant
   if (i.indicador === "faturamento" || i.indicador === "pessoas") {
     const linhas: string[] = [];
     if (mes.encerrado) linhas.push(`Mês encerrado em ${valor(i.realizado)}, ${percentual(i.progresso ?? 0, 0)} da meta.`);
-    else if (i.projecao !== null) linhas.push(`Ritmo atual leva o mês a ${valor(i.projecao)}, ${percentual(i.meta > 0 ? i.projecao / i.meta : 0, 0)} da meta.`);
+    else if (i.projecao !== null) linhas.push(`Estimativa: no ritmo atual o mês fecha em ${valor(i.projecao)}, ${percentual(i.meta > 0 ? i.projecao / i.meta : 0, 0)} da meta.`);
     else linhas.push("Ainda sem histórico suficiente para projetar o fim do mês.");
 
     if (!mes.encerrado && i.faltam !== null && i.faltam > 0) {

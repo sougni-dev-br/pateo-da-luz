@@ -206,11 +206,24 @@ describe("limites exatos", () => {
     expect(seguinte.cobertura.diasRestantes).toBe(0);
   });
 
-  test("hoje e o primeiro dia do mes: nada realizado e o mes inteiro ainda por abrir", () => {
+  test("hoje e o primeiro dia do mes: o mes ja comecou (nao e futuro), nada realizado e o mes inteiro por abrir", () => {
     const r = montarMetas({ ...base, hoje: "2026-11-01", ano: 2026, mes: 11, vendasMes: [], vendasRitmo: semana("2026-09-06", "2026-10-31") });
     expect(achar(r, "faturamento").realizado).toBe(0);
-    expect(r.mes.futuro).toBe(true);
+    expect(r.mes.futuro).toBe(false);
     expect(r.cobertura.diasRestantes).toBe(25);
+  });
+
+  test("mes que so comeca amanha e futuro", () => {
+    expect(montarMetas({ ...base, hoje: "2026-10-31", ano: 2026, mes: 11, vendasMes: [] }).mes.futuro).toBe(true);
+  });
+
+  test("perda nao depende de pessoas informadas: vendas sem pessoas ainda dao a taxa", () => {
+    const semPessoas = semana("2026-10-01", "2026-10-14", 1000, 0);
+    const cancelada = venda("2026-10-06", 100, 0, { saleStatus: "CANCELADA", saleHour: "19:40" });
+    const r = montarMetas({ ...base, vendasMes: [...semPessoas, cancelada], metas: { perdaPct: 0.05, ticketPessoa: 90 } });
+    expect(achar(r, "perdaPct").realizado).toBeCloseTo(100 / 12000, 4);
+    expect(achar(r, "perdaPct").situacao).toBe("no-ritmo");
+    expect(achar(r, "ticketPessoa").realizado).toBeNull();
   });
 
   test("venda fora da janela de 56 dias nao entra no ritmo", () => {

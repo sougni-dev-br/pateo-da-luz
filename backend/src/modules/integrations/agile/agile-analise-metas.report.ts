@@ -122,7 +122,8 @@ export function montarMetas(entrada: Entrada) {
   const ontem = iso(ms(hoje) - UM_DIA_MS);
   const ultimoDiaFechado = ontem < fim ? ontem : fim;
   const encerrado = hoje > fim;
-  const futuro = inicio >= hoje;
+  // Mes que comeca hoje nao e futuro: hoje ja e dia dele.
+  const futuro = inicio > hoje;
 
   const vendasMes = entrada.vendasMes.filter((v) => {
     const k = toCalendarDateKey(v.movementDate);
@@ -156,7 +157,7 @@ export function montarMetas(entrada: Entrada) {
 
     let valor: number | null;
     if (ehSoma) valor = indicador === "faturamento" ? realizado.faturamento : realizado.pessoas;
-    else if (!taxaConfiavel || realizado.pessoas === 0) valor = null;
+    else if (!taxaConfiavel || (indicador === "ticketPessoa" && realizado.pessoas === 0)) valor = null;
     else valor = indicador === "ticketPessoa" ? realizado.ticketPessoa : realizado.perdaPct;
 
     const projecao = ehSoma && podeProjetar && valor !== null ? round2(valor + falta[indicador]) : null;

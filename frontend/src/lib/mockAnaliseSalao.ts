@@ -462,8 +462,12 @@ function metas(ano: number, mes: number): AnaliseMetas {
     };
   });
   const fim = new Date(Date.UTC(ano, mes, 0)).getUTCDate();
+  // O mês corrente é o único "em andamento": os anteriores estão encerrados e os seguintes ainda por vir.
+  const agora = new Date();
+  const indice = ano * 12 + mes;
+  const indiceHoje = agora.getFullYear() * 12 + agora.getMonth() + 1;
   return {
-    mes: { ano, mes, inicio: `${ano}-${String(mes).padStart(2, "0")}-01`, fim: `${ano}-${String(mes).padStart(2, "0")}-${fim}`, diasNoMes: fim, encerrado: false, futuro: false },
+    mes: { ano, mes, inicio: `${ano}-${String(mes).padStart(2, "0")}-01`, fim: `${ano}-${String(mes).padStart(2, "0")}-${fim}`, diasNoMes: fim, encerrado: indice < indiceHoje, futuro: indice > indiceHoje },
     cobertura: { diasComMovimento: 14, diasRestantes: DIAS_RESTANTES_DO_MOCK, diasNoRitmo: 48, podeProjetar: true },
     indicadores
   };
@@ -474,11 +478,15 @@ function metasDoCorpo(url: string, method: string, corpo: unknown): AnaliseMetas
   let ano = Number(parametros.get("ano") ?? 2026);
   let mes = Number(parametros.get("mes") ?? 10);
   if (method.toUpperCase() === "PUT" && typeof corpo === "string") {
-    const dados = JSON.parse(corpo) as { ano: number; mes: number; indicador: AnaliseIndicadorDeMeta; valor: number | null };
-    ({ ano, mes } = dados);
-    const chave = `${ano}-${mes}-${dados.indicador}`;
-    if (dados.valor === null) metasDoMock.delete(chave);
-    else metasDoMock.set(chave, dados.valor);
+    try {
+      const dados = JSON.parse(corpo) as { ano: number; mes: number; indicador: AnaliseIndicadorDeMeta; valor: number | null };
+      ({ ano, mes } = dados);
+      const chave = `${ano}-${mes}-${dados.indicador}`;
+      if (dados.valor === null) metasDoMock.delete(chave);
+      else metasDoMock.set(chave, dados.valor);
+    } catch {
+      // Corpo inválido na demonstração: devolve as metas como estão.
+    }
   }
   return metas(ano, mes);
 }
