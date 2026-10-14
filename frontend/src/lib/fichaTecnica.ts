@@ -363,6 +363,10 @@ export type CamposDaFicha = {
   salePriceDefault: string;
   yieldQty: string;
   yieldUnit: string;
+  /** Peso de cada porção em gramas; vazio = não informado. */
+  portionWeightG: string;
+  /** Validade de uso do preparo, em dias; vazio = não informado. */
+  shelfLifeDays: string;
   notes: string;
 };
 
@@ -383,6 +387,8 @@ export type ErrosDaFicha = {
   name?: string;
   salePriceDefault?: string;
   yieldQty?: string;
+  portionWeightG?: string;
+  shelfLifeDays?: string;
   /** Por `tempId` do ingrediente (de qualquer das duas listas); `campo` diz qual entrada corrigir. */
   itens: Record<string, ErroDoItem>;
   /** Prato nos dois cardápios sem nenhuma quantidade do delivery: as do a la carte não valem para ele. */
@@ -408,6 +414,15 @@ export function validarFicha(campos: CamposDaFicha, itens: ItemDaFicha[], itensD
 
   const rendimento = lerNumero(campos.yieldQty);
   if (!Number.isFinite(rendimento) || rendimento <= 0) erros.yieldQty = "O rendimento precisa ser maior que zero.";
+
+  if (campos.portionWeightG.trim() !== "") {
+    const peso = lerNumero(campos.portionWeightG);
+    if (!Number.isFinite(peso) || peso <= 0) erros.portionWeightG = "O peso da porção precisa ser maior que zero (em gramas).";
+  }
+  if (campos.shelfLifeDays.trim() !== "") {
+    const dias = lerNumero(campos.shelfLifeDays);
+    if (!Number.isInteger(dias) || dias <= 0) erros.shelfLifeDays = "A validade precisa ser um número inteiro de dias, maior que zero.";
+  }
 
   for (const item of [...itens, ...(campos.alsoMenu ? itensDoOutro : [])]) {
     const quantidade = lerNumero(item.quantity);
@@ -454,7 +469,7 @@ export function trocarOndeVende(campos: CamposDaFicha, novo: OndeVende): CamposD
 }
 
 export function temErros(erros: ErrosDaFicha): boolean {
-  return Boolean(erros.name || erros.salePriceDefault || erros.yieldQty || erros.semQuantidadesDoOutro || Object.keys(erros.itens).length > 0);
+  return Boolean(erros.name || erros.salePriceDefault || erros.yieldQty || erros.portionWeightG || erros.shelfLifeDays || erros.semQuantidadesDoOutro || Object.keys(erros.itens).length > 0);
 }
 
 /** O que o backend espera: números de verdade, unidade normalizada e perda como fração. */
@@ -484,6 +499,9 @@ export function montarPayloadDaFicha(
     salePriceDefault: Number.isFinite(preco) ? preco : null,
     yieldQty: lerNumero(campos.yieldQty),
     yieldUnit: campos.yieldUnit.trim().toUpperCase() || "UN",
+    // Vazio limpa o valor gravado (null); preenchido grava o número.
+    portionWeightG: campos.portionWeightG.trim() === "" ? null : lerNumero(campos.portionWeightG),
+    shelfLifeDays: campos.shelfLifeDays.trim() === "" ? null : lerNumero(campos.shelfLifeDays),
     notes: campos.notes.trim(),
     ...(opcoes.isActive === undefined ? {} : { isActive: opcoes.isActive }),
     items: paraOBanco(itens),
@@ -491,6 +509,15 @@ export function montarPayloadDaFicha(
     ...(campos.alsoMenu ? { alsoItems: paraOBanco(itensDoOutro) } : {})
   };
 }
+
+/** Custo de 1 kg do preparo, a partir do custo de uma porção e do peso dela (em gramas); null sem peso ou sem custo. */
+export function custoPorKg(custoPorPorcao: number | null | undefined, pesoDaPorcaoG: number | null | undefined): number | null {
+  if (custoPorPorcao == null || pesoDaPorcaoG == null || !Number.isFinite(custoPorPorcao) || !(pesoDaPorcaoG > 0)) return null;
+  return (custoPorPorcao / pesoDaPorcaoG) * 1000;
+}
+
+/** "4 dias" / "1 dia". */
+export const rotuloDeDias = (dias: number): string => `${dias} ${dias === 1 ? "dia" : "dias"}`;
 
 /** Totais ao vivo do formulário, na mesma regra do backend (preço é por porção). */
 export function resumoDaFicha(campos: Pick<CamposDaFicha, "salePriceDefault" | "yieldQty">, itens: IngredientePrevisto[]) {
