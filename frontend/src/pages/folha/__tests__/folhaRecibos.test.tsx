@@ -71,3 +71,36 @@ describe("recibos na Folha", () => {
     expect(screen.queryByText("Recibos (sem registro):")).toBeNull();
   });
 });
+
+// A antiga "Folha e VT" virou três telas: cada uma mostra só a sua parte.
+describe("Folha dividida em três telas", () => {
+  test("Folha de pagamento: lançamentos e prévia; sem o VT por quinzena nem a lista do adiantamento", async () => {
+    vi.mocked(getPayroll).mockResolvedValue(LISTA);
+    render(<Folha secao="lancamentos" />, sessao(true));
+    await screen.findByText("Ana Exemplo");
+    expect(screen.getByRole("heading", { name: "Folha de pagamento" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Prever folha" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Lançar férias" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Prever VT" })).toBeNull();
+    expect(screen.queryByText(/Vale-transporte ·/)).toBeNull();
+    expect(screen.queryByText(/Lista de pagamento ·/)).toBeNull();
+  });
+
+  test("Vale-transporte: só o VT por quinzena, sem a tabela de lançamentos", async () => {
+    vi.mocked(getPayroll).mockResolvedValue(LISTA);
+    render(<Folha secao="vt" />, sessao(true));
+    expect(await screen.findByText(/Vale-transporte ·/)).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Vale-transporte" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Prever VT" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Prever folha" })).toBeNull();
+    expect(screen.queryByText("Ana Exemplo")).toBeNull();
+  });
+
+  test("Adiantamento: sem permissão de ver Funcionários, explica em vez de mostrar a lista", async () => {
+    vi.mocked(getPayroll).mockResolvedValue(LISTA);
+    render(<Folha secao="adiantamento" />, sessao(false));
+    expect(await screen.findByText(/é preciso permissão de ver Funcionários/)).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Adiantamento e 1ª quinzena" })).toBeTruthy();
+    expect(screen.queryByText("Ana Exemplo")).toBeNull();
+  });
+});

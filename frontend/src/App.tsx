@@ -34,7 +34,9 @@ import {
   WalletCards,
   Warehouse,
   X,
-  ChartColumn
+  ChartColumn,
+  Banknote,
+  Bus
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -188,22 +190,26 @@ const sections = [
   { id: "reimbursements", label: "Reembolsos", icon: HandCoins, showInSidebar: true, group: "Financeiro", path: "/financeiro/reembolsos", matchers: ["/financeiro/reembolsos"], description: "Compras pagas do bolso de um funcionário: conferir os comprovantes e gerar um título só para a pessoa" },
   { id: "suppliers", label: "Fornecedores", icon: Truck, showInSidebar: true, group: "Cadastros", path: "/cadastros/fornecedores", matchers: ["/cadastros/fornecedores"], description: "Cadastro utilizado em compras, pagamentos e relatórios financeiros" },
   { id: "companies", label: "Empresas", icon: Building2, showInSidebar: true, group: "Cadastros", path: "/cadastros/empresas", matchers: ["/cadastros/empresas"] },
-  // Grupo RH (01/10/2026): rotinas de pessoal separadas no menu, cada uma com a
-  // permissão que já tinha. Os endereços antigos (/pessoal/...) ficam nos matchers só
-  // até o <Navigate> levar para o novo — sem isso o guard não acharia a seção e mandaria
-  // para a primeira tela permitida antes do redirecionamento.
-  { id: "employees", label: "Funcionários", icon: UsersIcon, showInSidebar: true, group: "RH", path: ROTAS_RH.funcionarios, matchers: [ROTAS_RH.funcionarios, "/pessoal", "/pessoal/funcionarios"], description: "Cadastro de funcionários — base para escala, VT e folha de pagamento" },
-  { id: "employee-forms", label: "Fichas cadastrais", icon: FileUser, showInSidebar: true, group: "RH", path: ROTAS_RH.fichas, matchers: [ROTAS_RH.fichas, `${ROTAS_RH.fichas}/:id`], description: "Link para a pessoa preencher a ficha e mandar os documentos pelo celular; conferência, impressão e admissão" },
-  { id: "schedule", label: "Escala", icon: CalendarDays, showInSidebar: true, group: "RH", path: ROTAS_RH.escala, matchers: [ROTAS_RH.escala, "/pessoal/escala"], description: "Escala mensal de folgas (6×1 / 5×2) — domingos e feriados destacados; base para o cálculo do VT" },
-  { id: "payroll-tips", label: "Apuração de gorjeta", icon: Coins, showInSidebar: true, group: "RH", path: ROTAS_RH.gorjeta, matchers: [ROTAS_RH.gorjeta, "/pessoal/gorjeta"], description: "Rateio por pontos com presença e rescisões, envio à contabilidade e lista de pagamento" },
-  // A rescisão é lançada nas rotas /payroll/termination (módulo da Folha): quem lança
-  // a rescisão hoje é quem pode abrir esta tela.
-  { id: "rescisoes", label: "Rescisões", icon: FileSignature, showInSidebar: true, group: "RH", path: ROTAS_RH.rescisoes, matchers: [ROTAS_RH.rescisoes], permissionId: "payroll", description: "Quem saiu ou está saindo, a situação de cada rescisão e o passo a passo para lançar" },
-  { id: "payroll", label: "Folha e VT", icon: WalletCards, showInSidebar: true, group: "RH", path: ROTAS_RH.folha, matchers: [ROTAS_RH.folha, "/pessoal/folha"], description: "Geração e controle de VT (por tarifa e escala), adiantamento e salário" },
+  // Grupos Pessoas e Folha (14/10/2026; antes um grupo RH só, de 01/10/2026): rotinas de
+  // pessoal separadas no menu, cada uma com a permissão que já tinha. Os endereços antigos
+  // (/pessoal/...) ficam nos matchers só até o <Navigate> levar para o novo — sem isso o
+  // guard não acharia a seção e mandaria para a primeira tela permitida antes do redirecionamento.
+  { id: "employees", label: "Funcionários", icon: UsersIcon, showInSidebar: true, group: "Pessoas", path: ROTAS_RH.funcionarios, matchers: [ROTAS_RH.funcionarios, "/pessoal", "/pessoal/funcionarios"], description: "Cadastro de funcionários — base para escala, VT e folha de pagamento" },
+  { id: "employee-forms", label: "Fichas cadastrais", icon: FileUser, showInSidebar: true, group: "Pessoas", path: ROTAS_RH.fichas, matchers: [ROTAS_RH.fichas, `${ROTAS_RH.fichas}/:id`], description: "Link para a pessoa preencher a ficha e mandar os documentos pelo celular; conferência, impressão e admissão" },
+  { id: "schedule", label: "Escala", icon: CalendarDays, showInSidebar: true, group: "Pessoas", path: ROTAS_RH.escala, matchers: [ROTAS_RH.escala, "/pessoal/escala"], description: "Escala mensal de folgas (6×1 / 5×2) — domingos e feriados destacados; base para o cálculo do VT" },
+  // A antiga "Folha e VT" virou três telas; as três usam a permissão da Folha ("payroll"),
+  // a mesma de antes: ninguém perde nem ganha acesso com a divisão.
+  { id: "payroll-adiantamento", label: "Adiantamento e 1ª quinzena", icon: Banknote, showInSidebar: true, group: "Folha", path: ROTAS_RH.adiantamento, matchers: [ROTAS_RH.adiantamento], permissionId: "payroll", description: "Quem recebe no dia 15 e no dia 20: o que está no Contas a Pagar, o que falta lançar e a lista para pagar no banco" },
+  { id: "payroll", label: "Folha de pagamento", icon: WalletCards, showInSidebar: true, group: "Folha", path: ROTAS_RH.folha, matchers: [ROTAS_RH.folha, "/pessoal/folha"], description: "Lançamentos do mês (adiantamento, salário, VT, férias), prévia da folha, férias e afastamento" },
   // O Retorno do RH lê e importa o extrato pelas rotas /payroll/tip/extrato*, que o
   // backend autoriza pelo módulo da Gorjeta — por isso herda "payroll-tips".
-  { id: "rh-retorno", label: "Retorno do RH", icon: FileInput, showInSidebar: true, group: "RH", path: ROTAS_RH.retorno, matchers: [ROTAS_RH.retorno], permissionId: "payroll-tips", description: "Extrato da contabilidade (folha do mês e adiantamento): confere, lança no Contas a Pagar e guarda o PDF" },
-  { id: "extras", label: "Extras (diárias)", icon: HandCoins, showInSidebar: true, group: "RH", path: ROTAS_RH.extras, matchers: [ROTAS_RH.extras, "/pessoal/extras"], description: "Diárias da equipe da casa e de freelancers: lançamento, pagamento e gasto por período" },
+  { id: "rh-retorno", label: "Retorno do RH", icon: FileInput, showInSidebar: true, group: "Folha", path: ROTAS_RH.retorno, matchers: [ROTAS_RH.retorno], permissionId: "payroll-tips", description: "Extrato da contabilidade (folha do mês e adiantamento): confere, lança no Contas a Pagar e guarda o PDF" },
+  { id: "payroll-tips", label: "Apuração de gorjeta", icon: Coins, showInSidebar: true, group: "Folha", path: ROTAS_RH.gorjeta, matchers: [ROTAS_RH.gorjeta, "/pessoal/gorjeta"], description: "Rateio por pontos com presença e rescisões, envio à contabilidade e lista de pagamento" },
+  { id: "payroll-vt", label: "Vale-transporte", icon: Bus, showInSidebar: true, group: "Folha", path: ROTAS_RH.vt, matchers: [ROTAS_RH.vt], permissionId: "payroll", description: "VT por quinzena (tarifa e escala): prévia, geração e conferência para pagar" },
+  { id: "extras", label: "Extras (diárias)", icon: HandCoins, showInSidebar: true, group: "Folha", path: ROTAS_RH.extras, matchers: [ROTAS_RH.extras, "/pessoal/extras"], description: "Diárias da equipe da casa e de freelancers: lançamento, pagamento e gasto por período" },
+  // A rescisão é lançada nas rotas /payroll/termination (módulo da Folha): quem lança
+  // a rescisão hoje é quem pode abrir esta tela.
+  { id: "rescisoes", label: "Rescisões", icon: FileSignature, showInSidebar: true, group: "Folha", path: ROTAS_RH.rescisoes, matchers: [ROTAS_RH.rescisoes], permissionId: "payroll", description: "Quem saiu ou está saindo, a situação de cada rescisão e o passo a passo para lançar" },
   { id: "import", label: "Importações", icon: FileSpreadsheet, showInSidebar: true, group: "Dados", path: "/dados/importacoes", matchers: ["/dados/importacoes"] },
   { id: "catalog-imports", label: "Importar cadastros", icon: Database, showInSidebar: false, group: "Dados", path: "/dados/importacoes/cadastros", matchers: ["/dados/importacoes/cadastros"] },
   { id: "doc-intake", label: "Leitura de documentos", icon: FileScan, showInSidebar: true, group: "Dados", path: "/dados/leitura-documentos", matchers: ["/dados/leitura-documentos"], description: "Lê nota, boleto ou fatura em PDF e monta o rascunho do lançamento para conferência" },
@@ -768,7 +774,9 @@ export function App() {
               <Route path={ROTAS_RH.escala} element={<Escala />} />
               <Route path={ROTAS_RH.gorjeta} element={<FolhaGorjeta />} />
               <Route path={ROTAS_RH.rescisoes} element={<Rescisoes />} />
-              <Route path={ROTAS_RH.folha} element={<Folha />} />
+              <Route path={ROTAS_RH.folha} element={<Folha key="lancamentos" secao="lancamentos" />} />
+              <Route path={ROTAS_RH.vt} element={<Folha key="vt" secao="vt" />} />
+              <Route path={ROTAS_RH.adiantamento} element={<Folha key="adiantamento" secao="adiantamento" />} />
               <Route path={ROTAS_RH.retorno} element={<ExtratoRh />} />
               <Route path={ROTAS_RH.extras} element={<Extras />} />
               <Route path={ROTAS_RH.fichas} element={<FichasCadastrais />} />
