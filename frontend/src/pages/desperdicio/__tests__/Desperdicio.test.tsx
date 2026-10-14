@@ -4,7 +4,12 @@ import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 vi.mock("../../../api/client", () => ({
+  ApiError: class ApiError extends Error {
+    constructor(message: string, public readonly status: number, public readonly body?: Record<string, unknown>) { super(message); }
+  },
   cancelWasteEntry: vi.fn(),
+  createWastePendingDish: vi.fn(),
+  getWasteDishSuggestions: vi.fn(),
   createWasteEntry: vi.fn(),
   getWasteEntries: vi.fn(),
   getWastePhoto: vi.fn(),
@@ -20,7 +25,7 @@ vi.mock("../foto", async (original) => ({ ...(await original<typeof import("../f
 
 import type { WasteAnalysis, WasteEntry } from "../../../api/client";
 import {
-  cancelWasteEntry, createWasteEntry, getWasteAnalysis, getWasteEntries, getWastePhoto, getWasteSettings,
+  ApiError, cancelWasteEntry, createWasteEntry, createWastePendingDish, getWasteAnalysis, getWasteDishSuggestions, getWasteEntries, getWastePhoto, getWasteSettings,
   saveDishProductConversion, saveWasteSettings, searchWasteDishes, searchWasteProducts, uploadWastePhoto,
 } from "../../../api/client";
 import { SessionContext, type SessionContextValue } from "../../../context/SessionContext";
@@ -44,7 +49,7 @@ const analiseVazia: WasteAnalysis = {
   anterior: { from: "2026-08-15", to: "2026-09-13", lancamentos: 0, valor: 0 },
   faturamento: null,
   porDia: [], porDiaDaSemana: [], porMotivo: [], porSetor: [], porProduto: [], produtosTotal: 0, itensPara80: null, reincidentes: [], porPessoa: [],
-  qualidade: { semCusto: 0, motivoOutro: 0, retroativos: 0, semFotoNosMaiores: 0, diasSemRegistro: null, diasComVenda: null },
+  qualidade: { semCusto: 0, motivoOutro: 0, retroativos: 0, semFotoNosMaiores: 0, fichasPendentes: { pratos: 0, lancamentos: 0 }, diasSemRegistro: null, diasComVenda: null },
 };
 
 const lancamento = (parcial: Partial<WasteEntry> = {}): WasteEntry => ({
@@ -59,6 +64,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(getWasteEntries).mockResolvedValue(periodoVazio);
   vi.mocked(getWasteAnalysis).mockResolvedValue(analiseVazia);
+  vi.mocked(getWasteDishSuggestions).mockResolvedValue([]);
   vi.mocked(createWasteEntry).mockResolvedValue({ id: "w1", hasCost: true } as never);
   vi.mocked(getWasteSettings).mockResolvedValue({ dailyAlertValue: null, activeRecipients: 1 });
   vi.mocked(uploadWastePhoto).mockResolvedValue({ ok: true });
@@ -618,5 +624,101 @@ describe("Desperdicio: unidade da quantidade (g, ml, kg...) como na ficha técni
     vi.mocked(getWasteEntries).mockResolvedValue({ ...periodoVazio, items: [lancamento({ id: "w6", productName: "Sal grosso 25 kg", quantity: 0.00004, unit: "UN", enteredQuantity: 1, enteredUnit: "G" })] });
     render(<Desperdicio />);
     expect(await screen.findByText("= 0,00004 UN")).toBeInTheDocument();
+  });
+});
+
+describe("prato que não existe: cadastrar na hora, aguardando a ficha técnica", () => {
+  const pendente = { id: "dn", name: "Purê de batata", code: null, unit: "KG", sectorName: "Prato pronto", conversions: [], embalagemInferida: null, pendente: true };
+
+  async function buscarPratoSemResultado(termo = "pure") {
+    vi.mocked(searchWasteDishes).mockResolvedValue([]);
+    render(<Desperdicio />);
+    fireEvent.click(screen.getByRole("button", { name: "Prato pronto" }));
+    fireEvent.change(screen.getByRole("searchbox", { name: /buscar prato/i }), { target: { value: termo } });
+    await screen.findByText("Nenhum prato encontrado.");
+  }
+
+  test("sem resultado, oferece cadastrar o que foi digitado e as sugestões do buffet", async () => {
+    vi.mocked(getWasteDishSuggestions).mockResolvedValue([{ name: "Purê de batata", category: "Guarnições" }, { name: "Purê de abóbora", category: "Guarnições" }]);
+    await buscarPratoSemResultado();
+    expect(await screen.findByText("Não achou o prato?")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Cadastrar “Purê de batata”/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Cadastrar “pure” como prato novo/ })).toBeInTheDocument();
+  });
+
+  test("insumo não oferece cadastro de prato", async () => {
+    vi.mocked(searchWasteProducts).mockResolvedValue([]);
+    render(<Desperdicio />);
+    fireEvent.change(screen.getByRole("searchbox", { name: /buscar produto/i }), { target: { value: "pure" } });
+    await screen.findByText("Nenhum produto encontrado.");
+    expect(screen.queryByText("Não achou o prato?")).not.toBeInTheDocument();
+    expect(getWasteDishSuggestions).not.toHaveBeenCalled();
+  });
+
+  test("escolher uma sugestão abre o cadastro com o nome certo; cadastrar escolhe o prato novo e avisa que aguarda ficha", async () => {
+    vi.mocked(getWasteDishSuggestions).mockResolvedValue([{ name: "Purê de batata", category: "Guarnições" }]);
+    vi.mocked(createWastePendingDish).mockResolvedValue(pendente as never);
+    await buscarPratoSemResultado();
+    fireEvent.click(await screen.findByRole("button", { name: /Cadastrar “Purê de batata”/ }));
+
+    expect(screen.getByLabelText("Nome do prato")).toHaveValue("Purê de batata");
+    expect(screen.getByLabelText("Como se mede a sobra")).toHaveValue("KG");
+    fireEvent.change(screen.getByLabelText(/O que leva/), { target: { value: "batata, manteiga e leite" } });
+    fireEvent.click(screen.getByRole("button", { name: "Cadastrar e usar" }));
+
+    await waitFor(() => expect(createWastePendingDish).toHaveBeenCalledWith({ name: "Purê de batata", unit: "KG", notes: "batata, manteiga e leite" }));
+    expect(await screen.findByText(/Aguardando ficha técnica/)).toBeInTheDocument();
+    // A unidade do prato novo (kg) já vem escolhida, ao lado da quantidade.
+    expect(screen.getByLabelText("Unidade")).toHaveValue("KG");
+  });
+
+  test("lançar o prato novo manda dishId do prato criado", async () => {
+    vi.mocked(createWastePendingDish).mockResolvedValue(pendente as never);
+    await buscarPratoSemResultado();
+    fireEvent.click(await screen.findByRole("button", { name: /Cadastrar “pure” como prato novo/ }));
+    fireEvent.change(screen.getByLabelText("Nome do prato"), { target: { value: "Purê de batata" } });
+    fireEvent.click(screen.getByRole("button", { name: "Cadastrar e usar" }));
+    await screen.findByText(/Aguardando ficha técnica/);
+
+    fireEvent.change(screen.getByLabelText("Quantidade"), { target: { value: "2,5" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sobra de produção" }));
+    registrar();
+    await waitFor(() => expect(createWasteEntry).toHaveBeenCalled());
+    expect(vi.mocked(createWasteEntry).mock.calls[0][0]).toMatchObject({ dishId: "dn", quantity: "2,5", unit: "KG" });
+  });
+
+  test("nome que já existe: usa o que já existe em vez de criar outro", async () => {
+    vi.mocked(createWastePendingDish).mockRejectedValue(new ApiError("\"Purê de batata\" já foi cadastrado e aguarda a ficha técnica.", 409, { existing: pendente }));
+    await buscarPratoSemResultado();
+    fireEvent.click(await screen.findByRole("button", { name: /Cadastrar “pure” como prato novo/ }));
+    fireEvent.change(screen.getByLabelText("Nome do prato"), { target: { value: "Pure de batata" } });
+    fireEvent.click(screen.getByRole("button", { name: "Cadastrar e usar" }));
+    expect(await screen.findByText(/Aguardando ficha técnica/)).toBeInTheDocument();
+    expect(screen.getByText("Purê de batata")).toBeInTheDocument();
+  });
+
+  test("erro ao cadastrar fica à vista e mantém o que foi digitado", async () => {
+    vi.mocked(createWastePendingDish).mockRejectedValue(new Error("Informe o nome do prato (mínimo 3 letras)."));
+    await buscarPratoSemResultado();
+    fireEvent.click(await screen.findByRole("button", { name: /Cadastrar “pure” como prato novo/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Cadastrar e usar" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Informe o nome do prato");
+    expect(screen.getByLabelText("Nome do prato")).toHaveValue("pure");
+  });
+
+  test("cancelar fecha o cadastro e volta à busca", async () => {
+    await buscarPratoSemResultado();
+    fireEvent.click(await screen.findByRole("button", { name: /Cadastrar “pure” como prato novo/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    expect(screen.queryByLabelText("Nome do prato")).not.toBeInTheDocument();
+    expect(screen.getByRole("searchbox", { name: /buscar prato/i })).toHaveValue("pure");
+  });
+
+  test("o prato aguardando ficha aparece na busca com a marca", async () => {
+    vi.mocked(searchWasteDishes).mockResolvedValue([pendente]);
+    render(<Desperdicio />);
+    fireEvent.click(screen.getByRole("button", { name: "Prato pronto" }));
+    fireEvent.change(screen.getByRole("searchbox", { name: /buscar prato/i }), { target: { value: "pur" } });
+    expect(await screen.findByText(/aguardando ficha/)).toBeInTheDocument();
   });
 });

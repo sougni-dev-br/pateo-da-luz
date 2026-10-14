@@ -23,6 +23,7 @@ import { listActivePhones } from "../notifications/recipients.service.js";
 import { avisarSePassouDoLimite } from "./waste-alert.service.js";
 import { wastePhotoRouter } from "./waste-photo.routes.js";
 import { LIMITE_DE_LANCAMENTOS, limitarGravacoes } from "./waste-limite.js";
+import { chaveDoNome, validarPratoNovo } from "./waste-ficha.js";
 import { analisePeriodo } from "./waste-analise.service.js";
 
 // Desperdício de insumo. Decomposição do CMV: não baixa InventoryStock, não entra no DRE
@@ -208,7 +209,9 @@ async function itemDoInsumo(productId: string, dia: string): Promise<ItemDoLanca
  */
 async function itemDoPrato(dishId: string): Promise<ItemDoLancamento | { erro: string }> {
   const prato = await carregarDetalhe(prisma, dishId);
-  if (!prato || !prato.isActive) return { erro: "Prato não encontrado ou inativo." };
+  // Preparação de buffet criada pelo desperdício nasce inativa (não é vendida) e mesmo assim se lança.
+  const origem = prato ? await prisma.dish.findUnique({ where: { id: dishId }, select: { fichaDeBuffet: true } }) : null;
+  if (!prato || !(prato.isActive || origem?.fichaDeBuffet)) return { erro: "Prato não encontrado ou inativo." };
   const custoCompleto = !prato.custoIncompleto && prato.custoPorcao > 0;
   return {
     unit: prato.yieldUnit,
@@ -229,12 +232,89 @@ wasteRouter.get("/dishes", async (request, response) => {
   if (search.length < 2) return void response.json([]);
 
   const pratos = await prisma.dish.findMany({
-    where: { isActive: true, OR: [{ name: { contains: search, mode: "insensitive" } }, { code: { contains: search, mode: "insensitive" } }] },
-    select: { id: true, name: true, code: true, yieldUnit: true, category: { select: { name: true } } },
+    where: {
+      AND: [
+        { OR: [{ isActive: true }, { fichaDeBuffet: true }] },
+        { OR: [{ name: { contains: search, mode: "insensitive" } }, { code: { contains: search, mode: "insensitive" } }] },
+      ],
+    },
+    select: { id: true, name: true, code: true, yieldUnit: true, fichaPendente: true, category: { select: { name: true } } },
     orderBy: { name: "asc" },
     take: MAX_PRODUTOS_NA_BUSCA,
   });
-  response.json(pratos.map((p) => ({ id: p.id, name: p.name, code: p.code, unit: p.yieldUnit, sectorName: p.category?.name ?? SETOR_PRATO_PRONTO, conversions: [], embalagemInferida: null })));
+  response.json(pratos.map((p) => ({ id: p.id, name: p.name, code: p.code, unit: p.yieldUnit, sectorName: p.category?.name ?? SETOR_PRATO_PRONTO, conversions: [], embalagemInferida: null, pendente: p.fichaPendente })));
+});
+
+/** Todos os nomes de prato (ativos ou não): a conferência de duplicidade não pode deixar passar o "Purê" que já espera ficha. */
+async function pratoComEsteNome(nome: string) {
+  const chave = chaveDoNome(nome);
+  const todos = await prisma.dish.findMany({ select: { id: true, name: true, yieldUnit: true, fichaPendente: true } });
+  return todos.find((p) => chaveDoNome(p.name) === chave) ?? null;
+}
+
+const dicaDoPrato = (p: { id: string; name: string; yieldUnit: string; fichaPendente: boolean }) => ({
+  id: p.id, name: p.name, code: null, unit: p.yieldUnit, sectorName: SETOR_PRATO_PRONTO, conversions: [], embalagemInferida: null, pendente: p.fichaPendente,
+});
+
+// Itens do buffet (a lista das plaquinhas) que ainda não são prato: o jeito de cadastrar "Purê de batata" sem digitar o nome errado.
+wasteRouter.get("/dishes/suggestions", async (request, response) => {
+  const user = await getSessionUser(request);
+  if (!user) return void response.status(401).json({ message: "Sessao obrigatoria." });
+
+  const search = String(request.query.search ?? "").trim().slice(0, 80);
+  if (search.length < 2) return void response.json([]);
+
+  const [itens, pratos] = await Promise.all([
+    prisma.buffetPlateItem.findMany({
+      where: { isActive: true, namePt: { contains: search, mode: "insensitive" } },
+      select: { namePt: true, category: true },
+      orderBy: { namePt: "asc" },
+      take: 30,
+    }),
+    prisma.dish.findMany({ select: { name: true } }),
+  ]);
+  const jaExistem = new Set(pratos.map((p) => chaveDoNome(p.name)));
+  response.json(itens.filter((i) => !jaExistem.has(chaveDoNome(i.namePt))).slice(0, 8).map((i) => ({ name: i.namePt, category: i.category })));
+});
+
+// Prato que não existe: nasce aqui, inativo, aguardando a ficha técnica. O lançamento segue normalmente (sem valor) e
+// passa a valer quando a ficha for concluída. Quem lança diz o nome, a unidade e, se souber, o que leva.
+wasteRouter.post("/dishes", async (request, response) => {
+  const user = await getSessionUser(request);
+  if (!user) return void response.status(401).json({ message: "Sessao obrigatoria." });
+
+  const validado = validarPratoNovo(request.body ?? {});
+  if (!validado.ok) return void response.status(400).json({ message: validado.erro });
+  const { name, unit, observacao } = validado.valor;
+
+  const igual = await pratoComEsteNome(name);
+  if (igual) {
+    return void response.status(409).json({
+      message: igual.fichaPendente ? `"${igual.name}" já foi cadastrado e aguarda a ficha técnica.` : `Já existe um prato chamado "${igual.name}".`,
+      existing: dicaDoPrato(igual),
+    });
+  }
+
+  const criado = await prisma.dish.create({
+    data: {
+      name,
+      yieldQty: 1,
+      yieldUnit: unit,
+      isActive: false,
+      fichaDeBuffet: true,
+      fichaPendente: true,
+      pendenteDesde: new Date(),
+      pendentePorId: user.id,
+      pendenteObservacao: observacao,
+    },
+    select: { id: true, name: true, yieldUnit: true, fichaPendente: true },
+  });
+  try {
+    await auditLog({ userId: user.id, action: "CREATE_PENDING_DISH", entity: "Dish", entityId: criado.id, newValue: { name, unit, observacao }, ...auditMeta(request) });
+  } catch (falha) {
+    console.error("[desperdicio] auditoria do prato pendente falhou:", falha instanceof Error ? falha.message : falha);
+  }
+  response.status(201).json(dicaDoPrato(criado));
 });
 
 // Busca de produto para o lançamento rápido: não exige acesso ao módulo Produtos.

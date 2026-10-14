@@ -115,7 +115,8 @@ export async function importarCardapios(): Promise<MenuImportResult> {
   // 2. Custo. Uma consulta por item eram ~250 idas a um Postgres remoto so para
   //    procurar prato, mais outras 250 para procurar listagem.
   const pratosPorChave = new Map<string, { id: string }>();
-  for (const d of await prisma.dish.findMany({ select: { id: true, name: true } })) {
+  // Preparação de buffet criada pelo desperdício não é prato vendido: item da 99 de mesmo nome não se liga a ela.
+  for (const d of await prisma.dish.findMany({ where: { fichaDeBuffet: false }, select: { id: true, name: true } })) {
     const chave = chaveDoPrato(d.name);
     // Se a base ja tem dois pratos que colapsam na mesma chave, fica o primeiro —
     // criar um terceiro so pioraria. O Eli resolve o duplicado na tela.

@@ -173,6 +173,9 @@ export async function carregarDetalhe(client: ClienteDoBanco, id: string) {
     yieldUnit: dish.yieldUnit,
     notes: dish.notes,
     isActive: dish.isActive,
+    // Preparação do buffet criada pelo desperdício: inativa por desenho (não é vendida), mas se edita e, pendente, aguarda a ficha.
+    fichaDeBuffet: dish.fichaDeBuffet,
+    fichaPendente: dish.fichaPendente,
     calculatedCost: custo.totalCost,
     custoPorcao: custo.costPerServing,
     margemBruta: custo.margemBruta,
