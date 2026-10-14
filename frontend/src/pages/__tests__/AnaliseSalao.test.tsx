@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import type { AnaliseVendasPorPessoa } from "../../api/client";
+import type { AnaliseMargemBuffet, AnaliseVendasPorPessoa } from "../../api/client";
 import { SessionContext, type SessionContextValue } from "../../context/SessionContext";
 import { HideValuesProvider } from "../../design-system";
 
@@ -11,6 +11,8 @@ vi.mock("../../api/client", () => ({
   getAnaliseCardapio: vi.fn(),
   getAnaliseMargem: vi.fn(),
   getAnaliseMargemBebidas: vi.fn(),
+  getAnaliseMargemBuffet: vi.fn(),
+  salvarCustoBuffetAnalise: vi.fn(),
   vincularBebidaAnaliseMargem: vi.fn(),
   vincularProdutoAnaliseMargem: vi.fn(),
   getAnalisePerdas: vi.fn(),
@@ -19,7 +21,7 @@ vi.mock("../../api/client", () => ({
   salvarAnaliseMeta: vi.fn()
 }));
 
-import { getAnaliseCardapio, getAnaliseDemanda, getAnaliseMargem, getAnaliseMargemBebidas, getAnaliseMetas, getAnalisePerdas, getAnaliseResumo, getAnaliseVendasPorPessoa, vincularBebidaAnaliseMargem, vincularProdutoAnaliseMargem } from "../../api/client";
+import { getAnaliseCardapio, getAnaliseDemanda, getAnaliseMargem, getAnaliseMargemBebidas, getAnaliseMargemBuffet, getAnaliseMetas, getAnalisePerdas, getAnaliseResumo, getAnaliseVendasPorPessoa, salvarCustoBuffetAnalise, vincularBebidaAnaliseMargem, vincularProdutoAnaliseMargem } from "../../api/client";
 import { cardapio, demanda, perdas, PERIODO, renderComSessao, resumo, sessao } from "../analise-salao/__tests__/fixtures";
 import { AnaliseSalao } from "../AnaliseSalao";
 
@@ -30,6 +32,14 @@ const equipe: AnaliseVendasPorPessoa = {
   hojeFicouDeFora: false,
   pessoas: [{ pessoa: "Carla Fictícia", valor: 5000, participacao: 1, itens: 120, vendas: 40, ticketMedio: 125, itensPorVenda: 3, mix: [{ grupo: "Bebidas", valor: 2000, participacao: 0.4 }] }]
 };
+
+const buffetBase = (): AnaliseMargemBuffet => ({
+  periodo: PERIODO, hojeFicouDeFora: false,
+  buffet: { comandas: 100, pessoas: 200, receita: 10000, receitaPorPessoa: 50, pctDaReceita: 0.5 },
+  faixas: [{ produto: "BUFFET PROMO 20", comandas: 100, pessoas: 200, receita: 10000, receitaPorPessoa: 50, pctReceita: 1 }],
+  meses: [{ ano: 2026, mes: 9, comandas: 100, pessoas: 200, receita: 10000, receitaPorPessoa: 50, custoPorPessoa: null, margemPorPessoa: null, margemTotal: null, margemPct: null, status: "sem-custo" }],
+  margem: null, cobertura: { pessoasComCusto: 0, pessoasTotal: 200, pctComCusto: 0, mesesSemCusto: 1 }, referencia: null, insights: []
+});
 
 const renderizar = () => renderComSessao(<AnaliseSalao />);
 const aba = (nome: string) => screen.getByRole("tab", { name: nome });
@@ -49,6 +59,7 @@ beforeEach(() => {
     cobertura: { receitaBebidas: 500, receitaComMargem: 0, receitaSemVinculo: 500, receitaCustoIncompleto: 0, pctComMargem: 0, pctSemVinculo: 1, pctCustoIncompleto: 0, bebidasComMargem: 0 },
     linhas: [], aFazer: [], insumosParaVincular: [], insumosTruncados: false, insights: []
   });
+  vi.mocked(getAnaliseMargemBuffet).mockResolvedValue(buffetBase());
   vi.mocked(getAnalisePerdas).mockResolvedValue(perdas());
   vi.mocked(getAnaliseVendasPorPessoa).mockResolvedValue(equipe);
   vi.mocked(getAnaliseMetas).mockResolvedValue({
@@ -144,6 +155,46 @@ describe("Análise do Salão — estrutura", () => {
     fireEvent.click(aba("Margem"));
     await screen.findByText(/Falta ligar este produto a um prato/);
     expect(screen.queryByRole("button", { name: /^Vincular/ })).toBeNull();
+  });
+
+  test("margem: o buffet e buscado junto, so ao abrir, e informar o custo grava, recarrega so o buffet e anuncia", async () => {
+    vi.mocked(salvarCustoBuffetAnalise).mockResolvedValue({ ok: true });
+    render(
+      <MemoryRouter>
+        <SessionContext.Provider value={{ ...sessao(), user: { id: "u", role: "ADMIN" } } as unknown as SessionContextValue}>
+          <HideValuesProvider>
+            <AnaliseSalao />
+          </HideValuesProvider>
+        </SessionContext.Provider>
+      </MemoryRouter>
+    );
+    await screen.findByText("Faturamento por dia");
+    expect(getAnaliseMargemBuffet).not.toHaveBeenCalled();
+    fireEvent.click(aba("Margem"));
+    expect(await screen.findByText("Buffet: margem por pessoa")).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: /Informar o custo por pessoa de setembro de 2026/ }));
+    fireEvent.change(screen.getByLabelText(/Custo de comida por pessoa em setembro de 2026/), { target: { value: "32,5" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar custo" }));
+    await waitFor(() => expect(salvarCustoBuffetAnalise).toHaveBeenCalledWith({ ano: 2026, mes: 9, valor: 32.5 }));
+    await waitFor(() => expect(getAnaliseMargemBuffet).toHaveBeenCalledTimes(2));
+    expect(getAnaliseMargem).toHaveBeenCalledTimes(1);
+    expect(getAnaliseMargemBebidas).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText(/Custo do buffet salvo\./)).toBeTruthy();
+  });
+
+  test("margem: erro no buffet tem botao de tentar de novo, que busca so o buffet, sem derrubar pratos e bebidas", async () => {
+    vi.mocked(getAnaliseMargemBuffet).mockRejectedValueOnce(new Error("Falha do buffet."));
+    renderizar();
+    await screen.findByText("Faturamento por dia");
+    fireEvent.click(aba("Margem"));
+    expect(await screen.findByText(/Falha do buffet\./)).toBeTruthy();
+    expect(await screen.findByText("Bebidas: margem de revenda")).toBeTruthy();
+    const tentativas = screen.getAllByRole("button", { name: "Tentar de novo" });
+    fireEvent.click(tentativas[tentativas.length - 1]);
+    await waitFor(() => expect(getAnaliseMargemBuffet).toHaveBeenCalledTimes(2));
+    expect(getAnaliseMargem).toHaveBeenCalledTimes(1);
+    expect(getAnaliseMargemBebidas).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText("Buffet: margem por pessoa")).toBeTruthy();
   });
 
   test("margem: as bebidas (revenda) sao buscadas junto, so ao abrir, e vincular bebida chama a API e recarrega so as bebidas", async () => {
