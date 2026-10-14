@@ -41,7 +41,17 @@ const buffetBase = (): AnaliseMargemBuffet => ({
   margem: null, cobertura: { pessoasComCusto: 0, pessoasTotal: 200, pctComCusto: 0, mesesSemCusto: 1 }, referencia: null, insights: []
 });
 
-const renderizar = () => renderComSessao(<AnaliseSalao />);
+// Admin: ve tudo, inclusive a Margem (que exige a permissao de custos).
+const renderizar = () =>
+  render(
+    <MemoryRouter>
+      <SessionContext.Provider value={{ ...sessao(), user: { id: "u", role: "ADMIN" } } as unknown as SessionContextValue}>
+        <HideValuesProvider>
+          <AnaliseSalao />
+        </HideValuesProvider>
+      </SessionContext.Provider>
+    </MemoryRouter>
+  );
 const aba = (nome: string) => screen.getByRole("tab", { name: nome });
 
 beforeEach(() => {
@@ -151,10 +161,27 @@ describe("Análise do Salão — estrutura", () => {
     expect(await screen.findByText(/PRATO UM vinculado\. Margem recalculada\./)).toBeTruthy();
     editor.unmount();
 
-    comPermissao({ "analise-salao": { view: true, create: false, edit: false, delete: false, admin: false } }, "GESTAO");
+    comPermissao({ "analise-salao": { view: true, create: false, edit: false, delete: false, admin: false }, "inventory-costs": { view: true, create: false, edit: false, delete: false, admin: false } }, "GESTAO");
     fireEvent.click(aba("Margem"));
     await screen.findByText(/Falta ligar este produto a um prato/);
     expect(screen.queryByRole("button", { name: /^Vincular/ })).toBeNull();
+  });
+
+  test("sem a permissao de custos a aba Margem nao aparece e nada de margem e buscado (ver a analise nao basta)", async () => {
+    render(
+      <MemoryRouter>
+        <SessionContext.Provider value={{ ...sessao(), user: { id: "u", role: "GESTAO", modulePermissions: { "analise-salao": { view: true, create: false, edit: true, delete: false, admin: false } } } } as unknown as SessionContextValue}>
+          <HideValuesProvider>
+            <AnaliseSalao />
+          </HideValuesProvider>
+        </SessionContext.Provider>
+      </MemoryRouter>
+    );
+    await screen.findByText("Faturamento por dia");
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Resumo", "Quando vendemos", "Cardápio", "Perdas", "Equipe", "Metas"]);
+    expect(getAnaliseMargem).not.toHaveBeenCalled();
+    expect(getAnaliseMargemBebidas).not.toHaveBeenCalled();
+    expect(getAnaliseMargemBuffet).not.toHaveBeenCalled();
   });
 
   test("margem: o buffet e buscado junto, so ao abrir, e informar o custo grava, recarrega so o buffet e anuncia", async () => {
