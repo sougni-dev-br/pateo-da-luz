@@ -152,10 +152,10 @@ describe("preços por canal", () => {
     expect(screen.queryByText("Salão (a la carte)")).toBeNull();
     for (const plataforma of ["99 Food", "iFood", "Keeta"]) {
       const linha = screen.getByRole("rowheader", { name: plataforma }).closest("tr")!;
-      expect(within(linha).getByText("Nenhuma loja com preço")).toBeInTheDocument();
+      expect(within(linha).getByText(/Nenhuma loja com preço/)).toBeInTheDocument();
     }
     // A 99 vem do cardápio dela; iFood e Keeta têm o atalho para lançar.
-    expect(within(screen.getByRole("rowheader", { name: "99 Food" }).closest("tr")!).getByText("vem do cardápio da 99")).toBeInTheDocument();
+    expect(within(screen.getByRole("rowheader", { name: "99 Food" }).closest("tr")!).getByText(/vem do cardápio da 99/)).toBeInTheDocument();
     expect(within(screen.getByRole("rowheader", { name: "iFood" }).closest("tr")!).getByRole("button", { name: "Lançar preço" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Adicionar preço de uma loja/ })).toBeInTheDocument();
   });
@@ -163,8 +163,8 @@ describe("preços por canal", () => {
   test("plataforma que já tem preço não ganha linha de 'sem preço'", () => {
     mostrar(prato());
     // O prato padrão tem 99 e iFood com preço: só a Keeta falta.
-    expect(screen.queryAllByText("Nenhuma loja com preço")).toHaveLength(1);
-    expect(within(screen.getByRole("rowheader", { name: "Keeta" }).closest("tr")!).getByText("Nenhuma loja com preço")).toBeInTheDocument();
+    expect(screen.queryAllByText(/Nenhuma loja com preço/)).toHaveLength(1);
+    expect(within(screen.getByRole("rowheader", { name: "Keeta" }).closest("tr")!).getByText(/Nenhuma loja com preço/)).toBeInTheDocument();
   });
 
   test("'Lançar preço' da Keeta já vem com a loja única escolhida e grava só o preço", async () => {
@@ -229,5 +229,11 @@ describe("preços por canal", () => {
     mostrar(prato(), false);
     expect(screen.queryByRole("button", { name: /Adicionar preço/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "Alterar" })).toBeNull();
+  });
+
+  test("as lojas ficam agrupadas por plataforma, com a origem do preço (automático ou à mão)", () => {
+    mostrar(prato());
+    expect(screen.getByText("preço lançado à mão")).toBeInTheDocument(); // iFood
+    expect(screen.getByText("preço automático, do cardápio da plataforma")).toBeInTheDocument(); // 99
   });
 });
