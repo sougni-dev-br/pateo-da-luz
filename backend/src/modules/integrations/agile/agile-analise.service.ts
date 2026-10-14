@@ -1,5 +1,7 @@
 import { ehRecebida, SITUACAO_CANCELADA, SITUACAO_RECEBIDA } from "./agile-situacao.js";
+import { montarCardapio, type LinhaAttach, type LinhaProduto } from "./agile-analise-cardapio.report.js";
 import { montarDemanda } from "./agile-analise-demanda.report.js";
+import { CATEGORIAS_ALCOOL, CATEGORIAS_BEBIDA, CATEGORIA_SOBREMESA, PADRAO_GRUPO_SOBREMESA, PADRAO_NOME_CAFE } from "./agile-categorias.js";
 import { descontarHoje, hojeEmSaoPaulo } from "./agile-analise-hoje.js";
 import { montarPerdas } from "./agile-analise-perdas.report.js";
 import { montarResumo } from "./agile-analise-resumo.js";
@@ -226,4 +228,90 @@ export async function obterPerdas(pedido: Periodo, hoje: string = hojeEmSaoPaulo
     }),
     hojeFicouDeFora
   };
+}
+
+// ---------------------------------------------------------------------------
+// Cardapio: agregados no banco (um produto por linha; uma linha por turno), nao milhares de itens.
+// ---------------------------------------------------------------------------
+
+type LinhaBruta = Record<string, unknown>;
+const n = (v: unknown) => Number(v ?? 0);
+
+async function produtosPorJanela(deAnterior: Date, de: Date, ate: Date): Promise<LinhaProduto[]> {
+  const linhas = await prisma.$queryRaw<LinhaBruta[]>`
+    SELECT (i."movementDate" >= ${de}) AS atual, i."productName" AS produto, i."productGroup" AS grupo, i."productCategory" AS categoria,
+           COALESCE(SUM(i.quantity), 0) AS quantidade, COALESCE(SUM(i."totalAmount"), 0) AS valor
+    FROM "AgileSaleItem" i
+    WHERE i."saleStatus" = ${SITUACAO_RECEBIDA} AND i."movementDate" >= ${deAnterior} AND i."movementDate" < ${ate}
+    GROUP BY 1, 2, 3, 4`;
+  return linhas.map((l) => ({
+    janela: l.atual ? ("atual" as const) : ("anterior" as const),
+    produto: String(l.produto),
+    grupo: (l.grupo as string | null) ?? null,
+    categoria: (l.categoria as string | null) ?? null,
+    quantidade: n(l.quantidade),
+    valor: n(l.valor),
+    comandas: n(l.comandas)
+  }));
+}
+
+// Por comanda RECEBIDA com pessoas informadas: quantas levaram bebida, alcool, cafe e sobremesa, e
+// quanto cada um rendeu. O denominador (comandas e pessoas) vem da VENDA, nunca do item: juntar
+// item com venda e somar pessoas depois duplicaria as pessoas de toda comanda com varios itens.
+async function attachPorJanela(deAnterior: Date, de: Date, ate: Date): Promise<LinhaAttach[]> {
+  const linhas = await prisma.$queryRaw<LinhaBruta[]>`
+    WITH v AS (
+      SELECT "saleId", TRIM(shift) AS turno, people, ("movementDate" >= ${de}) AS atual
+      FROM "AgileSale"
+      WHERE "saleStatus" = ${SITUACAO_RECEBIDA} AND people > 0 AND "movementDate" >= ${deAnterior} AND "movementDate" < ${ate}
+    ),
+    i AS (
+      SELECT "saleId",
+        SUM(quantity) FILTER (WHERE "productCategory" = ANY(${[...CATEGORIAS_BEBIDA]})) AS qtd_beb,
+        SUM("totalAmount") FILTER (WHERE "productCategory" = ANY(${[...CATEGORIAS_BEBIDA]})) AS val_beb,
+        SUM(quantity) FILTER (WHERE "productCategory" = ANY(${[...CATEGORIAS_ALCOOL]})) AS qtd_alc,
+        SUM("totalAmount") FILTER (WHERE "productCategory" = ANY(${[...CATEGORIAS_ALCOOL]})) AS val_alc,
+        SUM(quantity) FILTER (WHERE "productName" ~* ${PADRAO_NOME_CAFE}) AS qtd_cafe,
+        SUM("totalAmount") FILTER (WHERE "productName" ~* ${PADRAO_NOME_CAFE}) AS val_cafe,
+        SUM(quantity) FILTER (WHERE "productCategory" = ${CATEGORIA_SOBREMESA} OR "productGroup" ~* ${PADRAO_GRUPO_SOBREMESA}) AS qtd_sob,
+        SUM("totalAmount") FILTER (WHERE "productCategory" = ${CATEGORIA_SOBREMESA} OR "productGroup" ~* ${PADRAO_GRUPO_SOBREMESA}) AS val_sob
+      FROM "AgileSaleItem"
+      WHERE "saleStatus" = ${SITUACAO_RECEBIDA} AND "movementDate" >= ${deAnterior} AND "movementDate" < ${ate}
+      GROUP BY 1
+    )
+    SELECT v.atual, v.turno, COUNT(*) AS comandas, SUM(v.people) AS pessoas,
+      COUNT(*) FILTER (WHERE COALESCE(i.qtd_beb, 0) > 0) AS com_beb, COUNT(*) FILTER (WHERE COALESCE(i.qtd_alc, 0) > 0) AS com_alc,
+      COUNT(*) FILTER (WHERE COALESCE(i.qtd_cafe, 0) > 0) AS com_cafe, COUNT(*) FILTER (WHERE COALESCE(i.qtd_sob, 0) > 0) AS com_sob,
+      COALESCE(SUM(i.qtd_beb), 0) AS qtd_beb, COALESCE(SUM(i.val_beb), 0) AS val_beb, COALESCE(SUM(i.qtd_alc), 0) AS qtd_alc, COALESCE(SUM(i.val_alc), 0) AS val_alc,
+      COALESCE(SUM(i.qtd_cafe), 0) AS qtd_cafe, COALESCE(SUM(i.val_cafe), 0) AS val_cafe, COALESCE(SUM(i.qtd_sob), 0) AS qtd_sob, COALESCE(SUM(i.val_sob), 0) AS val_sob
+    FROM v LEFT JOIN i USING ("saleId")
+    GROUP BY 1, 2`;
+  return linhas.map((l) => ({
+    janela: l.atual ? ("atual" as const) : ("anterior" as const),
+    turno: String(l.turno),
+    comandas: n(l.comandas),
+    pessoas: n(l.pessoas),
+    comBebida: n(l.com_beb),
+    comAlcool: n(l.com_alc),
+    comCafe: n(l.com_cafe),
+    comSobremesa: n(l.com_sob),
+    qtdBebida: n(l.qtd_beb),
+    valBebida: n(l.val_beb),
+    qtdAlcool: n(l.qtd_alc),
+    valAlcool: n(l.val_alc),
+    qtdCafe: n(l.qtd_cafe),
+    valCafe: n(l.val_cafe),
+    qtdSobremesa: n(l.qtd_sob),
+    valSobremesa: n(l.val_sob)
+  }));
+}
+
+export async function obterCardapio(pedido: Periodo, hoje: string = hojeEmSaoPaulo()) {
+  const { periodo, hojeFicouDeFora, vazio } = descontarHoje(pedido, hoje);
+  const { de, ate } = intervaloDoPeriodo(periodo);
+  const { de: deAnterior } = intervaloDoPeriodo(periodoAnteriorDe(periodo));
+  const [produtos, attach] = vazio
+    ? [[], []]
+    : await Promise.all([produtosPorJanela(deAnterior, de, ate), attachPorJanela(deAnterior, de, ate)]);
+  return { ...montarCardapio({ periodo, produtos, attach }), hojeFicouDeFora };
 }

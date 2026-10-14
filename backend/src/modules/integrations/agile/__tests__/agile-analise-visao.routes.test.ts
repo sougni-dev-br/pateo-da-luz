@@ -18,7 +18,7 @@ import { prisma } from "../../../../config/database.js";
 import { getSessionUser } from "../../../security/security-utils.js";
 import { userHasPermission } from "../../../security/menu-permissions.js";
 import { agileAnaliseRouter } from "../agile-analise.routes.js";
-import { obterDemanda, obterPerdas, obterResumo, obterVendasPorPessoa } from "../agile-analise.service.js";
+import { obterCardapio, obterDemanda, obterPerdas, obterResumo, obterVendasPorPessoa } from "../agile-analise.service.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = prisma as any;
@@ -41,7 +41,7 @@ beforeEach(() => {
   db.$queryRaw.mockResolvedValue([]);
 });
 
-const URLS = ["/analise/resumo", "/analise/demanda", "/analise/perdas"];
+const URLS = ["/analise/resumo", "/analise/demanda", "/analise/perdas", "/analise/cardapio"];
 const QS = "?inicio=2026-10-01&fim=2026-10-07";
 
 describe.each(URLS)("%s — acesso e periodo", (url) => {
@@ -75,6 +75,7 @@ describe.each(URLS)("%s — acesso e periodo", (url) => {
 
   test("erro do banco: 500 com mensagem generica, sem vazar o erro interno", async () => {
     db.agileSale.findMany.mockRejectedValue(new Error("connection refused dpg-x:5432"));
+    db.$queryRaw.mockRejectedValue(new Error("connection refused dpg-x:5432"));
     vi.spyOn(console, "error").mockImplementation(() => {});
     const r = await request(app).get(url + QS);
     expect(r.status).toBe(500);
@@ -265,5 +266,66 @@ describe("resumo e perdas contam a mesma perda para os mesmos dados", () => {
     expect(r.atual.descontoValor).toBeCloseTo(p.funil.descontos, 2);
     expect(r.atual.itensCanceladosValor).toBeCloseTo(p.funil.itensCancelados, 2);
     expect(r.atual.faturamento).toBeCloseTo(p.funil.faturado, 2);
+  });
+});
+
+describe("/cardapio", () => {
+  const produtoSql = (over: Record<string, unknown> = {}) => ({ atual: true, produto: "PRATO", grupo: "G", categoria: "ALIMENTOS", quantidade: "10", valor: "500", comandas: BigInt(8), ...over });
+  const attachSql = (over: Record<string, unknown> = {}) => ({
+    atual: true, turno: "Almoço", comandas: BigInt(1000), pessoas: BigInt(2000), com_beb: BigInt(800), com_alc: BigInt(100), com_cafe: BigInt(200), com_sob: BigInt(30),
+    qtd_beb: "1600", val_beb: "16000", qtd_alc: "120", val_alc: "3000", qtd_cafe: "250", val_cafe: "2500", qtd_sob: "30", val_sob: "750", ...over
+  });
+
+  test("faz duas consultas agregadas (produtos e comandas), cobrindo o periodo atual e o anterior", async () => {
+    await request(app).get("/analise/cardapio" + QS);
+    expect(db.$queryRaw).toHaveBeenCalledTimes(2);
+    for (const chamada of db.$queryRaw.mock.calls) {
+      const datas = chamada.slice(1).filter((p: unknown) => p instanceof Date).map((d: Date) => d.toISOString());
+      expect(datas).toContain("2026-09-24T00:00:00.000Z"); // inicio do periodo anterior
+      expect(datas).toContain("2026-10-08T00:00:00.000Z"); // fim exclusivo
+    }
+  });
+
+  test("a consulta de comandas recebe as listas de categorias EXATAS (nao regex) de bebida e alcool", async () => {
+    await request(app).get("/analise/cardapio" + QS);
+    const parametros = db.$queryRaw.mock.calls.flatMap((c: unknown[]) => c.slice(1));
+    const listas = parametros.filter((p: unknown) => Array.isArray(p));
+    expect(listas).toContainEqual(["BEBIDAS", "BEBIDAS NÃO ALCOOLICAS", "BEBIDAS ALCOOLICAS", "VINHOS"]);
+    expect(listas).toContainEqual(["BEBIDAS ALCOOLICAS", "VINHOS"]);
+  });
+
+  test("converte as linhas do banco (bigint e texto) e monta o relatorio", async () => {
+    db.$queryRaw.mockResolvedValueOnce([produtoSql(), produtoSql({ atual: false, produto: "PRATO", valor: "250" })]).mockResolvedValueOnce([attachSql()]);
+    const r = await request(app).get("/analise/cardapio?inicio=2026-09-01&fim=2026-09-20"); // 14+ dias: compara com o anterior
+    expect(r.status).toBe(200);
+    expect(r.body.resumo).toMatchObject({ faturamentoItens: 500, produtosVendidos: 1 });
+    expect(r.body.categorias[0]).toMatchObject({ nome: "ALIMENTOS", participacao: 1, participacaoAnterior: 1 });
+    expect(r.body.attach.geral).toMatchObject({ comandas: 1000, pessoas: 2000 });
+    expect(r.body.attach.geral.itens.bebida.pctComandas).toBe(0.8);
+    expect(r.body.simulacoes).toHaveLength(4);
+  });
+
+  test("hoje fica de fora: as duas consultas terminam ONTEM e a resposta avisa", async () => {
+    const r = await obterCardapio({ inicio: "2026-10-01", fim: "2026-10-13" }, "2026-10-13");
+    for (const chamada of db.$queryRaw.mock.calls) {
+      const datas = chamada.slice(1).filter((p: unknown) => p instanceof Date).map((d: Date) => d.toISOString());
+      expect(datas).toContain("2026-10-13T00:00:00.000Z");
+      expect(datas).not.toContain("2026-10-14T00:00:00.000Z");
+    }
+    expect(r.hojeFicouDeFora).toBe(true);
+  });
+
+  test("so hoje: nao consulta o banco", async () => {
+    const r = await obterCardapio({ inicio: "2026-10-13", fim: "2026-10-13" }, "2026-10-13");
+    expect(db.$queryRaw).not.toHaveBeenCalled();
+    expect(r.hojeFicouDeFora).toBe(true);
+    expect(r.resumo.produtosVendidos).toBe(0);
+  });
+
+  test("sem nenhum dado: relatorio vazio com 200", async () => {
+    const r = await request(app).get("/analise/cardapio" + QS);
+    expect(r.status).toBe(200);
+    expect(r.body.abc.itens).toEqual([]);
+    expect(r.body.insights).toEqual([]);
   });
 });

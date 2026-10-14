@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  getAnaliseCardapio,
   getAnaliseDemanda,
   getAnalisePerdas,
   getAnaliseResumo,
@@ -8,6 +9,7 @@ import {
 } from "../api/client";
 import { Alert, Button, PageHeader, Select, Tabs, TextField } from "../design-system";
 import { AvisoHoje } from "./analise-salao/AvisoHoje";
+import { CardapioPanel } from "./analise-salao/CardapioPanel";
 import { DemandaPanel } from "./analise-salao/DemandaPanel";
 import type { SecaoDaAnalise } from "./analise-salao/InsightCard";
 import { PerdasPanel } from "./analise-salao/PerdasPanel";
@@ -22,6 +24,7 @@ type Preset = PresetPeriodo | "personalizado";
 const ABAS = [
   { value: "resumo", label: "Resumo" },
   { value: "demanda", label: "Quando vendemos" },
+  { value: "cardapio", label: "Cardápio" },
   { value: "perdas", label: "Perdas" },
   { value: "equipe", label: "Equipe" }
 ];
@@ -81,9 +84,10 @@ export function AnaliseSalao() {
 
   const resumo = useRelatorio(getAnaliseResumo, periodo, aba === "resumo");
   const demanda = useRelatorio(getAnaliseDemanda, periodo, aba === "demanda");
+  const cardapio = useRelatorio(getAnaliseCardapio, periodo, aba === "cardapio");
   const perdas = useRelatorio(getAnalisePerdas, periodo, aba === "perdas");
   const equipe = useRelatorio(getAnaliseVendasPorPessoa, periodo, aba === "equipe");
-  const atual = { resumo, demanda, perdas, equipe }[aba];
+  const atual = { resumo, demanda, cardapio, perdas, equipe }[aba];
 
   function escolherPreset(valor: string) {
     if (valor === "personalizado") {
@@ -143,6 +147,7 @@ export function AnaliseSalao() {
         </div>
         {pronto && aba === "resumo" && resumo.dados && <ResumoPanel dados={resumo.dados} onAbrir={abrirSecao} />}
         {pronto && aba === "demanda" && demanda.dados && <DemandaPanel dados={demanda.dados} />}
+        {pronto && aba === "cardapio" && cardapio.dados && <CardapioPanel dados={cardapio.dados} />}
         {pronto && aba === "perdas" && perdas.dados && <PerdasPanel dados={perdas.dados} />}
         {pronto && aba === "equipe" && equipe.dados && (
           <div className="analise-stack">
