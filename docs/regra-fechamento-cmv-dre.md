@@ -59,29 +59,29 @@ Toda nota fiscal de entrada do mês precisa estar lançada, classificada e com C
 
 | Categoria DRE | Fornecedor | CNPJ | Frequência observada | Marcar |
 |---|---|---|---|---|
-| **Bebidas** | AMBEV S/A CDD – São Paulo | [CNPJ] | semanal (4/5 meses, ~13 entregas) | ☐ |
-| **Custo de Alimentos** | NOVA UNIAO ALIMENTOS EIRELI | 07.172.011/0001-06 | volume alto — 28 compras / 3 meses | ☐ |
-| Custo de Alimentos | CASTELÃO DIST. DE FRIOS E LATICÍNIOS | 45.758.190/0001-49 | volume alto — 60 compras / 3 meses | ☐ |
-| Custo de Alimentos | PESCADOS POPO LTDA | [CNPJ] | peixaria principal — 30 compras / 3 meses | ☐ |
-| Custo de Alimentos | JJE PESCADOS LTDA – ME | [CNPJ] | peixaria secundária — 12 compras / 3 meses | ☐ |
-| Custo de Alimentos | PICAPAU – ANA HORTIFRUTI | [CNPJ] | hortifruti principal — 23 compras / 3 meses | ☐ |
-| Custo de Alimentos | FLD HORTIFRUTIGRANJEIRO | [CNPJ] | hortifruti secundária — 17 compras / 3 meses | ☐ |
-| Custo de Alimentos | PMG PAMA – GÊNEROS ALIMENTÍCIOS | [CNPJ] | mercearia — 13 compras / 3 meses | ☐ |
-| Custo de Alimentos | JM MEAT COMÉRCIO DE CARNES | [CNPJ] | açougue — 8 compras / 3 meses | ☐ |
-| Custo de Alimentos | ADRV DISTRIBUIÇÃO DE PRODUTOS | [CNPJ] | 23 compras / 3 meses | ☐ |
-| Custo de Alimentos | DELTA FOODS BRASIL | [CNPJ] | 4 meses de compra | ☐ |
-| Custo de Alimentos | MASTER ATS SUPERMERCADOS | [CNPJ] | mercado — café funcionários + gerais | ☐ |
-| Custo de Alimentos | DOCES DOCELANDIA E VAZ | [CNPJ] | mensal | ☐ |
+| **Bebidas** | AMBEV S/A CDD – São Paulo | (CNPJ no cadastro) | semanal (4/5 meses, ~13 entregas) | ☐ |
+| **Custo de Alimentos** | NOVA UNIAO ALIMENTOS EIRELI | (CNPJ no cadastro) | volume alto — 28 compras / 3 meses | ☐ |
+| Custo de Alimentos | CASTELÃO DIST. DE FRIOS E LATICÍNIOS | (CNPJ no cadastro) | volume alto — 60 compras / 3 meses | ☐ |
+| Custo de Alimentos | PESCADOS POPO LTDA | (CNPJ no cadastro) | peixaria principal — 30 compras / 3 meses | ☐ |
+| Custo de Alimentos | JJE PESCADOS LTDA – ME | (CNPJ no cadastro) | peixaria secundária — 12 compras / 3 meses | ☐ |
+| Custo de Alimentos | PICAPAU – ANA HORTIFRUTI | (CNPJ no cadastro) | hortifruti principal — 23 compras / 3 meses | ☐ |
+| Custo de Alimentos | FLD HORTIFRUTIGRANJEIRO | (CNPJ no cadastro) | hortifruti secundária — 17 compras / 3 meses | ☐ |
+| Custo de Alimentos | PMG PAMA – GÊNEROS ALIMENTÍCIOS | (CNPJ no cadastro) | mercearia — 13 compras / 3 meses | ☐ |
+| Custo de Alimentos | JM MEAT COMÉRCIO DE CARNES | (CNPJ no cadastro) | açougue — 8 compras / 3 meses | ☐ |
+| Custo de Alimentos | ADRV DISTRIBUIÇÃO DE PRODUTOS | (CNPJ no cadastro) | 23 compras / 3 meses | ☐ |
+| Custo de Alimentos | DELTA FOODS BRASIL | (CNPJ no cadastro) | 4 meses de compra | ☐ |
+| Custo de Alimentos | MASTER ATS SUPERMERCADOS | (CNPJ no cadastro) | mercado — café funcionários + gerais | ☐ |
+| Custo de Alimentos | DOCES DOCELANDIA E VAZ | (CNPJ no cadastro) | mensal | ☐ |
 | Custo de Alimentos | SHOPEE | – | 5/5 meses, compras pequenas | ☐ |
-| **Embalagens / Descartáveis** | KATIVA – TRINCA DISTRIBUIDORA | [CNPJ] | principal — 24 compras / 3 meses | ☐ |
-| Embalagens / Descartáveis | KATIVA – TRIADE HIGIENE E DESCARTÁVEIS | [CNPJ] | 4/5 meses | ☐ |
-| Embalagens / Descartáveis | DISTUDO – DPRO | [CNPJ] | 16 compras / 3 meses | ☐ |
-| Embalagens / Descartáveis | RICAPEL | [CNPJ] | mensal | ☐ |
-| Embalagens / Descartáveis | PAPEL PLÁSTICO ITUPEVA S/A | [CNPJ] | mensal | ☐ |
-| **Material de Escritório** | KALUNGA S/A | [CNPJ] | 8 compras / 3 meses | ☐ |
-| **Serviços de Terceiros** | ACESSONUTRI – ASSESSORIA EM NUTRIÇÃO | [CNPJ] | mensal — 8 compras / 3 meses | ☐ |
-| Serviços de Terceiros — Manutenção | [fornecedor] (Toninho) | [CNPJ] | mensal — cadastrado, aparece só em jun/2026 no local (subamostrado) | ☐ |
-| **Cartão empresa (OTHER)** | [fornecedor] | – | mensal — 4/5 meses | ☐ |
+| **Embalagens / Descartáveis** | KATIVA – TRINCA DISTRIBUIDORA | (CNPJ no cadastro) | principal — 24 compras / 3 meses | ☐ |
+| Embalagens / Descartáveis | KATIVA – TRIADE HIGIENE E DESCARTÁVEIS | (CNPJ no cadastro) | 4/5 meses | ☐ |
+| Embalagens / Descartáveis | DISTUDO – DPRO | (CNPJ no cadastro) | 16 compras / 3 meses | ☐ |
+| Embalagens / Descartáveis | RICAPEL | (CNPJ no cadastro) | mensal | ☐ |
+| Embalagens / Descartáveis | PAPEL PLÁSTICO ITUPEVA S/A | (CNPJ no cadastro) | mensal | ☐ |
+| **Material de Escritório** | KALUNGA S/A | (CNPJ no cadastro) | 8 compras / 3 meses | ☐ |
+| **Serviços de Terceiros** | ACESSONUTRI – ASSESSORIA EM NUTRIÇÃO | (CNPJ no cadastro) | mensal — 8 compras / 3 meses | ☐ |
+| Serviços de Terceiros — Manutenção | [fornecedor] | (CNPJ no cadastro) | mensal — cadastrado, aparece só em jun/2026 no local (subamostrado) | ☐ |
+| **Cartão empresa (OTHER)** | Fatura do cartão da empresa (titular e final omitidos) | – | mensal — 4/5 meses | ☐ |
 
 #### 3.2.2 Fornecedores/despesas **NÃO CADASTRADAS** no sistema — obrigatório cadastrar antes do próximo fechamento
 
@@ -89,7 +89,7 @@ Toda nota fiscal de entrada do mês precisa estar lançada, classificada e com C
 
 | Categoria esperada | Item / fornecedor citado | Onde entra no DRE | Status | Marcar |
 |---|---|---|---|---|
-<!-- Manutenção Toninho movida para §3.2.1 — [fornecedor], CNPJ [CNPJ] (confirmado 2026-07-09) -->
+<!-- Manutenção Toninho movida para §3.2.1 — [fornecedor], CNPJ (CNPJ no cadastro) (confirmado 2026-07-09) -->
 | Gás | Fornecedor de GLP / gás encanado | Despesas Gerais | ❌ não cadastrado | ☐ |
 | CO₂ | Fornecedor de CO₂ do chope | Custo de Alimentos (managerial) | ❌ não cadastrado no fluxo atual | ☐ |
 | Aluguel | Locador do ponto | Despesas Fixas | ❌ não cadastrado | ☐ |
