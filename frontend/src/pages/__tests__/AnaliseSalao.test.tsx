@@ -1,19 +1,24 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { AnaliseVendasPorPessoa } from "../../api/client";
+import { SessionContext, type SessionContextValue } from "../../context/SessionContext";
+import { HideValuesProvider } from "../../design-system";
 
 vi.mock("../../api/client", () => ({
   getAnaliseResumo: vi.fn(),
   getAnaliseDemanda: vi.fn(),
   getAnaliseCardapio: vi.fn(),
+  getAnaliseMargem: vi.fn(),
+  vincularProdutoAnaliseMargem: vi.fn(),
   getAnalisePerdas: vi.fn(),
   getAnaliseVendasPorPessoa: vi.fn(),
   getAnaliseMetas: vi.fn(),
   salvarAnaliseMeta: vi.fn()
 }));
 
-import { getAnaliseCardapio, getAnaliseDemanda, getAnaliseMetas, getAnalisePerdas, getAnaliseResumo, getAnaliseVendasPorPessoa } from "../../api/client";
-import { cardapio, demanda, perdas, PERIODO, renderComSessao, resumo } from "../analise-salao/__tests__/fixtures";
+import { getAnaliseCardapio, getAnaliseDemanda, getAnaliseMargem, getAnaliseMetas, getAnalisePerdas, getAnaliseResumo, getAnaliseVendasPorPessoa, vincularProdutoAnaliseMargem } from "../../api/client";
+import { cardapio, demanda, perdas, PERIODO, renderComSessao, resumo, sessao } from "../analise-salao/__tests__/fixtures";
 import { AnaliseSalao } from "../AnaliseSalao";
 
 const equipe: AnaliseVendasPorPessoa = {
@@ -32,6 +37,11 @@ beforeEach(() => {
   vi.mocked(getAnaliseResumo).mockResolvedValue(resumo());
   vi.mocked(getAnaliseDemanda).mockResolvedValue(demanda());
   vi.mocked(getAnaliseCardapio).mockResolvedValue(cardapio());
+  vi.mocked(getAnaliseMargem).mockResolvedValue({
+    periodo: PERIODO, hojeFicouDeFora: false,
+    cobertura: { receitaTotal: 1000, receitaBuffet: 0, receitaBebidas: 0, receitaPratos: 1000, receitaComMargem: 0, receitaSemFicha: 0, receitaCustoIncompleto: 0, receitaSemVinculo: 1000, receitaPratoIndisponivel: 0, pctComMargem: 0, pctVinculadoSemCusto: 0, pctSemVinculo: 1, pctDaReceitaTotalComMargem: 0, pratosComMargem: 0 },
+    linhas: [], aFazer: [], pratosParaVincular: [], insights: []
+  });
   vi.mocked(getAnalisePerdas).mockResolvedValue(perdas());
   vi.mocked(getAnaliseVendasPorPessoa).mockResolvedValue(equipe);
   vi.mocked(getAnaliseMetas).mockResolvedValue({
@@ -53,9 +63,9 @@ describe("Análise do Salão — estrutura", () => {
     expect(getAnaliseVendasPorPessoa).not.toHaveBeenCalled();
   });
 
-  test("tem as seis secoes, nesta ordem", () => {
+  test("tem as sete secoes, nesta ordem", () => {
     renderizar();
-    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Resumo", "Quando vendemos", "Cardápio", "Perdas", "Equipe", "Metas"]);
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Resumo", "Quando vendemos", "Cardápio", "Margem", "Perdas", "Equipe", "Metas"]);
   });
 
   test("metas: so busca ao abrir, esconde o filtro de periodo (e por mes) e nao chama os relatorios por periodo", async () => {
@@ -81,6 +91,52 @@ describe("Análise do Salão — estrutura", () => {
     expect(await screen.findByText(/Falha nas metas/)).toBeTruthy();
     fireEvent.click(aba("Resumo"));
     expect(await screen.findByText("Faturamento por dia")).toBeTruthy();
+  });
+
+  test("margem: so busca ao abrir, com o periodo do topo", async () => {
+    renderizar();
+    await screen.findByText("Faturamento por dia");
+    expect(getAnaliseMargem).not.toHaveBeenCalled();
+    fireEvent.click(aba("Margem"));
+    expect(await screen.findByText(/Margem por prato/)).toBeTruthy();
+    expect(getAnaliseMargem).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(getAnaliseMargem).mock.calls[0][0]).toEqual(expect.objectContaining({ inicio: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) }));
+    expect(screen.getByLabelText("Período")).toBeTruthy();
+  });
+
+  test("margem: quem edita vincula pela tela e o relatorio e relido; quem so ve nao tem o botao", async () => {
+    const comLista = {
+      periodo: PERIODO, hojeFicouDeFora: false,
+      cobertura: { receitaTotal: 1000, receitaBuffet: 0, receitaBebidas: 0, receitaPratos: 1000, receitaComMargem: 0, receitaSemFicha: 0, receitaCustoIncompleto: 0, receitaSemVinculo: 1000, receitaPratoIndisponivel: 0, pctComMargem: 0, pctVinculadoSemCusto: 0, pctSemVinculo: 1, pctDaReceitaTotalComMargem: 0, pratosComMargem: 0 },
+      linhas: [], pratosParaVincular: [{ id: "p1", nome: "Prato Um" }], insights: [],
+      aFazer: [{ codigo: "X1", nome: "PRATO UM", categoria: "PRATOS", quantidade: 10, receita: 1000, pctReceita: 1, situacao: "sem-vinculo" as const, pratoId: null, prato: null, sugestoes: [] }]
+    };
+    vi.mocked(getAnaliseMargem).mockResolvedValue(comLista);
+    vi.mocked(vincularProdutoAnaliseMargem).mockResolvedValue({ ok: true });
+    const comPermissao = (modulePermissions?: Record<string, unknown>, role = "ADMIN") =>
+      render(
+        <MemoryRouter>
+          <SessionContext.Provider value={{ ...sessao(), user: { id: "u", role, modulePermissions } } as unknown as SessionContextValue}>
+            <HideValuesProvider>
+              <AnaliseSalao />
+            </HideValuesProvider>
+          </SessionContext.Provider>
+        </MemoryRouter>
+      );
+    const editor = comPermissao();
+    await screen.findByText("Faturamento por dia");
+    fireEvent.click(aba("Margem"));
+    fireEvent.change(await screen.findByLabelText(/Prato da ficha para PRATO UM/), { target: { value: "p1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Vincular PRATO UM" }));
+    await waitFor(() => expect(vincularProdutoAnaliseMargem).toHaveBeenCalledWith({ codigo: "X1", nome: "PRATO UM", pratoId: "p1" }));
+    await waitFor(() => expect(getAnaliseMargem).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText(/PRATO UM vinculado\. Margem recalculada\./)).toBeTruthy();
+    editor.unmount();
+
+    comPermissao({ "analise-salao": { view: true, create: false, edit: false, delete: false, admin: false } }, "GESTAO");
+    fireEvent.click(aba("Margem"));
+    await screen.findByText(/Falta ligar este produto a um prato/);
+    expect(screen.queryByRole("button", { name: /^Vincular/ })).toBeNull();
   });
 
   test("cardapio: nao busca ate abrir, e uma vez aberto nao refaz ao voltar", async () => {

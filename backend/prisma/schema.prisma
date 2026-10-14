@@ -1473,6 +1473,23 @@ model AgileSaleItem {
   @@index([productName], map: "agitem_product_name_idx")
 }
 
+// Vínculo entre um produto do PDV (Agile) e o prato da ficha técnica do cardápio do SALÃO.
+// Casar por nome não funciona (2,7% da receita): o nome do PDV e o da ficha são escritos à mão por pessoas
+// diferentes. A chave é o código do produto no PDV; vários códigos podem apontar para o mesmo prato.
+model AgileProdutoPrato {
+  id          String   @id @default(cuid())
+  productCode String   @unique
+  // Nome no PDV quando o vínculo foi feito: só para a pessoa reconhecer a linha se o PDV renomear.
+  productName String
+  dishId      String
+  dish        Dish     @relation(fields: [dishId], references: [id], onDelete: Cascade)
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([dishId], map: "agprodprato_dish_idx")
+}
+
 // Meta mensal do salão (Análise do Salão > Metas). Uma linha por mês e indicador; sem linha = sem meta.
 // valor está na unidade do indicador: R$ (faturamento, ticketPessoa), pessoas, ou fração (perdaPct = 0,02 é 2%).
 model AgileSalaoMeta {
@@ -1715,6 +1732,7 @@ model Dish {
   listings         DishListing[]
   revisions        DishRevision[]
   wasteEntries     WasteEntry[]
+  pdvProducts      AgileProdutoPrato[]
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
 

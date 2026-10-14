@@ -23,6 +23,9 @@ export function reaisCompacto(n: number): string {
   return `${sinal}R$ ${numero(abs, 0)}`;
 }
 
+// Valores unitários (preço, custo, margem por prato) com centavos: arredondar R$ 39,90 e R$ 38,60 para R$ 40 e R$ 39 esconde a decisão.
+export const reaisCentavos = (n: number) => `${n < 0 ? MENOS : ""}R$ ${numero(Math.abs(n), 2)}`;
+
 export const reaisInteiro = (n: number) => `${n < 0 ? MENOS : ""}R$ ${numero(Math.abs(n), 0)}`;
 
 // razão (0,238) -> "23,8%". Para pontos percentuais já calculados, use pontos().

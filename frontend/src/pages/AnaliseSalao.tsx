@@ -2,15 +2,20 @@ import { useEffect, useRef, useState } from "react";
 import {
   getAnaliseCardapio,
   getAnaliseDemanda,
+  getAnaliseMargem,
   getAnalisePerdas,
   getAnaliseResumo,
   getAnaliseVendasPorPessoa,
+  vincularProdutoAnaliseMargem,
   type AnalisePeriodo
 } from "../api/client";
+import { useSession } from "../context/SessionContext";
 import { Alert, Button, PageHeader, Select, Tabs, TextField } from "../design-system";
+import { hasPermission } from "../lib/permissions";
 import { AvisoHoje } from "./analise-salao/AvisoHoje";
 import { CardapioPanel } from "./analise-salao/CardapioPanel";
 import { DemandaPanel } from "./analise-salao/DemandaPanel";
+import { MargemPanel } from "./analise-salao/MargemPanel";
 import { MetasPanel } from "./analise-salao/MetasPanel";
 import type { SecaoDaAnalise } from "./analise-salao/InsightCard";
 import { PerdasPanel } from "./analise-salao/PerdasPanel";
@@ -26,6 +31,7 @@ const ABAS = [
   { value: "resumo", label: "Resumo" },
   { value: "demanda", label: "Quando vendemos" },
   { value: "cardapio", label: "Cardápio" },
+  { value: "margem", label: "Margem" },
   { value: "perdas", label: "Perdas" },
   { value: "equipe", label: "Equipe" },
   { value: "metas", label: "Metas" }
@@ -84,14 +90,31 @@ export function AnaliseSalao() {
   const [periodo, setPeriodo] = useState<AnalisePeriodo>(() => periodoDoPreset("ultimos30", new Date()));
   const valido = periodoValido(periodo);
   const conteudo = useRef<HTMLDivElement>(null);
+  const { user } = useSession();
+  const podeEditar = hasPermission(user, "analise-salao", "edit");
 
   const resumo = useRelatorio(getAnaliseResumo, periodo, aba === "resumo");
   const demanda = useRelatorio(getAnaliseDemanda, periodo, aba === "demanda");
   const cardapio = useRelatorio(getAnaliseCardapio, periodo, aba === "cardapio");
+  const margem = useRelatorio(getAnaliseMargem, periodo, aba === "margem");
+  // Depois de vincular o relatório é relido: o painel antigo continua na tela (sem pulo nem perda de foco) até o novo chegar.
+  const ultimaMargem = useRef<typeof margem.dados>(null);
+  const [vinculo, setVinculo] = useState<{ texto: string; chave: string } | null>(null);
+  const chavePeriodo = `${periodo.inicio}|${periodo.fim}`;
+  const avisoDoVinculo = vinculo && vinculo.chave === chavePeriodo ? vinculo.texto : null;
+  if (margem.dados) ultimaMargem.current = margem.dados;
+  const margemNaTela = margem.dados ?? (margem.carregando && avisoDoVinculo !== null ? ultimaMargem.current : null);
   const perdas = useRelatorio(getAnalisePerdas, periodo, aba === "perdas");
   const equipe = useRelatorio(getAnaliseVendasPorPessoa, periodo, aba === "equipe");
   // Metas é por mês e se carrega sozinha: não usa o período do topo.
-  const atual = aba === "metas" ? SEM_RELATORIO : { resumo, demanda, cardapio, perdas, equipe }[aba];
+  const atual = aba === "metas" ? SEM_RELATORIO : { resumo, demanda, cardapio, margem, perdas, equipe }[aba];
+
+  // Vincula (ou desfaz) e relê o relatório: a margem do prato entra na tabela no mesmo instante.
+  async function vincular(codigo: string, nome: string, pratoId: string | null) {
+    await vincularProdutoAnaliseMargem({ codigo, nome, pratoId });
+    setVinculo({ texto: pratoId === null ? `Vínculo de ${nome} desfeito.` : `${nome} vinculado.`, chave: chavePeriodo });
+    margem.recarregar();
+  }
 
   function escolherPreset(valor: string) {
     if (valor === "personalizado") {
@@ -155,6 +178,13 @@ export function AnaliseSalao() {
         {pronto && aba === "resumo" && resumo.dados && <ResumoPanel dados={resumo.dados} onAbrir={abrirSecao} />}
         {pronto && aba === "demanda" && demanda.dados && <DemandaPanel dados={demanda.dados} />}
         {pronto && aba === "cardapio" && cardapio.dados && <CardapioPanel dados={cardapio.dados} />}
+        {aba === "margem" && avisoDoVinculo && (
+          <p className="analise-nota" role="status">
+            {avisoDoVinculo}
+            {margem.carregando ? " Recalculando a margem…" : " Margem recalculada."}
+          </p>
+        )}
+        {aba === "margem" && margemNaTela && (pronto || avisoDoVinculo !== null) && <MargemPanel dados={margemNaTela} podeEditar={podeEditar} onVincular={vincular} />}
         {pronto && aba === "perdas" && perdas.dados && <PerdasPanel dados={perdas.dados} />}
         {pronto && aba === "equipe" && equipe.dados && (
           <div className="analise-stack">
