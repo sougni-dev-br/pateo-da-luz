@@ -1,5 +1,6 @@
 import { prisma } from "../../../../config/database.js";
 import { hasValidCredential } from "./noventa-nove-http-client.js";
+import { importarCardapios } from "./noventa-nove-menu.service.js";
 import { isSyncInFlight, runSmartSyncGuarded } from "./noventa-nove.service.js";
 
 // Scheduler in-process do sync do 99 Food. Roda 1x/dia de madrugada (BRT),
@@ -22,6 +23,12 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 // Nos primeiros dias do mês, sincroniza TAMBÉM o mês anterior pra capturar
 // repasses semanais que cruzam a virada e só fecham no início do mês seguinte.
 const PREV_MONTH_GRACE_DAYS = 5;
+
+// Depois do sync de vendas, a mesma rodada importa o cardápio (nome, categoria e preço por loja) para as fichas técnicas:
+// o preço da 99 na ficha entra sozinho. Desligar só esta parte: NOVENTA_NOVE_MENU_CRON_ENABLED=false.
+export function importacaoDoCardapioHabilitada(env: NodeJS.ProcessEnv): boolean {
+  return env.NOVENTA_NOVE_MENU_CRON_ENABLED !== "false";
+}
 
 export function cronHabilitado(env: NodeJS.ProcessEnv): boolean {
   const flag = env.NOVENTA_NOVE_CRON_ENABLED;
@@ -90,6 +97,21 @@ async function runDailySync(): Promise<void> {
     } catch (error: unknown) {
       console.error(`[99cron] ${label}: falha no sync —`, error instanceof Error ? error.message : error);
     }
+  }
+
+  // Só depois do sync de vendas: a 99 aceita 1 chamada a cada 20 s e as duas rodadas não podem competir.
+  await runDailyMenuImport();
+}
+
+async function runDailyMenuImport(): Promise<void> {
+  if (!importacaoDoCardapioHabilitada(process.env)) return;
+  try {
+    const result = await importarCardapios();
+    const lojas = result.perStore ?? [];
+    const resumo = lojas.map((loja) => `${loja.storeLabel}: ${loja.status} (${loja.listagensCriadas} novas, ${loja.listagensAtualizadas} atualizadas, ${loja.pratosCriados} pratos novos)`).join("; ");
+    console.info(`[99cron] cardápio importado — ${resumo || "nenhuma loja"}.`);
+  } catch (error: unknown) {
+    console.error("[99cron] falha ao importar o cardápio —", error instanceof Error ? error.message : error);
   }
 }
 
