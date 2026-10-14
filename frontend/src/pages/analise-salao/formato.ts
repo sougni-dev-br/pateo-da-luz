@@ -88,6 +88,17 @@ export function diaDaSemana(iso: string): number {
 }
 
 const MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"] as const;
+// Texto sem acento e em caixa baixa, para buscar por parte do nome.
+export const semAcentoEmCaixaBaixa = (s: string) => s.normalize("NFD").replace(new RegExp(`[${String.fromCharCode(0x300)}-${String.fromCharCode(0x36f)}]`, "g"), "").toLowerCase();
+
+// Quantidade consumida por venda ("150", "0,15", "0.750"): como o servidor guarda 4 casas decimais, "0.750" é três
+// quartos, não setecentos e cinquenta. Fora do zero à esquerda vale a leitura de sempre (1.500 = mil e quinhentos).
+export function lerQuantidade(texto: string): number | null {
+  const limpo = texto.trim();
+  if (/^0[.,]\d+$/.test(limpo)) return Number(limpo.replace(",", "."));
+  return lerNumeroBr(limpo);
+}
+
 export const nomeDoMes = (mes: number, ano: number) => `${MESES[mes - 1]} de ${ano}`;
 
 // Lê o que a pessoa digitou ("300.000", "300000,50", "R$ 98,5") como número. null = não é número.

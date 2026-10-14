@@ -20,7 +20,8 @@ const EH_BUFFET = /^\s*buffet\b/i;
 // Bebida é revenda: a margem dela é preço menos custo de COMPRA, não ficha de prato. Fica fora desta conta.
 const ehBebida = (p: ProdutoVendido) => (CATEGORIAS_BEBIDA as readonly string[]).includes(p.categoria ?? "");
 
-export type ProdutoVendido = { codigo: string | null; nome: string; categoria: string | null; quantidade: number; valor: number };
+// quantidadePaga: unidades com valor > 0 (o preco médio não deve ser diluído por cortesia ou item de combo sem preço).
+export type ProdutoVendido = { codigo: string | null; nome: string; categoria: string | null; quantidade: number; valor: number; quantidadePaga?: number };
 export type PratoDoSalao = {
   id: string;
   nome: string;

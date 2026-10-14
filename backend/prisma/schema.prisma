@@ -474,6 +474,7 @@ model ExpenseTypeMaster {
 }
 
 model Product {
+  pdvBebidas                AgileProdutoInsumo[]
   id                        String                     @id @default(cuid())
   externalCode              String?                    @unique
   name                      String
@@ -1471,6 +1472,24 @@ model AgileSaleItem {
   @@index([competenceYear, competenceMonth], map: "agitem_competence_idx")
   @@index([productCode], map: "agitem_product_code_idx")
   @@index([productName], map: "agitem_product_name_idx")
+}
+
+// Vínculo entre uma BEBIDA do PDV (Agile) e o insumo comprado, para a margem de revenda:
+// preço de venda menos custo de compra. Uma venda consome `quantity` `unit` do insumo (1 UN de uma lata;
+// 150 ML de uma garrafa de 750 ML numa taça). A chave é o código do produto no PDV.
+model AgileProdutoInsumo {
+  id          String   @id @default(cuid())
+  productCode String   @unique
+  productName String
+  insumoId    String
+  insumo      Product  @relation(fields: [insumoId], references: [id], onDelete: Cascade)
+  quantity    Decimal  @default(1) @db.Decimal(12, 4)
+  unit        String   @default("UN")
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([insumoId], map: "agprodinsumo_insumo_idx")
 }
 
 // Vínculo entre um produto do PDV (Agile) e o prato da ficha técnica do cardápio do SALÃO.

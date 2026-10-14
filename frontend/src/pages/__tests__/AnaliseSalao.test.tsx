@@ -10,6 +10,8 @@ vi.mock("../../api/client", () => ({
   getAnaliseDemanda: vi.fn(),
   getAnaliseCardapio: vi.fn(),
   getAnaliseMargem: vi.fn(),
+  getAnaliseMargemBebidas: vi.fn(),
+  vincularBebidaAnaliseMargem: vi.fn(),
   vincularProdutoAnaliseMargem: vi.fn(),
   getAnalisePerdas: vi.fn(),
   getAnaliseVendasPorPessoa: vi.fn(),
@@ -17,7 +19,7 @@ vi.mock("../../api/client", () => ({
   salvarAnaliseMeta: vi.fn()
 }));
 
-import { getAnaliseCardapio, getAnaliseDemanda, getAnaliseMargem, getAnaliseMetas, getAnalisePerdas, getAnaliseResumo, getAnaliseVendasPorPessoa, vincularProdutoAnaliseMargem } from "../../api/client";
+import { getAnaliseCardapio, getAnaliseDemanda, getAnaliseMargem, getAnaliseMargemBebidas, getAnaliseMetas, getAnalisePerdas, getAnaliseResumo, getAnaliseVendasPorPessoa, vincularBebidaAnaliseMargem, vincularProdutoAnaliseMargem } from "../../api/client";
 import { cardapio, demanda, perdas, PERIODO, renderComSessao, resumo, sessao } from "../analise-salao/__tests__/fixtures";
 import { AnaliseSalao } from "../AnaliseSalao";
 
@@ -41,6 +43,11 @@ beforeEach(() => {
     periodo: PERIODO, hojeFicouDeFora: false,
     cobertura: { receitaTotal: 1000, receitaBuffet: 0, receitaBebidas: 0, receitaPratos: 1000, receitaComMargem: 0, receitaSemFicha: 0, receitaCustoIncompleto: 0, receitaSemVinculo: 1000, receitaPratoIndisponivel: 0, pctComMargem: 0, pctVinculadoSemCusto: 0, pctSemVinculo: 1, pctDaReceitaTotalComMargem: 0, pratosComMargem: 0 },
     linhas: [], aFazer: [], pratosParaVincular: [], insights: []
+  });
+  vi.mocked(getAnaliseMargemBebidas).mockResolvedValue({
+    periodo: PERIODO, hojeFicouDeFora: false,
+    cobertura: { receitaBebidas: 500, receitaComMargem: 0, receitaSemVinculo: 500, receitaCustoIncompleto: 0, pctComMargem: 0, pctSemVinculo: 1, pctCustoIncompleto: 0, bebidasComMargem: 0 },
+    linhas: [], aFazer: [], insumosParaVincular: [], insumosTruncados: false, insights: []
   });
   vi.mocked(getAnalisePerdas).mockResolvedValue(perdas());
   vi.mocked(getAnaliseVendasPorPessoa).mockResolvedValue(equipe);
@@ -137,6 +144,122 @@ describe("Análise do Salão — estrutura", () => {
     fireEvent.click(aba("Margem"));
     await screen.findByText(/Falta ligar este produto a um prato/);
     expect(screen.queryByRole("button", { name: /^Vincular/ })).toBeNull();
+  });
+
+  test("margem: as bebidas (revenda) sao buscadas junto, so ao abrir, e vincular bebida chama a API e recarrega so as bebidas", async () => {
+    vi.mocked(getAnaliseMargemBebidas).mockResolvedValue({
+      periodo: PERIODO, hojeFicouDeFora: false,
+      cobertura: { receitaBebidas: 1000, receitaComMargem: 0, receitaSemVinculo: 1000, receitaCustoIncompleto: 0, pctComMargem: 0, pctSemVinculo: 1, pctCustoIncompleto: 0, bebidasComMargem: 0 },
+      linhas: [], insumosParaVincular: [{ id: "i1", nome: "INSUMO UM", unidade: "UN" }], insumosTruncados: false, insights: [],
+      aFazer: [{ codigo: "B1", nome: "BEBIDA UM", categoria: "BEBIDAS", quantidade: 10, receita: 1000, pctReceita: 1, situacao: "sem-vinculo" as const, insumo: null, problema: null, sugestoes: [] }]
+    });
+    vi.mocked(vincularBebidaAnaliseMargem).mockResolvedValue({ ok: true });
+    render(
+      <MemoryRouter>
+        <SessionContext.Provider value={{ ...sessao(), user: { id: "u", role: "ADMIN" } } as unknown as SessionContextValue}>
+          <HideValuesProvider>
+            <AnaliseSalao />
+          </HideValuesProvider>
+        </SessionContext.Provider>
+      </MemoryRouter>
+    );
+    await screen.findByText("Faturamento por dia");
+    expect(getAnaliseMargemBebidas).not.toHaveBeenCalled();
+    fireEvent.click(aba("Margem"));
+    expect(await screen.findByText("Bebidas: margem de revenda")).toBeTruthy();
+    fireEvent.change(await screen.findByLabelText(/Insumo comprado para BEBIDA UM/), { target: { value: "i1" } });
+    fireEvent.change(screen.getByLabelText(/Quanto uma venda de BEBIDA UM consome/), { target: { value: "1" } });
+    fireEvent.change(screen.getByLabelText(/Unidade do consumo de BEBIDA UM/), { target: { value: "UN" } });
+    fireEvent.click(screen.getByRole("button", { name: "Vincular BEBIDA UM" }));
+    await waitFor(() => expect(vincularBebidaAnaliseMargem).toHaveBeenCalledWith({ codigo: "B1", nome: "BEBIDA UM", insumoId: "i1", quantidade: 1, unidade: "UN" }));
+    await waitFor(() => expect(getAnaliseMargemBebidas).toHaveBeenCalledTimes(2));
+    expect(getAnaliseMargem).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText(/Vínculo de BEBIDA UM salvo\. Margem recalculada\./)).toBeTruthy();
+    // Terminada a releitura, o foco vai para o aviso (a linha clicada saiu da lista).
+    expect(document.activeElement?.getAttribute("role")).toBe("status");
+    expect(document.activeElement?.textContent).toMatch(/Vínculo de BEBIDA UM salvo/);
+  });
+
+  test("margem: se a releitura depois de vincular falha, o aviso nao diz que recalculou", async () => {
+    vi.mocked(getAnaliseMargemBebidas).mockResolvedValueOnce({
+      periodo: PERIODO, hojeFicouDeFora: false,
+      cobertura: { receitaBebidas: 1000, receitaComMargem: 0, receitaSemVinculo: 1000, receitaCustoIncompleto: 0, pctComMargem: 0, pctSemVinculo: 1, pctCustoIncompleto: 0, bebidasComMargem: 0 },
+      linhas: [], insumosParaVincular: [{ id: "i1", nome: "INSUMO UM", unidade: "UN" }], insumosTruncados: false, insights: [],
+      aFazer: [{ codigo: "B1", nome: "BEBIDA UM", categoria: "BEBIDAS", quantidade: 10, receita: 1000, pctReceita: 1, situacao: "sem-vinculo" as const, insumo: null, problema: null, sugestoes: [] }]
+    }).mockRejectedValueOnce(new Error("Falha de rede"));
+    vi.mocked(vincularBebidaAnaliseMargem).mockResolvedValue({ ok: true });
+    render(
+      <MemoryRouter>
+        <SessionContext.Provider value={{ ...sessao(), user: { id: "u", role: "ADMIN" } } as unknown as SessionContextValue}>
+          <HideValuesProvider>
+            <AnaliseSalao />
+          </HideValuesProvider>
+        </SessionContext.Provider>
+      </MemoryRouter>
+    );
+    await screen.findByText("Faturamento por dia");
+    fireEvent.click(aba("Margem"));
+    fireEvent.change(await screen.findByLabelText(/Insumo comprado para BEBIDA UM/), { target: { value: "i1" } });
+    fireEvent.change(screen.getByLabelText(/Quanto uma venda de BEBIDA UM consome/), { target: { value: "1" } });
+    fireEvent.change(screen.getByLabelText(/Unidade do consumo de BEBIDA UM/), { target: { value: "UN" } });
+    fireEvent.click(screen.getByRole("button", { name: "Vincular BEBIDA UM" }));
+    expect(await screen.findByText(/Mas não foi possível atualizar a margem: Falha de rede/)).toBeTruthy();
+    expect(screen.queryByText(/Margem recalculada/)).toBeNull();
+  });
+
+  test("margem: erro nas bebidas tem botao de tentar de novo, que busca so as bebidas", async () => {
+    vi.mocked(getAnaliseMargemBebidas).mockRejectedValueOnce(new Error("Falha nas bebidas"));
+    renderizar();
+    await screen.findByText("Faturamento por dia");
+    fireEvent.click(aba("Margem"));
+    await screen.findByText(/Falha nas bebidas/);
+    const botoes = screen.getAllByRole("button", { name: "Tentar de novo" });
+    fireEvent.click(botoes[botoes.length - 1]);
+    await waitFor(() => expect(getAnaliseMargemBebidas).toHaveBeenCalledTimes(2));
+    expect(getAnaliseMargem).toHaveBeenCalledTimes(1);
+  });
+
+  test("margem: recarregar os pratos nao desmonta o formulario das bebidas (nem apaga o que se digitou)", async () => {
+    vi.mocked(getAnaliseMargemBebidas).mockResolvedValue({
+      periodo: PERIODO, hojeFicouDeFora: false,
+      cobertura: { receitaBebidas: 1000, receitaComMargem: 0, receitaSemVinculo: 1000, receitaCustoIncompleto: 0, pctComMargem: 0, pctSemVinculo: 1, pctCustoIncompleto: 0, bebidasComMargem: 0 },
+      linhas: [], insumosParaVincular: [{ id: "i1", nome: "INSUMO UM", unidade: "UN" }], insumosTruncados: false, insights: [],
+      aFazer: [{ codigo: "B1", nome: "BEBIDA UM", categoria: "BEBIDAS", quantidade: 10, receita: 1000, pctReceita: 1, situacao: "sem-vinculo" as const, insumo: null, problema: null, sugestoes: [] }]
+    });
+    vi.mocked(getAnaliseMargem).mockResolvedValue({
+      periodo: PERIODO, hojeFicouDeFora: false,
+      cobertura: { receitaTotal: 1000, receitaBuffet: 0, receitaBebidas: 0, receitaPratos: 1000, receitaComMargem: 0, receitaSemFicha: 0, receitaCustoIncompleto: 0, receitaSemVinculo: 1000, receitaPratoIndisponivel: 0, pctComMargem: 0, pctVinculadoSemCusto: 0, pctSemVinculo: 1, pctDaReceitaTotalComMargem: 0, pratosComMargem: 0 },
+      linhas: [], pratosParaVincular: [{ id: "p1", nome: "Prato Um" }], insights: [],
+      aFazer: [{ codigo: "X1", nome: "PRATO UM", categoria: "PRATOS", quantidade: 10, receita: 1000, pctReceita: 1, situacao: "sem-vinculo" as const, pratoId: null, prato: null, sugestoes: [] }]
+    });
+    vi.mocked(vincularProdutoAnaliseMargem).mockResolvedValue({ ok: true });
+    render(
+      <MemoryRouter>
+        <SessionContext.Provider value={{ ...sessao(), user: { id: "u", role: "ADMIN" } } as unknown as SessionContextValue}>
+          <HideValuesProvider>
+            <AnaliseSalao />
+          </HideValuesProvider>
+        </SessionContext.Provider>
+      </MemoryRouter>
+    );
+    await screen.findByText("Faturamento por dia");
+    fireEvent.click(aba("Margem"));
+    const campo = (await screen.findByLabelText(/Quanto uma venda de BEBIDA UM consome/)) as HTMLInputElement;
+    fireEvent.change(campo, { target: { value: "150" } });
+    fireEvent.change(await screen.findByLabelText(/Prato da ficha para PRATO UM/), { target: { value: "p1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Vincular PRATO UM" }));
+    await waitFor(() => expect(getAnaliseMargem).toHaveBeenCalledTimes(2));
+    expect((screen.getByLabelText(/Quanto uma venda de BEBIDA UM consome/) as HTMLInputElement).value).toBe("150");
+    expect(screen.getByLabelText(/Quanto uma venda de BEBIDA UM consome/)).toBe(campo);
+  });
+
+  test("margem: erro nas bebidas aparece na secao delas sem derrubar a margem dos pratos", async () => {
+    vi.mocked(getAnaliseMargemBebidas).mockRejectedValue(new Error("Falha nas bebidas"));
+    renderizar();
+    await screen.findByText("Faturamento por dia");
+    fireEvent.click(aba("Margem"));
+    expect(await screen.findByText(/Falha nas bebidas/)).toBeTruthy();
+    expect(screen.getByText(/Margem por prato/)).toBeTruthy();
   });
 
   test("cardapio: nao busca ate abrir, e uma vez aberto nao refaz ao voltar", async () => {
