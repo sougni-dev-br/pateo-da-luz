@@ -1,7 +1,7 @@
 // A folha de papel da ficha técnica: o que vai impresso em cada cenário (em branco, só com o prato
 // escolhido, ou já preenchida com a ficha do sistema). Funções puras — a tela só desenha o resultado.
 
-import type { DishDetail, DishListItem, DishMenu } from "../api/client";
+import type { BuffetDish, DishDetail, DishListItem, DishMenu } from "../api/client";
 import { formatarQuantidade } from "./fichaTecnica";
 
 export type IngredienteDaFolha = {
@@ -82,6 +82,20 @@ export function folhaDoNome(prato: Pick<DishListItem, "name" | "code" | "menu" |
     unidadeDoRendimento: prato.yieldUnit,
     pesoDaPorcao: prato.portionWeightG != null ? formatarQuantidade(prato.portionWeightG) : "",
     validadeDeUso: prato.shelfLifeDays != null ? String(prato.shelfLifeDays) : ""
+  };
+}
+
+/**
+ * Folha de uma preparação do buffet que aguarda ficha (criada pelo desperdício): nome e unidade já escritos, e o que a
+ * pessoa que lançou disse que leva, para a cozinha completar com a receita de verdade.
+ */
+export function folhaDoBuffet(prato: Pick<BuffetDish, "name" | "unit" | "notes">, linhas = LINHAS_PADRAO): FolhaDados {
+  return {
+    ...base(linhas),
+    prato: prato.name,
+    categoria: "Buffet",
+    unidadeDoRendimento: prato.unit,
+    observacoes: prato.notes ? `Leva, segundo quem lançou o desperdício: ${prato.notes}` : ""
   };
 }
 

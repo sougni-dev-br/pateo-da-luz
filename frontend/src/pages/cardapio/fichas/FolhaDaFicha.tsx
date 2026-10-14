@@ -91,7 +91,10 @@ export function FolhaDaFicha({ folha, numero, total }: { folha: FolhaDados; nume
       </div>
 
       <h2 className="fp-secao">4. Observações, alérgenos, cuidados</h2>
-      <div className="fp-pautado fp-pautado--curto" style={{ ["--fp-pauta" as string]: 3 }} />
+      {/* O que já se sabe do prato (ex.: o que leva, segundo quem lançou o desperdício) vem escrito; o resto é para a mão. */}
+      <div className="fp-pautado fp-pautado--curto" style={{ ["--fp-pauta" as string]: 3 }}>
+        {folha.observacoes.trim() && <p>{folha.observacoes.trim()}</p>}
+      </div>
 
       <footer className="fp-assinaturas">
         <div><span>Preenchido por</span></div>
