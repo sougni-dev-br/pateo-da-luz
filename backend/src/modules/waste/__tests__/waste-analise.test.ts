@@ -195,6 +195,19 @@ describe("qualidade do registro", () => {
   });
 });
 
+describe("pratos aguardando ficha", () => {
+  test("a contagem vinda do banco sai em qualidade, e some para quem não vê custos", () => {
+    const comCusto = analisarDesperdicio({ ...base, atual: [entrada({ dia: FROM })], fichasPendentes: { pratos: 2, lancamentos: 5 } });
+    expect(comCusto.qualidade.fichasPendentes).toEqual({ pratos: 2, lancamentos: 5 });
+    const semCusto = analisarDesperdicio({ ...base, comCusto: false, atual: [entrada({ dia: FROM })], fichasPendentes: { pratos: 2, lancamentos: 5 } });
+    expect(semCusto.qualidade.fichasPendentes).toEqual({ pratos: 0, lancamentos: 0 });
+  });
+
+  test("sem a informação, zero", () => {
+    expect(analisarDesperdicio({ ...base, atual: [] }).qualidade.fichasPendentes).toEqual({ pratos: 0, lancamentos: 0 });
+  });
+});
+
 describe("sem permissão de custo", () => {
   test("nenhum valor, nem faturamento: só contagens", () => {
     const r = analisarDesperdicio({ ...base, comCusto: false, atual: [entrada({ dia: FROM, totalCost: 99 })], anterior: [entrada({ dia: "2026-10-01", totalCost: 99 })], faturamento: [{ dia: FROM, liquido: 999, pessoas: 9 }] });

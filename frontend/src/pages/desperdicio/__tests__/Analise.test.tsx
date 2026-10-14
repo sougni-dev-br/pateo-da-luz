@@ -4,7 +4,12 @@ import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 vi.mock("../../../api/client", () => ({
+  ApiError: class ApiError extends Error {
+    constructor(message: string, public readonly status: number, public readonly body?: Record<string, unknown>) { super(message); }
+  },
   cancelWasteEntry: vi.fn(),
+  createWastePendingDish: vi.fn(),
+  getWasteDishSuggestions: vi.fn(),
   createWasteEntry: vi.fn(),
   getWasteAnalysis: vi.fn(),
   getWasteEntries: vi.fn(),
@@ -52,7 +57,7 @@ const analise: WasteAnalysis = {
   itensPara80: 2,
   reincidentes: [{ ...grupo("p1", "Salmão", 6, 300, 100, 3), dias: 4, quantidade: 7.5, unidade: "KG", motivoPrincipal: "EXPIRED", motivoPrincipalRotulo: "Vencido", comprado: 50, taxaDePerda: 15 }],
   porPessoa: [{ id: "u1", nome: "Ana", lancamentos: 7 }, { id: "u2", nome: "Beto", lancamentos: 3 }],
-  qualidade: { semCusto: 0, motivoOutro: 0, retroativos: 0, semFotoNosMaiores: 4, diasSemRegistro: 3, diasComVenda: 12 },
+  qualidade: { semCusto: 0, motivoOutro: 0, retroativos: 0, semFotoNosMaiores: 4, fichasPendentes: { pratos: 0, lancamentos: 0 }, diasSemRegistro: 3, diasComVenda: 12 },
 };
 
 const lancamento = (parcial: Partial<WasteEntry> & { id: string }): WasteEntry => ({
@@ -153,7 +158,7 @@ describe("Análise: indicadores e leitura", () => {
       porDiaDaSemana: analise.porDiaDaSemana.map((d) => ({ ...d, valor: null })),
       reincidentes: [],
       itensPara80: null,
-      qualidade: { ...analise.qualidade, semFotoNosMaiores: 0, diasSemRegistro: null, diasComVenda: null },
+      qualidade: { ...analise.qualidade, semFotoNosMaiores: 0, fichasPendentes: { pratos: 0, lancamentos: 0 }, diasSemRegistro: null, diasComVenda: null },
     });
     vi.mocked(getWasteEntries).mockResolvedValue({ from: "2026-10-01", to: "2026-10-14", truncated: false, items: itens.map(({ totalCost: _c, unitCost: _u, costSource: _s, ...resto }) => resto) });
     render(<Desperdicio />, "/?aba=analise", LEITOR);

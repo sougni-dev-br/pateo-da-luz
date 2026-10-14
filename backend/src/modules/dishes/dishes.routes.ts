@@ -8,6 +8,7 @@ import { parseBody } from "../../shared/validate-body.js";
 import { normalizeText } from "../../shared/utils/normalize-text.js";
 import { linhasDeConversaoInformada, normalizarUnidade } from "../../shared/unidades/conversao.js";
 import { carregarDetalhe, categoriaResumida, conversoesDaFicha, separarItensPorCardapio, textoDaEmbalagemInferida, toCostItem, type ItemComProduto } from "./dish-detail.js";
+import { concluirFichaDoPrato } from "../waste/waste-ficha.js";
 import { auditLog, requestIp, requireRole } from "../security/security-utils.js";
 import { MENUS, registrarRotasDeCategoria } from "./dish-categories.js";
 import { registrarRevisao } from "./dish-revisions.js";
@@ -138,6 +139,8 @@ dishesRouter.get("/", async (request, response) => {
 
   const dishes = await prisma.dish.findMany({
     where: {
+      // Preparação de buffet criada pelo desperdício não é prato de cardápio: tem a aba própria (/buffet).
+      fichaDeBuffet: false,
       isActive: showInactive ? undefined : true,
       ...(categoryId ? { OR: [{ categoryId }, { alsoCategoryId: categoryId }] } : {}),
       ...(search
@@ -224,6 +227,45 @@ dishesRouter.get("/", async (request, response) => {
   });
 
   response.json(result);
+});
+
+// Preparações do buffet criadas pelo lançamento de desperdício (o purê, uma guarnição). Ficam fora da lista de pratos
+// (não são vendidas) e vêm aqui: as que aguardam ficha primeiro, com o que mais saiu na frente, para o responsável
+// cobrar da equipe o que falta pelo que mais pesa; depois as que já têm ficha.
+dishesRouter.get("/buffet", async (_request, response) => {
+  const pratos = await prisma.dish.findMany({
+    where: { fichaDeBuffet: true },
+    select: { id: true, name: true, yieldUnit: true, fichaPendente: true, pendenteDesde: true, pendentePorId: true, pendenteObservacao: true, fichaConcluidaEm: true },
+    orderBy: { name: "asc" }
+  });
+  const ids = pratos.map((p) => p.id);
+  const idsDePessoas = [...new Set(pratos.map((p) => p.pendentePorId).filter((id): id is string => Boolean(id)))];
+  const [perdas, pessoas] = await Promise.all([
+    ids.length
+      ? prisma.wasteEntry.groupBy({ by: ["dishId"], where: { dishId: { in: ids }, cancelledAt: null }, _count: { _all: true }, _sum: { quantity: true }, _max: { occurredOn: true } })
+      : Promise.resolve([]),
+    idsDePessoas.length ? prisma.user.findMany({ where: { id: { in: idsDePessoas } }, select: { id: true, name: true } }) : Promise.resolve([])
+  ]);
+  const perdaDe = new Map(perdas.map((g) => [g.dishId, g]));
+  const nomeDe = new Map(pessoas.map((u) => [u.id, u.name]));
+  const lista = pratos.map((p) => {
+    const g = perdaDe.get(p.id);
+    return {
+      id: p.id,
+      name: p.name,
+      unit: p.yieldUnit,
+      pending: p.fichaPendente,
+      pendingSince: p.pendenteDesde,
+      completedAt: p.fichaConcluidaEm,
+      requestedBy: p.pendentePorId ? nomeDe.get(p.pendentePorId) ?? null : null,
+      notes: p.pendenteObservacao,
+      wasteEntries: g?._count._all ?? 0,
+      wasteQuantity: g?._sum.quantity == null ? 0 : Number(g._sum.quantity),
+      lastWasteOn: g?._max.occurredOn ?? null
+    };
+  });
+  lista.sort((a, b) => Number(b.pending) - Number(a.pending) || b.wasteEntries - a.wasteEntries || a.name.localeCompare(b.name, "pt-BR"));
+  response.json(lista);
 });
 
 dishesRouter.get("/:id", async (request, response) => {
@@ -482,7 +524,13 @@ dishesRouter.put("/:id", async (request, response) => {
     });
 
     await auditLog({ userId: user.id, action: "UPDATE", entity: "Dish", entityId: dish.id, newValue: dish });
-    response.json({ id: dish.id });
+    // Ficha completa: o desperdício lançado sem valor passa a valer e, se aguardava a ficha, a pendência sai. A ficha já está
+    // gravada; se isto falhar, vai para o log e o próximo salvamento tenta de novo.
+    const desperdicio = await concluirFichaDoPrato(prisma, dish.id).catch((falha) => {
+      console.error("[fichas] conclusão da ficha para o desperdício falhou:", falha instanceof Error ? falha.message : falha);
+      return null;
+    });
+    response.json({ id: dish.id, ...(desperdicio?.completa ? { desperdicio } : {}) });
   } catch (error) {
     if (!responderErroDeGravacao(error, body.code, response)) throw error;
   }

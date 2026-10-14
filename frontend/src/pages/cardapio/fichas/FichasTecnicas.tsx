@@ -5,12 +5,15 @@ import {
   deactivateDish,
   getDishCategories,
   getDishDetail,
+  getBuffetDishes,
   getDishes,
   reactivateDish,
+  type BuffetDish,
   type DishCategory,
   type DishDetail,
   type DishListItem,
-  type DishMenu
+  type DishMenu,
+  type SaveDishResult
 } from "../../../api/client";
 import { Notice, useNotice } from "../../../components/Notice";
 import { useSession } from "../../../context/SessionContext";
@@ -36,13 +39,14 @@ import { DialogoDeImpressao } from "./DialogoDeImpressao";
 import { DialogoDeLote, type EscolhaDoLote } from "./DialogoDeLote";
 import { useImpressaoDeFolhas } from "./FolhaDaFicha";
 import { FormularioDoPrato, type ModoDoFormulario } from "./FormularioDoPrato";
+import { ListaDoBuffet } from "./ListaDoBuffet";
 import { ListaDePratos } from "./ListaDePratos";
 import { PainelDasFichasView } from "./PainelDasFichas";
 import { SeletorDeCardapio } from "./SeletorDeCardapio";
 import "./fichas.css";
 import "./painel.css";
 
-type Aba = "painel" | "fichas" | "cmv" | "categorias";
+type Aba = "painel" | "fichas" | "buffet" | "cmv" | "categorias";
 /** `chave` muda a cada abertura: reabrir "Novo prato" precisa de um formulário zerado, não do anterior. */
 type Editor = { modo: ModoDoFormulario; base: DishDetail | null; chave: number };
 
@@ -58,6 +62,8 @@ export function FichasTecnicas() {
 
   const [aba, setAba] = useState<Aba>("painel");
   const [pratos, setPratos] = useState<DishListItem[]>([]);
+  // Preparações do buffet criadas pelo lançamento de desperdício: aguardam (ou já têm) a ficha.
+  const [buffet, setBuffet] = useState<BuffetDish[]>([]);
   const [categorias, setCategorias] = useState<DishCategory[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [erroDeCarga, setErroDeCarga] = useState<string | null>(null);
@@ -102,9 +108,15 @@ export function FichasTecnicas() {
     setErroDeCarga(null);
     try {
       // Traz inativos também: o filtro é local, então busca e contadores respondem na hora.
-      const [lista, categoriasDoServidor] = await Promise.all([getDishes({ showInactive: true }), getDishCategories()]);
+      // O buffet é um extra: se a lista dele falhar, as fichas continuam abrindo.
+      const [lista, categoriasDoServidor, doBuffet] = await Promise.all([
+        getDishes({ showInactive: true }),
+        getDishCategories(),
+        getBuffetDishes().catch(() => [] as BuffetDish[])
+      ]);
       if (meuPedido !== pedidoDeCarga.current) return;
       setPratos(lista);
+      setBuffet(doBuffet);
       setCategorias(categoriasDoServidor);
     } catch (erro) {
       if (meuPedido !== pedidoDeCarga.current) return;
@@ -245,12 +257,17 @@ export function FichasTecnicas() {
     await Promise.all([carregar(), aberto ? abrirDetalhe(aberto) : Promise.resolve()]);
   }
 
-  async function aoSalvar(id: string, modo: ModoDoFormulario) {
+  async function aoSalvar(id: string, modo: ModoDoFormulario, desperdicio?: SaveDishResult["desperdicio"]) {
     fecharEditor();
     definirSelecionado(id);
     // Se o filtro atual esconderia o prato recém-salvo, ele some da lista mas continua aberto.
     await Promise.all([carregar(), abrirDetalhe(id)]);
-    notificar("success", modo === "editar" ? "Ficha atualizada." : modo === "copia" ? "Cópia salva como um prato novo." : "Prato criado.");
+    const base = modo === "editar" ? "Ficha atualizada." : modo === "copia" ? "Cópia salva como um prato novo." : "Prato criado.";
+    // Ficha completa: o desperdício que estava sem valor passou a valer, e quem lançou já pode ver na Análise.
+    const reflexo = desperdicio?.revalorizados
+      ? ` ${desperdicio.revalorizados} ${desperdicio.revalorizados === 1 ? "lançamento" : "lançamentos"} de desperdício ${desperdicio.revalorizados === 1 ? "passou" : "passaram"} a ter valor.`
+      : desperdicio?.concluiuPendencia ? " Ficha concluída." : "";
+    notificar("success", `${base}${reflexo}`);
   }
 
   async function alternarAtivo() {
@@ -304,6 +321,7 @@ export function FichasTecnicas() {
   );
   const contagemDosChips = useMemo(() => contarPorSituacao(pratosDosChips, filtro.mostrarInativos), [pratosDosChips, filtro.mostrarInativos]);
 
+  const buffetAguardando = useMemo(() => buffet.filter((p) => p.pending).length, [buffet]);
   const detalheDoSelecionado = detalhe && detalhe.id === selecionadoId ? detalhe : null;
   const painelAberto = selecionadoId !== null || editor !== null;
 
@@ -332,7 +350,7 @@ export function FichasTecnicas() {
           categorias={categorias}
           menuPadrao={filtro.menu === "DELIVERY" ? "DELIVERY" : "CARDAPIO"}
           onCancelar={cancelarEditor}
-          onSalvo={(id, modo) => void aoSalvar(id, modo)}
+          onSalvo={(id, modo, desperdicio) => void aoSalvar(id, modo, desperdicio)}
           onAlterado={setAlterado}
           notificar={notificar}
         />
@@ -342,7 +360,17 @@ export function FichasTecnicas() {
     if (selecionadoId && !detalheDoSelecionado) return <p className="ft-carregando" role="status">Carregando a ficha…</p>;
 
     if (detalheDoSelecionado) {
+      const pedido = buffet.find((p) => p.id === detalheDoSelecionado.id && p.pending);
       return (
+        <>
+        {pedido && (
+          <Alert tone="warning" title="Aguardando ficha técnica">
+            Criado no lançamento de desperdício{pedido.requestedBy ? ` por ${pedido.requestedBy}` : ""}. {pedido.wasteEntries}{" "}
+            {pedido.wasteEntries === 1 ? "lançamento" : "lançamentos"} ({pedido.wasteQuantity.toLocaleString("pt-BR", { maximumFractionDigits: 3 })} {pedido.unit}) ficam sem valor até a ficha estar completa:
+            todos os ingredientes com custo. Ao salvar uma ficha completa, o valor entra sozinho.
+            {pedido.notes ? ` O que leva, segundo quem lançou: ${pedido.notes}.` : ""}
+          </Alert>
+        )}
         <DetalheDoPrato
           prato={detalheDoSelecionado}
           canEdit={canEdit}
@@ -354,6 +382,7 @@ export function FichasTecnicas() {
           onPrecosMudaram={() => { void abrirDetalhe(detalheDoSelecionado.id); void carregar(); }}
           notificar={notificar}
         />
+        </>
       );
     }
 
@@ -382,6 +411,7 @@ export function FichasTecnicas() {
         tabs={[
           { value: "painel", label: "Painel" },
           { value: "fichas", label: "Pratos" },
+          { value: "buffet", label: buffetAguardando > 0 ? `Buffet (${buffetAguardando} aguardando)` : "Buffet" },
           { value: "cmv", label: "CMV por canal" },
           { value: "categorias", label: "Categorias" }
         ]}
@@ -409,6 +439,15 @@ export function FichasTecnicas() {
             onImprimirEmBranco={() => setDialogoDeImpressao(true)}
           />
         )
+      ) : aba === "buffet" ? (
+        <ListDetailLayout
+          className="ft-layout"
+          detailActive={painelAberto}
+          onBack={voltar}
+          backLabel={editor?.base ? "Voltar à ficha" : "Voltar à lista"}
+          list={<ListaDoBuffet pratos={buffet} selecionadoId={selecionadoId} carregando={carregando} onSelecionar={selecionar} />}
+          detail={<div ref={revelarRef} className="scroll-target ft-painel">{renderizarPainel()}</div>}
+        />
       ) : aba === "cmv" ? (
         <CmvPorCanal pratos={pratosDoCardapio} carregando={carregando} onAbrirPrato={abrirPratoDoPainel} />
       ) : aba === "categorias" ? (

@@ -79,6 +79,16 @@ async function nomesDasPessoas(ids: string[]) {
   return new Map(usuarios.map((u) => [u.id, u.name]));
 }
 
+/** Pratos que aguardam ficha e já têm perda lançada no período: o responsável pelas fichas começa por eles. */
+async function fichasPendentesDoPeriodo(from: string, to: string) {
+  const onde = { dishId: { not: null }, cancelledAt: null, occurredOn: { gte: dia(from), lte: dia(to) }, dish: { fichaPendente: true } };
+  const [lancamentos, pratos] = await Promise.all([
+    prisma.wasteEntry.count({ where: onde }),
+    prisma.wasteEntry.groupBy({ by: ["dishId"], where: onde }),
+  ]);
+  return { pratos: pratos.length, lancamentos };
+}
+
 /** A análise do período, com o período anterior de igual tamanho como régua. Custo e faturamento só para quem os vê. */
 export async function analisePeriodo(from: string, to: string, comCusto: boolean): Promise<Analise> {
   const ant = periodoAnterior(from, to);
@@ -87,9 +97,10 @@ export async function analisePeriodo(from: string, to: string, comCusto: boolean
     entradasDoPeriodo(ant.from, ant.to),
     comCusto ? faturamentoPorDia(ant.from, to) : Promise.resolve([]),
   ]);
-  const [pessoas, comprados] = await Promise.all([
+  const [pessoas, comprados, fichasPendentes] = await Promise.all([
     nomesDasPessoas(atual.map((e) => e.registeredById)),
     comCusto ? compradosNoPeriodo(new Map(atual.map((e) => [e.itemKey, e.unit ?? ""])), from, to) : Promise.resolve(new Map<string, number>()),
+    comCusto ? fichasPendentesDoPeriodo(from, to) : Promise.resolve({ pratos: 0, lancamentos: 0 }),
   ]);
-  return analisarDesperdicio({ from, to, atual, anterior, faturamento, comCusto, nomesDasPessoas: pessoas, comprados, hoje: todayInSaoPaulo() });
+  return analisarDesperdicio({ from, to, atual, anterior, faturamento, comCusto, nomesDasPessoas: pessoas, comprados, fichasPendentes, hoje: todayInSaoPaulo() });
 }

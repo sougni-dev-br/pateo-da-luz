@@ -9,6 +9,8 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 vi.mock("../../../config/database.js", () => {
   const prisma: Record<string, unknown> = {
     dish: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), count: vi.fn() },
+    wasteEntry: { groupBy: vi.fn(), findMany: vi.fn(), update: vi.fn() },
+    user: { findMany: vi.fn() },
     dishRevision: { create: vi.fn(), findMany: vi.fn() },
     dishItem: { createMany: vi.fn(), deleteMany: vi.fn(), count: vi.fn(), groupBy: vi.fn() },
     dishCategory: { findMany: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), count: vi.fn() },
@@ -373,5 +375,74 @@ describe("leitura", () => {
     const r = await request(app).get("/dishes/categories");
     expect(r.body).toEqual([expect.objectContaining({ name: "A la carte", dishesCount: 14 })]);
     expect(r.body[0]._count).toBeUndefined();
+  });
+});
+
+describe("pratos aguardando ficha (criados pelo desperdício)", () => {
+  test("aguardando primeiro, o que mais saiu na frente; depois as que já têm ficha", async () => {
+    db.dish.findMany.mockResolvedValue([
+      { id: "a", name: "Farofa", yieldUnit: "KG", fichaPendente: true, pendenteDesde: new Date("2026-10-01T12:00:00Z"), pendentePorId: "u1", pendenteObservacao: null, fichaConcluidaEm: null },
+      { id: "c", name: "Arroz de forno", yieldUnit: "KG", fichaPendente: false, pendenteDesde: new Date("2026-09-01T12:00:00Z"), pendentePorId: "u1", pendenteObservacao: null, fichaConcluidaEm: new Date("2026-09-10T12:00:00Z") },
+      { id: "b", name: "Purê de batata", yieldUnit: "KG", fichaPendente: true, pendenteDesde: new Date("2026-10-05T12:00:00Z"), pendentePorId: "u2", pendenteObservacao: "leva manteiga", fichaConcluidaEm: null },
+    ]);
+    db.wasteEntry.groupBy.mockResolvedValue([
+      { dishId: "a", _count: { _all: 1 }, _sum: { quantity: 2 }, _max: { occurredOn: new Date("2026-10-02T00:00:00Z") } },
+      { dishId: "b", _count: { _all: 4 }, _sum: { quantity: 9.5 }, _max: { occurredOn: new Date("2026-10-10T00:00:00Z") } },
+    ]);
+    db.user.findMany.mockResolvedValue([{ id: "u1", name: "Ana" }, { id: "u2", name: "Beto" }]);
+
+    const r = await request(app).get("/dishes/buffet");
+    expect(r.status).toBe(200);
+    expect(r.body.map((p: { name: string }) => p.name)).toEqual(["Purê de batata", "Farofa", "Arroz de forno"]);
+    expect(r.body[0]).toMatchObject({ pending: true, requestedBy: "Beto", notes: "leva manteiga", wasteEntries: 4, wasteQuantity: 9.5, unit: "KG" });
+    expect(r.body[2]).toMatchObject({ pending: false, wasteEntries: 0 });
+    expect(r.body[2].completedAt).toBeTruthy();
+    expect(db.dish.findMany.mock.calls[0][0].where).toEqual({ fichaDeBuffet: true });
+    expect(db.wasteEntry.groupBy.mock.calls[0][0].where).toMatchObject({ cancelledAt: null });
+  });
+
+  test("sem preparações de buffet devolve lista vazia sem consultar o desperdício", async () => {
+    db.dish.findMany.mockResolvedValue([]);
+    const r = await request(app).get("/dishes/buffet");
+    expect(r.body).toEqual([]);
+    expect(db.wasteEntry.groupBy).not.toHaveBeenCalled();
+  });
+
+  test("a lista de pratos nunca traz preparação de buffet (não é vendida)", async () => {
+    db.dish.findMany.mockResolvedValue([]);
+    await request(app).get("/dishes?showInactive=true");
+    expect(db.dish.findMany.mock.calls[0][0].where).toMatchObject({ fichaDeBuffet: false });
+  });
+
+  test("salvar a ficha completa valora o desperdício sem valor e informa quantos", async () => {
+    db.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => fn(prisma));
+    db.dish.update.mockResolvedValue({ id: "d1" });
+    db.dish.updateMany.mockResolvedValue({ count: 1 });
+    db.wasteEntry.findMany.mockResolvedValue([{ id: "w1", quantity: 2, unit: "UN" }]);
+    // carregarDetalhe lê o prato: devolve uma ficha com custo conhecido (1 ingrediente, 10 por porção).
+    db.dish.findUnique.mockImplementation(async (arg: { where: { id: string }; select?: object }) =>
+      arg.select ? { menu: "CARDAPIO" } : {
+        ...detalheMinimo(arg.where.id),
+        items: [{ id: "i1", menu: "CARDAPIO", productId: "p1", quantity: 1, unit: "UN", wasteFactor: 0, sortOrder: 0, product: { id: "p1", name: "Batata", unit: "UN", stockUnit: "UN", externalCode: null, inventoryStock: { averageCost: 10, currentQuantity: 5 }, conversions: [] } }],
+      });
+    const r = await request(app).put("/dishes/d1").send(pratoValido);
+    expect(r.status).toBe(200);
+    expect(r.body.desperdicio).toMatchObject({ completa: true, revalorizados: 1, concluiuPendencia: true });
+    expect(db.wasteEntry.update).toHaveBeenCalled();
+  });
+
+  test("se a conclusão falha, a ficha continua salva (200) e o erro vai para o log", async () => {
+    db.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => fn(prisma));
+    db.dish.update.mockResolvedValue({ id: "d1" });
+    const erro = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    db.dish.findUnique.mockImplementation(async (arg: { where: { id: string }; select?: object }) => {
+      if (arg.select) return { menu: "CARDAPIO" };
+      return detalheMinimo(arg.where.id);
+    });
+    db.wasteEntry.findMany.mockRejectedValue(new Error("banco fora"));
+    const r = await request(app).put("/dishes/d1").send(pratoValido);
+    expect(r.status).toBe(200);
+    expect(r.body.id).toBe("d1");
+    erro.mockRestore();
   });
 });

@@ -254,11 +254,21 @@ export function lerPeriodo(analise: WasteAnalysis, veCusto: boolean): Leitura[] 
       acao: "Combine um horário para o lançamento do fechamento do dia. Sem registro o número real de perda é maior que o mostrado.",
     });
   }
-  if (veCusto && q.semCusto >= SEM_CUSTO_MINIMO) {
+  if (veCusto && q.fichasPendentes.pratos > 0) {
+    const { pratos, lancamentos } = q.fichasPendentes;
+    leituras.push({
+      id: "fichas-pendentes",
+      tom: "warn",
+      titulo: `${pratos} ${plural(pratos, "prato aguarda", "pratos aguardam")} ficha técnica e deixa${lancamentos === 1 ? "" : "m"} ${lancamentos} ${plural(lancamentos, "lançamento", "lançamentos")} sem valor`,
+      detalhe: "Esses pratos foram criados no lançamento do desperdício; sem a ficha o custo não existe e a perda aparece como zero.",
+      acao: "Peça ao responsável pelas fichas para concluir as marcadas como \"Aguardando ficha\" em Fichas Técnicas. Quando a ficha ficar completa, o valor entra sozinho nos lançamentos antigos.",
+    });
+  }
+  if (veCusto && q.semCusto >= SEM_CUSTO_MINIMO && q.semCusto > q.fichasPendentes.lancamentos) {
     leituras.push({
       id: "sem-custo",
       tom: "info",
-      titulo: `${q.semCusto} lançamentos estão sem custo e não entram no valor`,
+      titulo: `${q.semCusto - q.fichasPendentes.lancamentos} lançamentos estão sem custo e não entram no valor`,
       detalhe: "O valor mostrado está abaixo do real.",
       acao: "Registre a compra do item na unidade do estoque (ou, para prato, a ficha técnica completa) para que o custo apareça.",
     });

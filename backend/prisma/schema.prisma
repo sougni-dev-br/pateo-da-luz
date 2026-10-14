@@ -1729,36 +1729,46 @@ model DishCategory {
 }
 
 model Dish {
-  id               String         @id @default(cuid())
-  code             String?        @unique
-  name             String
-  categoryId       String?
-  category         DishCategory?  @relation("DishCategoria", fields: [categoryId], references: [id])
-  salePriceDefault Decimal?       @db.Decimal(10, 2)
-  yieldQty         Decimal        @default(1) @db.Decimal(8, 3)
-  yieldUnit        String         @default("UN")
-  notes            String?
-  isActive         Boolean        @default(true)
+  id                 String              @id @default(cuid())
+  code               String?             @unique
+  name               String
+  categoryId         String?
+  category           DishCategory?       @relation("DishCategoria", fields: [categoryId], references: [id])
+  salePriceDefault   Decimal?            @db.Decimal(10, 2)
+  yieldQty           Decimal             @default(1) @db.Decimal(8, 3)
+  yieldUnit          String              @default("UN")
+  notes              String?
+  isActive           Boolean             @default(true)
   // Em que cardapio o prato vive: CARDAPIO (salao) ou DELIVERY. Salao e delivery sao cardapios
   // separados (regra do Eli); o mesmo nome em cada um e uma ficha propria.
-  menu             String         @default("CARDAPIO")
+  menu               String              @default("CARDAPIO")
   // O mesmo prato vendido nos dois cardapios (ex.: um filé que sai no a la carte e no delivery): a ficha e uma
   // so, e aqui fica o OUTRO cardapio e a categoria dele. Nulo = vendido so em "menu".
-  alsoMenu         String?
-  alsoCategoryId   String?
-  alsoCategory     DishCategory?  @relation("DishCategoriaNoOutroCardapio", fields: [alsoCategoryId], references: [id])
-  items            DishItem[]
-  listings         DishListing[]
-  revisions        DishRevision[]
-  wasteEntries     WasteEntry[]
-  pdvProducts      AgileProdutoPrato[]
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
+  alsoMenu           String?
+  alsoCategoryId     String?
+  alsoCategory       DishCategory?       @relation("DishCategoriaNoOutroCardapio", fields: [alsoCategoryId], references: [id])
+  // Preparação do buffet criada pelo lançamento de desperdício (o purê, uma guarnição): nunca é vendida, então
+  // nasce inativa e some de cardápio, preço e mix; existe para a perda poder ser valorada pela ficha.
+  fichaDeBuffet      Boolean             @default(false)
+  // Aguardando alguém montar a ficha. Sai disto quando a ficha fica completa (custo conhecido).
+  fichaPendente      Boolean             @default(false)
+  pendenteDesde      DateTime?
+  pendentePorId      String?
+  pendenteObservacao String?
+  fichaConcluidaEm   DateTime?
+  items              DishItem[]
+  listings           DishListing[]
+  revisions          DishRevision[]
+  wasteEntries       WasteEntry[]
+  pdvProducts        AgileProdutoPrato[]
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
 
   @@index([categoryId])
   @@index([alsoCategoryId])
   @@index([isActive])
   @@index([menu, isActive])
+  @@index([fichaPendente])
 }
 
 // Cada gravacao da ficha deixa uma versao: quem, quando, o que mudou e quanto custava na hora.
