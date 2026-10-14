@@ -1472,12 +1472,12 @@ purchaseRouter.get("/:id", async (request, response) => {
 // purchaseDate (nao a competencia) para casar compra com consumo entre duas contagens.
 // Uma nota com ano errado sai do CMV para sempre, sem aparecer em lugar nenhum.
 //
-// Achado em producao: NOVA UNIAO ALIMENTOS, R$ [valor], purchaseDate 28/07/2029,
+// Achado em producao: um fornecedor, R$ [valor], purchaseDate 28/07/2029,
 // competencia 07/2026, criada em 29/07/2026 — tres anos a frente por um digito.
 //
 // O limite e 12 meses e nao "nada no futuro" de proposito: ha uso legitimo de nota
 // futura no sistema — assinaturas lancadas como uma nota por mes, ate 12 meses a
-// frente ([fornecedor], parcela 12/12 em 01/2027). Proibir o futuro inteiro quebraria
+// frente (um fornecedor de sistema, parcela 12/12 em 01/2027). Proibir o futuro inteiro quebraria
 // esse fluxo; 12 meses pega o erro de ano sem tocar no que funciona.
 const LIMITE_DATA_FUTURA_MESES = 12;
 
