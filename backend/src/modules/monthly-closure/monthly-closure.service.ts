@@ -257,7 +257,7 @@ export async function folhaSemCategoriaDre(year: number, month: number) {
 // periodo em que a mercadoria nao foi comprada e falta no periodo em que foi.
 //
 // Medido em 11/09/2026: de 814 compras ativas, 16 divergem, e 15 sao de um mes so.
-// A unica com dois meses ou mais era a NF 12337 da PESCADOS POPO — 31 kg de tilapia
+// A unica com dois meses ou mais era a NF de uma peixaria — 31 kg de tilapia
 // congelada com purchaseDate em 02/03 e competencia 09/2026, criada em 04/09 com
 // parcela vencendo em 24/09. Marco no lugar de setembro.
 //
