@@ -147,6 +147,13 @@ export function verifyWebhookSignature(
   };
 }
 
+// Interruptor de política: com NOVENTA_NOVE_WEBHOOK_EXIGE_ASSINATURA=true, evento SEM assinatura (ou sem credencial para
+// validar) é recusado. Desligado por padrão: o sandbox da 99 não assina, e ligar sem saber se a produção assina derrubaria
+// pedidos reais. Ligue só depois de ver "assinatura OK" nos logs e nenhum "SEM assinatura" com tráfego real.
+export function webhookExigeAssinatura(env: NodeJS.ProcessEnv): boolean {
+  return env.NOVENTA_NOVE_WEBHOOK_EXIGE_ASSINATURA === "true";
+}
+
 // PriceModel vem em cents (menor denominação). Convertemos pra BRL
 // dividindo por 100. Currency guarda pra auditoria.
 function centsToDecimal(cents: number | undefined): number {
@@ -409,6 +416,12 @@ export async function handleWebhook(
   }
 
   const cred = await prisma.noventaNoveCredential.findFirst({ where: { active: true } });
+  const exigeAssinatura = webhookExigeAssinatura(process.env);
+  if (!cred && exigeAssinatura) {
+    // Sem credencial não há como validar: com a política ligada, não aceita no escuro.
+    console.warn("[99Food webhook] evento recusado: política exige assinatura e não há credencial ativa para validar");
+    return { event, handled: false, reason: "Sem credencial para validar a assinatura", saleId: null };
+  }
   if (cred) {
     const check = verifyWebhookSignature(headerSign, rawBody, cred.clientSecret);
     if (!check.valid) {
@@ -416,6 +429,10 @@ export async function handleWebhook(
       // em loop se for erro de config nossa; retorna handled=false pra rastro.
       console.warn("[99Food webhook] assinatura rejeitada:", check.reason);
       return { event, handled: false, reason: `Assinatura inválida: ${check.reason}`, saleId: null };
+    }
+    if (!headerSign && exigeAssinatura) {
+      console.warn("[99Food webhook] evento recusado: política exige assinatura e didi-header-sign está ausente");
+      return { event, handled: false, reason: "Assinatura ausente", saleId: null };
     }
     if (headerSign && check.valid) {
       // Log só quando validou de fato (não quando aceitou sem sign)

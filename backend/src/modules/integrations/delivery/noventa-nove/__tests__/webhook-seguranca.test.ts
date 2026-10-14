@@ -17,7 +17,7 @@ vi.mock("../../../../security/security-utils.js", () => ({ requireRole: vi.fn(),
 
 import { prisma } from "../../../../../config/database.js";
 import {
-  handleWebhook, reiniciarAvisoSemAssinatura, textoSeguro, verifyWebhookSignature, type WebhookEnvelope
+  handleWebhook, reiniciarAvisoSemAssinatura, textoSeguro, verifyWebhookSignature, webhookExigeAssinatura, type WebhookEnvelope
 } from "../noventa-nove-webhook.service.js";
 import { noventaNovePublicRouter } from "../noventa-nove.routes.js";
 import * as servico from "../noventa-nove-webhook.service.js";
@@ -156,6 +156,74 @@ describe("assinatura (politica atual preservada, sem vazar o valor esperado)", (
 
   test("sem cabecalho de assinatura: segue aceito (decisao de politica pendente, documentada)", () => {
     expect(verifyWebhookSignature(null, "{}", SEGREDO).valid).toBe(true);
+  });
+});
+
+describe("politica NOVENTA_NOVE_WEBHOOK_EXIGE_ASSINATURA", () => {
+  const ligar = () => vi.stubEnv("NOVENTA_NOVE_WEBHOOK_EXIGE_ASSINATURA", "true");
+  const calar = () => vi.spyOn(console, "warn").mockImplementation(() => {});
+
+  test("desligada (padrao): evento sem assinatura continua aceito", async () => {
+    const e = envelope(1);
+    expect(webhookExigeAssinatura({})).toBe(false);
+    expect(webhookExigeAssinatura({ NOVENTA_NOVE_WEBHOOK_EXIGE_ASSINATURA: "false" })).toBe(false);
+    expect((await handleWebhook(e, corpo(e), null)).handled).toBe(true);
+  });
+
+  test("ligada: sem assinatura e recusado e nada e gravado; com assinatura correta passa", async () => {
+    ligar();
+    const aviso = calar();
+    try {
+      const e = envelope(1);
+      const raw = corpo(e);
+      const sem = await handleWebhook(e, raw, null);
+      expect(sem.handled).toBe(false);
+      expect(db.noventaNoveSale.create).not.toHaveBeenCalled();
+      expect(db.noventaNoveSale.updateMany).not.toHaveBeenCalled();
+      expect((await handleWebhook(e, raw, "0".repeat(32))).handled).toBe(false);
+      expect((await handleWebhook(e, raw, assinar(raw))).handled).toBe(true);
+      expect(webhookExigeAssinatura({ NOVENTA_NOVE_WEBHOOK_EXIGE_ASSINATURA: "true" })).toBe(true);
+    } finally {
+      aviso.mockRestore();
+      vi.unstubAllEnvs();
+    }
+  });
+
+  test("ligada e sem credencial ativa: recusa (nao aceita no escuro)", async () => {
+    ligar();
+    const aviso = calar();
+    db.noventaNoveCredential.findFirst.mockResolvedValue(null);
+    try {
+      const e = envelope(1);
+      const r = await handleWebhook(e, corpo(e), null);
+      expect(r.handled).toBe(false);
+      expect(db.noventaNoveSale.create).not.toHaveBeenCalled();
+    } finally {
+      aviso.mockRestore();
+      vi.unstubAllEnvs();
+    }
+  });
+
+  test("desligada e sem credencial: comportamento anterior preservado (aceita)", async () => {
+    db.noventaNoveCredential.findFirst.mockResolvedValue(null);
+    const e = envelope(1);
+    expect((await handleWebhook(e, corpo(e), null)).handled).toBe(true);
+  });
+
+  test("a resposta publica de um evento recusado e a mesma de sempre (200, sem detalhe)", async () => {
+    ligar();
+    const aviso = calar();
+    try {
+      const app = express();
+      app.use(express.json());
+      app.use("/public/delivery/noventa-nove", noventaNovePublicRouter);
+      const r = await request(app).post("/public/delivery/noventa-nove/webhook").send(envelope(1));
+      expect(r.status).toBe(200);
+      expect(r.body).toEqual({ status: "ok", event: "orderNew", handled: false });
+    } finally {
+      aviso.mockRestore();
+      vi.unstubAllEnvs();
+    }
   });
 });
 
