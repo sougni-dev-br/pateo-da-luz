@@ -58,7 +58,7 @@ export type VendaDescontoAnalise = {
 
 const SEM_TIPO = "(tipo não informado)";
 const LIMITE_DESCONTO_ALTO = 0.5;
-const NAO_INFORMADO = "(não informado)";
+export const NAO_INFORMADO = "(não informado)";
 const SEM_GRUPO = "(sem grupo)";
 const SEM_HORA = "—";
 const MAX_MAIORES = 10;
@@ -67,7 +67,7 @@ const MAX_MIX = 5;
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const round4 = (n: number) => Math.round(n * 10000) / 10000;
 const razao = (parte: number, todo: number) => (todo > 0 ? round4(parte / todo) : 0);
-const limpar = (nome: string | null) => (nome ?? "").replace(/\s+/g, " ").trim();
+export const limpar = (nome: string | null) => (nome ?? "").replace(/\s+/g, " ").trim();
 
 // Comanda em aberto ("EM ABERTO"/"CONSUMINDO") nao e venda nem cancelamento: fica fora do relatorio
 // inteiro, inclusive dos denominadores das taxas.

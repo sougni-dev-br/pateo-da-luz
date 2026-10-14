@@ -1,354 +1,263 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import type { AnaliseCancelamentos, AnaliseDescontos, AnaliseItensCancelados, AnaliseVendasPorPessoa } from "../../api/client";
+import type { AnaliseVendasPorPessoa } from "../../api/client";
 
 vi.mock("../../api/client", () => ({
-  getAnaliseCancelamentos: vi.fn(),
-  getAnaliseDescontos: vi.fn(),
-  getAnaliseItensCancelados: vi.fn(),
+  getAnaliseResumo: vi.fn(),
+  getAnaliseDemanda: vi.fn(),
+  getAnalisePerdas: vi.fn(),
   getAnaliseVendasPorPessoa: vi.fn()
 }));
 
-import { getAnaliseCancelamentos, getAnaliseDescontos, getAnaliseItensCancelados, getAnaliseVendasPorPessoa } from "../../api/client";
-import { SessionContext, type SessionContextValue } from "../../context/SessionContext";
-import { HideValuesProvider } from "../../design-system";
+import { getAnaliseDemanda, getAnalisePerdas, getAnaliseResumo, getAnaliseVendasPorPessoa } from "../../api/client";
+import { demanda, perdas, PERIODO, renderComSessao, resumo } from "../analise-salao/__tests__/fixtures";
 import { AnaliseSalao } from "../AnaliseSalao";
 
-const SESSAO = {
-  user: null, setUser: () => undefined, hideSensitiveValues: false, toggleSensitiveValues: () => undefined,
-  canAccessSection: () => true, hasPermission: () => true
-} as unknown as SessionContextValue;
-
-const PERIODO = { inicio: "2026-09-14", fim: "2026-10-13" };
-
-// Dados fictícios.
-function cancelamentos(over: Partial<AnaliseCancelamentos> = {}): AnaliseCancelamentos {
-  return {
-    periodo: PERIODO,
-    cobertura: { vendasComDetalhe: 100, primeiroDia: "2026-09-14", ultimoDia: "2026-10-13" },
-    resumo: { vendas: 100, canceladas: 7, taxaCancelamento: 0.07, valorCancelado: 1234.5, valorFaturado: 20000, semMotivo: 7 },
-    porPessoa: [
-      { pessoa: "Ana Fictícia", canceladas: 4, valor: 900, participacao: 0.73 },
-      { pessoa: "Bruno Fictício", canceladas: 3, valor: 334.5, participacao: 0.27 }
-    ],
-    porTurno: [{ turno: "Jantar", vendas: 60, canceladas: 5, taxa: 0.0833, valor: 1000 }],
-    porHora: [{ hora: "20", vendas: 30, canceladas: 3, taxa: 0.1, valor: 600 }, { hora: "—", vendas: 2, canceladas: 0, taxa: 0, valor: 0 }],
-    porDia: [],
-    maiores: [{ saleId: "9", data: "2026-10-02", hora: "20:30", turno: "Jantar", pessoa: "Ana Fictícia", pessoas: 4, valor: 450, motivo: null }],
-    ...over
-  };
-}
-
-function itensCancelados(over: Partial<AnaliseItensCancelados> = {}): AnaliseItensCancelados {
-  const linha = (pessoa: string, itens: number, valor: number) => ({ pessoa, itens, vendas: itens, valor, participacao: 0.5 });
-  return {
-    periodo: PERIODO,
-    cobertura: { itensCancelados: 12, itensSemVenda: 0, primeiroDia: "2026-09-14", ultimoDia: "2026-10-13" },
-    resumo: { itens: 12, vendasAfetadas: 9, valorCancelado: 640, valorItensRecebidos: 9000, taxaValor: 0.0664, semQuemCancelou: 0, semMotivo: 12, mesmaPessoa: 5, comOsDoisNomes: 12 },
-    porQuemLancou: [linha("Helena Fictícia", 8, 400), linha("Igor Fictício", 4, 240)],
-    porQuemCancelou: [linha("Júlia Fictícia", 12, 640)],
-    porProduto: [{ produto: "BUFFET PROMO 15", grupo: "Buffet", linhas: 3, quantidade: 14, valor: 500 }],
-    porHora: [{ hora: "13", itens: 7, valor: 400 }],
-    maiores: [{ saleId: "1", data: "2026-10-02", hora: "13:11", produto: "BUFFET PROMO 15", quantidade: 14, valor: 500, quemLancou: "Helena Fictícia", quemCancelou: "Júlia Fictícia", motivo: null }],
-    ...over
-  };
-}
-
-function descontos(over: Partial<AnaliseDescontos> = {}): AnaliseDescontos {
-  return {
-    periodo: PERIODO,
-    cobertura: { vendasComDado: 100, vendasSemDado: 0, primeiroDia: "2026-09-14", ultimoDia: "2026-10-13" },
-    resumo: {
-      vendasRecebidas: 100, vendasComDesconto: 6, taxaVendas: 0.06, valorDescontos: 480, valorSubtotal: 12000,
-      percentualSobreSubtotal: 0.04, descontoMedio: 80, acimaDe50: 2, semPessoa: 0, semTipo: 0
-    },
-    porTipo: [
-      { tipo: "POR VALOR", vendas: 4, valor: 300, participacao: 0.625, percentualMedio: 0.4 },
-      { tipo: "DESCONTO 30%", vendas: 2, valor: 180, participacao: 0.375, percentualMedio: 0.3 }
-    ],
-    porPessoa: [{ pessoa: "Kátia Fictícia", vendas: 6, valor: 480, participacao: 1, percentualMedio: 0.04 }],
-    porTurno: [{ turno: "Jantar", vendas: 60, vendasComDesconto: 6, taxa: 0.1, valor: 480 }],
-    maiores: [{ saleId: "1", data: "2026-10-02", hora: "20:30", turno: "Jantar", pessoas: 2, subtotal: 100, desconto: 90, percentual: 0.9, tipo: "POR VALOR", pessoa: "Kátia Fictícia" }],
-    ...over
-  };
-}
-
-const vendasPessoa: AnaliseVendasPorPessoa = {
+const equipe: AnaliseVendasPorPessoa = {
   periodo: PERIODO,
   cobertura: { itensComPessoa: 50, itensSemPessoa: 0 },
   resumo: { pessoas: 1, valorTotal: 5000, valorSemPessoa: 0, itensSemPessoa: 0 },
-  pessoas: [{
-    pessoa: "Carla Fictícia", valor: 5000, participacao: 1, itens: 120, vendas: 40, ticketMedio: 125, itensPorVenda: 3,
-    mix: [{ grupo: "Bebidas", valor: 2000, participacao: 0.4 }]
-  }]
+  hojeFicouDeFora: false,
+  pessoas: [{ pessoa: "Carla Fictícia", valor: 5000, participacao: 1, itens: 120, vendas: 40, ticketMedio: 125, itensPorVenda: 3, mix: [{ grupo: "Bebidas", valor: 2000, participacao: 0.4 }] }]
 };
 
-function renderizar() {
-  return render(
-    <SessionContext.Provider value={SESSAO}>
-      <HideValuesProvider><AnaliseSalao /></HideValuesProvider>
-    </SessionContext.Provider>
-  );
-}
+const renderizar = () => renderComSessao(<AnaliseSalao />);
+const aba = (nome: string) => screen.getByRole("tab", { name: nome });
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(getAnaliseCancelamentos).mockResolvedValue(cancelamentos());
-  vi.mocked(getAnaliseVendasPorPessoa).mockResolvedValue(vendasPessoa);
-  vi.mocked(getAnaliseItensCancelados).mockResolvedValue(itensCancelados());
-  vi.mocked(getAnaliseDescontos).mockResolvedValue(descontos());
+  vi.mocked(getAnaliseResumo).mockResolvedValue(resumo());
+  vi.mocked(getAnaliseDemanda).mockResolvedValue(demanda());
+  vi.mocked(getAnalisePerdas).mockResolvedValue(perdas());
+  vi.mocked(getAnaliseVendasPorPessoa).mockResolvedValue(equipe);
 });
 
-describe("Análise do Salão — cancelamentos", () => {
-  test("abre em cancelamentos, pedindo os últimos 30 dias, e mostra quem cancelou", async () => {
+describe("Análise do Salão — estrutura", () => {
+  test("abre no Resumo, pede os últimos 30 dias e nao busca as outras secoes", async () => {
     renderizar();
-    expect(await screen.findByText("Bruno Fictício")).toBeTruthy();
-    const periodo = vi.mocked(getAnaliseCancelamentos).mock.calls[0][0];
+    expect(await screen.findByText("Faturamento por dia")).toBeTruthy();
+    const periodo = vi.mocked(getAnaliseResumo).mock.calls[0][0];
     expect(periodo.inicio).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(periodo.fim).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(screen.getByText("7 de 100 vendas")).toBeTruthy();
-    expect(screen.getByText("Bruno Fictício")).toBeTruthy();
+    expect(getAnaliseDemanda).not.toHaveBeenCalled();
+    expect(getAnalisePerdas).not.toHaveBeenCalled();
     expect(getAnaliseVendasPorPessoa).not.toHaveBeenCalled();
   });
 
-  test("hora sem informação aparece como 'Sem hora'", async () => {
+  test("tem as quatro secoes, nesta ordem", () => {
     renderizar();
-    expect(await screen.findByText("Sem hora")).toBeTruthy();
-    expect(screen.getByText("20h")).toBeTruthy();
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Resumo", "Quando vendemos", "Perdas", "Equipe"]);
   });
 
-  test("sem venda detalhada no período: explica que falta atualizar o agente, sem mostrar zeros", async () => {
-    vi.mocked(getAnaliseCancelamentos).mockResolvedValue(cancelamentos({
-      cobertura: { vendasComDetalhe: 0, primeiroDia: null, ultimoDia: null },
-      resumo: { vendas: 0, canceladas: 0, taxaCancelamento: 0, valorCancelado: 0, valorFaturado: 0, semMotivo: 0 },
-      porPessoa: [], porTurno: [], porHora: [], maiores: []
-    }));
+  test("cada secao busca o seu relatorio", async () => {
     renderizar();
-    expect(await screen.findByText(/Ainda não há venda detalhada neste período/)).toBeTruthy();
-    expect(screen.queryByText("Quem cancelou")).toBeNull();
+    await screen.findByText("Faturamento por dia");
+    fireEvent.click(aba("Quando vendemos"));
+    expect(await screen.findByText(/Quantas pessoas chegam, por dia da semana e hora/)).toBeTruthy();
+    fireEvent.click(aba("Perdas"));
+    expect(await screen.findByText("Do cancelado à perda potencial")).toBeTruthy();
+    fireEvent.click(aba("Equipe"));
+    expect(await screen.findByText("Carla Fictícia")).toBeTruthy();
+    expect([getAnaliseDemanda, getAnalisePerdas, getAnaliseVendasPorPessoa].map((f) => vi.mocked(f).mock.calls.length)).toEqual([1, 1, 1]);
   });
 
-  test("avisa quando nenhum cancelamento tem motivo", async () => {
+  test("voltar para uma secao ja carregada, no mesmo periodo, nao refaz a consulta", async () => {
     renderizar();
-    expect(await screen.findByText(/Nenhum dos 7 cancelamentos tem motivo registrado/)).toBeTruthy();
+    await screen.findByText("Faturamento por dia");
+    fireEvent.click(aba("Perdas"));
+    await screen.findByText("Do cancelado à perda potencial");
+    fireEvent.click(aba("Resumo"));
+    expect(await screen.findByText("Faturamento por dia")).toBeTruthy();
+    fireEvent.click(aba("Perdas"));
+    expect(await screen.findByText("Do cancelado à perda potencial")).toBeTruthy();
+    expect(getAnaliseResumo).toHaveBeenCalledTimes(1);
+    expect(getAnalisePerdas).toHaveBeenCalledTimes(1);
   });
 
-  test("não avisa de motivo quando pelo menos um foi informado", async () => {
-    vi.mocked(getAnaliseCancelamentos).mockResolvedValue(cancelamentos({ resumo: { ...cancelamentos().resumo, semMotivo: 3 } }));
+  test("equipe: se hoje ficou de fora, avisa", async () => {
+    vi.mocked(getAnaliseVendasPorPessoa).mockResolvedValue({ ...equipe, hojeFicouDeFora: true });
     renderizar();
-    await screen.findByText("Bruno Fictício");
-    expect(screen.queryByText(/tem motivo registrado/)).toBeNull();
+    await screen.findByText("Faturamento por dia");
+    fireEvent.click(aba("Equipe"));
+    expect(await screen.findByText(/Hoje fica de fora/)).toBeTruthy();
   });
 
-  test("avisa que o detalhe começa depois do início do período", async () => {
-    vi.mocked(getAnaliseCancelamentos).mockResolvedValue(cancelamentos({
-      cobertura: { vendasComDetalhe: 100, primeiroDia: "2026-10-01", ultimoDia: "2026-10-13" }
-    }));
+  test("o link de um aviso do resumo abre a secao certa", async () => {
     renderizar();
-    expect(await screen.findByText(/O detalhe das vendas começa em 01\/10\/2026/)).toBeTruthy();
-  });
-
-  test("erro da API aparece na tela", async () => {
-    vi.mocked(getAnaliseCancelamentos).mockRejectedValue(new Error("Usuário sem permissão para a análise do salão."));
-    renderizar();
-    expect(await screen.findByText("Usuário sem permissão para a análise do salão.")).toBeTruthy();
+    await screen.findByText("Faturamento por dia");
+    fireEvent.click(screen.getByRole("button", { name: /Abrir Perdas/ }));
+    expect(await screen.findByText("Do cancelado à perda potencial")).toBeTruthy();
+    expect(aba("Perdas").getAttribute("aria-selected")).toBe("true");
   });
 });
 
-describe("Análise do Salão — período e abas", () => {
-  test("trocar o período pede o relatório de novo", async () => {
+describe("Análise do Salão — periodo", () => {
+  test("trocar o periodo pede o relatorio da secao ativa de novo", async () => {
     renderizar();
-    await screen.findByText("Bruno Fictício");
+    await screen.findByText("Faturamento por dia");
     fireEvent.change(screen.getByLabelText("Período"), { target: { value: "mesAnterior" } });
-    await waitFor(() => expect(getAnaliseCancelamentos).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(getAnaliseResumo).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(getAnaliseResumo).mock.calls[1][0]).not.toEqual(vi.mocked(getAnaliseResumo).mock.calls[0][0]);
   });
 
-  test("data apagada: avisa e não chama a API", async () => {
+  test("depois de trocar o periodo, as outras secoes buscam de novo (nao reaproveitam o antigo)", async () => {
     renderizar();
-    await screen.findByText("Bruno Fictício");
+    await screen.findByText("Faturamento por dia");
+    fireEvent.click(aba("Perdas"));
+    await screen.findByText("Do cancelado à perda potencial");
+    fireEvent.change(screen.getByLabelText("Período"), { target: { value: "ultimos90" } });
+    await waitFor(() => expect(getAnalisePerdas).toHaveBeenCalledTimes(2));
+  });
+
+  test("dado do periodo antigo nao aparece enquanto o novo carrega", async () => {
+    renderizar();
+    await screen.findByText("Faturamento por dia");
+    let liberar: (v: ReturnType<typeof resumo>) => void = () => undefined;
+    vi.mocked(getAnaliseResumo).mockReturnValue(new Promise((resolve) => { liberar = resolve; }));
+    fireEvent.change(screen.getByLabelText("Período"), { target: { value: "mesAnterior" } });
+    expect(await screen.findByText("Carregando…")).toBeTruthy();
+    expect(screen.queryByText("Faturamento por dia")).toBeNull();
+    liberar(resumo());
+    expect(await screen.findByText("Faturamento por dia")).toBeTruthy();
+  });
+
+  test("data apagada: avisa e nao chama a API", async () => {
+    renderizar();
+    await screen.findByText("Faturamento por dia");
     fireEvent.change(screen.getByLabelText("De"), { target: { value: "" } });
     expect(await screen.findByText(/Confira as datas/)).toBeTruthy();
-    expect(getAnaliseCancelamentos).toHaveBeenCalledTimes(1);
+    expect(getAnaliseResumo).toHaveBeenCalledTimes(1);
   });
 
-  test("a aba 'Vendas por pessoa' busca o outro relatório", async () => {
+  test("editar a data manualmente vira 'Personalizado'", async () => {
     renderizar();
-    await screen.findByText("Bruno Fictício");
-    fireEvent.click(screen.getByRole("tab", { name: "Vendas por pessoa" }));
-    expect(await screen.findByText("Carla Fictícia")).toBeTruthy();
-    expect(getAnaliseVendasPorPessoa).toHaveBeenCalledTimes(1);
-    expect(screen.getByText(/ticket médio é o valor lançado pela pessoa/)).toBeTruthy();
-    expect(screen.getByText(/Bebidas/)).toBeTruthy();
-  });
-
-  test("vendas por pessoa vazio explica o motivo, e itens sem nome aparecem em aviso", async () => {
-    vi.mocked(getAnaliseVendasPorPessoa).mockResolvedValue({
-      ...vendasPessoa, pessoas: [], resumo: { pessoas: 0, valorTotal: 0, valorSemPessoa: 300, itensSemPessoa: 12 },
-      cobertura: { itensComPessoa: 0, itensSemPessoa: 12 }
-    });
-    renderizar();
-    await screen.findByText("Bruno Fictício");
-    fireEvent.click(screen.getByRole("tab", { name: "Vendas por pessoa" }));
-    expect(await screen.findByText(/Nenhum item com o funcionário que o lançou/)).toBeTruthy();
-    expect(screen.getByText(/Há 12 itens sem essa informação/)).toBeTruthy();
+    await screen.findByText("Faturamento por dia");
+    fireEvent.change(screen.getByLabelText("De"), { target: { value: "2026-10-01" } });
+    expect((screen.getByLabelText("Período") as HTMLSelectElement).value).toBe("personalizado");
+    await waitFor(() => expect(getAnaliseResumo).toHaveBeenCalledTimes(2));
   });
 });
 
-describe("Análise do Salão — itens cancelados", () => {
-  async function abrirAba() {
+describe("Análise do Salão — voltar a um período cuja consulta foi abortada", () => {
+  test("P1 carregado, escolhe P2 (pendente) e volta para P1: nao fica preso em 'Carregando…'", async () => {
     renderizar();
-    await screen.findByText("Bruno Fictício");
-    fireEvent.click(screen.getByRole("tab", { name: "Itens cancelados" }));
-  }
-
-  test("a aba busca o relatório certo e mostra quem lançou, quem cancelou e o produto", async () => {
-    await abrirAba();
-    expect(await screen.findByText("Igor Fictício", { selector: "td" })).toBeTruthy();
-    expect(getAnaliseItensCancelados).toHaveBeenCalledTimes(1);
-    expect(screen.getAllByText("Júlia Fictícia", { selector: "td" }).length).toBeGreaterThan(0);
-    expect(screen.getAllByText("BUFFET PROMO 15").length).toBeGreaterThan(0);
-    expect(screen.getByText("em 9 vendas pagas")).toBeTruthy();
+    await screen.findByText("Faturamento por dia");
+    vi.mocked(getAnaliseResumo).mockReturnValue(new Promise(() => undefined)); // P2 nunca responde
+    fireEvent.change(screen.getByLabelText("Período"), { target: { value: "mesAnterior" } });
+    expect(await screen.findByText("Carregando…")).toBeTruthy();
+    vi.mocked(getAnaliseResumo).mockResolvedValue(resumo());
+    fireEvent.change(screen.getByLabelText("Período"), { target: { value: "ultimos30" } });
+    expect(await screen.findByText("Faturamento por dia")).toBeTruthy();
+    expect(screen.queryByText("Carregando…")).toBeNull();
   });
 
-  test("explica que a venda inteira cancelada fica na outra aba", async () => {
-    await abrirAba();
-    expect(await screen.findByText(/A venda inteira cancelada fica na aba Cancelamentos/)).toBeTruthy();
+  test("P2 falha e o usuario volta a P1: o erro de P2 nao aparece sobre os dados de P1", async () => {
+    renderizar();
+    await screen.findByText("Faturamento por dia");
+    vi.mocked(getAnaliseResumo).mockRejectedValue(new Error("Falha em P2."));
+    fireEvent.change(screen.getByLabelText("Período"), { target: { value: "mesAnterior" } });
+    expect(await screen.findByText("Falha em P2.")).toBeTruthy();
+    vi.mocked(getAnaliseResumo).mockResolvedValue(resumo());
+    fireEvent.change(screen.getByLabelText("Período"), { target: { value: "ultimos30" } });
+    expect(await screen.findByText("Faturamento por dia")).toBeTruthy();
+    expect(screen.queryByText("Falha em P2.")).toBeNull();
   });
 
-  test("avisa quando nenhum item tem motivo", async () => {
-    await abrirAba();
-    expect(await screen.findByText(/Nenhum item cancelado tem motivo registrado/)).toBeTruthy();
+  test("trocar de aba no meio da carga e voltar: a consulta e refeita e nao fica 'Carregando…'", async () => {
+    vi.mocked(getAnaliseDemanda).mockReturnValueOnce(new Promise(() => undefined));
+    renderizar();
+    await screen.findByText("Faturamento por dia");
+    fireEvent.click(aba("Quando vendemos"));
+    expect(await screen.findByText("Carregando…")).toBeTruthy();
+    fireEvent.click(aba("Resumo"));
+    expect(await screen.findByText("Faturamento por dia")).toBeTruthy();
+    fireEvent.click(aba("Quando vendemos"));
+    expect(await screen.findByText(/Quantas pessoas chegam/)).toBeTruthy();
+    expect(getAnaliseDemanda).toHaveBeenCalledTimes(2);
   });
 
-  test("quem cancelou ainda não importado: avisa e não mostra a tabela de quem cancelou", async () => {
-    vi.mocked(getAnaliseItensCancelados).mockResolvedValue(itensCancelados({
-      resumo: { ...itensCancelados().resumo, semQuemCancelou: 12, mesmaPessoa: 0, comOsDoisNomes: 0 },
-      porQuemCancelou: [{ pessoa: "(não informado)", itens: 12, vendas: 9, valor: 640, participacao: 1 }]
-    }));
-    await abrirAba();
-    expect(await screen.findByText(/Ainda não temos quem cancelou cada item/)).toBeTruthy();
-    expect(screen.queryByText("Quem cancelou")).toBeNull();
-    expect(screen.queryByText("Quem lançou também cancelou")).toBeNull();
-  });
-
-  test("parte sem quem cancelou: aviso leve e a tabela continua", async () => {
-    vi.mocked(getAnaliseItensCancelados).mockResolvedValue(itensCancelados({ resumo: { ...itensCancelados().resumo, semQuemCancelou: 4 } }));
-    await abrirAba();
-    expect(await screen.findByText(/4 de 12 itens ainda estão sem quem cancelou/)).toBeTruthy();
-    expect(screen.getByText("Quem cancelou")).toBeTruthy();
-  });
-
-  test("sem item cancelado no período: mensagem simples, sem zeros", async () => {
-    vi.mocked(getAnaliseItensCancelados).mockResolvedValue(itensCancelados({
-      cobertura: { itensCancelados: 0, itensSemVenda: 0, primeiroDia: null, ultimoDia: null },
-      resumo: { itens: 0, vendasAfetadas: 0, valorCancelado: 0, valorItensRecebidos: 0, taxaValor: 0, semQuemCancelou: 0, semMotivo: 0, mesmaPessoa: 0, comOsDoisNomes: 0 },
-      porQuemLancou: [], porQuemCancelou: [], porProduto: [], porHora: [], maiores: []
-    }));
-    await abrirAba();
-    expect(await screen.findByText(/Nenhum item cancelado em vendas pagas neste período/)).toBeTruthy();
-  });
-
-  test("itens descartados por falta da venda são avisados, não somem calados", async () => {
-    vi.mocked(getAnaliseItensCancelados).mockResolvedValue(itensCancelados({
-      cobertura: { itensCancelados: 12, itensSemVenda: 3, primeiroDia: "2026-09-14", ultimoDia: "2026-10-13" }
-    }));
-    await abrirAba();
-    expect(await screen.findByText(/3 itens cancelados ficaram de fora porque a venda deles não foi importada/)).toBeTruthy();
-  });
-
-  test("o aviso de motivo é informativo e o KPI de quem lançou e cancelou é neutro", async () => {
-    await abrirAba();
-    expect(await screen.findByText("5 de 12")).toBeTruthy();
-    expect(screen.getByText(/corrigiu o próprio lançamento/)).toBeTruthy();
+  test("o sinal de cancelamento e repassado a API e disparado ao trocar de periodo", async () => {
+    renderizar();
+    await screen.findByText("Faturamento por dia");
+    const sinal = vi.mocked(getAnaliseResumo).mock.calls[0][1] as AbortSignal;
+    expect(sinal).toBeInstanceOf(AbortSignal);
+    vi.mocked(getAnaliseResumo).mockReturnValue(new Promise(() => undefined));
+    fireEvent.change(screen.getByLabelText("Período"), { target: { value: "mesAnterior" } });
+    await waitFor(() => expect(getAnaliseResumo).toHaveBeenCalledTimes(2));
+    expect(sinal.aborted).toBe(true);
   });
 });
 
-describe("Análise do Salão — descontos", () => {
-  async function abrirAba() {
+describe("Análise do Salão — tentar de novo e foco", () => {
+  test("depois de um erro, o botao 'Tentar de novo' busca outra vez", async () => {
+    vi.mocked(getAnaliseResumo).mockRejectedValueOnce(new Error("Falha momentânea."));
     renderizar();
-    await screen.findByText("Bruno Fictício");
-    fireEvent.click(screen.getByRole("tab", { name: "Descontos" }));
-  }
-
-  test("a aba busca o relatório certo e mostra tipo, quem registrou e os maiores", async () => {
-    await abrirAba();
-    expect(await screen.findByText("DESCONTO 30%", { selector: "td" })).toBeTruthy();
-    expect(getAnaliseDescontos).toHaveBeenCalledTimes(1);
-    expect(screen.getAllByText("Kátia Fictícia", { selector: "td" }).length).toBeGreaterThan(0);
-    expect(screen.getByText("6 de 100 vendas")).toBeTruthy();
+    expect(await screen.findByText(/Falha momentânea\./)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Tentar de novo" }));
+    expect(await screen.findByText("Faturamento por dia")).toBeTruthy();
+    expect(getAnaliseResumo).toHaveBeenCalledTimes(2);
   });
 
-  test("avisa quantos descontos passam de 50% do subtotal", async () => {
-    await abrirAba();
-    expect(await screen.findByText(/2 vendas com desconto acima de 50% do subtotal/)).toBeTruthy();
+  test("depois de 'Tentar de novo', trocar de aba e voltar no mesmo periodo NAO refaz a consulta", async () => {
+    vi.mocked(getAnaliseResumo).mockRejectedValueOnce(new Error("Falha momentânea."));
+    renderizar();
+    await screen.findByText(/Falha momentânea\./);
+    fireEvent.click(screen.getByRole("button", { name: "Tentar de novo" }));
+    await screen.findByText("Faturamento por dia");
+    fireEvent.click(aba("Perdas"));
+    await screen.findByText("Do cancelado à perda potencial");
+    fireEvent.click(aba("Resumo"));
+    expect(await screen.findByText("Faturamento por dia")).toBeTruthy();
+    expect(getAnaliseResumo).toHaveBeenCalledTimes(2); // a original que falhou + o retry
   });
 
-  test("explica que 'quem registrou' vem do campo do PDV e precisa de confirmação", async () => {
-    await abrirAba();
-    expect(await screen.findByText(/campo de quem cancelou\/registrou do PDV/)).toBeTruthy();
+  test("abrir uma secao por um link leva o foco para o conteudo, nao para o body", async () => {
+    const { container } = renderizar();
+    await screen.findByText("Faturamento por dia");
+    fireEvent.click(screen.getByRole("button", { name: /Abrir Perdas/ }));
+    await screen.findByText("Do cancelado à perda potencial");
+    const conteudo = container.querySelector(".analise-conteudo") as HTMLElement;
+    await waitFor(() => expect(document.activeElement).toBe(conteudo));
+  });
+});
+
+describe("Análise do Salão — erro e carga", () => {
+  test("erro da API aparece na tela e nao deixa dado velho", async () => {
+    vi.mocked(getAnaliseResumo).mockRejectedValue(new Error("Usuário sem permissão para a análise do salão."));
+    renderizar();
+    expect(await screen.findByText("Usuário sem permissão para a análise do salão.")).toBeTruthy();
+    expect(screen.queryByText("Faturamento por dia")).toBeNull();
   });
 
-  test("linhas ainda sem dado de desconto: avisa e nao mostra 'zero descontos'", async () => {
-    vi.mocked(getAnaliseDescontos).mockResolvedValue(descontos({
-      cobertura: { vendasComDado: 0, vendasSemDado: 480, primeiroDia: null, ultimoDia: null },
-      resumo: { vendasRecebidas: 0, vendasComDesconto: 0, taxaVendas: 0, valorDescontos: 0, valorSubtotal: 0, percentualSobreSubtotal: 0, descontoMedio: 0, acimaDe50: 0, semPessoa: 0, semTipo: 0 },
-      porTipo: [], porPessoa: [], porTurno: [], maiores: []
-    }));
-    await abrirAba();
-    expect(await screen.findByText(/Ainda não há dado de desconto neste período/)).toBeTruthy();
-    expect(screen.queryByText("Descontos por tipo")).toBeNull();
+  test("o erro de uma secao nao vaza para a outra", async () => {
+    vi.mocked(getAnaliseDemanda).mockRejectedValue(new Error("Falha na demanda."));
+    renderizar();
+    await screen.findByText("Faturamento por dia");
+    fireEvent.click(aba("Quando vendemos"));
+    expect(await screen.findByText("Falha na demanda.")).toBeTruthy();
+    fireEvent.click(aba("Resumo"));
+    expect(await screen.findByText("Faturamento por dia")).toBeTruthy();
+    expect(screen.queryByText("Falha na demanda.")).toBeNull();
   });
 
-  test("parte do período sem dado: aviso leve e o relatório continua", async () => {
-    vi.mocked(getAnaliseDescontos).mockResolvedValue(descontos({
-      cobertura: { vendasComDado: 100, vendasSemDado: 40, primeiroDia: "2026-09-20", ultimoDia: "2026-10-13" }
-    }));
-    await abrirAba();
-    expect(await screen.findByText(/40 vendas do período ainda não têm dado de desconto/)).toBeTruthy();
-    expect(screen.getByText("Descontos por tipo")).toBeTruthy();
+  test("depois de um erro, abrir a secao de novo tenta outra vez", async () => {
+    vi.mocked(getAnaliseDemanda).mockRejectedValueOnce(new Error("Falha na demanda."));
+    renderizar();
+    await screen.findByText("Faturamento por dia");
+    fireEvent.click(aba("Quando vendemos"));
+    await screen.findByText("Falha na demanda.");
+    fireEvent.click(aba("Resumo"));
+    await screen.findByText("Faturamento por dia");
+    fireEvent.click(aba("Quando vendemos"));
+    expect(await screen.findByText(/Quantas pessoas chegam/)).toBeTruthy();
+    expect(getAnaliseDemanda).toHaveBeenCalledTimes(2);
   });
 
-  test("tipo ou pessoa não informados são avisados", async () => {
-    vi.mocked(getAnaliseDescontos).mockResolvedValue(descontos({ resumo: { ...descontos().resumo, semPessoa: 3, semTipo: 2 } }));
-    await abrirAba();
-    expect(await screen.findByText(/3 descontos sem a pessoa que registrou e 2 sem o tipo/)).toBeTruthy();
-  });
-
-  test("período sem nenhuma venda: não manda 'atualizar o agente'", async () => {
-    vi.mocked(getAnaliseDescontos).mockResolvedValue(descontos({
-      cobertura: { vendasComDado: 0, vendasSemDado: 0, primeiroDia: null, ultimoDia: null },
-      resumo: { vendasRecebidas: 0, vendasComDesconto: 0, taxaVendas: 0, valorDescontos: 0, valorSubtotal: 0, percentualSobreSubtotal: 0, descontoMedio: 0, acimaDe50: 0, semPessoa: 0, semTipo: 0 },
-      porTipo: [], porPessoa: [], porTurno: [], maiores: []
-    }));
-    await abrirAba();
-    expect(await screen.findByText(/Nenhuma venda recebida neste período/)).toBeTruthy();
-    expect(screen.queryByText(/agente do PDV precisa estar atualizado/)).toBeNull();
-  });
-
-  test("só a pessoa faltando: a frase não cita 'sem o tipo' com zero", async () => {
-    vi.mocked(getAnaliseDescontos).mockResolvedValue(descontos({ resumo: { ...descontos().resumo, semPessoa: 3, semTipo: 0 } }));
-    await abrirAba();
-    expect(await screen.findByText(/3 descontos sem a pessoa que registrou\./)).toBeTruthy();
-  });
-
-  test("uma venda acima de 50% usa o singular", async () => {
-    vi.mocked(getAnaliseDescontos).mockResolvedValue(descontos({ resumo: { ...descontos().resumo, acimaDe50: 1 } }));
-    await abrirAba();
-    expect(await screen.findByText(/1 venda com desconto acima de 50% do subtotal/)).toBeTruthy();
-  });
-
-  test("a tabela por pessoa avisa que é volume absoluto, não proporção do que cada um atendeu", async () => {
-    await abrirAba();
-    expect(await screen.findByText(/não considera quantas vendas cada pessoa atendeu/)).toBeTruthy();
-    expect(screen.getByText("Registrado por (campo do PDV)")).toBeTruthy();
-  });
-
-  test("período sem nenhum desconto: mensagem simples", async () => {
-    vi.mocked(getAnaliseDescontos).mockResolvedValue(descontos({
-      resumo: { ...descontos().resumo, vendasComDesconto: 0, taxaVendas: 0, valorDescontos: 0, percentualSobreSubtotal: 0, descontoMedio: 0, acimaDe50: 0 },
-      porTipo: [], porPessoa: [], porTurno: [], maiores: []
-    }));
-    await abrirAba();
-    expect(await screen.findByText(/Nenhuma venda com desconto neste período/)).toBeTruthy();
+  test("mostra 'Carregando…' enquanto espera e anuncia so o status", async () => {
+    vi.mocked(getAnaliseResumo).mockReturnValue(new Promise(() => undefined));
+    const { container } = renderizar();
+    expect(await screen.findByText("Carregando…")).toBeTruthy();
+    expect(container.querySelector("[aria-busy='true']")).not.toBeNull();
+    expect(container.querySelector("[aria-live='polite']")?.textContent).toContain("Carregando…");
   });
 });

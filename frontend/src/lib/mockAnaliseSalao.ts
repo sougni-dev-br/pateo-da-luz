@@ -1,4 +1,7 @@
-import type { AnaliseCancelamentos, AnaliseDescontos, AnaliseItensCancelados, AnaliseVendasPorPessoa } from "../api/client";
+import type {
+  AnaliseCancelamentos, AnaliseDemanda, AnaliseDescontos, AnaliseIndicadores, AnaliseItensCancelados, AnalisePerdas, AnaliseResumo,
+  AnaliseSerieDia, AnaliseVariacao, AnaliseVendasPorPessoa
+} from "../api/client";
 
 // Dados de demonstração da tela "Análise do Salão" (modo ?mock-user=1, só em dev local).
 // Tudo fictício: nomes, valores e proporções inventados (redondos de propósito, nada derivado de dado
@@ -127,6 +130,7 @@ function vendasPorPessoa(periodo: { inicio: string; fim: string }): AnaliseVenda
   });
   return {
     periodo,
+    hojeFicouDeFora: true,
     cobertura: { itensComPessoa: 5300, itensSemPessoa: 120 },
     resumo: { pessoas: 6, valorTotal: 170000, valorSemPessoa: 5000, itensSemPessoa: 120 },
     pessoas: [
@@ -140,11 +144,195 @@ function vendasPorPessoa(periodo: { inicio: string; fim: string }): AnaliseVenda
   };
 }
 
+
+// ---------------------------------------------------------------------------
+// Visão de decisão: resumo, demanda e perdas. Tudo inventado a partir de padrões redondos
+// (pessoas por dia da semana, ticket fixo) para exercitar a interface com números legíveis.
+// ---------------------------------------------------------------------------
+
+type Periodo = { inicio: string; fim: string };
+const UM_DIA = 86_400_000;
+const TICKET = 100;
+// Pessoas por dia da semana, de domingo a sábado, no almoço e no jantar (inventados).
+const ALMOCO_POR_DOW = [40, 30, 25, 40, 100, 90, 80];
+const JANTAR_POR_DOW = [20, 10, 10, 20, 30, 25, 35];
+const HORAS_ALMOCO = { "11": 0.05, "12": 0.4, "13": 0.35, "14": 0.15, "15": 0.05 };
+const HORAS_JANTAR = { "18": 0.2, "19": 0.35, "20": 0.35, "21": 0.1 };
+const DIAS = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
+
+const diasEntre = (p: Periodo) => Math.round((Date.parse(`${p.fim}T00:00:00Z`) - Date.parse(`${p.inicio}T00:00:00Z`)) / UM_DIA) + 1;
+const somarDias = (iso: string, n: number) => new Date(Date.parse(`${iso}T00:00:00Z`) + n * UM_DIA).toISOString().slice(0, 10);
+const dowDe = (iso: string) => new Date(`${iso}T00:00:00Z`).getUTCDay();
+
+function serieDe(p: Periodo, fator: number): AnaliseSerieDia[] {
+  return Array.from({ length: diasEntre(p) }, (_, i) => {
+    const data = somarDias(p.inicio, i);
+    const dow = dowDe(data);
+    const pessoas = Math.round((ALMOCO_POR_DOW[dow] + JANTAR_POR_DOW[dow]) * fator);
+    return { data, faturamento: pessoas * TICKET, pessoas, comandas: Math.round(pessoas / 2), temMovimento: true };
+  });
+}
+
+function indicadores(serie: AnaliseSerieDia[], perdaPct: number): AnaliseIndicadores {
+  const faturamento = serie.reduce((s, d) => s + d.faturamento, 0);
+  const pessoas = serie.reduce((s, d) => s + d.pessoas, 0);
+  const comandas = serie.reduce((s, d) => s + d.comandas, 0);
+  const perdaValor = Math.round(faturamento * perdaPct);
+  return {
+    diasComMovimento: serie.length, faturamento, comandas, pessoas, vendasSemPessoas: 0,
+    ticketPessoa: TICKET, ticketComanda: Math.round(faturamento / comandas), pessoasPorDia: Math.round((pessoas / serie.length) * 10) / 10,
+    faturamentoPorDia: Math.round(faturamento / serie.length),
+    canceladoVendas: 40, canceladoValor: Math.round(perdaValor * 0.5), refeitoVendas: 12, refeitoValor: Math.round(perdaValor * 0.1),
+    grandesVendas: 2, grandesValor: 6000, semMotivo: 40, itensCanceladosValor: Math.round(perdaValor * 0.3), descontoValor: Math.round(perdaValor * 0.2),
+    descontoPct: 0.02, descontoSemDado: 0, perdaValor, perdaPct, perdaTetoValor: Math.round(perdaValor * 1.05)
+  };
+}
+
+const variacao = (atual: number, anterior: number): AnaliseVariacao => ({
+  atual, anterior, diferenca: Math.round((atual - anterior) * 100) / 100, pct: anterior === 0 ? null : Math.round(((atual - anterior) / anterior) * 10000) / 10000
+});
+
+function resumo(periodo: Periodo): AnaliseResumo {
+  const dias = diasEntre(periodo);
+  const anteriorPeriodo = { inicio: somarDias(periodo.inicio, -dias), fim: somarDias(periodo.inicio, -1) };
+  const serie = serieDe(periodo, 1);
+  const atual = indicadores(serie, 0.06);
+  const anterior = indicadores(serieDe(anteriorPeriodo, 1.1), 0.04);
+  return {
+    periodo, periodoAnterior: anteriorPeriodo,
+    cobertura: { diasNoPeriodo: dias, diasComMovimento: dias, primeiroDia: periodo.inicio, ultimoDia: periodo.fim, vendasComDetalhe: atual.comandas },
+    atual, anterior, anteriorConfiavel: true, hojeFicouDeFora: true,
+    comparacao: {
+      faturamentoPorDia: variacao(atual.faturamentoPorDia, anterior.faturamentoPorDia),
+      pessoasPorDia: variacao(atual.pessoasPorDia, anterior.pessoasPorDia),
+      ticketPessoa: variacao(atual.ticketPessoa, anterior.ticketPessoa),
+      ticketComanda: variacao(atual.ticketComanda, anterior.ticketComanda),
+      faturamento: variacao(atual.faturamento, anterior.faturamento),
+      pessoas: variacao(atual.pessoas, anterior.pessoas),
+      perdaPct: variacao(atual.perdaPct, anterior.perdaPct)
+    },
+    serie,
+    insights: [
+      {
+        id: "pessoas-variacao", tom: "alerta", secao: "resumo", hipotese: false, impactoMes: Math.round((anterior.pessoasPorDia - atual.pessoasPorDia) * atual.ticketPessoa * 30),
+        titulo: `Movimento caiu ${Math.round(Math.abs(variacao(atual.pessoasPorDia, anterior.pessoasPorDia).pct ?? 0) * 100)}% contra o período anterior`,
+        detalhe: `${String(atual.pessoasPorDia).replace(".", ",")} pessoas por dia agora, ${String(anterior.pessoasPorDia).replace(".", ",")} antes.`,
+        acao: "Veja em Quando vendemos em quais dias e horários a queda se concentra."
+      },
+      {
+        id: "dia-ocioso-almoco", tom: "oportunidade", secao: "demanda", hipotese: true, impactoMes: 12000,
+        titulo: "Terça no almoço roda a 25% do melhor dia",
+        detalhe: "Média de 25 pessoas por dia, contra 100 na quinta. Chegar a 70% do melhor dia seria 45 pessoas a mais por dia.",
+        acao: "Teste uma ação para a terça (combo, parceria com empresas próximas, divulgação) e acompanhe as pessoas por dia aqui."
+      },
+      {
+        id: "perda-alta", tom: "alerta", secao: "perdas", hipotese: false, impactoMes: Math.round((atual.perdaValor / dias) * 30),
+        titulo: `Perdas potenciais somam ${Math.round(atual.perdaPct * 100)}% do faturamento`,
+        detalhe: `R$ ${atual.perdaValor.toLocaleString("pt-BR")} no período (até R$ ${atual.perdaTetoValor.toLocaleString("pt-BR")} se nenhuma refação for real): cancelamentos sem refação, itens cancelados e descontos.`,
+        acao: "É uma estimativa: nem todo cancelamento é dinheiro perdido. Abra Perdas para separar refação, valores muito altos e quem concentra."
+      },
+      {
+        id: "cancelamento-sem-motivo", tom: "info", secao: "perdas", hipotese: false, impactoMes: null,
+        titulo: "Nenhum cancelamento tem motivo registrado",
+        detalhe: "40 cancelamentos, todos sem motivo no PDV.",
+        acao: "Peça para informar o motivo ao cancelar: sem ele a análise mostra quem e quanto, mas não por quê."
+      }
+    ]
+  };
+}
+
+function demanda(periodo: Periodo): AnaliseDemanda {
+  const horas = ["11", "12", "13", "14", "15", "18", "19", "20", "21"];
+  const celulas = [0, 1, 2, 3, 4, 5, 6].flatMap((dow) =>
+    horas.map((hora) => {
+      const peso = (HORAS_ALMOCO as Record<string, number>)[hora] ?? (HORAS_JANTAR as Record<string, number>)[hora] ?? 0;
+      const base = hora < "17" ? ALMOCO_POR_DOW[dow] : JANTAR_POR_DOW[dow];
+      const pessoasPorDia = Math.round(base * peso * 10) / 10;
+      return { dow, hora, pessoasPorDia, faturamentoPorDia: pessoasPorDia * TICKET, vendas: Math.max(1, Math.round(pessoasPorDia / 2) * 4) };
+    })
+  );
+  const diasDaSemana = DIAS.map((rotulo, dow) => ({
+    dow, rotulo, diasObservados: 4,
+    pessoasPorDia: ALMOCO_POR_DOW[dow] + JANTAR_POR_DOW[dow], faturamentoPorDia: (ALMOCO_POR_DOW[dow] + JANTAR_POR_DOW[dow]) * TICKET, ticketPessoa: TICKET,
+    turnos: [
+      { turno: "ALMOCO" as const, rotulo: "Almoço", diasObservados: 4, pessoasPorDia: ALMOCO_POR_DOW[dow], faturamentoPorDia: ALMOCO_POR_DOW[dow] * TICKET, ticketPessoa: 110 },
+      { turno: "JANTAR" as const, rotulo: "Jantar", diasObservados: 4, pessoasPorDia: JANTAR_POR_DOW[dow], faturamentoPorDia: JANTAR_POR_DOW[dow] * TICKET, ticketPessoa: 80 }
+    ]
+  }));
+  const pessoasAlmoco = ALMOCO_POR_DOW.reduce((a, b) => a + b, 0) * 4;
+  const pessoasJantar = JANTAR_POR_DOW.reduce((a, b) => a + b, 0) * 4;
+  const fat = (pessoasAlmoco + pessoasJantar) * TICKET;
+  return {
+    periodo, hojeFicouDeFora: true, cobertura: { vendas: 1200, vendasSemHora: 0, diasComMovimento: 28 },
+    diasDaSemana,
+    mapa: { horas, celulas },
+    turnos: [
+      { turno: "ALMOCO", rotulo: "Almoço", pessoas: pessoasAlmoco, faturamento: pessoasAlmoco * 110, ticketPessoa: 110, participacao: (pessoasAlmoco * 110) / fat },
+      { turno: "JANTAR", rotulo: "Jantar", pessoas: pessoasJantar, faturamento: pessoasJantar * 80, ticketPessoa: 80, participacao: (pessoasJantar * 80) / fat }
+    ],
+    porHora: [],
+    capacidade: {
+      metaRelativa: 0.7, hipotese: true,
+      turnos: [
+        {
+          turno: "ALMOCO", rotulo: "Almoço", referencia: { dow: 4, rotulo: "Quinta", pessoasPorDia: 100, meta: 70 },
+          folgas: [
+            { dow: 2, rotulo: "Terça", pessoasPorDia: 25, pctDoMelhor: 0.25, pessoasAMais: 45, faturamentoMesPotencial: 22000 },
+            { dow: 1, rotulo: "Segunda", pessoasPorDia: 30, pctDoMelhor: 0.3, pessoasAMais: 40, faturamentoMesPotencial: 19000 },
+            { dow: 3, rotulo: "Quarta", pessoasPorDia: 40, pctDoMelhor: 0.4, pessoasAMais: 30, faturamentoMesPotencial: 14000 }
+          ]
+        },
+        {
+          turno: "JANTAR", rotulo: "Jantar", referencia: { dow: 6, rotulo: "Sábado", pessoasPorDia: 35, meta: 24.5 },
+          folgas: [{ dow: 1, rotulo: "Segunda", pessoasPorDia: 10, pctDoMelhor: 0.29, pessoasAMais: 14.5, faturamentoMesPotencial: 5000 }]
+        }
+      ]
+    }
+  };
+}
+
+// Fatores para os valores de itens cancelados ficarem na mesma ordem de grandeza do faturamento do mock.
+const escalar = <T,>(dados: T, fator: number): T =>
+  JSON.parse(JSON.stringify(dados), (chave, valor) => (["valor", "valorCancelado", "valorItensRecebidos", "valorDescontos", "valorSubtotal", "desconto", "subtotal"].includes(chave) && typeof valor === "number" ? Math.round(valor * fator) : valor));
+
+function perdas(periodo: Periodo): AnalisePerdas {
+  const canc = cancelamentos(periodo);
+  const itens = escalar(itensCancelados(periodo), 0.04);
+  const desc = escalar(descontos(periodo), 0.1);
+  const faturado = 150000;
+  const refeito = 1500;
+  const semRefacao = canc.resumo.valorCancelado - refeito;
+  const perdaTotal = semRefacao + itens.resumo.valorCancelado + desc.resumo.valorDescontos;
+  return {
+    periodo, cobertura: { vendasComDetalhe: canc.cobertura.vendasComDetalhe },
+    funil: {
+      faturado, cancelado: canc.resumo.valorCancelado, refeito, semRefacao, itensCancelados: itens.resumo.valorCancelado,
+      descontos: desc.resumo.valorDescontos, perdaTotal, perdaPct: perdaTotal / faturado, perdaTeto: perdaTotal + refeito, grandes: 6000, grandesVendas: 2
+    },
+    refacao: { vendas: 6, valor: refeito, pctDoCancelado: refeito / canc.resumo.valorCancelado, janelaMinutos: 10, toleranciaValor: 0.02 },
+    limiteGrande: 1000,
+    grandes: [
+      { saleId: "5001", data: periodo.fim, hora: "15:40", turno: "Jantar", pessoas: 1, valor: 4000, pessoa: "Ana Fictícia", motivo: null, refeita: false },
+      { saleId: "5002", data: periodo.inicio, hora: "16:10", turno: "Almoço", pessoas: 1, valor: 2000, pessoa: "Bruno Fictício", motivo: "evento adiado", refeita: false }
+    ],
+    porPessoa: [
+      { pessoa: "Ana Fictícia", canceladas: 24, valorCancelado: 3000, valorRefeito: 600, itens: 20, valorItens: 800, descontos: 30, valorDescontos: 900, perda: 4100 },
+      { pessoa: "Bruno Fictício", canceladas: 14, valorCancelado: 1800, valorRefeito: 500, itens: 12, valorItens: 500, descontos: 20, valorDescontos: 600, perda: 2400 },
+      { pessoa: "Carla Fictícia", canceladas: 10, valorCancelado: 1250, valorRefeito: 400, itens: 6, valorItens: 400, descontos: 10, valorDescontos: 300, perda: 1550 },
+      { pessoa: "(não informado)", canceladas: 4, valorCancelado: 450, valorRefeito: 0, itens: 0, valorItens: 0, descontos: 0, valorDescontos: 0, perda: 450 }
+    ],
+    cancelamentos: canc, itens, descontos: desc, hojeFicouDeFora: true
+  };
+}
+
 export function mockAnaliseSalao(url: string): unknown | undefined {
   const path = new URL(url, "http://localhost").pathname;
   if (path.endsWith("/integrations/agile/analise/cancelamentos")) return cancelamentos(periodoDaUrl(url));
   if (path.endsWith("/integrations/agile/analise/itens-cancelados")) return itensCancelados(periodoDaUrl(url));
   if (path.endsWith("/integrations/agile/analise/descontos")) return descontos(periodoDaUrl(url));
   if (path.endsWith("/integrations/agile/analise/vendas-por-pessoa")) return vendasPorPessoa(periodoDaUrl(url));
+  if (path.endsWith("/integrations/agile/analise/resumo")) return resumo(periodoDaUrl(url));
+  if (path.endsWith("/integrations/agile/analise/demanda")) return demanda(periodoDaUrl(url));
+  if (path.endsWith("/integrations/agile/analise/perdas")) return perdas(periodoDaUrl(url));
   return undefined;
 }

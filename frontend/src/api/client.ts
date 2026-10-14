@@ -5185,6 +5185,8 @@ export type AnaliseVendasPorPessoa = {
     ticketMedio: number; itensPorVenda: number;
     mix: Array<{ grupo: string; valor: number; participacao: number }>;
   }>;
+  // O dia em andamento ficou de fora (ver o resumo).
+  hojeFicouDeFora: boolean;
 };
 
 export type AnaliseItensCancelados = {
@@ -5238,6 +5240,156 @@ export function getAnaliseItensCancelados(periodo: AnalisePeriodo, signal?: Abor
 
 export function getAnaliseVendasPorPessoa(periodo: AnalisePeriodo, signal?: AbortSignal) {
   return request<AnaliseVendasPorPessoa>(`/integrations/agile/analise/vendas-por-pessoa?${queryPeriodo(periodo)}`, { signal });
+}
+
+// --- Visão de decisão: resumo, demanda e perdas -----------------------------
+
+export type AnaliseIndicadores = {
+  diasComMovimento: number;
+  faturamento: number;
+  comandas: number;
+  pessoas: number;
+  vendasSemPessoas: number;
+  ticketPessoa: number;
+  ticketComanda: number;
+  pessoasPorDia: number;
+  faturamentoPorDia: number;
+  canceladoVendas: number;
+  canceladoValor: number;
+  refeitoVendas: number;
+  refeitoValor: number;
+  grandesVendas: number;
+  grandesValor: number;
+  semMotivo: number;
+  itensCanceladosValor: number;
+  descontoValor: number;
+  descontoPct: number;
+  descontoSemDado: number;
+  perdaValor: number;
+  perdaPct: number;
+  perdaTetoValor: number;
+};
+
+export type AnaliseVariacao = { atual: number; anterior: number; diferenca: number; pct: number | null };
+
+export type AnaliseInsight = {
+  id: string;
+  tom: "alerta" | "oportunidade" | "info";
+  titulo: string;
+  detalhe: string;
+  acao: string;
+  impactoMes: number | null;
+  hipotese: boolean;
+  secao: "demanda" | "perdas" | "resumo";
+};
+
+export type AnaliseSerieDia = { data: string; faturamento: number; pessoas: number; comandas: number; temMovimento: boolean };
+
+export type AnaliseResumo = {
+  periodo: AnalisePeriodo;
+  periodoAnterior: AnalisePeriodo;
+  cobertura: { diasNoPeriodo: number; diasComMovimento: number; primeiroDia: string | null; ultimoDia: string | null; vendasComDetalhe: number };
+  atual: AnaliseIndicadores;
+  anterior: AnaliseIndicadores | null;
+  anteriorConfiavel: boolean;
+  comparacao: {
+    faturamentoPorDia: AnaliseVariacao;
+    pessoasPorDia: AnaliseVariacao;
+    ticketPessoa: AnaliseVariacao;
+    ticketComanda: AnaliseVariacao;
+    faturamento: AnaliseVariacao;
+    pessoas: AnaliseVariacao;
+    perdaPct: AnaliseVariacao;
+  } | null;
+  serie: AnaliseSerieDia[];
+  insights: AnaliseInsight[];
+  // O pedido incluia hoje e o dia em andamento foi deixado de fora.
+  hojeFicouDeFora: boolean;
+};
+
+export type AnaliseDemandaTurnoDoDia = {
+  turno: "ALMOCO" | "JANTAR";
+  rotulo: string;
+  diasObservados: number;
+  pessoasPorDia: number;
+  faturamentoPorDia: number;
+  ticketPessoa: number;
+};
+
+export type AnaliseDemanda = {
+  periodo: AnalisePeriodo;
+  cobertura: { vendas: number; vendasSemHora: number; diasComMovimento: number };
+  diasDaSemana: Array<{
+    dow: number;
+    rotulo: string;
+    diasObservados: number;
+    pessoasPorDia: number;
+    faturamentoPorDia: number;
+    ticketPessoa: number;
+    turnos: AnaliseDemandaTurnoDoDia[];
+  }>;
+  mapa: { horas: string[]; celulas: Array<{ dow: number; hora: string; pessoasPorDia: number; faturamentoPorDia: number; vendas: number }> };
+  turnos: Array<{ turno: "ALMOCO" | "JANTAR" | "OUTRO"; rotulo: string; pessoas: number; faturamento: number; ticketPessoa: number; participacao: number }>;
+  porHora: Array<{ hora: string; pessoas: number; faturamento: number; participacao: number }>;
+  capacidade: {
+    metaRelativa: number;
+    hipotese: true;
+    turnos: Array<{
+      turno: "ALMOCO" | "JANTAR";
+      rotulo: string;
+      referencia: { dow: number; rotulo: string; pessoasPorDia: number; meta: number } | null;
+      folgas: Array<{ dow: number; rotulo: string; pessoasPorDia: number; pctDoMelhor: number; pessoasAMais: number; faturamentoMesPotencial: number }>;
+    }>;
+  };
+  hojeFicouDeFora: boolean;
+};
+
+export type AnalisePerdas = {
+  periodo: AnalisePeriodo;
+  cobertura: { vendasComDetalhe: number };
+  funil: {
+    faturado: number;
+    cancelado: number;
+    refeito: number;
+    semRefacao: number;
+    itensCancelados: number;
+    descontos: number;
+    perdaTotal: number;
+    perdaPct: number;
+    perdaTeto: number;
+    grandes: number;
+    grandesVendas: number;
+  };
+  refacao: { vendas: number; valor: number; pctDoCancelado: number; janelaMinutos: number; toleranciaValor: number };
+  limiteGrande: number;
+  grandes: Array<{ saleId: string; data: string; hora: string | null; turno: string; pessoas: number; valor: number; pessoa: string; motivo: string | null; refeita: boolean }>;
+  porPessoa: Array<{
+    pessoa: string;
+    canceladas: number;
+    valorCancelado: number;
+    valorRefeito: number;
+    itens: number;
+    valorItens: number;
+    descontos: number;
+    valorDescontos: number;
+    perda: number;
+  }>;
+  cancelamentos: AnaliseCancelamentos;
+  itens: AnaliseItensCancelados;
+  descontos: AnaliseDescontos;
+  hojeFicouDeFora: boolean;
+};
+
+export function getAnaliseResumo(periodo: AnalisePeriodo, signal?: AbortSignal) {
+  return request<AnaliseResumo>(`/integrations/agile/analise/resumo?${queryPeriodo(periodo)}`, { signal });
+}
+
+export function getAnaliseDemanda(periodo: AnalisePeriodo, signal?: AbortSignal) {
+  return request<AnaliseDemanda>(`/integrations/agile/analise/demanda?${queryPeriodo(periodo)}`, { signal });
+}
+
+export function getAnalisePerdas(periodo: AnalisePeriodo, signal?: AbortSignal) {
+  return request<AnalisePerdas>(`/integrations/agile/analise/perdas?${queryPeriodo(periodo)}`, { signal });
 }
 
 // ============================================================================
