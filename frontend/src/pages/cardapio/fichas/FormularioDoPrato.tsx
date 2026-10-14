@@ -143,6 +143,15 @@ export function FormularioDoPrato({ modo, base, categorias, menuPadrao, onCancel
   ];
 
   function trocarOndeVender(novo: OndeVende) {
+    // A lista de cima é sempre a do cardápio principal. Quando o principal muda de cardápio, as listas trocam de lugar:
+    // senão as quantidades do salão seriam gravadas como se fossem as do delivery (e apagariam as de lá), ou o inverso.
+    const ficaOutro = campos.alsoMenu && novo === campos.alsoMenu;
+    const virouAmbos = novo === "AMBOS" && campos.menu === "DELIVERY";
+    if (ficaOutro || virouAmbos) {
+      const doPrincipal = itens;
+      salao.setItens(ficaOutro ? itensDoOutro : []);
+      delivery.setItens(doPrincipal);
+    }
     setCampos((anterior) => trocarOndeVende(anterior, novo));
   }
 

@@ -274,7 +274,24 @@ export function FichasTecnicas() {
   // O painel e os números do alto olham só o cardápio escolhido.
   const pratosDoCardapio = useMemo(() => pratos.filter((prato) => cardapioCombina(prato, filtro.menu)), [pratos, filtro.menu]);
   // O painel olha só os ativos; os chips da lista acompanham o que ela mostra (inclui inativos se ligado).
-  const painel = useMemo(() => montarPainel(pratosDoCardapio), [pratosDoCardapio]);
+  // No cardápio onde o prato é vendido "também", a ficha e o custo são os dele (os números de CMV e margem da lista são do
+  // principal, com o preço do salão): sem preço de loja aqui, ele entra no painel só como ficha, nunca com o CMV do outro cardápio.
+  const pratosDoPainel = useMemo(
+    () => pratosDoCardapio.map((prato) => (
+      filtro.menu !== "todos" && prato.menu !== filtro.menu
+        ? {
+            ...prato,
+            itemsCount: prato.alsoItemsCount ?? 0,
+            custoPorcao: prato.alsoCustoPorcao ?? 0,
+            custoIncompleto: prato.alsoCustoIncompleto ?? false,
+            cmvPercentual: null,
+            margemBruta: null
+          }
+        : prato
+    )),
+    [pratosDoCardapio, filtro.menu]
+  );
+  const painel = useMemo(() => montarPainel(pratosDoPainel), [pratosDoPainel]);
   // Base dos números do seletor de categoria: o cardápio escolhido, com ou sem inativos.
   const pratosDoSeletor = useMemo(
     () => pratosDoCardapio.filter((prato) => prato.isActive || filtro.mostrarInativos),

@@ -60,7 +60,7 @@ const dishBodySchema = z.object({
   isActive: z.boolean().optional(),
   menu: z.enum(MENUS).optional(),
   /** Outro cardápio onde o mesmo prato também é vendido; vazio = só no principal. */
-  alsoMenu: z.enum(MENUS).nullish().transform((valor) => valor ?? null),
+  alsoMenu: z.enum(MENUS).nullish(),
   alsoCategoryId: textoOpcional,
   items: dishItemsSchema.optional(),
   /** Quantidades do OUTRO cardápio (o delivery) do prato vendido nos dois: a do a la carte não vale para o delivery. */
@@ -297,6 +297,13 @@ function exigirQuantidadesDoOutro(menu: string, alsoMenu: string, quantidadesDoO
   return null;
 }
 
+/** A ficha de um prato que muda de cardápio principal vai junto; se o cardápio de destino já tem ficha, ela é a que vale. */
+async function moverFichaParaOCardapio(tx: Pick<typeof prisma, "dishItem">, dishId: string, de: string, para: string) {
+  if (de === para) return;
+  const jaTem = await tx.dishItem.count({ where: { dishId, menu: para } });
+  if (jaTem === 0) await tx.dishItem.updateMany({ where: { dishId, menu: de }, data: { menu: para } });
+}
+
 dishesRouter.post("/", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
@@ -320,7 +327,7 @@ dishesRouter.post("/", async (request, response) => {
     return;
   }
 
-  const segundo = await validarSegundoCardapio(prisma, menu, body.alsoMenu, body.alsoCategoryId);
+  const segundo = await validarSegundoCardapio(prisma, menu, body.alsoMenu ?? null, body.alsoCategoryId);
   if ("erro" in segundo) {
     response.status(400).json({ message: segundo.erro });
     return;
@@ -393,7 +400,7 @@ dishesRouter.put("/:id", async (request, response) => {
   }
 
   const id = request.params.id;
-  const atual = await prisma.dish.findUnique({ where: { id }, select: { menu: true } });
+  const atual = await prisma.dish.findUnique({ where: { id }, select: { menu: true, alsoMenu: true, alsoCategoryId: true } });
   if (!atual) {
     response.status(404).json({ message: "Prato não encontrado." });
     return;
@@ -409,7 +416,12 @@ dishesRouter.put("/:id", async (request, response) => {
     response.status(400).json({ message: categoriaRuim });
     return;
   }
-  const segundo = await validarSegundoCardapio(prisma, menu, body.alsoMenu, body.alsoCategoryId);
+  // Quem não envia "alsoMenu" (tela antiga em cache, outra integração) não quer mexer nele: o segundo cardápio fica como está.
+  // Só o null explícito o remove. Se o principal passou a ser o cardápio do segundo, o segundo deixa de existir.
+  const omitido = body.alsoMenu === undefined;
+  const alsoMenuPedido = omitido ? (atual.alsoMenu && atual.alsoMenu !== menu ? atual.alsoMenu : null) : (body.alsoMenu ?? null);
+  const alsoCategoriaPedida = omitido && body.alsoCategoryId == null ? atual.alsoCategoryId : (body.alsoCategoryId ?? null);
+  const segundo = await validarSegundoCardapio(prisma, menu, alsoMenuPedido, alsoCategoriaPedida);
   if ("erro" in segundo) {
     response.status(400).json({ message: segundo.erro });
     return;
@@ -445,6 +457,9 @@ dishesRouter.put("/:id", async (request, response) => {
           isActive: body.isActive !== false
         }
       });
+
+      // Mudou o cardápio principal sem mandar a lista nova: a ficha acompanha o prato (só se o novo cardápio ainda não tem ficha).
+      if (!body.items && menu !== atual.menu) await moverFichaParaOCardapio(tx, id, atual.menu, menu);
 
       // Cada cardápio tem a sua lista: regrava só a que veio. As quantidades do outro cardápio ficam guardadas
       // mesmo que o prato deixe de ser vendido lá (voltam se ele voltar), mas só contam enquanto o segundo cardápio existe.
@@ -549,6 +564,10 @@ dishesRouter.post("/bulk", async (request, response) => {
 
     // O prato que passa a ser principal no cardápio em que já era vendido "também" deixa de ter segundo cardápio.
     if (body.menu !== undefined) {
+      for (const prato of pratos) {
+        // Se o cardápio antigo continua como segundo, a ficha dele é a do segundo cardápio e fica onde está.
+        if (prato.menu !== body.menu && body.alsoMenu !== prato.menu) await moverFichaParaOCardapio(tx, prato.id, prato.menu, body.menu);
+      }
       await tx.dish.updateMany({ where: { id: { in: ids }, alsoMenu: body.menu }, data: { alsoMenu: null, alsoCategoryId: null } });
     }
 
