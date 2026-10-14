@@ -5291,6 +5291,66 @@ export function vincularProdutoAnaliseMargem(corpo: { codigo: string; nome: stri
   });
 }
 
+export type AnaliseMargemBebidasLinha = {
+  codigo: string;
+  nome: string;
+  categoria: string | null;
+  quantidade: number;
+  quantidadeSemCobranca: number;
+  receita: number;
+  precoMedio: number;
+  insumo: string;
+  consumo: string;
+  custoPorVenda: number;
+  margemUnitaria: number;
+  margemPct: number;
+  cmvPct: number;
+  margemTotal: number;
+};
+
+export type AnaliseMargemBebidasAFazer = {
+  codigo: string | null;
+  nome: string;
+  categoria: string | null;
+  quantidade: number;
+  receita: number;
+  pctReceita: number;
+  situacao: "sem-vinculo" | "custo-incompleto";
+  insumo: string | null;
+  problema: string | null;
+  sugestoes: Array<{ insumoId: string; nome: string; similaridade: number }>;
+};
+
+export type AnaliseUnidadeDeConsumo = "UN" | "ML" | "L" | "G" | "KG";
+
+export type AnaliseMargemBebidas = {
+  periodo: AnalisePeriodo;
+  hojeFicouDeFora: boolean;
+  cobertura: {
+    receitaBebidas: number; receitaComMargem: number; receitaSemVinculo: number; receitaCustoIncompleto: number;
+    pctComMargem: number; pctSemVinculo: number; pctCustoIncompleto: number; bebidasComMargem: number;
+  };
+  linhas: AnaliseMargemBebidasLinha[];
+  aFazer: AnaliseMargemBebidasAFazer[];
+  insumosParaVincular: Array<{ id: string; nome: string; unidade: string }>;
+  // A lista de insumos passou do limite do servidor e foi cortada.
+  insumosTruncados: boolean;
+  insights: AnaliseInsight[];
+};
+
+export function getAnaliseMargemBebidas(periodo: AnalisePeriodo, signal?: AbortSignal) {
+  return request<AnaliseMargemBebidas>(`/integrations/agile/analise/margem-bebidas?${queryPeriodo(periodo)}`, { signal });
+}
+
+// insumoId null desfaz o vínculo da bebida. quantidade/unidade: quanto UMA venda consome do insumo.
+export function vincularBebidaAnaliseMargem(corpo: { codigo: string; nome: string; insumoId: string | null; quantidade?: number; unidade?: AnaliseUnidadeDeConsumo }) {
+  return request<{ ok: boolean }>("/integrations/agile/analise/margem-bebidas/vinculo", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(corpo)
+  });
+}
+
 export type AnaliseIndicadorDeMeta = "faturamento" | "pessoas" | "ticketPessoa" | "perdaPct";
 export type AnaliseSituacaoDaMeta = "sem-meta" | "sem-dado" | "atingida" | "no-ritmo" | "abaixo";
 
