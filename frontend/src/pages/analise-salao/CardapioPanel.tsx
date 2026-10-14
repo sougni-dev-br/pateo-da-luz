@@ -60,7 +60,7 @@ export function CardapioPanel({ dados }: { dados: AnaliseCardapio }) {
       </div>
 
       <section aria-labelledby="cardapio-prioridades">
-        <PanelEyebrow id="cardapio-prioridades">Prioridades: o que o cardápio mostra</PanelEyebrow>
+        <PanelEyebrow as="h2" id="cardapio-prioridades">Prioridades: o que o cardápio mostra</PanelEyebrow>
         {dados.insights.length === 0 ? (
           <p className="analise-nota">Nada fora do normal no cardápio neste período.</p>
         ) : (
@@ -73,26 +73,26 @@ export function CardapioPanel({ dados }: { dados: AnaliseCardapio }) {
       </section>
 
       <section aria-labelledby="cardapio-mix">
-        <PanelEyebrow id="cardapio-mix">O que vendemos: receita por categoria</PanelEyebrow>
+        <PanelEyebrow as="h2" id="cardapio-mix">O que vendemos: receita por categoria</PanelEyebrow>
         <MixDeCategorias linhas={dados.categorias} comparar={comparar} />
       </section>
 
       <section aria-labelledby="cardapio-comanda">
-        <PanelEyebrow id="cardapio-comanda">O que cada comanda leva</PanelEyebrow>
+        <PanelEyebrow as="h2" id="cardapio-comanda">O que cada comanda leva</PanelEyebrow>
         <VendaPorComanda attach={dados.attach} />
         <PanelEyebrow className="subsecao">E se mais comandas levassem o item?</PanelEyebrow>
         <SimulacoesDoCardapio simulacoes={dados.simulacoes} />
       </section>
 
       <section aria-labelledby="cardapio-abc">
-        <PanelEyebrow id="cardapio-abc">Curva ABC: poucos produtos sustentam a receita</PanelEyebrow>
+        <PanelEyebrow as="h2" id="cardapio-abc">Curva ABC: poucos produtos sustentam a receita</PanelEyebrow>
         <p className="analise-nota">A curva mede só receita: água e café ficam na classe C por custarem pouco, não por serem dispensáveis. Veja margem e papel do item antes de qualquer corte.</p>
         <CurvaAbc abc={dados.abc} totalProdutos={resumo.produtosVendidos} />
         <TabelaAbc itens={dados.abc.itens} legenda={`Os ${dados.abc.itens.length} produtos que mais vendem, com a classe da curva ABC`} />
       </section>
 
       <section aria-labelledby="cardapio-detalhe">
-        <PanelEyebrow id="cardapio-detalhe">Detalhe</PanelEyebrow>
+        <PanelEyebrow as="h2" id="cardapio-detalhe">Detalhe</PanelEyebrow>
         {cauda.produtos > 0 && (
           <details className="detalhe">
             <summary>

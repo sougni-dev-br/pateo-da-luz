@@ -207,7 +207,7 @@ export function AnaliseSalao() {
         {/* Não depende do estado dos pratos: recarregar os pratos não pode desmontar o formulário das bebidas. */}
         {aba === "margem" && valido && (
           <section aria-labelledby="margem-bebidas" className="analise-stack">
-            <PanelEyebrow id="margem-bebidas">Bebidas: margem de revenda</PanelEyebrow>
+            <PanelEyebrow as="h2" id="margem-bebidas">Bebidas: margem de revenda</PanelEyebrow>
             <div aria-live="polite">
               {margemBebidas.erro && !bebidas.naTela && (
                 <Alert tone="error">
@@ -225,7 +225,7 @@ export function AnaliseSalao() {
         )}
         {aba === "margem" && valido && (
           <section aria-labelledby="margem-buffet" className="analise-stack">
-            <PanelEyebrow id="margem-buffet">Buffet: margem por pessoa</PanelEyebrow>
+            <PanelEyebrow as="h2" id="margem-buffet">Buffet: margem por pessoa</PanelEyebrow>
             <div aria-live="polite">
               {margemBuffet.erro && !buffet.naTela && (
                 <Alert tone="error">
