@@ -871,3 +871,24 @@
 .folha-pdf-acao { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .folha-pdf-acao .ds-select { min-width: 140px; margin: 0; }
 .folha-pdf-acao select { height: 32px; font-size: 13px; }
+
+/* Lista de pagamento do adiantamento / 1ª quinzena (Folha e VT) */
+.pagamento-meio { display: grid; gap: 10px; border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin: 0 0 14px; }
+.pagamento-meio .cabecalho-painel .ds-select { min-width: 200px; margin: 0; }
+.pagamento-meio-resumo { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.pm-cartao { display: grid; gap: 1px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.pm-cartao > span { font-size: 12px; color: var(--muted); }
+.pm-cartao > strong { font-size: 20px; line-height: 1.2; }
+.pm-cartao > small { font-size: 12px; color: var(--muted); }
+.pm-cartao.pm-falta { border-color: var(--warning); background: var(--gold-tint, var(--surface)); }
+.pm-cartao.pm-falta > strong { color: var(--warning); }
+.pm-cartao.pm-total { border-color: var(--gold); }
+.pagamento-meio-acoes { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+.pagamento-meio-acoes .folha-pdf-acao { margin-left: auto; }
+.pagamento-meio-confirmacao { display: grid; gap: 6px; padding: 12px 14px; border: 2px solid var(--gold); border-radius: 10px; background: var(--surface); font-size: 13px; }
+.pagamento-meio-confirmacao ul { margin: 0; padding-left: 18px; display: grid; gap: 2px; }
+.tabela-gorjeta .pm-linha-falta .ds-table-td:first-child { box-shadow: inset 3px 0 0 var(--warning); }
+@media (max-width: 700px) {
+  .pagamento-meio { padding: 10px; }
+  .pagamento-meio-acoes .folha-pdf-acao { margin-left: 0; }
+}
