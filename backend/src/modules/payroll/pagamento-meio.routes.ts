@@ -14,6 +14,16 @@ export const MSG_SEM_PERMISSAO_MEIO = "A lista do adiantamento tem valores e PIX
 
 export const pagamentoMeioRouter = Router();
 
+/**
+ * Avisos do cálculo da folha que falam deste pagamento (pulados, excluídos à mão, depois da saída).
+ * Fora: "já veio do extrato" (a linha já está na lista), o VT ("VT 1ª quinzena") e a categoria do DRE.
+ * Os avisos só têm nome e valor: quem chega aqui já vê Funcionários.
+ */
+export function avisoDoPagamento(tipo: TipoPagamentoMeio, aviso: string): boolean {
+  if (/já veio do extrato|categoria|\bVT\b|vale-transporte|ajuda de custo/i.test(aviso)) return false;
+  return tipo === "QUINZENA" ? /1ª quinzena/i.test(aviso) : /adiantamento/i.test(aviso);
+}
+
 pagamentoMeioRouter.get("/pagamento-meio", async (request, response) => {
   if (!(await getSessionUser(request))) return response.status(401).json({ message: "Sessão obrigatória." });
   if (!(await podeVerDadosPessoais(request))) return response.status(403).json({ message: MSG_SEM_PERMISSAO_MEIO });
@@ -28,8 +38,8 @@ pagamentoMeioRouter.get("/pagamento-meio", async (request, response) => {
 
   const [lancados, calculo] = await Promise.all([
     prisma.payrollItem.findMany({
-      where: { competenceYear: ano, competenceMonth: mes, type: "ADIANTAMENTO", deletedAt: null },
-      select: { id: true, employeeId: true, amount: true, dueDate: true, paymentDate: true, paidAmount: true, details: true },
+      where: { competenceYear: ano, competenceMonth: mes, type: "ADIANTAMENTO", deletedAt: null, status: { not: "CANCELED" } },
+      select: { id: true, employeeId: true, amount: true, dueDate: true, paymentDate: true, paidAmount: true, details: true, source: true },
     }),
     computePayroll(ano, mes),
   ]);
@@ -53,9 +63,12 @@ pagamentoMeioRouter.get("/pagamento-meio", async (request, response) => {
   const lista = montarPagamentoMeio(tipo, lancados.map((i) => ({
     ...i, amount: Number(i.amount), paidAmount: i.paidAmount == null ? null : Number(i.paidAmount),
   })), calculo.items, pessoas);
-  // Só os avisos do cálculo que falam deste pagamento (pulados, excluídos à mão). "Já veio do
-  // extrato" não entra: a linha da pessoa já está na lista, com a empresa do extrato.
-  const chave = tipo === "QUINZENA" ? /quinzena/i : /adiantamento/i;
-  const avisos = (calculo.warnings ?? []).filter((w) => chave.test(w) && !/já veio do extrato/i.test(w));
-  response.json({ ...lista, competencia: `${String(mes).padStart(2, "0")}/${ano}`, avisos });
+  const competencia = `${String(mes).padStart(2, "0")}/${ano}`;
+  const avisos = [
+    ...(calculo.warnings ?? []).filter((w) => avisoDoPagamento(tipo, w)),
+    ...(lista.cltSemTitulo.length > 0
+      ? [`CLT sem adiantamento de ${competencia} no Contas a Pagar (o extrato do adiantamento já foi importado no Retorno do RH?): ${lista.cltSemTitulo.join(", ")}.`]
+      : []),
+  ];
+  response.json({ ...lista, competencia, avisos });
 });

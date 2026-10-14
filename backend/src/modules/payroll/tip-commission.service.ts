@@ -896,13 +896,13 @@ export async function computeTipCommission(
     if (quinzenaEmAberto.length) warnings.push(`1ª quinzena de ${competencia} lançada mas ainda sem baixa em Contas a Pagar (a lista desconta o valor previsto; dê a baixa com o valor pago): ${listar(quinzenaEmAberto)}.`);
     // O cálculo (c) decide, não o valor exibido: sem a permissão ele vem oculto, e o aviso sai igual.
     const quinzenaSemTitulo = naLista.filter(({ e, c }) => e.pagamentoQuinzenal && !e.quinzenaLancada && c.primeiraQuinzena > 0).map(({ p }) => p);
-    if (quinzenaSemTitulo.length) warnings.push(`Recebem por quinzena, mas falta lançar a 1ª quinzena de ${competencia} em Contas a Pagar — a lista desconta a metade do salário do cadastro, não o que foi pago. Lance em Folha → "Gerar 1ª quinzena (sem registro)" e dê a baixa com o valor pago: ${listar(quinzenaSemTitulo)}.`);
+    if (quinzenaSemTitulo.length) warnings.push(`Recebem por quinzena, mas falta lançar a 1ª quinzena de ${competencia} em Contas a Pagar — a lista desconta a metade do salário do cadastro, não o que foi pago. Lance na Folha, na lista de pagamento "1ª quinzena (dia 15)", e dê a baixa com o valor pago: ${listar(quinzenaSemTitulo)}.`);
     const emAberto = naLista.filter(({ p, e }) => !e.pagamentoQuinzenal && adiantamentosLancados.get(p.employeeId)?.emAberto).map(({ p }) => p);
     if (emAberto.length) warnings.push(`Adiantamento de ${competencia} lançado mas ainda sem baixa em Contas a Pagar (a lista desconta o valor previsto; dê a baixa com o valor pago): ${listar(emAberto)}.`);
     // Sem a permissão de Funcionários o valor vem null (oculto): o aviso sai do mesmo jeito, sem valor.
     const semTitulo = naLista.filter(({ p, e }) => e.recebeAdiantamento && !e.pagamentoQuinzenal && !e.adiantamentoLancado
       && (p.adiantamentoSalarial == null || p.adiantamentoSalarial > 0)).map(({ p }) => p);
-    if (semTitulo.length) warnings.push(`Recebem adiantamento, mas o de ${competencia} não está lançado em Contas a Pagar — a lista desconta os ${regras.adiantamentoPercent ?? 0}% do cadastro, não o que foi pago. Lance em Folha → "Lançar adiantamento dos sem registro" e dê a baixa com o valor pago: ${listar(semTitulo)}.`);
+    if (semTitulo.length) warnings.push(`Recebem adiantamento, mas o de ${competencia} não está lançado em Contas a Pagar — a lista desconta os ${regras.adiantamentoPercent ?? 0}% do cadastro, não o que foi pago. Lance em Folha → Adiantamento e 1ª quinzena e dê a baixa com o valor pago: ${listar(semTitulo)}.`);
   }
   // Texto de horas que a conta não entende vira zero: quem fecha precisa ver.
   const ilegivel = (t: string | null) => t != null && t.trim() !== "" && (parseHoras(t) == null || parseHoras(t)! < 0);

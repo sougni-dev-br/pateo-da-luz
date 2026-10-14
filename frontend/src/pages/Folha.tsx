@@ -124,6 +124,19 @@ function BarraRecibos({ itens, imprimindo, onImprimir }: {
 
 /** A Folha virou três telas no menu (Folha → ...): cada uma mostra só a sua parte. */
 export type SecaoFolha = "lancamentos" | "vt" | "adiantamento";
+// O mês escolhido vale para as três telas da Folha nesta aba do navegador (sem armazenamento: o mês atual).
+const CHAVE_COMPETENCIA = "folha:competencia";
+function competenciaInicial(): { year: number; month: number } {
+  const agora = new Date();
+  const atual = { year: agora.getFullYear(), month: agora.getMonth() + 1 };
+  try {
+    const [y, m] = (window.sessionStorage.getItem(CHAVE_COMPETENCIA) ?? "").split("-").map(Number);
+    return Number.isInteger(y) && y >= 2000 && y <= 2100 && Number.isInteger(m) && m >= 1 && m <= 12 ? { year: y, month: m } : atual;
+  } catch {
+    return atual;
+  }
+}
+
 const TITULO_SECAO: Record<SecaoFolha, string> = {
   lancamentos: "Folha de pagamento", vt: "Vale-transporte", adiantamento: "Adiantamento e 1ª quinzena",
 };
@@ -136,9 +149,11 @@ export function Folha({ secao = "lancamentos" }: { secao?: SecaoFolha }) {
   const { notice, setNotice } = useNotice();
   const recibos = useImprimirRecibos((message) => setNotice({ tone: "error", message }));
 
-  const now = new Date();
-  const [year, setYear] = useState(now.getFullYear());
-  const [month, setMonth] = useState(now.getMonth() + 1);
+  const [year, setYear] = useState(() => competenciaInicial().year);
+  const [month, setMonth] = useState(() => competenciaInicial().month);
+  useEffect(() => {
+    try { window.sessionStorage.setItem(CHAVE_COMPETENCIA, `${year}-${month}`); } catch { /* só não lembra */ }
+  }, [year, month]);
   const [list, setList] = useState<PayrollList | null>(null);
   const [preview, setPreview] = useState<PayrollPreview | null>(null);
   // Escopo da prévia (VT ou folha) e valores ajustados à mão antes de gerar.
@@ -775,9 +790,11 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
         {secao === "adiantamento" && !podeRecibo && (
           <Alert tone="warning">A lista do adiantamento mostra valores e PIX: é preciso permissão de ver Funcionários.</Alert>
         )}
-        {secao === "adiantamento" && podeRecibo && (
+        {/* Só depois de a folha do mês carregar: a versão nasce certa e a lista não carrega duas vezes. */}
+        {secao === "adiantamento" && podeRecibo && list && (
           <PagamentoMeio year={year} month={month} canEdit={canEdit}
             percentAdiantamento={settings ? Number(settings.advancePercent) : null}
+            diaAdiantamento={settings?.advanceDueDay ?? null}
             versao={(list?.items ?? []).filter((i) => i.type === "ADIANTAMENTO").map((i) => `${i.id}:${i.amount}:${i.status}`).join("|")}
             onLancado={() => void load()} />
         )}

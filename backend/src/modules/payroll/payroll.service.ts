@@ -285,6 +285,12 @@ export async function computePayroll(year: number, month: number, quinzenaAGerar
     where: { competenceYear: year, competenceMonth: month, type: "ADIANTAMENTO", periodLabel: ROTULO_PRIMEIRA_QUINZENA, deletedAt: { not: null } },
     select: { employeeId: true, deletedAt: true, deletedById: true },
   })).filter((e) => excluidoAMao(e)).map((e) => e.employeeId));
+  // Adiantamento (dia 20) de sem registro excluído à mão: a mesma regra. Sem ela, a lista do
+  // adiantamento mostrava a pessoa como "falta lançar" e o botão ressuscitava o título.
+  const adiantamentosExcluidos = new Set((await prisma.payrollItem.findMany({
+    where: { competenceYear: year, competenceMonth: month, type: "ADIANTAMENTO", periodLabel: "Adiantamento", deletedAt: { not: null } },
+    select: { employeeId: true, deletedAt: true, deletedById: true },
+  })).filter((e) => excluidoAMao(e)).map((e) => e.employeeId));
   const existsKey = new Set(existingByKey.keys());
   // Salário/adiantamento que já veio do extrato da contabilidade (rótulo "Extrato MM/AAAA"
   // ou "Adiantamento MM/AAAA", não "Salário"/"Adiantamento"): gerar a folha criaria o
@@ -510,7 +516,12 @@ export async function computePayroll(year: number, month: number, quinzenaAGerar
       const temAdiantamento = vigente.modality !== "NAO_CLT" || vigente.recebeAdiantamento;
       const advance = temAdiantamento ? round2((base * Number(settings.advancePercent)) / 100) : 0;
       const salary = round2(base - advance);
-      if (temAdiantamento) items.push({
+      const adiantamentoExcluido = temAdiantamento && semRegistro && adiantamentosExcluidos.has(emp.id)
+        && !existsKey.has(`${emp.id}|ADIANTAMENTO|Adiantamento`);
+      if (adiantamentoExcluido) {
+        warnings.push(`${name}: adiantamento de ${mmaaaa} excluído à mão; não gerado de novo. Para lançar, restaure o título excluído.`);
+      }
+      if (temAdiantamento && !adiantamentoExcluido) items.push({
         employeeId: emp.id, employeeName: name, employeeDisplayName: emp.displayName, sector: emp.sector, type: "ADIANTAMENTO",
         periodLabel: "Adiantamento", periodStart: null, periodEnd: null,
         dueDate: isoDate(year, month, Math.min(settings.advanceDueDay, daysInMonth)),
@@ -554,7 +565,7 @@ function itemPrimeiraQuinzena(
   regras: Parameters<typeof primeiraQuinzenaPrevista>[1],
   year: number, month: number,
   dreFolha: { id: string; name: string } | null,
-  existentes: Map<string, { id: string; amount: unknown; paymentDate: Date | null; status: string | null }>,
+  existentes: Map<string, { id: string; amount: unknown; paymentDate: Date | null; status: string | null; details?: unknown }>,
 ): ComputedItem | null {
   if (vigente.modality !== "NAO_CLT" || !vigente.pagamentoQuinzenal) return null;
   const base = round2(Number(vigente.baseSalary ?? 0));
@@ -566,6 +577,8 @@ function itemPrimeiraQuinzena(
   if (valor <= 0) return null;
   const prev = existentes.get(`${emp.id}|ADIANTAMENTO|${ROTULO_PRIMEIRA_QUINZENA}`);
   const emAberto = prev != null && prev.paymentDate == null && prev.status !== "PAID" && prev.status !== "CANCELED";
+  // Valor ajustado à mão de propósito (prévia ou edição): não é "desatualizado" — gerar de novo desfaria o ajuste.
+  const ajustadoAMao = (prev?.details as { ajusteManual?: unknown } | null | undefined)?.ajusteManual === true;
   return {
     employeeId: emp.id, employeeName: name, employeeDisplayName: emp.displayName, sector: emp.sector, type: "ADIANTAMENTO",
     periodLabel: ROTULO_PRIMEIRA_QUINZENA, periodStart: null, periodEnd: null,
@@ -574,7 +587,7 @@ function itemPrimeiraQuinzena(
     dreCategoryId: dreFolha?.id ?? null, dreCategoryName: dreFolha?.name ?? null,
     details: { base, semRegistro: true, primeiraQuinzena: true },
     exists: prev != null,
-    desatualizado: emAberto && Math.abs(Number(prev.amount) - valor) >= 0.005,
+    desatualizado: emAberto && !ajustadoAMao && Math.abs(Number(prev.amount) - valor) >= 0.005,
     existingId: prev?.id,
   };
 }

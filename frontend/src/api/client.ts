@@ -7429,9 +7429,13 @@ export type LinhaPagamentoMeio = {
   employeeId: string; nome: string; grupo: string; origem: "EXTRATO" | "SEM_REGISTRO"; valor: number;
   situacao: SituacaoPagamentoMeio; vencimento: string; pagoEm: string | null; valorPago: number | null; payrollItemId: string | null;
   pix: string | null; pixTipo: string | null; contaBancaria: string | null; aviso: string | null;
+  /** 1ª quinzena em aberto com valor diferente do cálculo de hoje: o valor que "lançar" vai gravar. */
+  atualizarPara: number | null;
 };
 export type PagamentoMeio = {
   tipo: TipoPagamentoMeio; competencia: string; linhas: LinhaPagamentoMeio[]; total: number; avisos: string[];
+  /** CLT esperado com adiantamento e sem título no mês (extrato não importado?). */
+  cltSemTitulo: string[];
   aLancar: { pessoas: number; total: number }; lancado: { pessoas: number; total: number }; pago: { pessoas: number; total: number };
 };
 export function getPagamentoMeio(year: number, month: number, tipo: TipoPagamentoMeio) {
