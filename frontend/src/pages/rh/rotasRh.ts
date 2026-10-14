@@ -7,6 +7,8 @@ export const ROTAS_RH = {
   gorjeta: "/rh/gorjeta",
   rescisoes: "/rh/rescisoes",
   folha: "/rh/folha",
+  vt: "/rh/folha/vale-transporte",
+  adiantamento: "/rh/folha/adiantamento",
   retorno: "/rh/retorno",
   extras: "/rh/extras",
   fichas: "/rh/fichas-cadastrais",

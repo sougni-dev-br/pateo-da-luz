@@ -15,6 +15,7 @@ import { hasPermission } from "../lib/permissions";
 import { maskMoney, moneyToMasked } from "../utils/format";
 import { AfastamentoModal } from "./folha/AfastamentoModal";
 import { LancamentoManualModal } from "./folha/LancamentoManualModal";
+import { PagamentoMeio } from "./folha/PagamentoMeio";
 import { adiantamentosSrAGerar, quinzenasSrAGerar, reciboDoLancamento } from "./folha/semRegistro";
 import { AvisoReciboImpresso, useImprimirRecibos } from "./gorjeta/ImprimirRecibos";
 
@@ -121,7 +122,26 @@ function BarraRecibos({ itens, imprimindo, onImprimir }: {
   );
 }
 
-export function Folha() {
+/** A Folha virou três telas no menu (Folha → ...): cada uma mostra só a sua parte. */
+export type SecaoFolha = "lancamentos" | "vt" | "adiantamento";
+// O mês escolhido vale para as três telas da Folha nesta aba do navegador (sem armazenamento: o mês atual).
+const CHAVE_COMPETENCIA = "folha:competencia";
+function competenciaInicial(): { year: number; month: number } {
+  const agora = new Date();
+  const atual = { year: agora.getFullYear(), month: agora.getMonth() + 1 };
+  try {
+    const [y, m] = (window.sessionStorage.getItem(CHAVE_COMPETENCIA) ?? "").split("-").map(Number);
+    return Number.isInteger(y) && y >= 2000 && y <= 2100 && Number.isInteger(m) && m >= 1 && m <= 12 ? { year: y, month: m } : atual;
+  } catch {
+    return atual;
+  }
+}
+
+const TITULO_SECAO: Record<SecaoFolha, string> = {
+  lancamentos: "Folha de pagamento", vt: "Vale-transporte", adiantamento: "Adiantamento e 1ª quinzena",
+};
+
+export function Folha({ secao = "lancamentos" }: { secao?: SecaoFolha }) {
   const { user } = useSession();
   const canEdit = hasPermission(user, "payroll", "edit");
   // Recibo da 1ª quinzena e do adiantamento (sem registro): mostra valores pagos à pessoa, só para quem vê Funcionários.
@@ -129,9 +149,11 @@ export function Folha() {
   const { notice, setNotice } = useNotice();
   const recibos = useImprimirRecibos((message) => setNotice({ tone: "error", message }));
 
-  const now = new Date();
-  const [year, setYear] = useState(now.getFullYear());
-  const [month, setMonth] = useState(now.getMonth() + 1);
+  const [year, setYear] = useState(() => competenciaInicial().year);
+  const [month, setMonth] = useState(() => competenciaInicial().month);
+  useEffect(() => {
+    try { window.sessionStorage.setItem(CHAVE_COMPETENCIA, `${year}-${month}`); } catch { /* só não lembra */ }
+  }, [year, month]);
   const [list, setList] = useState<PayrollList | null>(null);
   const [preview, setPreview] = useState<PayrollPreview | null>(null);
   // Escopo da prévia (VT ou folha) e valores ajustados à mão antes de gerar.
@@ -598,12 +620,12 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
     <div className="stack">
       <Notice notice={notice} />
 
-      {/* Apuração de gorjeta e Retorno do RH eram abas daqui: agora são itens próprios do menu RH. */}
+      {/* Apuração de gorjeta e Retorno do RH eram abas daqui: agora são itens próprios do menu Folha. */}
       <section className="panel">
         <div className="section-heading">
           <div>
-            <PanelEyebrow>RH</PanelEyebrow>
-            <h2>Folha de pagamento</h2>
+            <PanelEyebrow>Folha</PanelEyebrow>
+            <h2>{TITULO_SECAO[secao]}</h2>
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
             <Button variant="secondary" onClick={() => goMonth(-1)} aria-label="Mês anterior"><ChevronLeft size={16} /></Button>
@@ -617,11 +639,11 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
             <Button variant="secondary" onClick={() => goMonth(1)} aria-label="Próximo mês"><ChevronRight size={16} /></Button>
             <Button variant="secondary" onClick={load} aria-label="Recarregar"><RefreshCw size={15} /></Button>
             <Button variant="secondary" leadingIcon={<Settings size={14} />} onClick={() => setShowSettings((v) => !v)}>Configurações</Button>
-            {canEdit && <Button variant="secondary" leadingIcon={<Palmtree size={14} />} onClick={openVacation}>Lançar férias</Button>}
-            {canEdit && <Button variant="secondary" leadingIcon={<UserMinus size={14} />} onClick={() => setShowAfastamento(true)}>Lançar afastamento</Button>}
-            {canEdit && <Button variant="secondary" leadingIcon={<Coins size={14} />} onClick={() => setShowManual(true)}>Lançar à mão</Button>}
-            {canEdit && <Button variant="secondary" leadingIcon={<Bus size={14} />} onClick={() => handlePreview("VT")} disabled={busy}>Prever VT</Button>}
-            {canEdit && <Button leadingIcon={<Wand2 size={14} />} onClick={() => handlePreview("FOLHA")} disabled={busy}>Prever folha</Button>}
+            {canEdit && secao === "lancamentos" && <Button variant="secondary" leadingIcon={<Palmtree size={14} />} onClick={openVacation}>Lançar férias</Button>}
+            {canEdit && secao === "lancamentos" && <Button variant="secondary" leadingIcon={<UserMinus size={14} />} onClick={() => setShowAfastamento(true)}>Lançar afastamento</Button>}
+            {canEdit && secao === "lancamentos" && <Button variant="secondary" leadingIcon={<Coins size={14} />} onClick={() => setShowManual(true)}>Lançar à mão</Button>}
+            {canEdit && secao === "vt" && <Button leadingIcon={<Bus size={14} />} onClick={() => handlePreview("VT")} disabled={busy}>Prever VT</Button>}
+            {canEdit && secao === "lancamentos" && <Button leadingIcon={<Wand2 size={14} />} onClick={() => handlePreview("FOLHA")} disabled={busy}>Prever folha</Button>}
           </div>
         </div>
 
@@ -752,7 +774,7 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
         {error && <Alert tone="error">{error}</Alert>}
 
         {/* Resumo */}
-        {s && (
+        {s && secao === "lancamentos" && (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(168px, 1fr))", gap: 10, margin: "0 0 16px" }}>
             <SummaryCard compact label="Total do mês" moneyValue={s.total} icon={<Wallet size={16} />} />
             <SummaryCard compact label="Vale-transporte" moneyValue={s.vt} tone="info" icon={<Bus size={16} />} />
@@ -764,7 +786,22 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
           </div>
         )}
 
+        {/* Adiantamento e 1ª quinzena: conferir o que está no Contas a Pagar, lançar o que falta e imprimir para pagar. */}
+        {secao === "adiantamento" && !podeRecibo && (
+          <Alert tone="warning">A lista do adiantamento mostra valores e PIX: é preciso permissão de ver Funcionários.</Alert>
+        )}
+        {/* Depois de a folha do mês responder (a versão nasce certa e a lista não carrega duas vezes);
+            se a folha falhar, a lista abre do mesmo jeito: ela tem a sua própria consulta. */}
+        {secao === "adiantamento" && podeRecibo && (list || (!loading && error)) && (
+          <PagamentoMeio year={year} month={month} canEdit={canEdit}
+            percentAdiantamento={settings ? Number(settings.advancePercent) : null}
+            diaAdiantamento={settings?.advanceDueDay ?? null}
+            versao={(list?.items ?? []).filter((i) => i.type === "ADIANTAMENTO").map((i) => `${i.id}:${i.amount}:${i.status}`).join("|")}
+            onLancado={() => void load()} />
+        )}
+
         {/* Vale-transporte — por quinzena (direto na tela) */}
+        {secao === "vt" && (
         <div style={{ border: "1px solid var(--border)", borderRadius: 10, padding: 14, margin: "0 0 14px" }}>
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
             <PanelEyebrow>Vale-transporte · {MONTHS[month - 1]} {year}</PanelEyebrow>
@@ -829,6 +866,8 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
             </>
           )}
         </div>
+
+        )}
 
         {/* Preview */}
         {preview && (
@@ -940,21 +979,22 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
           </div>
         )}
 
-        {loading && <EmptyState title="Carregando folha..." />}
-        {!loading && list && list.items.length === 0 && !preview && (
+        {loading && secao === "lancamentos" && <EmptyState title="Carregando folha..." />}
+        {!loading && secao === "lancamentos" && list && list.items.length === 0 && !preview && (
           <EmptyState
             title={`Nenhum lançamento em ${MONTHS[month - 1]} ${year}.`}
-            action={canEdit ? <Button leadingIcon={<Bus size={14} />} onClick={() => handlePreview("VT")}>Prever VT</Button> : undefined}
+            action={canEdit ? <Button leadingIcon={<Wand2 size={14} />} onClick={() => handlePreview("FOLHA")}>Prever folha</Button> : undefined}
           />
         )}
 
-        {!loading && list && list.items.length > 0 && podeRecibo && (
+        {/* Recibos dos sem registro: junto da lista do adiantamento e dos lançamentos. */}
+        {!loading && secao !== "vt" && list && list.items.length > 0 && podeRecibo && (
           <BarraRecibos itens={list.items} imprimindo={recibos.imprimindo}
             onImprimir={(tipo, rotulo) => recibos.imprimir(`todos-${tipo}`, `${rotulo} de ${String(month).padStart(2, "0")}/${year}`,
               async () => (await getRecibosPagoAntes(year, month)).recibos.filter((r) => r.tipo === tipo))} />
         )}
         <AvisoReciboImpresso impresso={recibos.impresso} onFechar={recibos.fechar} />
-        {!loading && list && list.items.length > 0 && (
+        {!loading && secao === "lancamentos" && list && list.items.length > 0 && (
           <div style={{ overflowX: "auto" }}>
             <Table>
               <Table.Head>

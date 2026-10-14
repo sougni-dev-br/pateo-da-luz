@@ -7422,6 +7422,25 @@ export function getRecibosPagoAntes(year: number, month: number, id?: string) {
   const um = id ? `&id=${encodeURIComponent(id)}` : "";
   return request<{ competencia: string; recibos: ReciboPagoAntes[] }>(`/payroll/recibos-adiantamento?year=${year}&month=${month}${um}`);
 }
+/** Lista do adiantamento (dia 20) ou da 1ª quinzena (dia 15): o que está no Contas a Pagar, o que falta lançar e o que foi pago. */
+export type TipoPagamentoMeio = "ADIANTAMENTO" | "QUINZENA";
+export type SituacaoPagamentoMeio = "A_LANCAR" | "LANCADO" | "PAGO";
+export type LinhaPagamentoMeio = {
+  employeeId: string; nome: string; grupo: string; origem: "EXTRATO" | "SEM_REGISTRO"; valor: number;
+  situacao: SituacaoPagamentoMeio; vencimento: string; pagoEm: string | null; valorPago: number | null; payrollItemId: string | null;
+  pix: string | null; pixTipo: string | null; contaBancaria: string | null; aviso: string | null;
+  /** 1ª quinzena em aberto com valor diferente do cálculo de hoje: o valor que "lançar" vai gravar. */
+  atualizarPara: number | null;
+};
+export type PagamentoMeio = {
+  tipo: TipoPagamentoMeio; competencia: string; linhas: LinhaPagamentoMeio[]; total: number; avisos: string[];
+  /** CLT esperado com adiantamento e sem título no mês (extrato não importado?). */
+  cltSemTitulo: string[];
+  aLancar: { pessoas: number; total: number }; lancado: { pessoas: number; total: number }; pago: { pessoas: number; total: number };
+};
+export function getPagamentoMeio(year: number, month: number, tipo: TipoPagamentoMeio) {
+  return request<PagamentoMeio>(`/payroll/pagamento-meio?year=${year}&month=${month}&tipo=${tipo}`);
+}
 export function getTipRelatorioVales(de: string, ate: string) {
   return request<TipValeRelatorio[]>(`/payroll/tip/reports/vales?de=${de}&ate=${ate}`);
 }
