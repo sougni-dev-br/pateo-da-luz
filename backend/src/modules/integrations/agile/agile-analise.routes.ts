@@ -3,7 +3,7 @@ import { z } from "zod";
 import { getSessionUser, type SessionUser } from "../../security/security-utils.js";
 import { userHasPermission } from "../../security/menu-permissions.js";
 import {
-  obterCancelamentos, obterCardapio, obterDemanda, obterDescontos, obterItensCancelados, obterMargem, obterMetas, obterPerdas, obterResumo, obterVendasPorPessoa, salvarMeta, vincularProdutoAoPrato
+  obterCancelamentos, obterCardapio, obterDemanda, obterDescontos, obterItensCancelados, obterMargem, obterMargemBebidas, obterMetas, obterPerdas, obterResumo, obterVendasPorPessoa, salvarMeta, UNIDADES_DE_CONSUMO, vincularBebidaAoInsumo, vincularProdutoAoPrato
 } from "./agile-analise.service.js";
 import { INDICADORES_DE_META } from "./agile-analise-metas.report.js";
 
@@ -109,6 +109,7 @@ const ROTAS_DE_VISAO = [
   { caminho: "/demanda", obter: obterDemanda, rotulo: "a análise de demanda do salão" },
   { caminho: "/cardapio", obter: obterCardapio, rotulo: "a análise do cardápio do salão" },
   { caminho: "/margem", obter: obterMargem, rotulo: "a margem por prato do salão" },
+  { caminho: "/margem-bebidas", obter: obterMargemBebidas, rotulo: "a margem das bebidas do salão" },
   { caminho: "/perdas", obter: obterPerdas, rotulo: "a análise de perdas do salão" }
 ] as const;
 
@@ -200,6 +201,42 @@ agileAnaliseRouter.put("/margem/vinculo", exigirAnaliseSalao, async (request, re
     response.json({ ok: true });
   } catch (error: unknown) {
     console.error("Falha ao salvar o vínculo produto-prato", error);
+    response.status(500).json({ message: "Não foi possível salvar o vínculo." });
+  }
+});
+
+// Vinculo bebida do PDV <-> insumo comprado (e quanto uma venda consome). Gravar exige a permissao de editar.
+const vinculoBebidaSchema = z.object({
+  codigo: z.string().trim().min(1).max(60),
+  nome: z.string().trim().min(1).max(200),
+  // null desfaz o vinculo.
+  insumoId: z.string().trim().min(1).max(60).nullable(),
+  // Mínimo do que a coluna Decimal(12,4) guarda: abaixo disso viraria zero.
+  quantidade: z.number().finite().min(0.0001).max(100_000).default(1),
+  unidade: z.enum(UNIDADES_DE_CONSUMO).default("UN")
+});
+
+agileAnaliseRouter.put("/margem-bebidas/vinculo", exigirAnaliseSalao, async (request, response) => {
+  const user = await getSessionUser(request);
+  if (!user || !(await userHasPermission(user as SessionUser, "analise-salao", "edit"))) {
+    response.status(403).json({ message: "Usuário sem permissão para editar vínculos da margem." });
+    return;
+  }
+  const parsed = vinculoBebidaSchema.safeParse(request.body);
+  if (!parsed.success) {
+    response.status(400).json({ message: "Vínculo inválido: informe o código e o nome da bebida, o insumo (ou null para desfazer), a quantidade (maior que zero) e a unidade (UN, ML, L, G ou KG)." });
+    return;
+  }
+  try {
+    const { codigo, nome, insumoId, quantidade, unidade } = parsed.data;
+    const resultado = await vincularBebidaAoInsumo(codigo, nome, insumoId, quantidade, unidade, user.id);
+    if (resultado === "insumo-invalido") {
+      response.status(400).json({ message: "Insumo inválido: escolha um insumo ativo e com custo médio no estoque." });
+      return;
+    }
+    response.json({ ok: true });
+  } catch (error: unknown) {
+    console.error("Falha ao salvar o vínculo bebida-insumo", error);
     response.status(500).json({ message: "Não foi possível salvar o vínculo." });
   }
 });
