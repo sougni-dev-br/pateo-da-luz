@@ -69,7 +69,7 @@ export function MargemBebidasPanel({ dados, podeEditar, onVincular }: Props) {
 
       <section aria-labelledby="bebidas-afazer">
         <PanelEyebrow id="bebidas-afazer">O que falta para calcular a margem das bebidas, da que mais vende à que menos vende</PanelEyebrow>
-        <ListaBebidasAFazer itens={dados.aFazer} insumos={dados.insumosParaVincular} insumosTruncados={dados.insumosTruncados} podeEditar={podeEditar} onVincular={(codigo, nome, insumoId, quantidade, unidade) => onVincular(codigo, nome, insumoId, quantidade, unidade)} />
+        <ListaBebidasAFazer itens={dados.aFazer} total={dados.totalAFazer} insumos={dados.insumosParaVincular} insumosTruncados={dados.insumosTruncados} podeEditar={podeEditar} onVincular={(codigo, nome, insumoId, quantidade, unidade) => onVincular(codigo, nome, insumoId, quantidade, unidade)} />
       </section>
     </div>
   );

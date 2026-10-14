@@ -17,6 +17,9 @@ export const META_RELATIVA_AO_MELHOR_DIA = 0.7;
 export const SEMANAS_POR_MES = 4.33;
 // Menos que isso e o dia da semana é tratado como amostra pequena (não entra na folga).
 export const MIN_DIAS_PARA_COMPARAR = 3;
+// Um dia da semana que abriu em menos da metade das ocorrências do período (feriados, eventos) não é "dia fraco":
+// o salão não abre nele. Compará-lo com o melhor dia e multiplicar por 4,33 semanas inventaria uma oportunidade.
+export const MIN_FREQUENCIA_DO_DIA = 0.5;
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -172,21 +175,32 @@ export function montarDemanda(todas: VendaVisao[], periodo: Periodo) {
     mapa: { horas, celulas },
     turnos,
     porHora,
-    capacidade: calcularCapacidade(diasDaSemana)
+    capacidade: calcularCapacidade(diasDaSemana, periodo)
   };
 }
 
 // Para cada turno, compara cada dia da semana com o MELHOR dia do mesmo turno. A folga é o que
 // falta para o dia chegar a META_RELATIVA_AO_MELHOR_DIA do melhor; o potencial mensal é a folga
 // vezes o ticket do próprio dia e as semanas do mês. É hipótese: a tela rotula assim.
-function calcularCapacidade(dias: DiaDaSemana[]) {
+function ocorrenciasNoPeriodo({ inicio, fim }: Periodo, dow: number): number {
+  const UM_DIA = 24 * 60 * 60 * 1000;
+  let total = 0;
+  for (let t = Date.parse(`${inicio}T00:00:00.000Z`); t <= Date.parse(`${fim}T00:00:00.000Z`); t += UM_DIA) {
+    if (new Date(t).getUTCDay() === dow) total += 1;
+  }
+  return total;
+}
+
+function calcularCapacidade(dias: DiaDaSemana[], periodo: Periodo) {
   const comparaveis = (turno: "ALMOCO" | "JANTAR") =>
     dias
       .map((d) => {
         const t = d.turnos.find((x) => x.turno === turno) as TurnoDoDia;
-        return { dow: d.dow, rotulo: d.rotulo, diasObservados: t.diasObservados, pessoasPorDia: t.pessoasPorDia, ticketPessoa: t.ticketPessoa };
+        const ocorrencias = ocorrenciasNoPeriodo(periodo, d.dow);
+        const frequencia = ocorrencias > 0 ? Math.min(1, t.diasObservados / ocorrencias) : 0;
+        return { dow: d.dow, rotulo: d.rotulo, diasObservados: t.diasObservados, frequencia, pessoasPorDia: t.pessoasPorDia, ticketPessoa: t.ticketPessoa };
       })
-      .filter((d) => d.diasObservados >= MIN_DIAS_PARA_COMPARAR && d.pessoasPorDia > 0);
+      .filter((d) => d.diasObservados >= MIN_DIAS_PARA_COMPARAR && d.frequencia >= MIN_FREQUENCIA_DO_DIA && d.pessoasPorDia > 0);
 
   const turnos = (["ALMOCO", "JANTAR"] as const).map((turno) => {
     const lista = comparaveis(turno);
@@ -203,7 +217,8 @@ function calcularCapacidade(dias: DiaDaSemana[]) {
           pessoasPorDia: d.pessoasPorDia,
           pctDoMelhor: round4(d.pessoasPorDia / melhor.pessoasPorDia),
           pessoasAMais: round1(pessoasAMais),
-          faturamentoMesPotencial: round2(pessoasAMais * d.ticketPessoa * SEMANAS_POR_MES)
+          // Só as semanas em que o dia costuma abrir contam: um dia que abre metade das vezes rende metade do potencial.
+          faturamentoMesPotencial: round2(pessoasAMais * d.ticketPessoa * SEMANAS_POR_MES * d.frequencia)
         };
       })
       .sort((a, b) => b.faturamentoMesPotencial - a.faturamentoMesPotencial);

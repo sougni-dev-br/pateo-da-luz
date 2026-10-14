@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { META_RELATIVA_AO_MELHOR_DIA, montarDemanda, SEMANAS_POR_MES, turnoDe } from "../agile-analise-demanda.report.js";
+import { META_RELATIVA_AO_MELHOR_DIA, MIN_FREQUENCIA_DO_DIA, montarDemanda, SEMANAS_POR_MES, turnoDe } from "../agile-analise-demanda.report.js";
 import type { VendaVisao } from "../agile-analise-visao.report.js";
 
 // 2026-10-05 e segunda; 06 terca; 08 quinta; 12 segunda; 15 quinta.
@@ -113,7 +113,8 @@ describe("montarDemanda — folga de capacidade", () => {
   test("a folga de segunda: faltam 40 pessoas/dia e o potencial usa o ticket da propria segunda", () => {
     const folga = montarDemanda([...quintas, ...segundas], periodo).capacidade.turnos.find((t) => t.turno === "ALMOCO")?.folgas[0];
     expect(folga).toMatchObject({ dow: 1, rotulo: "Segunda", pessoasPorDia: 30, pctDoMelhor: 0.3, pessoasAMais: 40 });
-    expect(folga?.faturamentoMesPotencial).toBeCloseTo(40 * 100 * SEMANAS_POR_MES, 1);
+    // A segunda abriu 3 das 4 segundas de outubro: o potencial conta 75% das semanas.
+    expect(folga?.faturamentoMesPotencial).toBeCloseTo(40 * 100 * SEMANAS_POR_MES * 0.75, 1);
   });
 
   test("dia acima da meta nao tem folga", () => {
@@ -135,6 +136,34 @@ describe("montarDemanda — folga de capacidade", () => {
     const folgas = cap.turnos.find((t) => t.turno === "ALMOCO")?.folgas ?? [];
     expect(folgas.map((f) => f.rotulo)).toEqual(["Terça", "Segunda"]);
     expect(cap.hipotese).toBe(true);
+  });
+
+  test("dia que abriu em menos da metade das ocorrencias do periodo nao e dia fraco: fica fora da comparacao", () => {
+    // Periodo de 90 dias: 13 segundas; a casa abriu em 5 (38%): feriados e eventos, nao um dia ocioso.
+    const longo = { inicio: "2026-08-01", fim: "2026-10-29" };
+    const cinco = ["2026-08-03", "2026-08-10", "2026-09-07", "2026-09-14", "2026-10-05"].map((d) => venda({ movementDate: dia(d), people: 30, totalAmount: 3000 }));
+    const quintasTodas = Array.from({ length: 13 }, (_, i) => dia(new Date(Date.UTC(2026, 7, 6 + i * 7)).toISOString().slice(0, 10))).map((d) => venda({ movementDate: d, people: 100, totalAmount: 10000 }));
+    const almoco = montarDemanda([...quintasTodas, ...cinco], longo).capacidade.turnos.find((t) => t.turno === "ALMOCO");
+    expect(almoco?.folgas).toEqual([]);
+  });
+
+  test("o limite de frequencia e 50%", () => {
+    expect(MIN_FREQUENCIA_DO_DIA).toBe(0.5);
+  });
+
+  test("2 de 4 segundas (50%) ainda fica de fora, mas pelo minimo ABSOLUTO de 3 dias, nao pela frequencia", () => {
+    const duas = ["2026-10-05", "2026-10-12"].map((d) => venda({ movementDate: dia(d), people: 30, totalAmount: 3000 }));
+    const almoco = montarDemanda([...quintas, ...duas], periodo).capacidade.turnos.find((t) => t.turno === "ALMOCO");
+    expect(almoco?.folgas).toEqual([]);
+  });
+
+  test("frequencia de exatamente 50% (3 de 6 segundas) ja entra, com metade do potencial", () => {
+    const seis = { inicio: "2026-09-01", fim: "2026-10-12" }; // 6 segundas e 6 quintas
+    const quintasTodas = ["2026-09-03", "2026-09-10", "2026-09-17", "2026-09-24", "2026-10-01", "2026-10-08"].map((d) => venda({ movementDate: dia(d), people: 100, totalAmount: 10000 }));
+    const tres = ["2026-09-07", "2026-09-21", "2026-10-05"].map((d) => venda({ movementDate: dia(d), people: 30, totalAmount: 3000 }));
+    const folga = montarDemanda([...quintasTodas, ...tres], seis).capacidade.turnos.find((t) => t.turno === "ALMOCO")?.folgas[0];
+    expect(folga).toMatchObject({ dow: 1 });
+    expect(folga?.faturamentoMesPotencial).toBeCloseTo(40 * 100 * SEMANAS_POR_MES * 0.5, 1);
   });
 
   test("sem vendas: demanda vazia e sem erro", () => {
