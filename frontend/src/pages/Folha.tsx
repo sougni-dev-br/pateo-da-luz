@@ -790,8 +790,9 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
         {secao === "adiantamento" && !podeRecibo && (
           <Alert tone="warning">A lista do adiantamento mostra valores e PIX: é preciso permissão de ver Funcionários.</Alert>
         )}
-        {/* Só depois de a folha do mês carregar: a versão nasce certa e a lista não carrega duas vezes. */}
-        {secao === "adiantamento" && podeRecibo && list && (
+        {/* Depois de a folha do mês responder (a versão nasce certa e a lista não carrega duas vezes);
+            se a folha falhar, a lista abre do mesmo jeito: ela tem a sua própria consulta. */}
+        {secao === "adiantamento" && podeRecibo && (list || (!loading && error)) && (
           <PagamentoMeio year={year} month={month} canEdit={canEdit}
             percentAdiantamento={settings ? Number(settings.advancePercent) : null}
             diaAdiantamento={settings?.advanceDueDay ?? null}
