@@ -1,7 +1,7 @@
 import { toCalendarDateKey } from "../../../shared/utils/calendar-date.js";
 import { ehRecebida } from "./agile-situacao.js";
 import { montarDemanda } from "./agile-analise-demanda.report.js";
-import { gerarInsights } from "./agile-analise-insights.js";
+import { gerarInsights, MIN_DIAS_PARA_COMPARAR_PERIODOS } from "./agile-analise-insights.js";
 import {
   calcularIndicadores, diasDoPeriodo, montarSerieDiaria, periodoAnteriorDe, variacao, type VendaVisao
 } from "./agile-analise-visao.report.js";
@@ -38,8 +38,12 @@ export function montarResumo({ periodo, vendasAtual, vendasAnterior, itensCancel
   const atual = calcularIndicadores(atualLinhas, itensCanceladosAtual);
   const anteriorIndicadores = calcularIndicadores(anteriorLinhas, itensCanceladosAnterior);
   const temAnterior = anteriorIndicadores.comandas > 0;
+  // Período curto contra o anterior compara dias da semana diferentes (sexta a domingo contra terça a quinta):
+  // a variação seria efeito do calendário, não do negócio. Mesma regra dos insights e do cardápio.
+  const periodoCurto = diasDoPeriodo(periodo) < MIN_DIAS_PARA_COMPARAR_PERIODOS;
   const anteriorConfiavel =
     temAnterior &&
+    !periodoCurto &&
     anteriorIndicadores.diasComMovimento >= MIN_DIAS_ANTERIOR &&
     anteriorIndicadores.diasComMovimento / diasDoPeriodo(periodoAnterior) >= MIN_COBERTURA_ANTERIOR;
 
@@ -71,6 +75,9 @@ export function montarResumo({ periodo, vendasAtual, vendasAnterior, itensCancel
     atual,
     anterior,
     anteriorConfiavel,
+    // Por que não há comparação: o período é curto demais ("periodo-curto") ou a base anterior é fraca ou inexistente ("base-fraca").
+    // null = há comparação.
+    motivoSemComparacao: anteriorConfiavel ? null : periodoCurto ? ("periodo-curto" as const) : ("base-fraca" as const),
     comparacao,
     serie: montarSerieDiaria(atualLinhas, periodo),
     insights: gerarInsights({ periodo, atual, anterior, anteriorConfiavel, demanda })

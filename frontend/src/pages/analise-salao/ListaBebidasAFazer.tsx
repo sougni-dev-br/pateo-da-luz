@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { AnaliseMargemBebidas, AnaliseMargemBebidasAFazer, AnaliseUnidadeDeConsumo } from "../../api/client";
 import { Button, Select, StatusBadge, TextField, type SelectOption } from "../../design-system";
-import { lerQuantidade, percentual, semAcentoEmCaixaBaixa } from "./formato";
+import { lerQuantidade, percentual, quantidadeAmbigua, semAcentoEmCaixaBaixa } from "./formato";
 import { useFormato } from "./useFormato";
 
 const UNIDADES: AnaliseUnidadeDeConsumo[] = ["UN", "ML", "L", "G", "KG"];
@@ -11,6 +11,8 @@ const MAX_OPCOES_DO_RESTO = 50;
 
 type Props = {
   itens: AnaliseMargemBebidasAFazer[];
+  // Total de pendências: a lista traz só as que mais vendem.
+  total?: number;
   insumos: AnaliseMargemBebidas["insumosParaVincular"];
   insumosTruncados?: boolean;
   podeEditar: boolean;
@@ -20,12 +22,13 @@ type Props = {
 // O que mais vende e ainda não tem margem. Cada venda consome uma quantidade do insumo comprado: 1 UN de uma lata,
 // 150 ML de uma garrafa de 750 ML numa taça. Quantidade e unidade começam VAZIAS de propósito: um padrão de "1 UN" gravaria
 // a garrafa inteira por taça sem ninguém perceber.
-export function ListaBebidasAFazer({ itens, insumos, insumosTruncados = false, podeEditar, onVincular }: Props) {
+export function ListaBebidasAFazer({ itens, total, insumos, insumosTruncados = false, podeEditar, onVincular }: Props) {
   if (itens.length === 0) return <p className="analise-nota">Toda bebida vendida neste período já tem margem calculada.</p>;
   return (
     <>
+      {total !== undefined && total > itens.length && <p className="analise-nota">Mostrando as {itens.length} que mais vendem, de {total} pendentes.</p>}
       {insumosTruncados && podeEditar && (
-        <p className="analise-nota">A lista de insumos passou do limite e foi cortada em ordem alfabética: se não achar o insumo, use a busca com parte do nome ou peça ajuste ao suporte.</p>
+        <p className="analise-nota">A lista de insumos passou do limite e foi cortada em ordem alfabética: insumos do fim do alfabeto podem não aparecer nem na busca. Avise o suporte para ampliar a lista.</p>
       )}
       <div className="mix-rolagem" tabIndex={0} role="region" aria-label="Bebidas do PDV sem margem calculada">
         <table className="mix">
@@ -49,7 +52,7 @@ export function ListaBebidasAFazer({ itens, insumos, insumosTruncados = false, p
   );
 }
 
-function LinhaBebida({ item, insumos, podeEditar, onVincular }: Omit<Props, "itens" | "insumosTruncados"> & { item: AnaliseMargemBebidasAFazer }) {
+function LinhaBebida({ item, insumos, podeEditar, onVincular }: Omit<Props, "itens" | "total" | "insumosTruncados"> & { item: AnaliseMargemBebidasAFazer }) {
   const { reais } = useFormato();
   const [busca, setBusca] = useState("");
   const [insumo, setInsumo] = useState("");
@@ -76,6 +79,10 @@ function LinhaBebida({ item, insumos, podeEditar, onVincular }: Omit<Props, "ite
     if (!item.codigo || salvando) return;
     if (!insumo || !unidade) {
       setErro("Escolha o insumo e a unidade do consumo.");
+      return;
+    }
+    if (quantidadeAmbigua(quantidade)) {
+      setErro(`"${quantidade.trim()}" é ambíguo: use vírgula para decimais (${quantidade.trim().replace(".", ",")}) ou digite o número inteiro sem ponto (${quantidade.trim().replace(".", "")}).`);
       return;
     }
     const n = lerQuantidade(quantidade);

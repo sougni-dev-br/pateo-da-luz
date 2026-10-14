@@ -84,7 +84,9 @@ function useRelatorio<T>(buscar: (periodo: AnalisePeriodo, signal: AbortSignal) 
   return {
     dados: doPeriodo?.tipo === "ok" ? doPeriodo.dados : null,
     // Sem estado para este período ainda é "carregando": o efeito acaba de começar a busca.
-    carregando: ativo && valido && (doPeriodo === null || doPeriodo.tipo === "carregando"),
+    // Pedir uma nova tentativa já conta como carregando NO MESMO render: antes do efeito marcar o estado, a tela mostraria
+    // "recalculada" (e moveria o foco) um instante antes de a releitura começar.
+    carregando: ativo && valido && (doPeriodo === null || doPeriodo.tipo === "carregando" || doPeriodo.tentativa !== tentativa),
     erro: ativo && doPeriodo?.tipo === "erro" ? doPeriodo.mensagem : null,
     recarregar: () => setTentativa((n) => n + 1)
   };

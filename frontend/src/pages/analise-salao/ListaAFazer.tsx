@@ -7,6 +7,8 @@ import { useFormato } from "./useFormato";
 
 type Props = {
   itens: AnaliseMargemAFazer[];
+  // Total de pendências: a lista traz só as que mais vendem.
+  total?: number;
   pratos: AnaliseMargem["pratosParaVincular"];
   podeEditar: boolean;
   onVincular: (codigo: string, nome: string, pratoId: string) => Promise<void>;
@@ -21,9 +23,11 @@ const SELO: Record<AnaliseMargemAFazer["situacao"], { texto: string; tom: "neutr
 
 // O que mais vende e ainda não tem margem: a ordem é a do dinheiro, então a primeira linha é o melhor
 // próximo passo para a equipe.
-export function ListaAFazer({ itens, pratos, podeEditar, onVincular }: Props) {
+export function ListaAFazer({ itens, total, pratos, podeEditar, onVincular }: Props) {
   if (itens.length === 0) return <p className="analise-nota">Todo prato vendido neste período já tem margem calculada.</p>;
   return (
+    <>
+    {total !== undefined && total > itens.length && <p className="analise-nota">Mostrando os {itens.length} que mais vendem, de {total} pendentes.</p>}
     <div className="mix-rolagem" tabIndex={0} role="region" aria-label="Produtos do PDV sem margem calculada">
       <table className="mix">
         <caption className="sr-only">Produtos do PDV que vendem e ainda não têm margem, do que mais vende ao que menos vende</caption>
@@ -42,10 +46,11 @@ export function ListaAFazer({ itens, pratos, podeEditar, onVincular }: Props) {
         </tbody>
       </table>
     </div>
+    </>
   );
 }
 
-function LinhaAFazer({ item, pratos, podeEditar, onVincular }: Omit<Props, "itens"> & { item: AnaliseMargemAFazer }) {
+function LinhaAFazer({ item, pratos, podeEditar, onVincular }: Omit<Props, "itens" | "total"> & { item: AnaliseMargemAFazer }) {
   const { reais } = useFormato();
   const [escolhido, setEscolhido] = useState("");
   const [salvando, setSalvando] = useState(false);

@@ -99,7 +99,15 @@ describe("mascararReais", () => {
     ["Somam R$ 6.697,35. Valores altos", "Somam R$ ••••. Valores altos"],
     ["descontos R$ 1.234.", "descontos R$ ••••."],
     ["custa R$ 5 minutos", "custa R$ •••• minutos"],
-    ["R$ 26,4 mil por mês", "R$ •••• por mês"]
+    ["R$ 26,4 mil por mês", "R$ •••• por mês"],
+    // "R$ 0" é o fato (nada lançado), não um valor a esconder; mas "R$ 0,50", "R$ 05" e "R$ 0.5 mil" continuam valores.
+    ["1 produto vendido a R$ 0", "1 produto vendido a R$ 0"],
+    ["vendidos a R$ 0.", "vendidos a R$ 0."],
+    ["vendidos a R$ 0, como", "vendidos a R$ 0, como"],
+    ["custa R$ 0,50 e R$ 0 depois", "custa R$ •••• e R$ 0 depois"],
+    ["R$ 0.5 mil", "R$ ••••"],
+    ["R$ 10 e R$ 0", "R$ •••• e R$ 0"],
+    ["R$ 100", "R$ ••••"]
   ])("%s", (entrada, esperado) => {
     expect(mascararReais(entrada)).toBe(esperado);
   });

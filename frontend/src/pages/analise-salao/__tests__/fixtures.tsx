@@ -44,7 +44,7 @@ export function resumo(over: Partial<AnaliseResumo> = {}): AnaliseResumo {
   return {
     periodo: PERIODO, periodoAnterior: ANTERIOR,
     cobertura: { diasNoPeriodo: 30, diasComMovimento: 30, primeiroDia: "2026-09-14", ultimoDia: "2026-10-13", vendasComDetalhe: 840 },
-    atual, anterior, anteriorConfiavel: true, hojeFicouDeFora: false,
+    atual, anterior, anteriorConfiavel: true, motivoSemComparacao: null, hojeFicouDeFora: false,
     comparacao: {
       faturamentoPorDia: variacao(5000, 6000), pessoasPorDia: variacao(50, 60), ticketPessoa: variacao(100, 100), ticketComanda: variacao(187.5, 200),
       faturamento: variacao(150000, 180000), pessoas: variacao(1500, 1800), perdaPct: variacao(atual.perdaPct, 0.04)

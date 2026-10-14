@@ -52,7 +52,8 @@ export const intervalo = (p: AnalisePeriodo) => {
 
 // Textos que vêm do servidor trazem reais no meio da frase. Com "ocultar valores" ligado, o valor
 // some também ali (R$ 11.000 · R$ 26,4 mil · R$ 1,2 mi).
-export const mascararReais = (texto: string) => texto.replace(/R\$\s?\d(?:[\d.,]*\d)?(?:\s(?:mil|mi)\b)?/g, "R$ ••••");
+// "R$ 0" fica: "vendidos a R$ 0" é o fato (nenhum valor lançado), não um valor da operação a esconder.
+export const mascararReais = (texto: string) => texto.replace(/R\$\s?(?!0(?!\d|[.,]\d))\d(?:[\d.,]*\d)?(?:\s(?:mil|mi)\b)?/g, "R$ ••••");
 
 export type Direcao = "up" | "down" | "flat";
 
@@ -93,6 +94,9 @@ export const semAcentoEmCaixaBaixa = (s: string) => s.normalize("NFD").replace(n
 
 // Quantidade consumida por venda ("150", "0,15", "0.750"): como o servidor guarda 4 casas decimais, "0.750" é três
 // quartos, não setecentos e cinquenta. Fora do zero à esquerda vale a leitura de sempre (1.500 = mil e quinhentos).
+// "1.500" pode ser mil e quinhentos ou um e meio. Para o consumo por venda, que vira custo, a dúvida não se resolve em silêncio.
+export const quantidadeAmbigua = (texto: string) => /^[1-9]\d{0,2}\.\d{3}$/.test(texto.trim());
+
 export function lerQuantidade(texto: string): number | null {
   const limpo = texto.trim();
   if (/^0[.,]\d+$/.test(limpo)) return Number(limpo.replace(",", "."));

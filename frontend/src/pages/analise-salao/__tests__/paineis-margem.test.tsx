@@ -9,7 +9,7 @@ import { sessao } from "./fixtures";
 
 // Dados 100% fictícios (repositório público).
 const linha = (over: Partial<AnaliseMargemLinha> = {}): AnaliseMargemLinha => ({
-  pratoId: "p1", prato: "Prato Alfa", produtosPdv: [{ codigo: "A1", nome: "PRATO ALFA" }], quantidade: 100, receita: 6000, precoMedio: 60, precoFicha: 60,
+  pratoId: "p1", prato: "Prato Alfa", produtosPdv: [{ codigo: "A1", nome: "PRATO ALFA" }], quantidade: 100, quantidadeSemCobranca: 0, receita: 6000, precoMedio: 60, precoFicha: 60,
   custoPorcao: 20, margemUnitaria: 40, margemPct: 0.6667, cmvPct: 0.3333, margemTotal: 4000, ...over
 });
 const faltante = (over: Partial<AnaliseMargemAFazer> = {}): AnaliseMargemAFazer => ({
@@ -99,7 +99,7 @@ describe("MargemPanel: resumo", () => {
 
   test("hoje fora do periodo: aviso", () => {
     abrir(margem({ hojeFicouDeFora: true }));
-    expect(screen.getByText(/dia em andamento|hoje/i)).toBeTruthy();
+    expect(screen.getByText(/Hoje fica de fora/)).toBeTruthy();
   });
 
   test("prioridades: mostra o aviso de margem negativa", () => {
@@ -140,6 +140,42 @@ describe("MargemPanel: tabela de margem", () => {
     abrir();
     const pratos = [...document.querySelectorAll("table")[0].querySelectorAll("tbody th")].map((th) => th.childNodes[0].textContent);
     expect(pratos).toEqual(["Prato Alfa", "Prato Beta"]);
+  });
+
+  test("unidades sem cobranca aparecem junto das vendidas", () => {
+    abrir(margem({ linhas: [linha({ quantidade: 100, quantidadeSemCobranca: 20 })] }));
+    expect(linhaDe("Prato Alfa").querySelectorAll("td")[0].textContent).toMatch(/100.*20 sem cobrança/);
+  });
+
+  test("mostrando N de M: so aparece quando ha mais pendencias do que a lista traz", () => {
+    abrir(margem({ totalAFazer: 57 }));
+    expect(screen.getByText(/Mostrando os 2 que mais vendem, de 57 pendentes/)).toBeTruthy();
+  });
+
+  test("lista completa (total igual ao mostrado) ou total ausente: sem o aviso", () => {
+    abrir(margem({ totalAFazer: 2 }));
+    expect(screen.queryByText(/Mostrando os/)).toBeNull();
+  });
+
+  test("o custo da porcao e o da ficha de HOJE: a tela diz", () => {
+    abrir();
+    expect(document.querySelector(".analise-contexto")?.textContent).toMatch(/custo da porção é o da ficha de HOJE/);
+  });
+
+  test("periodo que e so o dia em andamento: sem culpar o agente (so o aviso do dia)", () => {
+    abrir(margem({ hojeFicouDeFora: true, periodo: { inicio: "2026-10-14", fim: "2026-10-14" }, cobertura: { ...margem().cobertura, receitaTotal: 0, receitaPratos: 0 }, linhas: [], aFazer: [] }));
+    expect(screen.queryByText(/agente do PDV precisa estar atualizado/)).toBeNull();
+  });
+
+  test("periodo LONGO sem venda em que hoje tambem ficou de fora: o alerta do agente continua (so o dia unico o dispensa)", () => {
+    abrir(margem({ hojeFicouDeFora: true, cobertura: { ...margem().cobertura, receitaTotal: 0, receitaPratos: 0 }, linhas: [], aFazer: [] }));
+    expect(screen.getByText(/agente do PDV precisa estar atualizado/)).toBeTruthy();
+    expect(screen.getByText(/Hoje fica de fora/)).toBeTruthy();
+  });
+
+  test("periodo antigo sem venda: continua explicando o agente do PDV", () => {
+    abrir(margem({ hojeFicouDeFora: false, cobertura: { ...margem().cobertura, receitaTotal: 0, receitaPratos: 0 }, linhas: [], aFazer: [] }));
+    expect(screen.getByText(/agente do PDV precisa estar atualizado/)).toBeTruthy();
   });
 
   test("a tabela rola por teclado em tela estreita", () => {

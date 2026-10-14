@@ -44,12 +44,46 @@ describe("montarResumo — comparacao com o periodo anterior", () => {
   const atual = vendasEm(diasDe(11, 20), 50, 5000, "a"); // 10 dias x 50 pessoas
   const anteriorBom = vendasEm(diasDe(1, 10), 40, 4000, "b"); // 10 dias x 40 pessoas
 
-  test("com anterior confiavel, devolve as variacoes por dia", () => {
-    const r = montar(atual, anteriorBom);
+  // Duas semanas inteiras: 2026-10-11..2026-10-24 contra 2026-09-27..2026-10-10.
+  const periodo14 = { inicio: "2026-10-11", fim: "2026-10-24" };
+  const atual14 = vendasEm(diasDe(11, 24), 50, 5000, "a");
+  const anterior14 = [...vendasEm(diasDe(27, 30, "2026-09"), 40, 4000, "p"), ...vendasEm(diasDe(1, 10), 40, 4000, "q")];
+  const montar14 = (p = periodo14, a = atual14, b = anterior14) =>
+    montarResumo({ periodo: p, vendasAtual: a, vendasAnterior: b, itensCanceladosAtual: 0, itensCanceladosAnterior: 0 });
+
+  test("com anterior confiavel e 14 dias ou mais, devolve as variacoes por dia", () => {
+    const r = montar14();
     expect(r.anteriorConfiavel).toBe(true);
+    expect(r.motivoSemComparacao).toBeNull();
     expect(r.comparacao?.pessoasPorDia).toEqual({ atual: 50, anterior: 40, diferenca: 10, pct: 0.25 });
     expect(r.comparacao?.faturamentoPorDia.pct).toBe(0.25);
     expect(r.comparacao?.ticketPessoa).toMatchObject({ atual: 100, anterior: 100, pct: 0 });
+  });
+
+  test("periodo curto (menos de 14 dias) NAO compara: sexta a domingo contra terca a quinta seria efeito do calendario", () => {
+    const r = montar(atual, anteriorBom); // 10 dias
+    expect(r.anteriorConfiavel).toBe(false);
+    expect(r.comparacao).toBeNull();
+    expect(r.motivoSemComparacao).toBe("periodo-curto");
+    expect(r.anterior).not.toBeNull(); // o anterior existe, so nao serve de comparacao
+  });
+
+  test("o limite e inclusivo: 14 dias comparam, 13 nao", () => {
+    expect(montar14().anteriorConfiavel).toBe(true);
+    const treze = { inicio: "2026-10-12", fim: "2026-10-24" };
+    const r13 = montarResumo({ periodo: treze, vendasAtual: vendasEm(diasDe(12, 24), 50, 5000, "a"), vendasAnterior: [...vendasEm(diasDe(29, 30, "2026-09"), 40, 4000, "p"), ...vendasEm(diasDe(1, 11), 40, 4000, "q")], itensCanceladosAtual: 0, itensCanceladosAnterior: 0 });
+    expect(r13.anteriorConfiavel).toBe(false);
+    expect(r13.motivoSemComparacao).toBe("periodo-curto");
+  });
+
+  test("periodo longo com base anterior fraca: motivo e base-fraca, nao periodo-curto", () => {
+    const r = montar14(periodo14, atual14, vendasEm(diasDe(1, 2), 40, 4000, "q"));
+    expect(r.anteriorConfiavel).toBe(false);
+    expect(r.motivoSemComparacao).toBe("base-fraca");
+  });
+
+  test("sem nenhum anterior em periodo longo: base-fraca", () => {
+    expect(montar14(periodo14, atual14, []).motivoSemComparacao).toBe("base-fraca");
   });
 
   test("sem nenhuma venda no anterior: sem comparacao e sem 'anterior'", () => {

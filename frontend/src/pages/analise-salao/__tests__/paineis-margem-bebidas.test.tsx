@@ -128,6 +128,16 @@ describe("MargemBebidasPanel: tabela", () => {
     expect(linhaDe("REFRIGERANTE LATA").querySelectorAll("td")[0].textContent).toMatch(/200.*30 sem cobrança/);
   });
 
+  test("mostrando N de M so quando ha mais pendencias do que a lista traz", () => {
+    abrir(bebidas({ totalAFazer: 44 }));
+    expect(screen.getByText(/Mostrando as 2 que mais vendem, de 44 pendentes/)).toBeTruthy();
+  });
+
+  test("lista completa (total igual ao mostrado) ou sem total: sem o aviso de 'mostrando'", () => {
+    abrir(bebidas({ totalAFazer: 2 }));
+    expect(screen.queryByText(/Mostrando as/)).toBeNull();
+  });
+
   test("sem cortesia nao aparece 'sem cobranca'", () => {
     abrir();
     expect(screen.queryByText(/sem cobrança/)).toBeNull();
@@ -297,9 +307,26 @@ describe("MargemBebidasPanel: o que falta", () => {
     expect(p.onVincular).not.toHaveBeenCalled();
   });
 
+  test.each([["1.500"], ["200.000"], ["2.500"]])("quantidade ambigua (%s): recusada com a explicacao, nada gravado", (digitado) => {
+    const p = abrir();
+    preencher("SUCO DA CASA", "i-polpa", digitado, "L");
+    fireEvent.click(screen.getByRole("button", { name: "Vincular SUCO DA CASA" }));
+    expect(screen.getByRole("alert").textContent).toMatch(/é ambíguo: use vírgula para decimais/);
+    expect(p.onVincular).not.toHaveBeenCalled();
+  });
+
+  test("sem ambiguidade: '0.750', '1,5', '1500' e '150' passam", async () => {
+    const p = abrir();
+    for (const [texto, esperado] of [["0.750", 0.75], ["1,5", 1.5], ["1500", 1500], ["150", 150]] as const) {
+      preencher("SUCO DA CASA", "i-polpa", texto, "ML");
+      fireEvent.click(screen.getByRole("button", { name: "Vincular SUCO DA CASA" }));
+      await waitFor(() => expect(p.onVincular).toHaveBeenLastCalledWith("S1", "SUCO DA CASA", "i-polpa", esperado, "ML"));
+    }
+  });
+
   test("quantidade acima do teto do servidor e recusada no cliente", () => {
     const p = abrir();
-    preencher("SUCO DA CASA", "i-polpa", "200.000", "UN");
+    preencher("SUCO DA CASA", "i-polpa", "200000,5", "UN");
     fireEvent.click(screen.getByRole("button", { name: "Vincular SUCO DA CASA" }));
     expect(screen.getByRole("alert").textContent).toMatch(/acima do limite/);
     expect(p.onVincular).not.toHaveBeenCalled();
