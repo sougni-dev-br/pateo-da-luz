@@ -250,4 +250,36 @@ describe("limites exatos", () => {
     expect(achar(r, "faturamento").projecao).toBe(27000);
     expect(achar(r, "faturamento").situacao).toBe("abaixo");
   });
+
+  test("dia que abriu em metade das vezes entra na projecao com metade do peso (nao com a media cheia)", () => {
+    const semSabados = RITMO.filter((v) => v.movementDate.getUTCDay() !== 6);
+    const quatro = RITMO.filter((v) => v.movementDate.getUTCDay() === 6).slice(0, 4); // 4 de 8 sabados
+    const r = montarMetas({ ...base, vendasRitmo: [...semSabados, ...quatro], metas: { faturamento: 30000 } });
+    // Restam 17 dias (15 a 31/10): 12 de seg a sex (domingos fechados) a R$ 1.000 + 3 sabados (17, 24, 31) a R$ 1.000 x 0,5.
+    expect(achar(r, "faturamento").projecao).toBe(12000 + 12 * 1000 + 3 * 500);
+    // Pessoas seguem a mesma regra (10 por dia): 120 + 12 x 10 + 3 x 10 x 0,5.
+    expect(achar(montarMetas({ ...base, vendasRitmo: [...semSabados, ...quatro], metas: { pessoas: 300 } }), "pessoas").projecao).toBe(120 + 120 + 15);
+  });
+
+  test("dia que sempre abre continua com peso cheio", () => {
+    expect(achar(montarMetas({ ...base, metas: { faturamento: 30000 } }), "faturamento").projecao).toBe(27000);
+  });
+
+  test("mes ja encerrado sem nenhuma venda e falta de dado, nao um mes de zero", () => {
+    const r = montarMetas({ ...base, ano: 2026, mes: 8, hoje: "2026-10-15", vendasMes: [], metas: { faturamento: 100000, pessoas: 1000 } });
+    for (const i of ["faturamento", "pessoas"]) {
+      expect(achar(r, i)).toMatchObject({ realizado: null, projecao: null, progresso: null, faltam: null, situacao: "sem-dado" });
+    }
+  });
+
+  test("mes encerrado COM vendas continua com o valor, mesmo abaixo da meta", () => {
+    const fechado = semana("2026-09-01", "2026-09-30");
+    const r = montarMetas({ ...base, ano: 2026, mes: 9, hoje: "2026-10-15", vendasMes: fechado, metas: { faturamento: 999999 } });
+    expect(achar(r, "faturamento")).toMatchObject({ realizado: 26000, situacao: "abaixo" });
+  });
+
+  test("mes corrente no dia 1 (nada fechado ainda) nao vira sem-dado: tem projecao pelo ritmo", () => {
+    const r = montarMetas({ ...base, ano: 2026, mes: 11, hoje: "2026-11-01", vendasMes: [], vendasRitmo: semana("2026-09-06", "2026-10-31"), metas: { faturamento: 20000 } });
+    expect(achar(r, "faturamento")).toMatchObject({ realizado: 0, projecao: 25000, situacao: "no-ritmo" });
+  });
 });

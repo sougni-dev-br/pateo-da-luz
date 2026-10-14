@@ -74,7 +74,9 @@ describe("CardapioPanel", () => {
 
   test("ocultar valores esconde os reais, inclusive nos textos dos avisos", () => {
     const { container } = renderComSessao(<CardapioPanel dados={cardapio()} />, { ocultar: true });
-    expect(container.querySelector(".insights")?.textContent ?? "").not.toMatch(/R\$ \d/);
+    // "vendido a R$ 0" é o fato (nada lançado) e fica visível; qualquer valor acima de zero some.
+    expect(container.querySelector(".insights")?.textContent ?? "").not.toMatch(/R\$ [1-9]/);
+    expect(container.querySelector(".insights")?.textContent ?? "").toMatch(/vendido a R\$ 0/);
     expect(container.querySelector(".simulacao-lista")?.textContent ?? "").not.toMatch(/R\$ \d/);
     expect(container.querySelector(".mix tbody")?.textContent ?? "").not.toMatch(/R\$ \d/);
   });

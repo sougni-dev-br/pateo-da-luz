@@ -81,6 +81,15 @@ app.use(cors({
 // A ficha cadastral pública é aberta por qualquer um que tenha o link: corpo JSON pequeno (o
 // formulário inteiro tem poucos KB). Vem antes do parser geral, que então pula o corpo já lido.
 app.use("/public/ficha-cadastral", express.json({ limit: "100kb" }));
+// O webhook da 99 é público e recebe pedidos (poucos KB): corpo pequeno, para ninguém encher o banco e a memória com
+// POSTs de megabytes. Também guarda o corpo original para validar a assinatura. Vem antes do parser geral, que então
+// pula o corpo já lido.
+app.use("/public/delivery/noventa-nove", express.json({
+  limit: "256kb",
+  verify: (req, _res, buf) => {
+    (req as express.Request & { rawBody?: string }).rawBody = buf.toString("utf8");
+  }
+}));
 // Limite generoso para acomodar o payload do agente Agile PDV
 // (backfill de 6 meses pode ficar em ~10 MB de JSON com vendas + pagamentos + itens).
 // verify() salva o rawBody UTF-8 apenas em rotas que precisam validar

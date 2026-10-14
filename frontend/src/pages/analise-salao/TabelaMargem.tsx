@@ -68,7 +68,10 @@ export function TabelaMargem({ linhas, podeEditar, onDesfazer }: Props) {
                       ))}
                     </span>
                   </th>
-                  <td className="direita">{inteiro(l.quantidade)}</td>
+                  <td className="direita">
+                    {inteiro(l.quantidade)}
+                    {l.quantidadeSemCobranca > 0 && <span className="venda-sub">{inteiro(l.quantidadeSemCobranca)} sem cobrança</span>}
+                  </td>
                   <td className="direita">{reaisCentavos(l.precoMedio)}</td>
                   <td className="direita">{reaisCentavos(l.custoPorcao)}</td>
                   <td className={`direita ${negativa ? "variacao-ruim" : ""}`}>

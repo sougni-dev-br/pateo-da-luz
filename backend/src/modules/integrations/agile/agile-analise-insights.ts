@@ -37,6 +37,10 @@ const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", curren
 const pct = (n: number) => `${(Math.abs(n) * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
 const num = (n: number) => n.toLocaleString("pt-BR", { maximumFractionDigits: 1 });
 const ordemTom = { alerta: 0, oportunidade: 1, info: 2 } as const;
+// "segunda" a "sexta" são femininos ("na segunda", "para a sexta"); "sábado" e "domingo", masculinos ("no sábado", "para o domingo").
+const diaMasculino = (rotulo: string) => /^(s[áa]bado|domingo)$/i.test(rotulo.trim());
+const noDia = (rotulo: string) => `${diaMasculino(rotulo) ? "no" : "na"} ${rotulo.toLowerCase()}`;
+const paraODia = (rotulo: string) => `para ${diaMasculino(rotulo) ? "o" : "a"} ${rotulo.toLowerCase()}`;
 
 type Demanda = ReturnType<typeof montarDemanda>;
 
@@ -56,8 +60,8 @@ export function gerarInsights(args: { periodo: Periodo; atual: Indicadores; ante
       id: `dia-ocioso-${turno.turno.toLowerCase()}`,
       tom: "oportunidade",
       titulo: `${folga.rotulo} no ${turno.rotulo.toLowerCase()} roda a ${pct(folga.pctDoMelhor)} do melhor dia`,
-      detalhe: `Média de ${num(folga.pessoasPorDia)} pessoas por dia, contra ${num(turno.referencia.pessoasPorDia)} na ${turno.referencia.rotulo.toLowerCase()}. Chegar a ${pct(demanda.capacidade.metaRelativa)} do melhor dia seria ${num(folga.pessoasAMais)} pessoas a mais por dia.`,
-      acao: `Teste uma ação para a ${folga.rotulo.toLowerCase()} (combo, parceria com empresas próximas, divulgação) e acompanhe as pessoas por dia aqui.`,
+      detalhe: `Média de ${num(folga.pessoasPorDia)} pessoas por dia, contra ${num(turno.referencia.pessoasPorDia)} ${noDia(turno.referencia.rotulo)}. Chegar a ${pct(demanda.capacidade.metaRelativa)} do melhor dia seria ${num(folga.pessoasAMais)} pessoas a mais por dia.`,
+      acao: `Teste uma ação ${paraODia(folga.rotulo)} (combo, parceria com empresas próximas, divulgação) e acompanhe as pessoas por dia aqui.`,
       impactoMes: folga.faturamentoMesPotencial,
       hipotese: true,
       secao: "demanda"
