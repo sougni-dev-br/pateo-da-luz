@@ -123,12 +123,12 @@ export async function importarCardapios(): Promise<MenuImportResult> {
   }
 
   // Listagens existentes deste canal, indexadas por (loja, item).
-  const listagensPorChave = new Map<string, { id: string }>();
+  const listagensPorChave = new Map<string, { id: string; dishId: string }>();
   for (const l of await prisma.dishListing.findMany({
     where: { channel: CANAL_99 },
-    select: { id: true, deliveryStoreId: true, externalItemId: true }
+    select: { id: true, dishId: true, deliveryStoreId: true, externalItemId: true }
   })) {
-    listagensPorChave.set(`${l.deliveryStoreId ?? ""}::${l.externalItemId}`, { id: l.id });
+    listagensPorChave.set(`${l.deliveryStoreId ?? ""}::${l.externalItemId}`, { id: l.id, dishId: l.dishId });
   }
 
   for (const loja of lojas) {
@@ -220,7 +220,12 @@ export async function importarCardapios(): Promise<MenuImportResult> {
       // O prato e procurado pela chave normalizada — a mesma que a proxima loja
       // usara, por isso "Pizza  Portuguesa" da loja B reaproveita o prato criado
       // pela loja A. Nao usa `code`: o code do ERP e do Eli, nao da plataforma.
-      let dish = pratosPorChave.get(chave);
+      //
+      // Listagem que já existe para esta loja e este item continua no prato em que está: o prato pode ter sido unido a
+      // outro ou renomeado no ERP (o nome na 99 não precisa ser igual), e procurar de novo pelo nome da 99 criaria um prato
+      // duplicado e levaria a listagem para ele, desfazendo a união.
+      const existente = listagensPorChave.get(`${loja.id}::${externalItemId}`);
+      let dish: { id: string } | undefined = existente ? { id: existente.dishId } : pratosPorChave.get(chave);
       if (!dish) {
         const criado = await prisma.dish.create({
           data: {
@@ -239,8 +244,6 @@ export async function importarCardapios(): Promise<MenuImportResult> {
         pratosPorChave.set(chave, criado);
         pratosCriados += 1;
       }
-
-      const existente = listagensPorChave.get(`${loja.id}::${externalItemId}`);
 
       const dados = {
         dishId: dish.id,
@@ -262,7 +265,7 @@ export async function importarCardapios(): Promise<MenuImportResult> {
           data: { ...dados, channel: CANAL_99, deliveryStoreId: loja.id, externalItemId },
           select: { id: true }
         });
-        listagensPorChave.set(`${loja.id}::${externalItemId}`, nova);
+        listagensPorChave.set(`${loja.id}::${externalItemId}`, { id: nova.id, dishId: dish.id });
         listagensCriadas += 1;
       }
     }
