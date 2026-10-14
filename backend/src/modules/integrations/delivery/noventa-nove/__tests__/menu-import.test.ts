@@ -16,6 +16,15 @@ describe("chaveDoPrato", () => {
     expect(chaveDoPrato("PIZZA PORTUGUESA")).toBe(chaveDoPrato("pizza portuguesa"));
   });
 
+  test("pontuacao no fim ou no meio nao separa o mesmo prato (cada loja digita de um jeito)", () => {
+    // Caso real: a mesma maminha, em duas lojas, virou dois pratos e o preco de uma ficou fora da ficha.
+    expect(chaveDoPrato("Maminha assada marinada ao molho de queijos, arroz biro biro e fritas"))
+      .toBe(chaveDoPrato("Maminha assada marinada ao Molho de queijos, arroz biro biro e fritas."));
+    expect(chaveDoPrato("Saint Peter ao molho de alcaparras com arroz e purê !!"))
+      .toBe(chaveDoPrato("Saint Peter ao molho de alcaparras com arroz e purê!"));
+    expect(chaveDoPrato("Frango grelhado, arroz integral")).toBe(chaveDoPrato("Frango grelhado arroz integral"));
+  });
+
   test("NAO junta pratos diferentes que so parecem parecidos", () => {
     expect(chaveDoPrato("Pizza Portuguesa")).not.toBe(chaveDoPrato("Pizza Portuguesa Grande"));
     expect(chaveDoPrato("Contra filé acebolado")).not.toBe(chaveDoPrato("Contra filé grelhado"));

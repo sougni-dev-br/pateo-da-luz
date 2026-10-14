@@ -61,12 +61,16 @@ export type MenuImportResult = {
 // cadastro da 99 e digitado a mao, loja por loja) viravam dois pratos e duas
 // fichas para a mesma coisa.
 //
+// Pontuacao (. , ; : ! ? aspas e parenteses) e ignorada: so muda a forma de escrever.
+//
 // Acento NAO e removido de proposito: "Filé" e "File" sao o mesmo prato, mas
 // remover acento tambem juntaria palavras legitimamente diferentes, e o risco de
 // juntar errado e pior do que o de separar — separar o Eli ve na tela, juntar
 // errado vira uma ficha tecnica mentirosa.
 export function chaveDoPrato(nome: string): string {
-  return nome.trim().toLowerCase().replace(/\s+/g, " ");
+  // A pontuação também não distingue prato: a mesma loja escreve "…fritas" e outra "…fritas." ou "…fritas!!". Sem
+  // ignorá-la, o mesmo prato vira dois (e o preço de cada loja fica num deles).
+  return nome.trim().toLowerCase().replace(/[.,;:!?"'()]+/g, " ").replace(/\s+/g, " ").trim();
 }
 
 // price vem em centavos.
