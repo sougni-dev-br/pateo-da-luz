@@ -43,7 +43,7 @@ beforeEach(() => {
   db.$queryRaw.mockResolvedValue([produtoSql(), produtoSql({ codigo: "9", nome: "BABY BEEF", categoria: "PRATOS", valor: dec(5000), quantidade: dec(100) })]);
   db.agileProdutoInsumo.findMany.mockResolvedValue([ligacaoDb()]);
   db.product.findMany.mockResolvedValue([{ id: "i1", name: "COCA COLA 350ML", unit: "UN", stockUnit: "UN" }]);
-  db.product.findFirst.mockResolvedValue({ id: "i1" });
+  db.product.findFirst.mockResolvedValue({ name: "REFRIGERANTE 350ML", unit: "UN", stockUnit: "UN", conversions: [] });
   db.agileProdutoInsumo.upsert.mockResolvedValue({});
   db.agileProdutoInsumo.deleteMany.mockResolvedValue({ count: 1 });
 });
@@ -185,6 +185,20 @@ describe("PUT /margem-bebidas/vinculo", () => {
       create: { productCode: "300", productName: "COCA", insumoId: "i1", quantity: 150, unit: "ML", updatedById: "u1" },
       update: { productName: "COCA", insumoId: "i1", quantity: 150, unit: "ML", updatedById: "u1" }
     });
+  });
+
+  test("unidade sem conversao para a unidade de estoque do insumo: 400 explicando, e nada gravado", async () => {
+    db.product.findFirst.mockResolvedValue({ name: "SAL GROSSO", unit: "KG", stockUnit: "KG", conversions: [] });
+    const r = await request(app).put("/analise/margem-bebidas/vinculo").send({ ...corpo, quantidade: 1, unidade: "ML" });
+    expect(r.status).toBe(400);
+    expect(r.body.message).toMatch(/Não há conversão de ML/);
+    expect(db.agileProdutoInsumo.upsert).not.toHaveBeenCalled();
+  });
+
+  test("unidade que converte pela conversao cadastrada do insumo e aceita", async () => {
+    db.product.findFirst.mockResolvedValue({ name: "SAL GROSSO", unit: "KG", stockUnit: "KG", conversions: [{ fromUnit: "ML", toUnit: "KG", factor: { toString: () => "0.001", valueOf: () => 0.001 } }] });
+    const r = await request(app).put("/analise/margem-bebidas/vinculo").send({ ...corpo, quantidade: 1, unidade: "ML" });
+    expect(r.status).toBe(200);
   });
 
   test("quantidade e unidade tem padrao 1 UN", async () => {

@@ -95,7 +95,7 @@ export function ResumoPanel({ dados, onAbrir }: { dados: AnaliseResumo; onAbrir:
       </div>
 
       <section aria-labelledby="prioridades-titulo">
-        <PanelEyebrow id="prioridades-titulo">Prioridades: o que mudou e o que fazer</PanelEyebrow>
+        <PanelEyebrow as="h2" id="prioridades-titulo">Prioridades: o que mudou e o que fazer</PanelEyebrow>
         {dados.insights.length === 0 ? (
           <p className="analise-nota">Nada fora do normal neste período: movimento, ticket e perdas estão dentro do esperado.</p>
         ) : (
@@ -108,7 +108,7 @@ export function ResumoPanel({ dados, onAbrir }: { dados: AnaliseResumo; onAbrir:
       </section>
 
       <section aria-labelledby="ritmo-titulo">
-        <PanelEyebrow id="ritmo-titulo">Ritmo do período</PanelEyebrow>
+        <PanelEyebrow as="h2" id="ritmo-titulo">Ritmo do período</PanelEyebrow>
         <GraficoDiario serie={serie} />
       </section>
     </div>
