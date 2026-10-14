@@ -1,6 +1,6 @@
 import type {
   AnaliseCancelamentos, AnaliseDemanda, AnaliseDescontos, AnaliseIndicadores, AnaliseItensCancelados, AnalisePerdas, AnaliseResumo,
-  AnaliseCardapio, AnaliseItemDeAtencao, AnaliseProdutoAbc, AnaliseSerieDia, AnaliseTaxaDoItem, AnaliseVariacao, AnaliseVendasPorPessoa
+  AnaliseCardapio, AnaliseIndicadorDeMeta, AnaliseItemDeAtencao, AnaliseMetaIndicador, AnaliseMetas, AnaliseSituacaoDaMeta, AnaliseProdutoAbc, AnaliseSerieDia, AnaliseTaxaDoItem, AnaliseVariacao, AnaliseVendasPorPessoa
 } from "../api/client";
 
 // Dados de demonstração da tela "Análise do Salão" (modo ?mock-user=1, só em dev local).
@@ -427,7 +427,71 @@ function cardapio(periodo: Periodo): AnaliseCardapio {
   };
 }
 
-export function mockAnaliseSalao(url: string): unknown | undefined {
+// Metas: os números do mês são fixos e inventados; só a meta em si muda (fica na memória da aba),
+// para o cadastro, a edição e a remoção poderem ser exercitados no modo de demonstração.
+const metasDoMock = new Map<string, number>();
+const DIAS_RESTANTES_DO_MOCK = 15;
+
+const BASE_DAS_METAS: Record<AnaliseIndicadorDeMeta, { rotulo: string; realizado: number; projecao: number | null; porDia: number | null; referencia: { media3: number; melhor: number } | null }> = {
+  faturamento: { rotulo: "Faturamento do mês", realizado: 150000, projecao: 280000, porDia: 10000, referencia: { media3: 260000, melhor: 310000 } },
+  pessoas: { rotulo: "Pessoas atendidas", realizado: 1500, projecao: 2800, porDia: 100, referencia: { media3: 2600, melhor: 3100 } },
+  ticketPessoa: { rotulo: "Ticket por pessoa", realizado: 100, projecao: null, porDia: null, referencia: { media3: 98, melhor: 104 } },
+  perdaPct: { rotulo: "Perda sobre o faturamento", realizado: 0.012, projecao: null, porDia: null, referencia: null }
+};
+
+function metas(ano: number, mes: number): AnaliseMetas {
+  const indicadores = (Object.keys(BASE_DAS_METAS) as AnaliseIndicadorDeMeta[]).map((indicador): AnaliseMetaIndicador => {
+    const b = BASE_DAS_METAS[indicador];
+    const meta = metasDoMock.get(`${ano}-${mes}-${indicador}`) ?? null;
+    const soma = b.projecao !== null;
+    const menorEMelhor = indicador === "perdaPct";
+    let situacao: AnaliseSituacaoDaMeta = "sem-meta";
+    if (meta !== null) {
+      if (soma) situacao = b.realizado >= meta ? "atingida" : (b.projecao as number) >= meta ? "no-ritmo" : "abaixo";
+      else situacao = (menorEMelhor ? b.realizado <= meta : b.realizado >= meta) ? "no-ritmo" : "abaixo";
+    }
+    const faltam = soma && meta !== null ? Math.max(0, meta - b.realizado) : null;
+    return {
+      indicador, rotulo: b.rotulo, menorEMelhor, meta, realizado: b.realizado, projecao: b.projecao,
+      progresso: soma && meta !== null ? Math.round((b.realizado / meta) * 10000) / 10000 : null,
+      faltam,
+      porDiaAtual: b.porDia,
+      porDiaNecessario: faltam !== null && faltam > 0 ? Math.round((faltam / DIAS_RESTANTES_DO_MOCK) * 100) / 100 : null,
+      situacao,
+      referencia: b.referencia ? { ...b.referencia, mesesNaMedia: 3 } : null
+    };
+  });
+  const fim = new Date(Date.UTC(ano, mes, 0)).getUTCDate();
+  // O mês corrente é o único "em andamento": os anteriores estão encerrados e os seguintes ainda por vir.
+  const agora = new Date();
+  const indice = ano * 12 + mes;
+  const indiceHoje = agora.getFullYear() * 12 + agora.getMonth() + 1;
+  return {
+    mes: { ano, mes, inicio: `${ano}-${String(mes).padStart(2, "0")}-01`, fim: `${ano}-${String(mes).padStart(2, "0")}-${fim}`, diasNoMes: fim, encerrado: indice < indiceHoje, futuro: indice > indiceHoje },
+    cobertura: { diasComMovimento: 14, diasRestantes: DIAS_RESTANTES_DO_MOCK, diasNoRitmo: 48, podeProjetar: true },
+    indicadores
+  };
+}
+
+function metasDoCorpo(url: string, method: string, corpo: unknown): AnaliseMetas {
+  const parametros = new URL(url, "http://localhost").searchParams;
+  let ano = Number(parametros.get("ano") ?? 2026);
+  let mes = Number(parametros.get("mes") ?? 10);
+  if (method.toUpperCase() === "PUT" && typeof corpo === "string") {
+    try {
+      const dados = JSON.parse(corpo) as { ano: number; mes: number; indicador: AnaliseIndicadorDeMeta; valor: number | null };
+      ({ ano, mes } = dados);
+      const chave = `${ano}-${mes}-${dados.indicador}`;
+      if (dados.valor === null) metasDoMock.delete(chave);
+      else metasDoMock.set(chave, dados.valor);
+    } catch {
+      // Corpo inválido na demonstração: devolve as metas como estão.
+    }
+  }
+  return metas(ano, mes);
+}
+
+export function mockAnaliseSalao(url: string, method = "GET", corpo?: unknown): unknown | undefined {
   const path = new URL(url, "http://localhost").pathname;
   if (path.endsWith("/integrations/agile/analise/cancelamentos")) return cancelamentos(periodoDaUrl(url));
   if (path.endsWith("/integrations/agile/analise/itens-cancelados")) return itensCancelados(periodoDaUrl(url));
@@ -437,5 +501,6 @@ export function mockAnaliseSalao(url: string): unknown | undefined {
   if (path.endsWith("/integrations/agile/analise/demanda")) return demanda(periodoDaUrl(url));
   if (path.endsWith("/integrations/agile/analise/perdas")) return perdas(periodoDaUrl(url));
   if (path.endsWith("/integrations/agile/analise/cardapio")) return cardapio(periodoDaUrl(url));
+  if (path.endsWith("/integrations/agile/analise/metas")) return metasDoCorpo(url, method, corpo);
   return undefined;
 }

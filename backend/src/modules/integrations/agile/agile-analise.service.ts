@@ -4,9 +4,11 @@ import { montarDemanda } from "./agile-analise-demanda.report.js";
 import { CATEGORIAS_ALCOOL, CATEGORIAS_BEBIDA, CATEGORIA_SOBREMESA, PADRAO_GRUPO_SOBREMESA, PADRAO_NOME_CAFE } from "./agile-categorias.js";
 import { descontarHoje, hojeEmSaoPaulo } from "./agile-analise-hoje.js";
 import { montarPerdas } from "./agile-analise-perdas.report.js";
+import { DIAS_DA_JANELA_DE_RITMO, limitesDoMes, montarMetas, type IndicadorDeMeta, type MesDoHistorico } from "./agile-analise-metas.report.js";
 import { montarResumo } from "./agile-analise-resumo.js";
-import { periodoAnteriorDe, type VendaVisao } from "./agile-analise-visao.report.js";
+import { calcularIndicadores, periodoAnteriorDe, type VendaVisao } from "./agile-analise-visao.report.js";
 import { prisma } from "../../../config/database.js";
+import { toCalendarDateKey } from "../../../shared/utils/calendar-date.js";
 import {
   montarCancelamentos,
   montarDescontos,
@@ -314,4 +316,65 @@ export async function obterCardapio(pedido: Periodo, hoje: string = hojeEmSaoPau
     ? [[], []]
     : await Promise.all([produtosPorJanela(deAnterior, de, ate), attachPorJanela(deAnterior, de, ate)]);
   return { ...montarCardapio({ periodo, produtos, attach }), hojeFicouDeFora };
+}
+
+// ---------------------------------------------------------------------------
+// Metas mensais: o que foi definido e como o mes esta indo (ver agile-analise-metas.report.ts).
+// ---------------------------------------------------------------------------
+
+const MESES_DE_HISTORICO = 6;
+
+export async function obterMetas(ano: number, mes: number, hoje: string = hojeEmSaoPaulo()) {
+  const { inicio, fim } = limitesDoMes(ano, mes);
+  const de = new Date(`${inicio}T00:00:00.000Z`);
+  const ate = new Date(new Date(`${fim}T00:00:00.000Z`).getTime() + UM_DIA_MS);
+  const hojeData = new Date(`${hoje}T00:00:00.000Z`);
+  const deRitmo = new Date(hojeData.getTime() - DIAS_DA_JANELA_DE_RITMO * UM_DIA_MS);
+  const deHistorico = new Date(Date.UTC(ano, mes - 1 - MESES_DE_HISTORICO, 1));
+  // O historico so tem meses FECHADOS (o mes de hoje esta incompleto) e os itens cancelados, como as
+  // vendas, so contam ate ontem: item de hoje com a venda de hoje de fora inflaria a perda.
+  const inicioDoMesDeHoje = new Date(`${hoje.slice(0, 7)}-01T00:00:00.000Z`);
+  const ateHistorico = inicioDoMesDeHoje < de ? inicioDoMesDeHoje : de;
+  const ateItens = hojeData < ate ? hojeData : ate;
+  const mesEncerrado = hoje > fim;
+
+  const [vendasMes, vendasRitmo, vendasHistorico, itens, linhasMeta] = await Promise.all([
+    carregarVendas(de, ate),
+    // Mes encerrado projeta o proprio realizado: nao precisa do ritmo.
+    mesEncerrado ? Promise.resolve<VendaVisao[]>([]) : carregarVendas(deRitmo, hojeData),
+    carregarVendas(deHistorico, ateHistorico),
+    valorDeItensCancelados(de, de, ateItens),
+    prisma.agileSalaoMeta.findMany({ where: { ano, mes }, select: { indicador: true, valor: true } })
+  ]);
+
+  const porMes = new Map<string, VendaVisao[]>();
+  for (const v of vendasHistorico) {
+    const chave = toCalendarDateKey(v.movementDate).slice(0, 7);
+    const doMes = porMes.get(chave);
+    if (doMes) doMes.push(v);
+    else porMes.set(chave, [v]);
+  }
+  const historico: MesDoHistorico[] = [...porMes.entries()].map(([chave, vendas]) => ({
+    ano: Number(chave.slice(0, 4)),
+    mes: Number(chave.slice(5, 7)),
+    indicadores: calcularIndicadores(vendas, 0)
+  }));
+
+  const metas: Partial<Record<IndicadorDeMeta, number>> = {};
+  for (const l of linhasMeta) metas[l.indicador as IndicadorDeMeta] = Number(l.valor);
+
+  return montarMetas({ ano, mes, hoje, vendasMes, vendasRitmo, itensCanceladosMes: itens.atual, historico, metas });
+}
+
+// valor null apaga a meta do indicador no mes.
+export async function salvarMeta(ano: number, mes: number, indicador: IndicadorDeMeta, valor: number | null, usuarioId: string | null) {
+  if (valor === null) {
+    await prisma.agileSalaoMeta.deleteMany({ where: { ano, mes, indicador } });
+    return;
+  }
+  await prisma.agileSalaoMeta.upsert({
+    where: { ano_mes_indicador: { ano, mes, indicador } },
+    create: { ano, mes, indicador, valor, updatedById: usuarioId },
+    update: { valor, updatedById: usuarioId }
+  });
 }
