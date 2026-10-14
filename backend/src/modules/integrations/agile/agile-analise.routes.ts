@@ -48,6 +48,18 @@ async function exigirAnaliseSalao(request: Request, response: Response, next: Ne
   next();
 }
 
+// A margem mostra custo de ficha, custo de compra de insumo e o custo do buffet: visibilidade de custo e permissao propria
+// ("inventory-costs", a mesma do Estoque e do Desperdicio), nao cargo. Vale para ler E para gravar vinculos e custos.
+// Roda depois de exigirAnaliseSalao, que ja garante a sessao.
+async function exigirCustos(request: Request, response: Response, next: NextFunction) {
+  const user = await getSessionUser(request);
+  if (!user || !(await userHasPermission(user as SessionUser, "inventory-costs", "view"))) {
+    response.status(403).json({ message: "Usuário sem permissão para ver custos." });
+    return;
+  }
+  next();
+}
+
 function lerPeriodo(request: Request, response: Response) {
   const parsed = periodoSchema.safeParse(request.query);
   if (!parsed.success) {
@@ -108,14 +120,15 @@ const ROTAS_DE_VISAO = [
   { caminho: "/resumo", obter: obterResumo, rotulo: "o resumo do salão" },
   { caminho: "/demanda", obter: obterDemanda, rotulo: "a análise de demanda do salão" },
   { caminho: "/cardapio", obter: obterCardapio, rotulo: "a análise do cardápio do salão" },
-  { caminho: "/margem", obter: obterMargem, rotulo: "a margem por prato do salão" },
-  { caminho: "/margem-bebidas", obter: obterMargemBebidas, rotulo: "a margem das bebidas do salão" },
-  { caminho: "/margem-buffet", obter: obterMargemBuffet, rotulo: "a margem do buffet do salão" },
+  { caminho: "/margem", obter: obterMargem, rotulo: "a margem por prato do salão", custo: true },
+  { caminho: "/margem-bebidas", obter: obterMargemBebidas, rotulo: "a margem das bebidas do salão", custo: true },
+  { caminho: "/margem-buffet", obter: obterMargemBuffet, rotulo: "a margem do buffet do salão", custo: true },
   { caminho: "/perdas", obter: obterPerdas, rotulo: "a análise de perdas do salão" }
 ] as const;
 
-for (const { caminho, obter, rotulo } of ROTAS_DE_VISAO) {
-  agileAnaliseRouter.get(caminho, exigirAnaliseSalao, async (request, response) => {
+for (const { caminho, obter, rotulo, ...resto } of ROTAS_DE_VISAO) {
+  const guardas = "custo" in resto ? [exigirAnaliseSalao, exigirCustos] : [exigirAnaliseSalao];
+  agileAnaliseRouter.get(caminho, ...guardas, async (request, response) => {
     const periodo = lerPeriodo(request, response);
     if (!periodo) return;
     try {
@@ -181,7 +194,7 @@ const vinculoSchema = z.object({
   pratoId: z.string().trim().min(1).max(60).nullable()
 });
 
-agileAnaliseRouter.put("/margem/vinculo", exigirAnaliseSalao, async (request, response) => {
+agileAnaliseRouter.put("/margem/vinculo", exigirAnaliseSalao, exigirCustos, async (request, response) => {
   const user = await getSessionUser(request);
   if (!user || !(await userHasPermission(user as SessionUser, "analise-salao", "edit"))) {
     response.status(403).json({ message: "Usuário sem permissão para editar vínculos da margem." });
@@ -217,7 +230,7 @@ const vinculoBebidaSchema = z.object({
   unidade: z.enum(UNIDADES_DE_CONSUMO).default("UN")
 });
 
-agileAnaliseRouter.put("/margem-bebidas/vinculo", exigirAnaliseSalao, async (request, response) => {
+agileAnaliseRouter.put("/margem-bebidas/vinculo", exigirAnaliseSalao, exigirCustos, async (request, response) => {
   const user = await getSessionUser(request);
   if (!user || !(await userHasPermission(user as SessionUser, "analise-salao", "edit"))) {
     response.status(403).json({ message: "Usuário sem permissão para editar vínculos da margem." });
@@ -246,7 +259,7 @@ agileAnaliseRouter.put("/margem-bebidas/vinculo", exigirAnaliseSalao, async (req
 const LIMITE_DO_CUSTO_DO_BUFFET = 10_000;
 const custoBuffetSchema = mesSchema.extend({ valor: z.number().finite().positive().max(LIMITE_DO_CUSTO_DO_BUFFET).nullable() });
 
-agileAnaliseRouter.put("/margem-buffet/custo", exigirAnaliseSalao, async (request, response) => {
+agileAnaliseRouter.put("/margem-buffet/custo", exigirAnaliseSalao, exigirCustos, async (request, response) => {
   const user = await getSessionUser(request);
   if (!user || !(await userHasPermission(user as SessionUser, "analise-salao", "edit"))) {
     response.status(403).json({ message: "Usuário sem permissão para informar o custo do buffet." });
