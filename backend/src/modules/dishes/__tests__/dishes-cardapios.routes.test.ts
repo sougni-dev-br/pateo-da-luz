@@ -457,3 +457,46 @@ describe("busca de ingrediente", () => {
     ]);
   });
 });
+
+describe("endurecimento: tela antiga e troca de cardápio", () => {
+  const selecionar = (atual: object) =>
+    db.dish.findUnique.mockImplementation(async (arg: { where: { id: string }; select?: object }) =>
+      arg.select ? atual : detalheMinimo(arg.where.id));
+
+  test("PUT sem o campo alsoMenu (tela antiga em cache) mantém o segundo cardápio e a categoria dele", async () => {
+    selecionar({ menu: "CARDAPIO", alsoMenu: "DELIVERY", alsoCategoryId: "c-del" });
+    db.dishCategory.findUnique.mockResolvedValue({ name: "Carnes", menu: "DELIVERY" });
+    db.dishItem.count.mockResolvedValue(3);
+    const r = await request(app).put("/dishes/d1").send({ name: "Filé" });
+    expect(r.status).toBe(200);
+    expect(db.dish.update).toHaveBeenLastCalledWith(expect.objectContaining({ data: expect.objectContaining({ alsoMenu: "DELIVERY", alsoCategoryId: "c-del" }) }));
+  });
+
+  test("PUT com alsoMenu null explícito ainda remove o segundo cardápio", async () => {
+    selecionar({ menu: "CARDAPIO", alsoMenu: "DELIVERY", alsoCategoryId: "c-del" });
+    await request(app).put("/dishes/d1").send({ name: "Filé", alsoMenu: null });
+    expect(db.dish.update).toHaveBeenLastCalledWith(expect.objectContaining({ data: expect.objectContaining({ alsoMenu: null, alsoCategoryId: null }) }));
+  });
+
+  test("PUT que troca o principal para o cardápio do segundo, sem mandar alsoMenu, desfaz o segundo", async () => {
+    selecionar({ menu: "CARDAPIO", alsoMenu: "DELIVERY", alsoCategoryId: null });
+    await request(app).put("/dishes/d1").send({ name: "Filé", menu: "DELIVERY" });
+    expect(db.dish.update).toHaveBeenLastCalledWith(expect.objectContaining({ data: expect.objectContaining({ menu: "DELIVERY", alsoMenu: null }) }));
+  });
+
+  test("PUT que muda o cardápio sem mandar a lista leva a ficha junto (se o destino ainda não tem)", async () => {
+    selecionar({ menu: "CARDAPIO", alsoMenu: null, alsoCategoryId: null });
+    db.dishItem.count.mockResolvedValue(0);
+    db.dishItem.updateMany = vi.fn();
+    await request(app).put("/dishes/d1").send({ name: "Filé", menu: "DELIVERY" });
+    expect(db.dishItem.updateMany).toHaveBeenCalledWith({ where: { dishId: "d1", menu: "CARDAPIO" }, data: { menu: "DELIVERY" } });
+  });
+
+  test("se o cardápio de destino já tem ficha, a do destino vale e nada é retaggeado", async () => {
+    selecionar({ menu: "CARDAPIO", alsoMenu: null, alsoCategoryId: null });
+    db.dishItem.count.mockResolvedValue(2);
+    db.dishItem.updateMany = vi.fn();
+    await request(app).put("/dishes/d1").send({ name: "Filé", menu: "DELIVERY" });
+    expect(db.dishItem.updateMany).not.toHaveBeenCalled();
+  });
+});
