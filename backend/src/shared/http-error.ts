@@ -70,6 +70,17 @@ export function describeHttpError(error: unknown): HttpErrorDescription {
     return { status: 400, message: "Dados invalidos na requisicao.", detail: error.message };
   }
 
+  // Erros do parser de corpo do Express (body-parser) trazem `status` e `type`: corpo grande demais é 413 e JSON quebrado é
+  // 400, não "erro interno" (um cliente que reenvia só em 5xx não deve insistir num corpo que nunca vai caber).
+  if (typeof error === "object" && error !== null) {
+    const { type, status } = error as { type?: unknown; status?: unknown };
+    if (type === "entity.too.large") return { status: 413, message: "Corpo da requisicao grande demais.", detail: String((error as Error).message ?? type) };
+    if (type === "entity.parse.failed") return { status: 400, message: "Corpo da requisicao nao e um JSON valido.", detail: String((error as Error).message ?? type) };
+    if (type === "encoding.unsupported" || type === "charset.unsupported" || type === "request.aborted" || type === "request.size.invalid") {
+      return { status: typeof status === "number" && status >= 400 && status < 500 ? status : 400, message: "Requisicao invalida.", detail: String(type) };
+    }
+  }
+
   if (error instanceof Error) {
     // Erro lancado de proposito pelo proprio codigo: a mensagem foi escrita
     // para ser lida, entao passa adiante.
