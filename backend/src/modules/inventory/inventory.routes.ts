@@ -5840,7 +5840,9 @@ inventoryRouter.get("/requisitions", async (request, response) => {
       r.*,
       u."name" AS "requestedByName",
       sec."name" AS "sectorName",
-      (SELECT COUNT(*) FROM "InventoryRequisitionItem" WHERE "requisitionId" = r."id") AS "itemCount"
+      (SELECT COUNT(*) FROM "InventoryRequisitionItem" WHERE "requisitionId" = r."id") AS "itemCount",
+      (SELECT string_agg(po."code", ', ' ORDER BY po."code") FROM "PurchaseOrder" po
+        WHERE po."sourceRequisitionId" = r."id" AND po."status" <> 'CANCELADO') AS "purchaseOrderCodes"
     FROM "InventoryRequisition" r
     LEFT JOIN "User" u ON u."id" = r."requestedByUserId"
     LEFT JOIN "InventorySector" sec ON sec."id" = r."sectorId"

@@ -17,6 +17,7 @@ type Props = {
   requisicaoId: string;
   /** Quem pode aprovar o pedido (aprovar é o passo antes de mandar ao fornecedor). */
   canApprove: boolean;
+  canSend: boolean;
   onVoltar: () => void;
   onAbrirPedidos: (busca: string) => void;
 };
@@ -27,7 +28,7 @@ type Filtro = "TODOS" | "ALTERADOS" | "SEM_FORNECEDOR" | "FORA";
  * Revisão antes de virar pedido de compra: a requisição diz o que saiu; aqui a pessoa decide quanto comprar e de quem.
  * O que ficar nesta tela é o que vale para o pedido (a retirada fica guardada só como sugestão).
  */
-export function RevisaoDoPedido({ requisicaoId, canApprove, onVoltar, onAbrirPedidos }: Props) {
+export function RevisaoDoPedido({ requisicaoId, canApprove, canSend, onVoltar, onAbrirPedidos }: Props) {
   const [rascunho, setRascunho] = useState<RequisitionPurchaseDraft | null>(null);
   const [falhou, setFalhou] = useState<string | null>(null);
   const [decisoes, setDecisoes] = useState<Decisoes>({});
@@ -128,7 +129,7 @@ export function RevisaoDoPedido({ requisicaoId, canApprove, onVoltar, onAbrirPed
         <ul className="rp-pedidos">
           {resultado.createdOrders.map((pedido) => (
             <li key={pedido.id}>
-              <EnvioDoPedido orderId={pedido.id} canApprove={canApprove} />
+              <EnvioDoPedido orderId={pedido.id} canApprove={canApprove} canSend={canSend} />
               {pedido.totalEstimated > 0 && <span className="muted">Total estimado <Money value={pedido.totalEstimated} /></span>}
             </li>
           ))}

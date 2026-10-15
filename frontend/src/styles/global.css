@@ -10770,11 +10770,7 @@ tr.dre-row-selected td {
 /* Titulo interno duplicava o PageHeader do DS em mobile.
    Mantem-se no desktop porque o PageHeader nao propaga o
    eyebrow "Estoque" hoje. */
-@media (max-width: 640px) {
-  .req-page-heading {
-    display: none;
-  }
-}
+
 
 /* OverviewSection duplica <h2>Visao Geral</h2> com o PageHeader
    do DS no mobile. Analog do padrao aplicado a Requisicoes

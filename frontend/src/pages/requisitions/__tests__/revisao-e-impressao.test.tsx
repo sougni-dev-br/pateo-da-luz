@@ -44,7 +44,7 @@ const rascunho = (extra: Record<string, unknown> = {}) => ({
   ...extra
 });
 
-const montar = () => render(<RevisaoDoPedido requisicaoId="r1" canApprove onVoltar={vi.fn()} onAbrirPedidos={vi.fn()} />);
+const montar = () => render(<RevisaoDoPedido requisicaoId="r1" canApprove canSend onVoltar={vi.fn()} onAbrirPedidos={vi.fn()} />);
 const gerar = () => screen.getByRole("button", { name: /Gerar pedido/ }) as HTMLButtonElement;
 
 describe("RevisaoDoPedido", () => {

@@ -16,6 +16,10 @@ type Props = {
   orderId: string;
   /** Quem pode aprovar: o pedido só vai ao fornecedor depois de aprovado. */
   canApprove: boolean;
+  /** Quem pode marcar o pedido como enviado (edição do módulo de pedidos). */
+  canSend?: boolean;
+  /** Falso onde a página já tem os botões de status (Pedidos de compra): o painel só cuida de PDF e envio. */
+  acoesDeStatus?: boolean;
   onAtualizado?: (pedido: PurchaseOrder) => void;
 };
 
@@ -25,7 +29,7 @@ const STATUS: Record<string, string> = { RASCUNHO: "Rascunho", EM_REVISAO: "Em r
  * Do pedido gerado ao fornecedor: aprovar, gerar o PDF, mandar por WhatsApp ou e-mail e marcar como enviado.
  * O compartilhamento do celular leva o PDF como arquivo; sem ele, o PDF é baixado e a mensagem já traz os itens.
  */
-export function EnvioDoPedido({ order: recebido, orderId, canApprove, onAtualizado }: Props) {
+export function EnvioDoPedido({ order: recebido, orderId, canApprove, canSend = true, acoesDeStatus = true, onAtualizado }: Props) {
   const [pedido, setPedido] = useState<PurchaseOrder | null>(recebido ?? null);
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
@@ -76,9 +80,13 @@ export function EnvioDoPedido({ order: recebido, orderId, canApprove, onAtualiza
   };
 
   async function mudarStatus(etapas: Array<"SEND_REVIEW" | "APPROVE" | "MARK_SENT">) {
-    let atual: PurchaseOrder | null = null;
-    for (const etapa of etapas) atual = await changePurchaseOrderStatus(pedido!.id, etapa);
-    if (atual) atualizar(atual);
+    try {
+      for (const etapa of etapas) atualizar(await changePurchaseOrderStatus(pedido!.id, etapa));
+    } catch (falha) {
+      // Se uma etapa passou e a seguinte falhou, a tela mostra o status que o servidor tem de verdade.
+      await getPurchaseOrder(pedido!.id).then(atualizar).catch(() => {});
+      throw falha;
+    }
   }
 
   const aprovarParaEnvio = () => {
@@ -95,7 +103,13 @@ export function EnvioDoPedido({ order: recebido, orderId, canApprove, onAtualiza
     const blob = await getPurchaseOrderPdfBlob(pedido.id);
     const arquivo = new File([blob], `pedido-${pedido.code}.pdf`, { type: "application/pdf" });
     if (navigator.canShare?.({ files: [arquivo] })) {
-      await navigator.share({ files: [arquivo], title: `Pedido ${pedido.code}`, text: mensagem });
+      try {
+        await navigator.share({ files: [arquivo], title: `Pedido ${pedido.code}`, text: mensagem });
+      } catch (falha) {
+        // O iPhone recusa o compartilhamento quando o toque "venceu" enquanto o PDF carregava: cai no download.
+        if (falha instanceof DOMException && falha.name === "NotAllowedError") await downloadPurchaseOrderPdf(pedido.id, pedido.code);
+        else throw falha;
+      }
     } else {
       await downloadPurchaseOrderPdf(pedido.id, pedido.code);
     }
@@ -108,16 +122,23 @@ export function EnvioDoPedido({ order: recebido, orderId, canApprove, onAtualiza
       <div className="envio-pedido-topo">
         <strong>{pedido.code}</strong>
         <span>{pedido.supplierNameSnapshot}</span>
-        <span className={`envio-pedido-status is-${status.toLowerCase()}`}>{STATUS[status] ?? status}</span>
+        <span className={`envio-pedido-status is-${status.toLowerCase()}`} aria-live="polite">{STATUS[status] ?? status}</span>
       </div>
 
-      {aprovar.length > 0 && (
+      {acoesDeStatus && aprovar.length > 0 && (
         <div className="envio-pedido-acoes">
           <Button variant="primary" leadingIcon={<CheckCircle2 size={14} />} disabled={!canApprove || ocupado != null} onClick={aprovarParaEnvio}>
             {ocupado === "aprovar" ? "Aprovando…" : "Aprovar para envio"}
           </Button>
           <span className="muted">{canApprove ? "O pedido só vai ao fornecedor depois de aprovado." : "Precisa de quem aprova pedidos de compra."}</span>
           <Button variant="secondary" leadingIcon={<Download size={14} />} onClick={() => void executar("pdf", () => downloadPurchaseOrderPdf(pedido.id, pedido.code))}>PDF</Button>
+        </div>
+      )}
+
+      {!acoesDeStatus && aprovar.length > 0 && (
+        <div className="envio-pedido-acoes">
+          <Button variant="secondary" leadingIcon={<Download size={14} />} onClick={() => void executar("pdf", () => downloadPurchaseOrderPdf(pedido.id, pedido.code))}>PDF</Button>
+          <span className="muted">Aprove o pedido para enviar ao fornecedor.</span>
         </div>
       )}
 
@@ -132,13 +153,13 @@ export function EnvioDoPedido({ order: recebido, orderId, canApprove, onAtualiza
             : (
               <label className="envio-pedido-telefone">
                 <span>{semTelefoneCadastrado ? "Fornecedor sem telefone cadastrado. WhatsApp:" : "WhatsApp:"}</span>
-                <input type="tel" inputMode="tel" autoComplete="off" placeholder="(DDD) número" aria-label="Número do WhatsApp do fornecedor" value={telefoneDigitado} onChange={(e) => setTelefoneDigitado(e.target.value)} />
+                <input type="tel" inputMode="tel" autoComplete="off" placeholder="(DDD) número" value={telefoneDigitado} onChange={(e) => setTelefoneDigitado(e.target.value)} />
               </label>
             )}
           {email
             ? <a className="envio-pedido-link" href={email}><Mail size={14} aria-hidden /> E-mail</a>
             : <span className="envio-pedido-sem" title="Cadastre o e-mail do fornecedor para enviar por e-mail">E-mail indisponível: sem e-mail</span>}
-          {status === "APROVADO" && (
+          {acoesDeStatus && canSend && status === "APROVADO" && (
             <Button variant="secondary" leadingIcon={<Send size={14} />} disabled={ocupado != null} onClick={marcarEnviado}>{ocupado === "enviado" ? "Marcando…" : "Marcar como enviado"}</Button>
           )}
         </div>

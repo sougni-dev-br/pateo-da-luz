@@ -39,7 +39,7 @@ async function carregarRequisicao(id: string) {
     FROM "InventoryRequisition" r
     LEFT JOIN "InventorySector" sec ON sec."id" = r."sectorId"
     LEFT JOIN "User" u ON u."id" = r."requestedByUserId"
-    WHERE r."id" = ${id}
+    WHERE r."id" = ${id} AND r."status" <> 'CANCELLED'
   `;
   if (!requisicao) return null;
   const itens = await prisma.$queryRaw<ItemDaRequisicao[]>`
@@ -80,7 +80,6 @@ requisicaoPedidoRouter.get("/:id", async (request, response) => {
     `
   ]);
 
-  // Fornecedor inativo não é oferecido como padrão: a tela o mostraria selecionado e o servidor o descartaria.
   const ativos = new Set(fornecedores.map((f) => f.id));
   response.json({
     requisition: carregada.requisicao,
@@ -89,7 +88,7 @@ requisicaoPedidoRouter.get("/:id", async (request, response) => {
       // Fornecedor principal inativo não é oferecido: a tela o mostraria selecionado e o servidor o descartaria.
       const principalId = item.fornecedorPrincipalId && ativos.has(item.fornecedorPrincipalId) ? item.fornecedorPrincipalId : null;
       const leitura = leituraDePreco(item.productId, principalId, principalId ? item.fornecedorPrincipalNome : null);
-      const padrao = fornecedorPadrao(leitura.bestPriceSupplierId, principalId);
+      const padrao = fornecedorPadrao(leitura.supplierPriceOptions, principalId);
       return {
         productId: item.productId,
         name: item.productName,

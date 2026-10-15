@@ -57,7 +57,7 @@ describe("EnvioDoPedido", () => {
   test("fornecedor sem telefone: dá para digitar o número na hora e o link do WhatsApp aparece; sem e-mail, avisa", async () => {
     getPurchaseOrder.mockResolvedValue(pedido("APROVADO", { supplierPhone: null, supplierEmail: null }));
     render(<EnvioDoPedido orderId="o1" canApprove />);
-    const campo = await screen.findByLabelText("Número do WhatsApp do fornecedor");
+    const campo = await screen.findByPlaceholderText("(DDD) número");
     expect(screen.queryByRole("link", { name: /WhatsApp/ })).toBeNull();
     fireEvent.change(campo, { target: { value: "(11) 91234-5678" } });
     expect(((await screen.findByRole("link", { name: /WhatsApp/ })) as HTMLAnchorElement).href).toContain("https://wa.me/5511912345678");
@@ -74,6 +74,28 @@ describe("EnvioDoPedido", () => {
     await waitFor(() => expect(changePurchaseOrderStatus).toHaveBeenCalledWith("o1", "MARK_SENT"));
     expect(await screen.findByText("Enviado")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Marcar como enviado" })).toBeNull();
+  });
+
+  test("a aprovação para no meio: a tela mostra o status que o servidor tem e deixa tentar de novo", async () => {
+    getPurchaseOrder.mockResolvedValueOnce(pedido("RASCUNHO")).mockResolvedValue(pedido("EM_REVISAO"));
+    changePurchaseOrderStatus.mockResolvedValueOnce(pedido("EM_REVISAO")).mockRejectedValueOnce(new Error("Usuario sem permissao para aprovar pedido de compra."));
+    render(<EnvioDoPedido orderId="o1" canApprove />);
+    fireEvent.click(await screen.findByRole("button", { name: "Aprovar para envio" }));
+    expect(await screen.findByText(/sem permissao para aprovar/)).toBeTruthy();
+    expect(screen.getByText("Em revisão")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Aprovar para envio" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  test("quem só edita sem poder marcar como enviado não vê o botão; onde a página já tem os botões de status, o painel não os repete", async () => {
+    getPurchaseOrder.mockResolvedValue(pedido("APROVADO"));
+    const { unmount } = render(<EnvioDoPedido orderId="o1" canApprove canSend={false} />);
+    await screen.findByRole("button", { name: "Baixar PDF" });
+    expect(screen.queryByRole("button", { name: "Marcar como enviado" })).toBeNull();
+    unmount();
+    getPurchaseOrder.mockResolvedValue(pedido("RASCUNHO"));
+    render(<EnvioDoPedido orderId="o1" canApprove acoesDeStatus={false} />);
+    expect(await screen.findByText(/Aprove o pedido para enviar/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Aprovar para envio" })).toBeNull();
   });
 
   test("erro ao aprovar aparece e o pedido continua como estava", async () => {

@@ -15,10 +15,17 @@ export type LinhaDeCompra = {
 
 /**
  * Quem fornece o item por padrão: o de menor preço no histórico de compras, mesmo quando o cadastro tem um
- * fornecedor principal (decisão do Eli). Sem histórico de preço, vale o principal. A pessoa troca com um toque.
+ * fornecedor principal (decisão do Eli). Só entram na comparação os preços já convertidos para a unidade do
+ * estoque: preço de caixa ao lado de preço por kg não diz quem é mais barato. Sem preço comparável, vale o
+ * principal do cadastro e, sem ele, o primeiro do histórico. A pessoa troca com um toque.
  */
-export function fornecedorPadrao(menorPrecoId: string | null, principalId: string | null): string | null {
-  return menorPrecoId ?? principalId ?? null;
+export function fornecedorPadrao(
+  opcoes: Array<{ supplierId: string; conversionMissing: boolean }>,
+  principalId: string | null
+): string | null {
+  // As opções chegam em ordem de menor preço (é a ordem do planejamento de compra).
+  const comparavel = opcoes.find((o) => !o.conversionMissing);
+  return comparavel?.supplierId ?? principalId ?? opcoes[0]?.supplierId ?? null;
 }
 
 type LeituraDePreco = {

@@ -1498,6 +1498,8 @@ export type InventoryRequisition = {
   cancelReason: string | null;
   cancelledAt: string | null;
   itemCount?: number;
+  /** Pedidos de compra já gerados desta requisição (códigos separados por vírgula). */
+  purchaseOrderCodes?: string | null;
   items?: InventoryRequisitionItem[];
   createdAt: string;
 };

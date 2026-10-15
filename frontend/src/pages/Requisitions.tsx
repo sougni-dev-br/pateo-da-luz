@@ -10,7 +10,7 @@ import {
   getRequisitions,
   getSectors
 } from "../api/client";
-import { Button, EmptyState, IconButton, PanelEyebrow, StatusBadge, Table } from "../design-system";
+import { Button, EmptyState, IconButton, StatusBadge, Table } from "../design-system";
 import { Notice, useNotice } from "../components/Notice";
 import { hasPermission } from "../lib/permissions";
 import { formatDate, formatNumber } from "../utils/format";
@@ -22,6 +22,12 @@ import { FormularioDaRequisicao, MOTIVOS, TURNOS, cabecalhoVazio, type ModeloIni
 
 const shiftLabels = TURNOS;
 const reasonLabels = MOTIVOS;
+
+/** "PC-2026-0057, PC-2026-0058" cabe na tabela como "PC-2026-0057 +1"; a lista inteira fica no tooltip. */
+const resumoDosPedidos = (codigos: string) => {
+  const lista = codigos.split(", ");
+  return lista.length > 1 ? `${lista[0]} +${lista.length - 1}` : lista[0];
+};
 
 const shiftTone = (shift: string) =>
   shift === "MORNING" ? "info" : shift === "AFTERNOON" ? "warning" : "neutral";
@@ -112,14 +118,6 @@ export function Requisitions({ user }: { user: AppUser }) {
     <div className="stack">
       <Notice notice={notice} />
 
-      <div className="section-heading req-page-heading">
-        <div style={{ flex: 1 }}>
-          <PanelEyebrow>Estoque</PanelEyebrow>
-          <h2>Requisições de Insumos</h2>
-          <span className="muted">Registre retiradas de produtos do estoque para uso na cozinha.</span>
-        </div>
-      </div>
-
       <div className="tabs" style={view === "pedido" ? { display: "none" } : undefined}>
         <button type="button" className={view === "form" ? "active" : ""} onClick={() => setView("form")}>
           <Plus size={14} style={{ verticalAlign: "middle", marginRight: 4 }} />
@@ -154,7 +152,8 @@ export function Requisitions({ user }: { user: AppUser }) {
           key={pedidoDe}
           requisicaoId={pedidoDe}
           canApprove={hasPermission(user, "purchase-orders", "approve")}
-          onVoltar={() => setView(confirmedRequisition ? "form" : "list")}
+          canSend={hasPermission(user, "purchase-orders", "edit")}
+          onVoltar={() => { loadRequisitions(); setView(confirmedRequisition ? "form" : "list"); }}
           onAbrirPedidos={(busca) => navigate(`/compras/pedidos${busca ? `?search=${encodeURIComponent(busca)}` : ""}`)}
         />
       )}
@@ -227,9 +226,8 @@ export function Requisitions({ user }: { user: AppUser }) {
         <div className="form-section">
           <div className="section-heading compact-heading" style={{ marginBottom: 12 }}>
             <div style={{ flex: 1 }}>
-              <PanelEyebrow>Estoque</PanelEyebrow>
-              <h3>Histórico de requisições</h3>
-              <span className="muted">Retiradas de insumos registradas do estoque.</span>
+              <h3 style={{ margin: 0 }}>Histórico de requisições</h3>
+              <span className="muted">Retiradas registradas, com impressão e pedido de compra.</span>
             </div>
             <Button variant="primary" leadingIcon={<Plus size={14} />} onClick={() => setView("form")}>
               Nova requisição
@@ -250,9 +248,9 @@ export function Requisitions({ user }: { user: AppUser }) {
                     <Table.Th>Código</Table.Th>
                     <Table.Th>Data</Table.Th>
                     <Table.Th>Turno</Table.Th>
-                    <Table.Th>Setor</Table.Th>
                     <Table.Th>Motivo</Table.Th>
                     <Table.Th align="right">Itens</Table.Th>
+                    <Table.Th>Pedido de compra</Table.Th>
                     <Table.Th>Registrado por</Table.Th>
                     <Table.Th actions>Ações</Table.Th>
                   </Table.Row>
@@ -260,23 +258,23 @@ export function Requisitions({ user }: { user: AppUser }) {
                 <Table.Body>
                   {requisitions.map((req) => (
                     <Table.Row key={req.id}>
-                      <Table.Td><strong>{req.code}</strong></Table.Td>
+                      <Table.Td style={{ whiteSpace: "nowrap" }}><strong>{req.code}</strong></Table.Td>
                       <Table.Td style={{ whiteSpace: "nowrap" }}>{formatDate(req.date)}</Table.Td>
                       <Table.Td>
                         <StatusBadge tone={shiftTone(req.shift)}>
                           {shiftLabels[req.shift] ?? req.shift}
                         </StatusBadge>
                       </Table.Td>
-                      <Table.Td>{req.sectorName ?? "—"}</Table.Td>
                       <Table.Td truncate style={{ maxWidth: 160 }} title={reasonLabels[req.reason] ?? req.reason}>
                         {reasonLabels[req.reason] ?? req.reason}
                       </Table.Td>
                       <Table.Td align="right">{req.itemCount ?? "—"}</Table.Td>
+                      <Table.Td style={{ whiteSpace: "nowrap" }} title={req.purchaseOrderCodes ?? undefined}>{req.purchaseOrderCodes ? <StatusBadge tone="success">{resumoDosPedidos(req.purchaseOrderCodes)}</StatusBadge> : <span className="muted">—</span>}</Table.Td>
                       <Table.Td truncate style={{ maxWidth: 140 }} title={req.requestedByName ?? undefined}>{req.requestedByName ?? "—"}</Table.Td>
                       <Table.Td actions>
                         <IconButton icon={<Eye size={16} />} label="Ver requisição" onClick={() => setDetailId(req.id)} />
                         <IconButton icon={<Printer size={16} />} label="Imprimir requisição" onClick={() => void imprimirRegistrada(req.id)} />
-                        {podeGerarPedido && <IconButton icon={<ShoppingCart size={16} />} label="Gerar pedido de compra" onClick={() => abrirPedido(req.id)} />}
+                        {podeGerarPedido && <IconButton icon={<ShoppingCart size={16} />} label={req.purchaseOrderCodes ? "Ver ou gerar outro pedido de compra" : "Gerar pedido de compra"} onClick={() => abrirPedido(req.id)} />}
                         <IconButton icon={<Copy size={16} />} label="Duplicar requisição" onClick={() => void duplicateRequisition(req.id)} />
                       </Table.Td>
                     </Table.Row>
@@ -313,6 +311,10 @@ export function Requisitions({ user }: { user: AppUser }) {
                   <div className="mobile-card-row">
                     <span>Itens</span>
                     <strong>{req.itemCount ?? "—"}</strong>
+                  </div>
+                  <div className="mobile-card-row">
+                    <span>Pedido de compra</span>
+                    <strong>{req.purchaseOrderCodes ?? "—"}</strong>
                   </div>
                   {req.requestedByName && (
                     <div className="mobile-card-row">

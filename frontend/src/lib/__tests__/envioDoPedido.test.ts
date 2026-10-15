@@ -49,6 +49,7 @@ describe("mensagem e links", () => {
   test("link de e-mail só com endereço válido", () => {
     expect(linkEmail("compras@moinho.com", "Pedido", "Olá")).toBe("mailto:compras@moinho.com?subject=Pedido&body=Ol%C3%A1");
     expect(linkEmail("sem arroba", "a", "b")).toBeNull();
+    expect(linkEmail("a@b.com?bcc=x@y.com", "a", "b")).toBeNull();
   });
 });
 

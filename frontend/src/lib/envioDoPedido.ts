@@ -39,7 +39,8 @@ export function linkWhatsapp(telefone: string | null | undefined, mensagem: stri
 
 export function linkEmail(email: string | null | undefined, assunto: string, corpo: string): string | null {
   const endereco = String(email ?? "").trim();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(endereco)) return null;
+  // Sem ? & # , ; no endereço: o dado vem do cadastro, e esses caracteres abririam outros campos do mailto.
+  if (!/^[^\s@?&#,;]+@[^\s@?&#,;]+\.[^\s@?&#,;]+$/.test(endereco)) return null;
   return `mailto:${endereco}?subject=${encodeURIComponent(assunto)}&body=${encodeURIComponent(corpo)}`;
 }
 

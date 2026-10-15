@@ -10,16 +10,24 @@ import {
 } from "../requisicao-pedido.js";
 
 describe("fornecedorPadrao", () => {
+  const opcao = (supplierId: string, conversionMissing = false) => ({ supplierId, conversionMissing });
+
   test("o de menor preço histórico vem primeiro, mesmo com fornecedor principal no cadastro", () => {
-    expect(fornecedorPadrao("maisBarato", "principal")).toBe("maisBarato");
+    expect(fornecedorPadrao([opcao("maisBarato"), opcao("outro")], "principal")).toBe("maisBarato");
+  });
+
+  test("preço sem conversão (de caixa) não entra na comparação: vale o mais barato comparável", () => {
+    expect(fornecedorPadrao([opcao("caixa", true), opcao("porKg"), opcao("outro")], "principal")).toBe("porKg");
+  });
+
+  test("sem nenhum preço comparável, vale o principal; sem principal, o primeiro do histórico", () => {
+    expect(fornecedorPadrao([opcao("caixa", true)], "principal")).toBe("principal");
+    expect(fornecedorPadrao([opcao("caixa", true), opcao("outra", true)], null)).toBe("caixa");
   });
 
   test("sem histórico de preço, vale o principal do cadastro", () => {
-    expect(fornecedorPadrao(null, "principal")).toBe("principal");
-  });
-
-  test("sem principal e sem histórico, não chuta", () => {
-    expect(fornecedorPadrao(null, null)).toBeNull();
+    expect(fornecedorPadrao([], "principal")).toBe("principal");
+    expect(fornecedorPadrao([], null)).toBeNull();
   });
 });
 

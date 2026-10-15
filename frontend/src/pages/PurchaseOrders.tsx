@@ -371,7 +371,7 @@ export function PurchaseOrders({ user }: { user: AppUser }) {
             </Table.Body>
           </Table>
 
-          <EnvioDoPedido order={selected} orderId={selected.id} canApprove={canApprove} onAtualizado={(pedido) => { setSelected(pedido); void load(); }} />
+          <EnvioDoPedido order={selected} orderId={selected.id} canApprove={canApprove} canSend={canOperate} acoesDeStatus={false} onAtualizado={(pedido) => { setSelected(pedido); void load(); }} />
 
           <div className="action-row end">
             {selected.status === "RASCUNHO" && canOperate && <Button variant="secondary" onClick={saveDraft}>Salvar rascunho</Button>}
