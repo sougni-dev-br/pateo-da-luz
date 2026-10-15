@@ -1,5 +1,5 @@
 import { Printer, Trash2, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import {
   ApiError,
   createRequisition,
@@ -42,6 +42,8 @@ type Props = {
   onConversaoCadastrada?: (item: RequisitionCatalogItem) => void;
   /** Id do rascunho no sistema que esta tela está salvando (null enquanto não há). */
   onRascunho?: (id: string | null) => void;
+  /** A tela de fora chama isto antes de listar os rascunhos: o que acabou de ser digitado já tem que estar no sistema. */
+  salvarAgoraRef?: MutableRefObject<(() => Promise<void>) | null>;
 };
 
 const quando = (instante: number) => new Date(instante).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
@@ -58,7 +60,7 @@ function QuadroVazio({ visao, filtrando, onLimpar }: { visao: Visao; filtrando: 
   );
 }
 
-export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAviso, onConversaoCadastrada, onRascunho }: Props) {
+export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAviso, onConversaoCadastrada, onRascunho, salvarAgoraRef }: Props) {
   const guardado = useMemo(() => (modelo ? null : lerRascunho(user.id)), [modelo, user.id]);
   const catalogo = useCatalogo(user.id);
   const { imprimir, portal } = useImpressaoDaRequisicao();
@@ -105,6 +107,12 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAvis
     // só roda quando o catálogo chega
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [itens]);
+
+  useEffect(() => {
+    if (!salvarAgoraRef) return;
+    salvarAgoraRef.current = noServidor.sincronizar;
+    return () => { salvarAgoraRef.current = null; };
+  }, [salvarAgoraRef, noServidor.sincronizar]);
 
   useEffect(() => {
     onRascunho?.(noServidor.servidorRef.current?.id ?? null);

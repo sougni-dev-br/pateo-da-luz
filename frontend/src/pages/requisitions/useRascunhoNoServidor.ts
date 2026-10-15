@@ -16,7 +16,7 @@ export type RascunhoNoServidor = { id: string; version: number };
 export type EstadoDoRascunho = "parado" | "salvando" | "salvo" | "falhou" | "conflito";
 
 /** Espera depois da última digitação: a requisição é montada em rajadas, não a cada tecla. */
-const ESPERA_MS = 1500;
+const ESPERA_MS = 600;
 
 type Entrada = {
   inicial: RascunhoNoServidor | null;
@@ -162,5 +162,5 @@ export function useRascunhoNoServidor({ inicial, cabecalho, escolhas, resumo, pa
     void sincronizar();
   }, [conflito, sincronizar]);
 
-  return { servidorRef, estado, conflito, aguardar, encerrar, descartar, usarDoServidor, manterMinha };
+  return { servidorRef, estado, conflito, aguardar, encerrar, descartar, usarDoServidor, manterMinha, sincronizar };
 }

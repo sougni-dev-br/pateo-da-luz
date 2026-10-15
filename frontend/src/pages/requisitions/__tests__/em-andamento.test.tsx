@@ -3,7 +3,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { EmAndamento } from "../EmAndamento";
 
 const rascunho = (id: string, extra: Record<string, unknown> = {}) => ({
-  id, itemCount: 3, summary: "FARINHA, OVO e mais 1", version: 2, date: "2026-10-15", shift: "MORNING",
+  id, itemCount: 3, itens: [{ productId: "p1", name: "FARINHA", quantity: "2", unit: "KG" }, { productId: "p2", name: "OVO", quantity: "30", unit: "UN" }], summary: "FARINHA, OVO e mais 1", version: 2, date: "2026-10-15", shift: "MORNING",
   createdByName: "Ana", updatedByName: "Maria", createdAt: "2026-10-15T10:00:00Z", updatedAt: "2026-10-15T11:00:00Z", ...extra
 });
 
@@ -24,6 +24,13 @@ describe("EmAndamento", () => {
     expect(onAbrir).toHaveBeenCalledWith("b");
     fireEvent.click(screen.getAllByRole("button", { name: /Descartar a requisição/ })[0]);
     expect(onDescartar).toHaveBeenCalledWith(expect.objectContaining({ id: "a" }));
+  });
+
+  test("mostra o que tem dentro: nome, quantidade e unidade de cada item", () => {
+    montar({ rascunhos: [rascunho("a")] });
+    expect(screen.getByText("FARINHA")).toBeTruthy();
+    expect(screen.getByText("2 KG")).toBeTruthy();
+    expect(screen.getByText("30 UN")).toBeTruthy();
   });
 
   test("o rascunho aberto agora não pode ser descartado por aqui", () => {

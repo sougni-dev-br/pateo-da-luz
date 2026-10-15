@@ -27,9 +27,20 @@ requisicaoRascunhoRouter.get("/", async (request, response) => {
 
   const rascunhos = await prisma.inventoryRequisitionDraft.findMany({ orderBy: { updatedAt: "desc" }, take: 100 });
   const nomes = await nomesDosUsuarios(rascunhos.flatMap((r) => [r.createdByUserId, r.updatedByUserId]));
+  const escolhasDe = (payload: unknown) => (payload as { escolhas?: Record<string, { unit?: string; quantity?: string }> } | null)?.escolhas ?? {};
+  const idsDosProdutos = Array.from(new Set(rascunhos.flatMap((r) => Object.keys(escolhasDe(r.payload)))));
+  const produtos = idsDosProdutos.length > 0
+    ? await prisma.product.findMany({ where: { id: { in: idsDosProdutos } }, select: { id: true, name: true } })
+    : [];
+  const nomeDoProduto = new Map(produtos.map((p) => [p.id, p.name]));
   response.json(rascunhos.map((r) => {
     const cabecalho = (r.payload as { cabecalho?: { date?: string; shift?: string } } | null)?.cabecalho ?? {};
+    // O cartão da lista mostra o que a requisição tem, não só quantos itens: nome, quantidade e unidade de cada um.
+    const itens = Object.entries(escolhasDe(r.payload))
+      .map(([productId, e]) => ({ productId, name: nomeDoProduto.get(productId) ?? "Produto removido", quantity: e.quantity ?? "", unit: e.unit ?? "" }))
+      .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
     return {
+      itens,
       id: r.id,
       itemCount: r.itemCount,
       summary: r.summary,

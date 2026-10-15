@@ -40,7 +40,11 @@ export function EmAndamento({ rascunhos, falhou, abertoId, onAbrir, onDescartar,
         <li key={r.id} className={`ea-cartao${r.id === abertoId ? " is-aberto" : ""}`}>
           <div className="ea-texto">
             <strong>{r.itemCount} {r.itemCount === 1 ? "produto" : "produtos"}{r.id === abertoId ? " · aberta agora" : ""}</strong>
-            <span className="ea-resumo">{r.summary ?? "Sem nome de produto"}</span>
+            <ul className="ea-itens" aria-label="Itens da requisição">
+              {r.itens.map((i) => (
+                <li key={i.productId}><span className="ea-item-nome">{i.name}</span><b>{i.quantity} {i.unit}</b></li>
+              ))}
+            </ul>
             <small className="muted">
               {r.shift ? `${TURNOS[r.shift] ?? r.shift} · ` : ""}
               Atualizada {quando(r.updatedAt)}{r.updatedByName ? ` por ${r.updatedByName}` : ""}

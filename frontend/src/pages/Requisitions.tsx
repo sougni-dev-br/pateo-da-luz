@@ -1,5 +1,5 @@
 ﻿import { CheckCircle2, ClipboardList, Copy, Eye, Plus, Printer, ShoppingCart, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   AppUser,
@@ -42,6 +42,7 @@ export function Requisitions({ user }: { user: AppUser }) {
   const [rascunhos, setRascunhos] = useState<RascunhoDaRequisicaoResumo[] | null>(null);
   const [rascunhosFalhou, setRascunhosFalhou] = useState(false);
   const [abertoId, setAbertoId] = useState<string | null>(null);
+  const salvarAgoraRef = useRef<(() => Promise<void>) | null>(null);
   const [pedidoDe, setPedidoDe] = useState<string | null>(null);
   const [sectors, setSectors] = useState<InventorySector[]>([]);
   const [modelo, setModelo] = useState<ModeloInicial | null>(null);
@@ -63,6 +64,17 @@ export function Requisitions({ user }: { user: AppUser }) {
     carregarRascunhos();
   }, []);
 
+  // Na aba "Em andamento" a lista acompanha o que outros aparelhos fazem, sem precisar sair e voltar.
+  useEffect(() => {
+    if (view !== "andamento") return;
+    const atualizar = () => { if (document.visibilityState === "visible") void carregarRascunhos(); };
+    const intervalo = setInterval(atualizar, 10_000);
+    window.addEventListener("focus", atualizar);
+    return () => { clearInterval(intervalo); window.removeEventListener("focus", atualizar); };
+    // carregarRascunhos só usa refs e setters
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view]);
+
   useEffect(() => {
     if (!detailId) { setDetail(null); return; }
     setLoadingDetail(true);
@@ -72,8 +84,10 @@ export function Requisitions({ user }: { user: AppUser }) {
       .finally(() => setLoadingDetail(false));
   }, [detailId]);
 
-  function carregarRascunhos() {
+  async function carregarRascunhos() {
     setRascunhosFalhou(false);
+    // O que acabou de ser digitado ainda pode estar esperando a pausa da digitação: salva já, depois lista.
+    await salvarAgoraRef.current?.().catch(() => {});
     listarRascunhosDaRequisicao().then(setRascunhos).catch(() => setRascunhosFalhou(true));
   }
 
@@ -195,6 +209,7 @@ export function Requisitions({ user }: { user: AppUser }) {
             onCriada={aoCriar}
             onAviso={(tone, message) => setNotice({ tone, message })}
             onRascunho={setAbertoId}
+            salvarAgoraRef={salvarAgoraRef}
           />
         </div>
       )}

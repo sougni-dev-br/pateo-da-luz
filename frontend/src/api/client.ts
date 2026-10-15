@@ -1624,8 +1624,11 @@ export type ConteudoDoRascunhoDaRequisicao = {
   escolhas: Record<string, { unit: string; quantity: string }>;
 };
 
+export type ItemDoRascunhoDaRequisicao = { productId: string; name: string; quantity: string; unit: string };
+
 export type RascunhoDaRequisicaoResumo = {
   id: string;
+  itens: ItemDoRascunhoDaRequisicao[];
   itemCount: number;
   summary: string | null;
   version: number;
