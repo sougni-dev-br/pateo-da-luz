@@ -81,3 +81,36 @@ describe("proporConversoes", () => {
     expect(propostas[0]).toMatchObject({ fromUnit: "PCT", linhas: 3, valor: 15 });
   });
 });
+
+
+describe("proporConversoes: falsos positivos achados no catalogo real", () => {
+  it("caixa de copos 'C/20 CX. C50X20' (50 x 20 por caixa) nao vira 20 sozinha", () => {
+    const [p] = proporConversoes(produto({ nome: "COPO ISOPOR 118ML C/20 CX. C50X20", unidadeDeContagem: "UN", unidadesDaNota: [nota("CX")] }));
+    expect(p.confianca).toBe("baixa");
+  });
+
+  it("'50 UNI CX/20X50' (20 pacotes de 50 por caixa) nao vira 50 sozinha", () => {
+    const [p] = proporConversoes(produto({ nome: "COPO 200ML 50 UNI CX/20X50", unidadeDeContagem: "UN", unidadesDaNota: [nota("CX")] }));
+    expect(p.confianca).toBe("baixa");
+  });
+
+  it("dimensao 12X30 no nome nao e multiplicador de embalagem", () => {
+    const [p] = proporConversoes(produto({ nome: "SACO AMOSTRA TARJA 12X30 C800", unidadeDeContagem: "UN", unidadesDaNota: [nota("CX")] }));
+    expect(p).toMatchObject({ factor: 800, confianca: "alta" });
+  });
+
+  it("gramatura do papel (75G) em resma de folhas nao e peso por unidade", () => {
+    const [p] = proporConversoes(produto({ nome: "PAPEL SULFITE A4 75G 500 FOLHAS", unidadeDeContagem: "UN", unidadesDaNota: [nota("KG")] }));
+    expect(p.confianca).toBe("baixa");
+  });
+
+  it("gramatura da sacola (80GR) nao e peso por unidade", () => {
+    const [p] = proporConversoes(produto({ nome: "SACOLA 22X28X14 80GR P/ DELIVERY", unidadeDeContagem: "UN", unidadesDaNota: [nota("KG")] }));
+    expect(p.confianca).toBe("baixa");
+  });
+
+  it("peso de alimento em UN comprado a quilo continua automatico", () => {
+    const [p] = proporConversoes(produto({ nome: "LINGUICA PAIO SEARA 2,5KG", unidadeDeContagem: "UN", unidadesDaNota: [nota("KG")] }));
+    expect(p).toMatchObject({ factor: 0.4, confianca: "alta" });
+  });
+});

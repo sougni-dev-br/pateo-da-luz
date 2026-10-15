@@ -21,6 +21,11 @@ const NIVEL_CAIXA = new Set(["CX", "FD"]);
 /** Unidades fixas de contagem que nao dependem do produto. */
 const FIXAS: Record<string, number> = { DZ: 12 };
 
+/** "C50X20", "CX/20X50", "50 UNI ... 20X50": a caixa leva o produto dos dois numeros, nao um deles. */
+const PACOTE_MULTIPLICADO = /\b(?:C|CX|CAIXA)\s*\/?\s*\d+\s*X\s*\d+\b|\b\d+\s*X\s*\d+\s*(?:UNI|UN|UND)\b/i;
+/** Papel e sacola trazem gramatura (75G, 80GR): nao e o peso da unidade. */
+const GRAMATURA_NO_NOME = /\b(?:FOLHAS?|FLS|SACOLA)\b/i;
+
 /** Faixa em que o preco "confirma" o fator: entre metade e o dobro do esperado. */
 const PRECO_CONFIRMA = { min: 0.5, max: 2 };
 /** Fora desta faixa o preco desmente o fator (ex.: leitura de folhas por rolo). */
@@ -93,6 +98,8 @@ function lerDoNome(nome: string, nota: string, contagem: string): Leitura | null
 
   const contagens = detectarEmbalagem(nome).filter((e) => e.unidade == null && e.confianca === "alta");
   const peso = embalagemDoNome(nome);
+  const multiplicado = PACOTE_MULTIPLICADO.test(nome);
+  const gramatura = GRAMATURA_NO_NOME.test(nome);
 
   // Conta em UN (ou outra contagem que nao e medida) e a nota veio em embalagem.
   if (!MEDIDAS.has(contagem) && !MEDIDAS.has(nota)) {
@@ -101,7 +108,7 @@ function lerDoNome(nome: string, nota: string, contagem: string): Leitura | null
     if (distintas.length === 0) return null;
     const doNivel = distintas.filter((c) => (c.nivel === "caixa") === NIVEL_CAIXA.has(nota) || c.nivel === "pacote");
     const escolhida = doNivel.length === 1 ? doNivel[0] : distintas.sort((a, b) => b.quantidade - a.quantidade)[0];
-    const ambigua = distintas.length > 1 || (escolhida.nivel === "caixa" && !NIVEL_CAIXA.has(nota));
+    const ambigua = multiplicado || distintas.length > 1 || (escolhida.nivel === "caixa" && !NIVEL_CAIXA.has(nota));
     return {
       fator: escolhida.quantidade,
       origem: escolhida.trecho,
@@ -122,7 +129,7 @@ function lerDoNome(nome: string, nota: string, contagem: string): Leitura | null
         origem: peso.trecho,
         motivo: `"${peso.trecho}" no nome: 1 ${nota} = ${formatar(porItem)} ${contagem}.`,
         // Caixa sem quantidade no nome pode ter varias unidades de 5 KG.
-        ambigua: NIVEL_CAIXA.has(nota)
+        ambigua: gramatura || NIVEL_CAIXA.has(nota)
       };
     }
     const fator = distintas[0] * porItem;
@@ -131,7 +138,7 @@ function lerDoNome(nome: string, nota: string, contagem: string): Leitura | null
       origem: `${peso.trecho} x ${contagens[0].trecho}`,
       motivo: `"${peso.trecho}" e "${contagens[0].trecho}" no nome: 1 ${nota} = ${distintas[0]} x ${formatar(porItem)} = ${formatar(fator)} ${contagem}.`,
       // Com contagem no nome, so a embalagem de fora (CX/FD) leva o total; "UN" seria a unidade solta.
-      ambigua: distintas.length > 1 || !NIVEL_CAIXA.has(nota)
+      ambigua: gramatura || multiplicado || distintas.length > 1 || !NIVEL_CAIXA.has(nota)
     };
   }
 
@@ -144,7 +151,7 @@ function lerDoNome(nome: string, nota: string, contagem: string): Leitura | null
       fator: 1 / porItem,
       origem: peso.trecho,
       motivo: `"${peso.trecho}" no nome: 1 UN = ${formatar(porItem)} ${nota}.`,
-      ambigua: false
+      ambigua: gramatura
     };
   }
 
