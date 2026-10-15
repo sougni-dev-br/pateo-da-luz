@@ -9,7 +9,7 @@ import { resolveProductNameConflict } from "./product-name-conflict.js";
 import { parseBody } from "../../shared/validate-body.js";
 import { resolvePagination } from "../../shared/pagination.js";
 import { productSchema, productStatusSchema } from "./product.schemas.js";
-import { auditLog, requestIp, requireRole } from "../security/security-utils.js";
+import { auditLog, requestIp, requireMenuPermission, requireRole } from "../security/security-utils.js";
 import { beverageSectorName, normalizeInventorySectorInput } from "../master-data/inventory-sector-utils.js";
 import { detectarEmbalagem, normalizarUnidade } from "../../shared/unidades/conversao.js";
 import { sqlCompraNaUnidadeDeContagem } from "../../shared/unidades/compra-na-contagem.sql.js";
@@ -811,7 +811,7 @@ productRouter.patch("/bulk-dre", async (request, response) => {
 // CX e contado em UN). A lista mostra todas; aplicar cadastra e refaz as compras
 // sem conversao. O fator e sempre recalculado no servidor.
 productRouter.get("/conversoes-automaticas", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
   try {
     response.json({ produtos: await listarPropostasDeConversao() });
@@ -821,7 +821,7 @@ productRouter.get("/conversoes-automaticas", async (request, response) => {
 });
 
 productRouter.post("/conversoes-automaticas/aplicar", async (request, response) => {
-  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  const user = await requireMenuPermission(request, response);
   if (!user) return;
   const body = (request.body ?? {}) as { escolhas?: unknown; todasDeAltaConfianca?: unknown };
   const escolhas = Array.isArray(body.escolhas)
