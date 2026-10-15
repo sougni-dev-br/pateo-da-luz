@@ -3,11 +3,12 @@ import { pecaSemConversao } from "../../shared/unidades/conversao-manual.js";
 import { proporConversoes } from "../../shared/unidades/conversao-automatica.js";
 import type { ProdutoCarregadoParaConversao } from "../products/conversao-automatica.service.js";
 
-// Pendências de conversão para o estoquista: unidades em que o produto já foi comprado (ou é comprado, ou se
-// chama "peça") e que o sistema ainda não sabe converter para a unidade do estoque. Enquanto isso não é
-// cadastrado, a unidade não aparece na requisição e o preço do pedido de compra fica sem referência.
+// Rotina de conversões do estoquista: todo produto que controla estoque aparece com a situação da conversão —
+// ainda sem cadastro (PENDENTE), cadastrada mas faltando uma unidade em uso (PARCIAL), tudo cadastrado
+// (CADASTRADO) ou conferido como "não precisa" (NAO_PRECISA). O que falta primeiro é o que a cozinha mais pede.
 
 export type OrigemDaPendencia = "COMPRA" | "CADASTRO" | "NOME_PECA";
+export type StatusDaConversao = "PENDENTE" | "PARCIAL" | "CADASTRADO" | "NAO_PRECISA";
 
 export type PendenciaDeUnidade = {
   unidade: string;
@@ -19,25 +20,43 @@ export type PendenciaDeUnidade = {
   proposta: { factor: number; confianca: "alta" | "baixa"; motivo: string } | null;
 };
 
-export type PendenciaDoProduto = {
+export type ConversaoCadastrada = { fromUnit: string; toUnit: string; factor: number };
+
+export type ProdutoDaRotina = {
   productId: string;
   codigo: string | null;
   nome: string;
   unidadeDeContagem: string;
   saldo: number | null;
+  sectorId: string | null;
+  sectorName: string | null;
+  status: StatusDaConversao;
+  conversoes: ConversaoCadastrada[];
   pendencias: PendenciaDeUnidade[];
+  /** Quantas vezes o produto saiu em requisição nos últimos 90 dias: quem a cozinha mais pede vem antes. */
+  usosEmRequisicoes: number;
+  conferidoPorNome: string | null;
+  conferidoEm: string | null;
 };
 
-const LIMITE = 300;
+export type ResumoDaRotina = { total: number; pendentes: number; parciais: number; cadastrados: number; naoPrecisa: number };
 
-export function montarPendencias(
-  carregados: ProdutoCarregadoParaConversao[],
-  saldos: Map<string, number>,
-  controlaEstoque: Set<string>
-): PendenciaDoProduto[] {
-  const resultado: PendenciaDoProduto[] = [];
+export type ApoioDaRotina = {
+  saldos: Map<string, number>;
+  controlaEstoque: Set<string>;
+  setores: Map<string, { id: string; nome: string }>;
+  setorDoProduto: Map<string, string>;
+  usos: Map<string, number>;
+  conferencias: Map<string, { por: string | null; em: string }>;
+};
+
+const peso = (x: ProdutoDaRotina) => x.pendencias.reduce((s, y) => s + y.valor, 0);
+const aFazer = (x: ProdutoDaRotina) => x.status === "PENDENTE" || x.status === "PARCIAL";
+
+export function montarRotina(carregados: ProdutoCarregadoParaConversao[], apoio: ApoioDaRotina): { produtos: ProdutoDaRotina[]; resumo: ResumoDaRotina } {
+  const produtos: ProdutoDaRotina[] = [];
   for (const p of carregados) {
-    if (!controlaEstoque.has(p.productId)) continue;
+    if (!apoio.controlaEstoque.has(p.productId)) continue;
     const contagem = normalizarUnidade(p.contagem);
     if (!contagem) continue;
 
@@ -49,10 +68,11 @@ export function montarPendencias(
       if (resolveUnitFactor(unidade, contagem, p.entrada.cadastradas) != null) continue;
       const atual = porUnidade.get(unidade);
       const proposta = propostas.get(unidade);
+      const linhas = (atual?.linhas ?? 0) + nota.linhas;
       porUnidade.set(unidade, {
         unidade,
-        origem: (atual?.linhas ?? 0) + nota.linhas > 0 ? "COMPRA" : "CADASTRO",
-        linhas: (atual?.linhas ?? 0) + nota.linhas,
+        origem: linhas > 0 ? "COMPRA" : "CADASTRO",
+        linhas,
         valor: (atual?.valor ?? 0) + nota.valor,
         proposta: proposta ? { factor: proposta.factor, confianca: proposta.confianca, motivo: proposta.motivo } : null
       });
@@ -61,17 +81,34 @@ export function montarPendencias(
     if (!porUnidade.has("UN") && pecaSemConversao(p.nome, p.contagem, p.entrada.cadastradas)) {
       porUnidade.set("UN", { unidade: "UN", origem: "NOME_PECA", linhas: 0, valor: 0, proposta: null });
     }
-    if (porUnidade.size === 0) continue;
+    const pendencias = Array.from(porUnidade.values()).sort((a, b) => b.valor - a.valor || b.linhas - a.linhas);
+    const conversoes = p.entrada.cadastradas.map((c) => ({ fromUnit: normalizarUnidade(c.fromUnit), toUnit: normalizarUnidade(c.toUnit), factor: c.factor }));
+    const conferencia = apoio.conferencias.get(p.productId);
+    const status: StatusDaConversao = conferencia ? "NAO_PRECISA" : conversoes.length === 0 ? "PENDENTE" : pendencias.length > 0 ? "PARCIAL" : "CADASTRADO";
+    const setor = apoio.setorDoProduto.get(p.productId);
 
-    resultado.push({
+    produtos.push({
       productId: p.productId,
       codigo: p.codigo,
       nome: p.nome,
       unidadeDeContagem: contagem,
-      saldo: saldos.has(p.productId) ? saldos.get(p.productId)! : null,
-      pendencias: Array.from(porUnidade.values()).sort((a, b) => b.valor - a.valor || b.linhas - a.linhas)
+      saldo: apoio.saldos.has(p.productId) ? apoio.saldos.get(p.productId)! : null,
+      sectorId: setor ?? null,
+      sectorName: setor ? apoio.setores.get(setor)?.nome ?? null : null,
+      status,
+      conversoes,
+      pendencias,
+      usosEmRequisicoes: apoio.usos.get(p.productId) ?? 0,
+      conferidoPorNome: conferencia?.por ?? null,
+      conferidoEm: conferencia?.em ?? null
     });
   }
-  const peso = (x: PendenciaDoProduto) => x.pendencias.reduce((s, y) => s + y.valor, 0);
-  return resultado.sort((a, b) => peso(b) - peso(a) || a.nome.localeCompare(b.nome, "pt-BR")).slice(0, LIMITE);
+
+  produtos.sort((a, b) =>
+    Number(aFazer(b)) - Number(aFazer(a))
+    || (aFazer(a) ? b.usosEmRequisicoes - a.usosEmRequisicoes || peso(b) - peso(a) : 0)
+    || a.nome.localeCompare(b.nome, "pt-BR")
+  );
+  const contar = (s: StatusDaConversao) => produtos.filter((x) => x.status === s).length;
+  return { produtos, resumo: { total: produtos.length, pendentes: contar("PENDENTE"), parciais: contar("PARCIAL"), cadastrados: contar("CADASTRADO"), naoPrecisa: contar("NAO_PRECISA") } };
 }

@@ -1544,18 +1544,44 @@ export type PendenciaDeConversao = {
   proposta: { factor: number; confianca: "alta" | "baixa"; motivo: string } | null;
 };
 
-export type ProdutoComPendenciaDeConversao = {
+export type StatusDaConversao = "PENDENTE" | "PARCIAL" | "CADASTRADO" | "NAO_PRECISA";
+
+export type ProdutoDaRotinaDeConversao = {
   productId: string;
   codigo: string | null;
   nome: string;
   unidadeDeContagem: string;
   saldo: number | null;
+  sectorId: string | null;
+  sectorName: string | null;
+  /** PENDENTE: nenhuma conversão cadastrada; PARCIAL: cadastrada, mas falta uma unidade em uso; NAO_PRECISA: conferido. */
+  status: StatusDaConversao;
+  conversoes: Array<{ fromUnit: string; toUnit: string; factor: number }>;
   pendencias: PendenciaDeConversao[];
+  /** Vezes em que saiu em requisição nos últimos 90 dias. */
+  usosEmRequisicoes: number;
+  conferidoPorNome: string | null;
+  conferidoEm: string | null;
 };
 
-/** O que o estoquista ainda precisa converter: unidades que o sistema não sabe levar para a unidade do estoque. */
-export function getConversoesPendentes() {
-  return request<{ produtos: ProdutoComPendenciaDeConversao[] }>("/inventory/requisitions/conversions", undefined, 60_000);
+export type RotinaDeConversoes = {
+  produtos: ProdutoDaRotinaDeConversao[];
+  resumo: { total: number; pendentes: number; parciais: number; cadastrados: number; naoPrecisa: number };
+  locais: Array<{ id: string; nome: string }>;
+};
+
+/** A rotina do estoquista: todo produto com a situação da conversão (pendente, parcial, cadastrada, não precisa). */
+export function getRotinaDeConversoes() {
+  return request<RotinaDeConversoes>("/inventory/requisitions/conversions", undefined, 60_000);
+}
+
+/** Marca (ou desmarca) o produto como "não precisa de conversão": sai da fila sem cadastro. */
+export function conferirConversaoDoProduto(productId: string, naoPrecisa: boolean) {
+  return request<{ productId: string; naoPrecisa: boolean }>(`/inventory/requisitions/conversions/${productId}/conferencia`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ naoPrecisa })
+  });
 }
 
 export type ResultadoDaConversaoCadastrada = {

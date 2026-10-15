@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { montarPendencias } from "../conversoes-pendentes.js";
+import { montarRotina, type ApoioDaRotina } from "../conversoes-pendentes.js";
 import type { ProdutoCarregadoParaConversao } from "../../products/conversao-automatica.service.js";
 
 const produto = (id: string, nome: string, contagem: string, extra: Partial<ProdutoCarregadoParaConversao["entrada"]> = {}): ProdutoCarregadoParaConversao => ({
@@ -7,53 +7,64 @@ const produto = (id: string, nome: string, contagem: string, extra: Partial<Prod
   entrada: { nome, unidadeDeContagem: contagem, cadastradas: [], unidadesDaNota: [], precoNaContagem: null, ...extra }
 });
 
-const todos = (...ids: string[]) => new Set(ids);
+const apoio = (ids: string[], extra: Partial<ApoioDaRotina> = {}): ApoioDaRotina => ({
+  saldos: new Map(), controlaEstoque: new Set(ids), setores: new Map(), setorDoProduto: new Map(), usos: new Map(), conferencias: new Map(), ...extra
+});
 
-describe("montarPendencias", () => {
-  test("unidade em que se comprou e que não converte vira pendência, com o valor e as linhas", () => {
-    const p = produto("a", "QUEIJO", "KG", { unidadesDaNota: [{ unidade: "PC", linhas: 12, valor: 3000, precoPorUnidade: 250 }] });
-    const r = montarPendencias([p], new Map([["a", 2.5]]), todos("a"));
-    expect(r).toHaveLength(1);
-    expect(r[0]).toMatchObject({ productId: "a", unidadeDeContagem: "KG", saldo: 2.5 });
-    expect(r[0].pendencias[0]).toMatchObject({ origem: "COMPRA", linhas: 12, valor: 3000 });
+const statusDe = (r: ReturnType<typeof montarRotina>, id: string) => r.produtos.find((p) => p.productId === id)?.status;
+
+describe("montarRotina: situação da conversão de cada produto", () => {
+  test("sem nenhuma conversão cadastrada o produto está PENDENTE, mesmo sem compra nem uso", () => {
+    const r = montarRotina([produto("a", "ALFACE", "UN")], apoio(["a"]));
+    expect(statusDe(r, "a")).toBe("PENDENTE");
+    expect(r.resumo).toEqual({ total: 1, pendentes: 1, parciais: 0, cadastrados: 0, naoPrecisa: 0 });
   });
 
-  test("o que já converte (cadastrado, mesma unidade, KG↔G) não é pendência", () => {
-    const p = produto("a", "FARINHA", "KG", {
-      cadastradas: [{ fromUnit: "SC", toUnit: "KG", factor: 25 }],
-      unidadesDaNota: [{ unidade: "SC", linhas: 3, valor: 300, precoPorUnidade: 100 }, { unidade: "G", linhas: 2, valor: 10, precoPorUnidade: 0.01 }, { unidade: "KG", linhas: 9, valor: 90, precoPorUnidade: 10 }]
-    });
-    expect(montarPendencias([p], new Map(), todos("a"))).toEqual([]);
+  test("com conversão cadastrada e nada mais em uso, está CADASTRADO", () => {
+    const p = produto("a", "FARINHA", "KG", { cadastradas: [{ fromUnit: "SC", toUnit: "KG", factor: 25 }], unidadesDaNota: [{ unidade: "SC", linhas: 3, valor: 300, precoPorUnidade: 100 }] });
+    expect(statusDe(montarRotina([p], apoio(["a"])), "a")).toBe("CADASTRADO");
   });
 
-  test("a unidade de compra do cadastro sem nenhuma compra aparece como 'cadastro'", () => {
-    const p = produto("a", "AZEITE", "L", { unidadesDaNota: [{ unidade: "LATA", linhas: 0, valor: 0, precoPorUnidade: null }] });
-    expect(montarPendencias([p], new Map(), todos("a"))[0].pendencias[0]).toMatchObject({ unidade: "LATA", origem: "CADASTRO" });
+  test("conversão cadastrada, mas ainda se compra em outra unidade que não converte: PARCIAL", () => {
+    const p = produto("a", "QUEIJO", "KG", { cadastradas: [{ fromUnit: "SC", toUnit: "KG", factor: 25 }], unidadesDaNota: [{ unidade: "PC", linhas: 6, valor: 900, precoPorUnidade: 150 }] });
+    const r = montarRotina([p], apoio(["a"]));
+    expect(statusDe(r, "a")).toBe("PARCIAL");
+    expect(r.produtos[0].pendencias[0]).toMatchObject({ unidade: "PC", origem: "COMPRA", linhas: 6 });
   });
 
-  test("BACON PEÇA contado em KG pede a conversão da peça (UN), mesmo sem compra", () => {
-    const r = montarPendencias([produto("b", "BACON PEÇA", "KG")], new Map([["b", 0.1]]), todos("b"));
-    expect(r[0].pendencias).toEqual([{ unidade: "UN", origem: "NOME_PECA", linhas: 0, valor: 0, proposta: null }]);
+  test("conferido como 'não precisa' sai da fila, com quem conferiu e quando", () => {
+    const r = montarRotina([produto("a", "SAL", "KG")], apoio(["a"], { conferencias: new Map([["a", { por: "Eli", em: "2026-10-15T10:00:00.000Z" }]]) }));
+    expect(r.produtos[0]).toMatchObject({ status: "NAO_PRECISA", conferidoPorNome: "Eli", conferidoEm: "2026-10-15T10:00:00.000Z" });
+    expect(r.resumo.naoPrecisa).toBe(1);
+  });
+
+  test("BACON PEÇA em KG pede a conversão da peça (UN) como pendência", () => {
+    const r = montarRotina([produto("b", "BACON PEÇA", "KG")], apoio(["b"], { saldos: new Map([["b", 0.1]]) }));
+    expect(r.produtos[0].pendencias).toEqual([{ unidade: "UN", origem: "NOME_PECA", linhas: 0, valor: 0, proposta: null }]);
+    expect(r.produtos[0].saldo).toBe(0.1);
   });
 
   test("traz a proposta do nome quando existe (FARINHA 5KG comprada em UN)", () => {
     const p = produto("c", "FARINHA TRIGO 5KG", "KG", { unidadesDaNota: [{ unidade: "UN", linhas: 4, valor: 200, precoPorUnidade: 50 }], precoNaContagem: 10 });
-    const proposta = montarPendencias([p], new Map(), todos("c"))[0].pendencias[0].proposta;
-    expect(proposta).toMatchObject({ factor: 5 });
+    expect(montarRotina([p], apoio(["c"])).produtos[0].pendencias[0].proposta).toMatchObject({ factor: 5 });
   });
 
-  test("produto que não controla estoque fica de fora; sem saldo registrado o saldo é nulo", () => {
-    const a = produto("a", "BACON PEÇA", "KG");
-    const b = produto("b", "PRESUNTO PEÇA", "KG");
-    const r = montarPendencias([a, b], new Map(), todos("b"));
-    expect(r.map((x) => x.productId)).toEqual(["b"]);
-    expect(r[0].saldo).toBeNull();
+  test("produto que não controla estoque fica de fora", () => {
+    const r = montarRotina([produto("a", "BACON PEÇA", "KG"), produto("b", "PRESUNTO PEÇA", "KG")], apoio(["b"]));
+    expect(r.produtos.map((x) => x.productId)).toEqual(["b"]);
   });
 
-  test("ordena pelo valor em compras sem conversão e depois pelo nome", () => {
-    const grande = produto("g", "ZEBU", "KG", { unidadesDaNota: [{ unidade: "PC", linhas: 5, valor: 9000, precoPorUnidade: 1 }] });
-    const pequeno = produto("p", "ALHO", "KG", { unidadesDaNota: [{ unidade: "PC", linhas: 1, valor: 10, precoPorUnidade: 1 }] });
-    const peca = produto("x", "BACON PEÇA", "KG");
-    expect(montarPendencias([peca, pequeno, grande], new Map(), todos("g", "p", "x")).map((x) => x.productId)).toEqual(["g", "p", "x"]);
+  test("o local do produto vai junto, para o estoquista trabalhar uma prateleira por vez", () => {
+    const r = montarRotina([produto("a", "ALFACE", "UN")], apoio(["a"], { setores: new Map([["s1", { id: "s1", nome: "CAMARA FRIA" }]]), setorDoProduto: new Map([["a", "s1"]]) }));
+    expect(r.produtos[0]).toMatchObject({ sectorId: "s1", sectorName: "CAMARA FRIA" });
+  });
+
+  test("a fila vem do que a cozinha mais pede para o que menos pede; depois o valor em compras; os resolvidos por último", () => {
+    const muito = produto("m", "ZEBU", "KG");
+    const compras = produto("c", "ALHO", "KG", { unidadesDaNota: [{ unidade: "PC", linhas: 5, valor: 9000, precoPorUnidade: 1 }] });
+    const pouco = produto("p", "BANANA", "KG");
+    const pronto = produto("r", "AAA PRONTO", "KG", { cadastradas: [{ fromUnit: "UN", toUnit: "KG", factor: 1 }] });
+    const r = montarRotina([pronto, pouco, compras, muito], apoio(["m", "c", "p", "r"], { usos: new Map([["m", 12], ["p", 1]]) }));
+    expect(r.produtos.map((x) => x.productId)).toEqual(["m", "p", "c", "r"]);
   });
 });

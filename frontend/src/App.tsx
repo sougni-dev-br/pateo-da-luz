@@ -7,6 +7,7 @@ import {
   ChefHat,
   Tags,
   ClipboardCheck,
+  Scale,
   ClipboardList,
   Coins,
   CreditCard,
@@ -106,6 +107,7 @@ const Rescisoes = lazy(() => import("./pages/rh/Rescisoes").then((module) => ({ 
 const Extras = lazy(() => import("./pages/Extras").then((module) => ({ default: module.Extras })));
 const FichasCadastrais = lazy(() => import("./pages/rh/fichas/FichasCadastrais").then((module) => ({ default: module.FichasCadastrais })));
 const Requisitions = lazy(() => import("./pages/Requisitions").then((module) => ({ default: module.Requisitions })));
+const ConversoesDeUnidade = lazy(() => import("./pages/ConversoesDeUnidade").then((module) => ({ default: module.ConversoesDeUnidade })));
 const Users = lazy(() => import("./pages/Users").then((module) => ({ default: module.Users })));
 const FichasTecnicas = lazy(() => import("./pages/cardapio/fichas/FichasTecnicas").then((module) => ({ default: module.FichasTecnicas })));
 const PainelEventos = lazy(() => import("./pages/operacao/eventos/PainelEventos").then((module) => ({ default: module.PainelEventos })));
@@ -184,6 +186,9 @@ const sections = [
   { id: "purchase-planning", label: "Planejamento de compra", icon: ShoppingCart, showInSidebar: false, group: "Operação", path: "/estoque/planejamento-compra", matchers: ["/estoque/planejamento-compra"], permissionId: "purchase-orders", hidePageHeader: true },
   { id: "inventory-reports", label: "Relatórios", icon: BarChart3, showInSidebar: true, group: "Estoque", path: "/estoque/relatorios", matchers: ["/estoque/relatorios"] },
   { id: "requisitions", label: "Requisições", icon: ClipboardCheck, showInSidebar: true, group: "Estoque", path: "/estoque/requisicoes", matchers: ["/estoque/requisicoes"] },
+  // Rotina do estoquista: produtos sem conversão de unidade cadastrada. A permissão é a de Requisições: quem requisita
+  // e quem acerta a unidade são as mesmas pessoas, e o servidor mapeia /inventory/requisitions/conversions para ela.
+  { id: "inventory-conversions", label: "Conversões", icon: Scale, showInSidebar: true, group: "Estoque", path: "/estoque/conversoes", matchers: ["/estoque/conversoes"], permissionId: "requisitions", description: "Produtos que ainda não têm a conversão de unidade cadastrada: quanto pesa 1 peça, quantas unidades tem 1 caixa" },
   { id: "dishes", label: "Fichas Técnicas", icon: ChefHat, showInSidebar: true, group: "Cardápio", path: "/cardapio/fichas-tecnicas", matchers: ["/cardapio/fichas-tecnicas"] },
   { id: "buffet-plates", label: "Plaquinhas do buffet", icon: Tags, showInSidebar: true, group: "Cardápio", path: "/cardapio/plaquinhas", matchers: ["/cardapio/plaquinhas"], description: "Monte a lista do buffet ou do coffee break e imprima as plaquinhas em português e inglês" },
   { id: "dre", label: "DRE Gerencial", icon: BarChart3, showInSidebar: true, group: "Financeiro", path: "/financeiro/dre", matchers: ["/financeiro/dre"] },
@@ -764,6 +769,7 @@ export function App() {
               <Route path="/estoque/planejamento-compra" element={<PurchasePlanning />} />
               <Route path="/inventory/counts/:agendaId" element={<Navigate to="/estoque/contagens" replace />} />
               <Route path="/estoque/requisicoes" element={<Requisitions user={user} />} />
+              <Route path="/estoque/conversoes" element={<ConversoesDeUnidade />} />
               <Route path="/estoque/desperdicio" element={<Desperdicio />} />
               <Route path="/cardapio/fichas-tecnicas" element={<FichasTecnicas />} />
               <Route path="/cardapio/plaquinhas" element={<Plaquinhas />} />

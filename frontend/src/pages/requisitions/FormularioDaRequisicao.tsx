@@ -36,8 +36,6 @@ type Props = {
   modelo: ModeloInicial | null;
   onCriada: (criada: InventoryRequisition) => void;
   onAviso: (tom: "success" | "warning" | "error", mensagem: string) => void;
-  /** Muda quando uma conversão é cadastrada: a lista de produtos busca as unidades novas. */
-  catalogoVersao?: number;
   /** "+ unidade" na linha: abre as conversões com este produto. */
   onPedirUnidade?: (item: RequisitionCatalogItem) => void;
 };
@@ -56,9 +54,9 @@ function QuadroVazio({ visao, filtrando, onLimpar }: { visao: Visao; filtrando: 
   );
 }
 
-export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAviso, catalogoVersao = 0, onPedirUnidade }: Props) {
+export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAviso, onPedirUnidade }: Props) {
   const guardado = useMemo(() => (modelo ? null : lerRascunho(user.id)), [modelo, user.id]);
-  const catalogo = useCatalogo(user.id, catalogoVersao);
+  const catalogo = useCatalogo(user.id);
   const { imprimir, portal } = useImpressaoDaRequisicao();
   const [salvo, setSalvo] = useState(false);
   const [cabecalho, setCabecalho] = useState<DadosDoCabecalho>(modelo?.cabecalho ?? guardado?.cabecalho ?? cabecalhoVazio());

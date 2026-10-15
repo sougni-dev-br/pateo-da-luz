@@ -1,4 +1,4 @@
-﻿import { CheckCircle2, ClipboardList, Copy, Eye, Plus, Printer, Scale, ShoppingCart, X } from "lucide-react";
+﻿import { CheckCircle2, ClipboardList, Copy, Eye, Plus, Printer, ShoppingCart, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -18,7 +18,6 @@ import type { Escolhas } from "./requisitions/catalogo";
 import { lerRascunho } from "./requisitions/rascunho";
 import { dadosDaRequisicaoRegistrada, useImpressaoDaRequisicao } from "./requisitions/ImpressaoDaRequisicao";
 import { RevisaoDoPedido } from "./requisitions/RevisaoDoPedido";
-import { PendenciasDeConversao } from "./requisitions/PendenciasDeConversao";
 import { FormularioDaRequisicao, MOTIVOS, TURNOS, cabecalhoVazio, type ModeloInicial } from "./requisitions/FormularioDaRequisicao";
 
 const shiftLabels = TURNOS;
@@ -34,9 +33,7 @@ const shiftTone = (shift: string) =>
   shift === "MORNING" ? "info" : shift === "AFTERNOON" ? "warning" : "neutral";
 
 export function Requisitions({ user }: { user: AppUser }) {
-  const [view, setView] = useState<"form" | "list" | "pedido" | "conversoes">("form");
-  const [catalogoVersao, setCatalogoVersao] = useState(0);
-  const [produtoParaConverter, setProdutoParaConverter] = useState<{ id: string; nome: string; unidade: string | null } | null>(null);
+  const [view, setView] = useState<"form" | "list" | "pedido">("form");
   const [pedidoDe, setPedidoDe] = useState<string | null>(null);
   const [sectors, setSectors] = useState<InventorySector[]>([]);
   const [modelo, setModelo] = useState<ModeloInicial | null>(null);
@@ -126,10 +123,6 @@ export function Requisitions({ user }: { user: AppUser }) {
           <Plus size={14} style={{ verticalAlign: "middle", marginRight: 4 }} />
           Nova requisição
         </button>
-        <button type="button" className={view === "conversoes" ? "active" : ""} onClick={() => setView("conversoes")}>
-          <Scale size={14} style={{ verticalAlign: "middle", marginRight: 4 }} />
-          Conversões
-        </button>
         <button
           type="button"
           className={view === "list" ? "active" : ""}
@@ -150,18 +143,9 @@ export function Requisitions({ user }: { user: AppUser }) {
             modelo={modelo}
             onCriada={aoCriar}
             onAviso={(tone, message) => setNotice({ tone, message })}
-            catalogoVersao={catalogoVersao}
-            onPedirUnidade={(item) => { setProdutoParaConverter({ id: item.id, nome: item.name, unidade: item.unit }); setView("conversoes"); }}
+            onPedirUnidade={(item) => navigate(`/estoque/conversoes?produto=${encodeURIComponent(item.id)}`)}
           />
         </div>
-      )}
-
-      {view === "conversoes" && (
-        <PendenciasDeConversao
-          key={produtoParaConverter?.id ?? "todas"}
-          produtoInicial={produtoParaConverter}
-          onCadastrada={() => setCatalogoVersao((v) => v + 1)}
-        />
       )}
 
       {view === "pedido" && pedidoDe && (
