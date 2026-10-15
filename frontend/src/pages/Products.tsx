@@ -248,6 +248,10 @@ export function Products() {
   const flashTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   const [form, setForm] = useState(emptyProduct);
+  // O que o formulario carregou. Vai junto ao salvar para o backend apagar so o
+  // que o operador tirou: conversao criada pela ficha tecnica ou pela revisao de
+  // embalagens depois da abertura do formulario nao esta aqui e e preservada.
+  const [conversoesCarregadas, setConversoesCarregadas] = useState<Array<{ fromUnit: string; toUnit: string }>>([]);
   const [history, setHistory] = useState<ProductHistory | null>(null);
   const [conversionForm, setConversionForm] = useState(emptyConversion);
   const [activeFormTab, setActiveFormTab] = useState<ProductFormTab>("identification");
@@ -478,6 +482,7 @@ export function Products() {
       externalCode: nextCode.code
     };
     setForm(fresh);
+    setConversoesCarregadas([]);
     setConversionForm(emptyConversion);
     setAlias("");
     setActiveFormTab("identification");
@@ -506,6 +511,7 @@ export function Products() {
     try {
       const saved = await saveProduct({
         ...form,
+        unitConversionsCarregadas: form.id ? conversoesCarregadas : [],
         categoryName: category?.name,
         subcategoryName: subcategory?.name
       });
@@ -1410,6 +1416,7 @@ export function Products() {
                         setActiveFormTab("identification");
                         setFormOpenKey((n) => n + 1);
                         setForm(hydrated);
+                        setConversoesCarregadas(hydrated.unitConversions.map(({ fromUnit, toUnit }) => ({ fromUnit, toUnit })));
                         setAlias("");
                         setSnapshot(normalizeForm(hydrated));
                         setAliasSnapshot("");

@@ -2527,6 +2527,8 @@ export function saveProduct(
     name: string;
     categoryName?: string;
     subcategoryName?: string;
+    /** Conversoes que o formulario carregou: so estas podem ser apagadas ao salvar. */
+    unitConversionsCarregadas?: Array<{ fromUnit: string; toUnit: string }>;
   }
 ) {
   const path = payload.id ? `/products/${payload.id}` : "/products";
