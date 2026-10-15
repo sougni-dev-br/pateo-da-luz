@@ -6,7 +6,8 @@ import { auditLog, getSessionUser, requestIp } from "../security/security-utils.
 import { userHasPermission } from "../security/menu-permissions.js";
 import { todayInSaoPaulo } from "../buffet-plates/buffet-prints.routes.js";
 import { escolherCusto, type CandidatosDoCusto } from "../inventory/custo-inventario.js";
-import { conversoesDoProduto, embalagemDoNome, normalizarUnidade, type ConversaoDoProduto, type UnitConversion } from "../../shared/unidades/conversao.js";
+import { normalizarUnidade, type UnitConversion } from "../../shared/unidades/conversao.js";
+import { SELECT_DE_UNIDADES, conversoesDoInsumo, textoDaEmbalagem, unidadeDoInsumo } from "../../shared/unidades/insumo.js";
 import {
   SETOR_PRATO_PRONTO,
   WASTE_REASONS,
@@ -148,40 +149,6 @@ function serializar(entrada: EntradaDaLista, setores: Map<string, string>, comCu
   };
 }
 
-
-/** O que a conversão precisa de um insumo: nome (a embalagem pode estar nele), unidade e as conversões cadastradas. */
-const SELECT_DE_UNIDADES = {
-  name: true,
-  unit: true,
-  unitMeasure: { select: { code: true } },
-  conversions: { where: { isActive: true }, select: { fromUnit: true, toUnit: true, factor: true } },
-} as const;
-
-type ProdutoComUnidades = {
-  name: string;
-  unit: string | null;
-  unitMeasure: { code: string } | null;
-  conversions: Array<{ fromUnit: string; toUnit: string; factor: Prisma.Decimal | number }>;
-};
-
-/** A unidade em que o desperdício é guardado, contado na conferência e valorado: a mesma nos três. */
-const unidadeDoInsumo = (p: Pick<ProdutoComUnidades, "unit" | "unitMeasure">) => p.unitMeasure?.code ?? p.unit;
-
-/**
- * As conversões que valem na ficha técnica (cadastradas no produto + o peso lido do nome, "ARROZ 5KG"),
- * para o desperdício aceitar g, ml, kg e l e converter para a unidade do estoque.
- */
-function conversoesDoInsumo(p: ProdutoComUnidades): ConversaoDoProduto[] {
-  const cadastradas = p.conversions.map((c) => ({ fromUnit: c.fromUnit, toUnit: c.toUnit, factor: Number(c.factor) }));
-  return conversoesDoProduto(p.name, unidadeDoInsumo(p), cadastradas);
-}
-
-function textoDaEmbalagem(p: ProdutoComUnidades, conversoes: ConversaoDoProduto[]): string | null {
-  if (!conversoes.some((c) => c.inferida)) return null;
-  const embalagem = embalagemDoNome(p.name);
-  const base = normalizarUnidade(unidadeDoInsumo(p));
-  return embalagem ? `1 ${base} = ${embalagem.quantidade.toLocaleString("pt-BR")} ${embalagem.unidade} (lido do nome do produto)` : null;
-}
 
 type ItemDoLancamento = { unit: string | null; sectorId: string | null; unitCost: number | null; costSource: string | null; conversions: UnitConversion[] };
 
