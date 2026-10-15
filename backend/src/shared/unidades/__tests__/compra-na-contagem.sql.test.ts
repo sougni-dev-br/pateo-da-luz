@@ -24,3 +24,19 @@ describe("sqlCompraNaUnidadeDeContagem", () => {
     expect(() => sqlCompraNaUnidadeDeContagem(`pi"; DROP TABLE x; --`)).toThrow();
   });
 });
+
+// O frontend precisa de uma copia (previa da ficha e da nota enquanto se digita).
+// Correcao que chega so num lado faz a tela dizer "sem conversao" para o que o
+// backend converte — foi o que aconteceu com GR, LT e KG<->G na nota de compra.
+describe("paridade dos sinonimos com o frontend", () => {
+  it("lib/fichaTecnica.ts tem todos os sinonimos do backend", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const { fileURLToPath } = await import("node:url");
+    const caminho = fileURLToPath(new URL("../../../../../frontend/src/lib/fichaTecnica.ts", import.meta.url));
+    const texto = await readFile(caminho, "utf8").catch(() => null);
+    if (texto == null) return; // backend publicado sem o frontend ao lado
+    for (const [de, para] of Object.entries(SINONIMOS_DE_UNIDADE)) {
+      expect(texto, `${de} -> ${para}`).toMatch(new RegExp(`\\b${de}: "${para}"`));
+    }
+  });
+});

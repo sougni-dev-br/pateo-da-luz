@@ -221,6 +221,11 @@ function LinhaDaPosicao({ item }: { item: ItemDaPosicao }) {
         {item.comprasDesde > 0
           ? <><strong>+ {qtd(item.comprasDesde, u)}</strong><small>comprado depois</small></>
           : <small>sem compra depois</small>}
+        {(item.comprasForaDaConta ?? 0) > 0 && (
+              <small className="cell-pendente" title="Compra lançada em outra unidade (caixa, pacote...) sem conversão cadastrada para a unidade de contagem. Cadastre a embalagem no produto ou na revisão de embalagens.">
+                {item.comprasForaDaConta} {item.comprasForaDaConta === 1 ? "compra sem conversão ficou" : "compras sem conversão ficaram"} fora
+              </small>
+            )}
       </span>
     </li>
   );

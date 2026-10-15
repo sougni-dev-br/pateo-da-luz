@@ -630,7 +630,15 @@ function LinhaDaConferencia({ inventoryId, item, todos, rotuloImpacto, onLocaliz
               <dd>{qtd(item.anterior, u)}</dd>
             </div>
             <span className="conf-conta__sinal" aria-hidden="true">+</span>
-            <div><dt>Compras</dt><dd>{qtd(item.compras, u)}</dd></div>
+            <div>
+              <dt>Compras</dt>
+              <dd>{qtd(item.compras, u)}</dd>
+              {(item.comprasForaDaConta ?? 0) > 0 && (
+              <small className="cell-pendente" title="Compra lançada em outra unidade (caixa, pacote...) sem conversão cadastrada para a unidade de contagem. Cadastre a embalagem no produto ou na revisão de embalagens.">
+                {item.comprasForaDaConta} {item.comprasForaDaConta === 1 ? "compra sem conversão ficou" : "compras sem conversão ficaram"} fora
+              </small>
+            )}
+            </div>
             <span className="conf-conta__sinal" aria-hidden="true">=</span>
             <div><dt>Disponível</dt><dd>{qtd(item.disponivel, u)}</dd></div>
             <span className="conf-conta__sinal" aria-hidden="true">→</span>

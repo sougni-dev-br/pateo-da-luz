@@ -1812,6 +1812,8 @@ export type ItemDaConferencia = {
   anteriorData: string | null;
   anteriorCodigo: string | null;
   compras: number;
+  /** Compras do intervalo sem conversao para a unidade de contagem: ficaram fora da soma. */
+  comprasForaDaConta?: number;
   /** Desperdicio registrado no periodo (0 = nenhum). Explica consumo; nao muda a conta do CMV. */
   desperdicio: number;
   disponivel: number | null;
@@ -3121,6 +3123,8 @@ export type ReferenciaDaContagem = {
   anteriorData: string | null;
   anteriorCodigo: string | null;
   compras: number;
+  /** Compras do intervalo sem conversao para a unidade de contagem: ficaram fora da soma. */
+  comprasForaDaConta?: number;
   custoUnitario: number | null;
 };
 
@@ -3303,6 +3307,8 @@ export type ItemDaPosicao = {
   valor: number | null;
   comprasDesde: number;
   valorComprasDesde: number;
+  /** Compras do intervalo sem conversao para a unidade de contagem: ficaram fora da soma. */
+  comprasForaDaConta?: number;
 };
 
 export function getPosicaoDoEstoque() {
