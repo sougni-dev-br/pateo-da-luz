@@ -2290,6 +2290,48 @@ export function aplicarEmbalagens(itens: Array<{ itemId: string; avulso?: true; 
   });
 }
 
+export type PropostaDeConversao = {
+  fromUnit: string;
+  toUnit: string;
+  factor: number;
+  /** "alta": o sistema aplica sozinho. "baixa": precisa de conferencia. */
+  confianca: "alta" | "baixa";
+  origem: string;
+  motivo: string;
+  precoConfirma: boolean | null;
+  linhas: number;
+  valor: number;
+};
+
+export type ProdutoComPropostasDeConversao = {
+  productId: string;
+  codigo: string | null;
+  nome: string;
+  unidadeDeContagem: string;
+  propostas: PropostaDeConversao[];
+};
+
+export type ResultadoDasConversoesAutomaticas = {
+  conversoesCriadas: number;
+  comprasConvertidas: number;
+  comprasEmPeriodoFechado: number;
+  produtos: Array<{ productId: string; nome: string; fromUnit: string; toUnit: string; factor: number; comprasConvertidas: number; comprasEmPeriodoFechado: number }>;
+};
+
+/** Conversoes que o nome do produto e as compras ja dizem, ainda nao cadastradas. */
+export function getConversoesAutomaticas() {
+  return request<{ produtos: ProdutoComPropostasDeConversao[] }>("/products/conversoes-automaticas");
+}
+
+/** Cadastra as conversoes escolhidas (ou todas as de alta confianca) e refaz as compras sem conversao. */
+export function aplicarConversoesAutomaticas(payload: { escolhas?: Array<{ productId: string; fromUnit: string }>; todasDeAltaConfianca?: boolean }) {
+  return request<ResultadoDasConversoesAutomaticas>("/products/conversoes-automaticas/aplicar", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
 export function updatePurchase(id: string, payload: ManualPurchasePayload & { supplierChangeReason?: string | null }) {
   return request<PurchaseDetail>(`/purchases/${id}`, {
     method: "PUT",

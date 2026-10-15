@@ -1,4 +1,4 @@
-﻿import { History, Pencil, PowerOff, RefreshCw, Search, X } from "lucide-react";
+﻿import { History, Pencil, PowerOff, RefreshCw, Search, Wand2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   addProductAlias,
@@ -29,6 +29,7 @@ import { useSession } from "../context/SessionContext";
 import { hasPermission } from "../lib/permissions";
 import { useRevealScroll } from "../lib/useRevealScroll";
 import { SimpleBarChart } from "../components/SimpleBarChart";
+import { ConversoesAutomaticas } from "./compras/ConversoesAutomaticas";
 import {
   EmptyState,
   IconButton,
@@ -218,6 +219,9 @@ type ProductFormTab = (typeof productFormTabs)[number]["id"];
 export function Products() {
   const { user } = useSession();
   const canEdit = hasPermission(user, "products", "edit");
+  // A aplicacao em lote mexe nas compras: so quem tem cargo de gestao (o backend confere).
+  const podeConverterEmLote = canEdit && ["ADMIN", "GESTAO_COMPLETA"].includes(String(user?.role ?? ""));
+  const [mostrarConversoes, setMostrarConversoes] = useState(false);
   const canDelete = hasPermission(user, "products", "delete");
   const canCreateMasterData = hasPermission(user, "master-data", "create");
   const [products, setProducts] = useState<Product[]>([]);
@@ -679,7 +683,13 @@ export function Products() {
             <p>Cadastro operacional</p>
             <h2>Indicadores de produtos</h2>
           </div>
+          {podeConverterEmLote && (
+            <button type="button" className="secondary-button" aria-pressed={mostrarConversoes} onClick={() => setMostrarConversoes((v) => !v)}>
+              <Wand2 size={16} /> Conversões automáticas
+            </button>
+          )}
         </div>
+        {mostrarConversoes && <ConversoesAutomaticas onFechar={() => setMostrarConversoes(false)} onAplicado={() => void loadProducts()} />}
         <div className="summary-grid dashboard-summary">
           <SummaryCard label="Produtos cadastrados" value={totalProdutos} />
           <SummaryCard label="Ativos" value={totalAtivos} tone="success" />
