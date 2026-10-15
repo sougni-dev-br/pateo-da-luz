@@ -10,6 +10,7 @@ import { auditLog, requestIp, requireMenuPermission, type SessionUser } from "..
 import { userHasPermission } from "../security/menu-permissions.js";
 import { parseDecimalInput } from "../../shared/utils/parse-decimal.js";
 import { converterItemDeCompra } from "../../shared/unidades/conversao.js";
+import { sqlCompraNaUnidadeDeContagem } from "../../shared/unidades/compra-na-contagem.sql.js";
 import { cancelamentoDeveCancelarBase, podeReaproveitarBase, reaberturaDeveSoltarBase } from "./base-oficial.js";
 import { mensagemDeTipoMigrado } from "./tipos-de-movimento.js";
 import { classificarItemDaConferencia, ordenarConferencia, resumirConferencia } from "./conferencia.js";
@@ -2728,6 +2729,7 @@ async function referenciaDaContagem(sessionId: string, custoPermitido: boolean) 
     custoCompras: Prisma.Decimal | null;
     custoBase: Prisma.Decimal | null;
     custoUltimaCompra: Prisma.Decimal | null;
+    comprasForaDaConta: bigint | number | null;
   }>>`
     -- Contagem de agosto feita em 01/09 fecha agosto: o dia que vale e o fim
     -- do mes do ciclo, como o effectiveCountDate da consolidacao. Contagem no
@@ -2767,10 +2769,15 @@ async function referenciaDaContagem(sessionId: string, custoPermitido: boolean) 
     ),
     -- Itens da nota, nao movimentacoes: editar a nota deixa a entrada orfa.
     compras AS (
-      SELECT pi."productId", SUM(COALESCE(pi."convertedQuantity", pi."quantity")) AS quantidade,
-             SUM(pi."totalPrice") / NULLIF(SUM(COALESCE(pi."convertedQuantity", pi."quantity")), 0) AS custo
+      SELECT pi."productId",
+             SUM(COALESCE(pi."convertedQuantity", pi."quantity")) FILTER (WHERE na.contagem) AS quantidade,
+             SUM(pi."totalPrice") FILTER (WHERE na.contagem)
+               / NULLIF(SUM(COALESCE(pi."convertedQuantity", pi."quantity")) FILTER (WHERE na.contagem), 0) AS custo,
+             COUNT(*) FILTER (WHERE NOT na.contagem) AS "foraDaConta"
       FROM "PurchaseItem" pi
       JOIN "Purchase" p ON p."id" = pi."purchaseId"
+      JOIN "Product" pr ON pr."id" = pi."productId"
+      CROSS JOIN LATERAL (SELECT ${sqlCompraNaUnidadeDeContagem()} AS contagem) na
       JOIN anterior a ON a."productId" = pi."productId"
       CROSS JOIN atual
       WHERE p."status" = 'ACTIVE'
@@ -2781,7 +2788,7 @@ async function referenciaDaContagem(sessionId: string, custoPermitido: boolean) 
     )
     SELECT alvo."id" AS "itemId",
            anterior."countedQuantity" AS anterior, anterior.dia AS "anteriorData", anterior."code" AS "anteriorCodigo",
-           compras.quantidade AS compras, compras.custo AS "custoCompras",
+           compras.quantidade AS compras, compras.custo AS "custoCompras", compras."foraDaConta" AS "comprasForaDaConta",
            base."unitCost" AS "custoBase", ultima.custo AS "custoUltimaCompra"
     FROM alvo
     LEFT JOIN anterior ON anterior."productId" = alvo."productId"
@@ -2797,11 +2804,13 @@ async function referenciaDaContagem(sessionId: string, custoPermitido: boolean) 
       SELECT pi."totalPrice" / NULLIF(COALESCE(pi."convertedQuantity", pi."quantity"), 0) AS custo
       FROM "PurchaseItem" pi
       JOIN "Purchase" p ON p."id" = pi."purchaseId"
+      JOIN "Product" pr ON pr."id" = pi."productId"
       CROSS JOIN atual
       WHERE pi."productId" = alvo."productId"
         AND p."status" = 'ACTIVE'
         AND p."workflowStatus" = 'confirmed'
         AND pi."totalPrice" > 0
+        AND ${sqlCompraNaUnidadeDeContagem()}
         AND COALESCE(p."receivedAt", p."purchaseDate")::date <= atual.dia
       ORDER BY COALESCE(p."receivedAt", p."purchaseDate") DESC, pi."id"
       LIMIT 1
@@ -2815,6 +2824,9 @@ async function referenciaDaContagem(sessionId: string, custoPermitido: boolean) 
     anteriorData: row.anteriorData,
     anteriorCodigo: row.anteriorCodigo,
     compras: numero(row.compras) ?? 0,
+    // Compras do intervalo sem conversao para a unidade de contagem: ficaram
+    // fora da soma em vez de entrar com a quantidade da nota.
+    comprasForaDaConta: Number(row.comprasForaDaConta ?? 0),
     custoUnitario: custoPermitido ? numero(row.custoCompras) ?? numero(row.custoBase) ?? numero(row.custoUltimaCompra) : null
   }));
 }
@@ -3799,8 +3811,10 @@ export async function buildBuyerSupportReport(query: Record<string, unknown>) {
       SELECT item."productId", SUM(COALESCE(item."convertedQuantity", item."quantity", 0)) AS "purchaseQuantity"
       FROM "PurchaseItem" item
       JOIN "Purchase" purchase ON purchase."id" = item."purchaseId"
+      JOIN "Product" item_product ON item_product."id" = item."productId"
       JOIN latest_period period ON purchase."purchaseDate" >= period."dataInicial" AND purchase."purchaseDate" <= period."dataFinal"
       WHERE purchase."status" <> 'CANCELLED'
+        AND ${sqlCompraNaUnidadeDeContagem("item", "item_product")}
       GROUP BY item."productId"
     ),
     initial_quantities AS (
@@ -4349,6 +4363,7 @@ inventoryRouter.get("/posicao", async (request, response) => {
     custoUnitario: Prisma.Decimal | null;
     comprasDesde: Prisma.Decimal | null;
     valorComprasDesde: Prisma.Decimal | null;
+    comprasForaDaConta: bigint | number | null;
   }>>`
     WITH ultima AS (
       SELECT DISTINCT ON (i."productId")
@@ -4373,9 +4388,15 @@ inventoryRouter.get("/posicao", async (request, response) => {
     -- Itens da nota, como na conferencia: a movimentacao perde o vinculo
     -- quando a nota e editada.
     compras AS (
-      SELECT pi."productId", SUM(COALESCE(pi."convertedQuantity", pi."quantity")) AS quantidade, SUM(pi."totalPrice") AS valor
+      -- Quantidade so das linhas na unidade de contagem; o valor e o que se pagou, todas.
+      SELECT pi."productId",
+             SUM(COALESCE(pi."convertedQuantity", pi."quantity")) FILTER (WHERE na.contagem) AS quantidade,
+             SUM(pi."totalPrice") AS valor,
+             COUNT(*) FILTER (WHERE NOT na.contagem) AS "foraDaConta"
       FROM "PurchaseItem" pi
       JOIN "Purchase" p ON p."id" = pi."purchaseId"
+      JOIN "Product" pr ON pr."id" = pi."productId"
+      CROSS JOIN LATERAL (SELECT ${sqlCompraNaUnidadeDeContagem()} AS contagem) na
       JOIN ultima u ON u."productId" = pi."productId"
       WHERE p."status" = 'ACTIVE'
         AND p."workflowStatus" = 'confirmed'
@@ -4387,7 +4408,7 @@ inventoryRouter.get("/posicao", async (request, response) => {
            sec."name" AS "sectorName", cat."name" AS "categoryName",
            u.quantidade, u.dia AS "contadoEm", u."code" AS "inventarioCodigo",
            cb.custo AS "custoUnitario",
-           c.quantidade AS "comprasDesde", c.valor AS "valorComprasDesde"
+           c.quantidade AS "comprasDesde", c.valor AS "valorComprasDesde", c."foraDaConta" AS "comprasForaDaConta"
     FROM "Product" p
     LEFT JOIN ultima u ON u."productId" = p."id"
     LEFT JOIN custo_base cb ON cb."productId" = p."id"
@@ -4416,7 +4437,8 @@ inventoryRouter.get("/posicao", async (request, response) => {
         custoUnitario,
         valor: quantidade != null && custoUnitario != null ? Math.round(quantidade * custoUnitario * 100) / 100 : null,
         comprasDesde: numero(row.comprasDesde) ?? 0,
-        valorComprasDesde: numero(row.valorComprasDesde) ?? 0
+        valorComprasDesde: numero(row.valorComprasDesde) ?? 0,
+        comprasForaDaConta: Number(row.comprasForaDaConta ?? 0)
       };
     })
   });
@@ -4467,11 +4489,13 @@ async function custosDoInventario(inventoryId: string): Promise<Map<string, { ca
              SUM(pi."totalPrice") / NULLIF(SUM(COALESCE(pi."convertedQuantity", pi."quantity")), 0) AS custo
       FROM "PurchaseItem" pi
       JOIN "Purchase" p ON p."id" = pi."purchaseId"
+      JOIN "Product" pr ON pr."id" = pi."productId"
       JOIN anterior a ON a."productId" = pi."productId"
       CROSS JOIN atual
       WHERE p."status" = 'ACTIVE' AND p."workflowStatus" = 'confirmed'
         AND COALESCE(p."receivedAt", p."purchaseDate")::date > a.dia
         AND COALESCE(p."receivedAt", p."purchaseDate")::date <= atual.dia
+        AND ${sqlCompraNaUnidadeDeContagem()}
       GROUP BY pi."productId"
     )
     SELECT alvo."id" AS "itemId", periodo.custo AS periodo,
@@ -4488,9 +4512,11 @@ async function custosDoInventario(inventoryId: string): Promise<Map<string, { ca
              COALESCE(p."receivedAt", p."purchaseDate") AS dia
       FROM "PurchaseItem" pi
       JOIN "Purchase" p ON p."id" = pi."purchaseId"
+      JOIN "Product" pr ON pr."id" = pi."productId"
       WHERE pi."productId" = alvo."productId"
         AND p."status" = 'ACTIVE' AND p."workflowStatus" = 'confirmed'
         AND pi."totalPrice" > 0 AND COALESCE(pi."convertedQuantity", pi."quantity") > 0
+        AND ${sqlCompraNaUnidadeDeContagem()}
         AND COALESCE(p."receivedAt", p."purchaseDate")::date <= atual.dia
       ORDER BY COALESCE(p."receivedAt", p."purchaseDate") DESC, p."createdAt" DESC
       LIMIT 1
@@ -4536,6 +4562,7 @@ async function calcularConferencia(inventoryId: string) {
     anteriorData: Date | null;
     anteriorCodigo: string | null;
     compras: Prisma.Decimal | null;
+    comprasForaDaConta: bigint | number | null;
     desperdicio: Prisma.Decimal | null;
     custoCompras: Prisma.Decimal | null;
     custoBase: Prisma.Decimal | null;
@@ -4591,11 +4618,18 @@ async function calcularConferencia(inventoryId: string) {
     -- apagado (241 entradas orfas em 142 produtos em 07/10/2026; a capsula
     -- corrigida de 6 para 600 sumia). A quantidade convertida, quando ha, ja
     -- esta na unidade de estoque.
+    -- Linha sem conversao para a unidade de contagem fica fora da soma (entraria
+    -- com a quantidade da nota) e e contada em "foraDaConta" para a tela avisar.
     compras AS (
-      SELECT pi."productId", SUM(COALESCE(pi."convertedQuantity", pi."quantity")) AS quantidade,
-             SUM(pi."totalPrice") / NULLIF(SUM(COALESCE(pi."convertedQuantity", pi."quantity")), 0) AS custo
+      SELECT pi."productId",
+             SUM(COALESCE(pi."convertedQuantity", pi."quantity")) FILTER (WHERE na.contagem) AS quantidade,
+             SUM(pi."totalPrice") FILTER (WHERE na.contagem)
+               / NULLIF(SUM(COALESCE(pi."convertedQuantity", pi."quantity")) FILTER (WHERE na.contagem), 0) AS custo,
+             COUNT(*) FILTER (WHERE NOT na.contagem) AS "foraDaConta"
       FROM "PurchaseItem" pi
       JOIN "Purchase" p ON p."id" = pi."purchaseId"
+      JOIN "Product" pr ON pr."id" = pi."productId"
+      CROSS JOIN LATERAL (SELECT ${sqlCompraNaUnidadeDeContagem()} AS contagem) na
       JOIN anterior a ON a."productId" = pi."productId"
       CROSS JOIN atual
       WHERE p."status" = 'ACTIVE'
@@ -4627,7 +4661,7 @@ async function calcularConferencia(inventoryId: string) {
            alvo."sectorName", alvo."unit", alvo."countedQuantity" AS contado,
            quem."name" AS "contadoPor", alvo."countedAt" AS "contadoEm",
            anterior."countedQuantity" AS anterior, anterior.dia AS "anteriorData", anterior."code" AS "anteriorCodigo",
-           compras.quantidade AS compras, desperdicio.quantidade AS desperdicio,
+           compras.quantidade AS compras, compras."foraDaConta" AS "comprasForaDaConta", desperdicio.quantidade AS desperdicio,
            compras.custo AS "custoCompras", base."unitCost" AS "custoBase",
            historico.mediana, historico.menor, historico.maior, historico.observacoes,
            alvo."reviewReason" AS motivo, alvo."reviewNote" AS "observacaoDaConferencia",
@@ -4684,6 +4718,7 @@ async function calcularConferencia(inventoryId: string) {
       anteriorData: row.anteriorData,
       anteriorCodigo: row.anteriorCodigo,
       compras,
+      comprasForaDaConta: Number(row.comprasForaDaConta ?? 0),
       custoUnitario,
       custoFonte: custo?.fonte ?? null,
       custoDetalhe: custo?.detalhe ?? null,

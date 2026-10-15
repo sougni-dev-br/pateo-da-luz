@@ -12,6 +12,7 @@ import { productSchema, productStatusSchema } from "./product.schemas.js";
 import { auditLog, requestIp, requireRole } from "../security/security-utils.js";
 import { beverageSectorName, normalizeInventorySectorInput } from "../master-data/inventory-sector-utils.js";
 import { detectarEmbalagem } from "../../shared/unidades/conversao.js";
+import { sqlCompraNaUnidadeDeContagem } from "../../shared/unidades/compra-na-contagem.sql.js";
 import { conversoesASairem, prepararConversoesEnviadas, type ConversaoCanonica, type ConversaoEnviada, type ConversaoGravada } from "./product-conversoes.js";
 
 export const productRouter = Router();
@@ -1100,7 +1101,9 @@ productRouter.get("/:id/history", async (request, response) => {
         FROM "CmvPeriod" p
         JOIN "Purchase" purchase ON purchase."purchaseDate" >= p."dataInicial" AND purchase."purchaseDate" <= p."dataFinal"
         JOIN "PurchaseItem" item ON item."purchaseId" = purchase."id" AND item."productId" = ${request.params.id}
+        JOIN "Product" item_product ON item_product."id" = item."productId"
         WHERE purchase."status" <> 'CANCELLED'
+          AND ${sqlCompraNaUnidadeDeContagem("item", "item_product")}
         GROUP BY p."id"
       )
       SELECT p."code" AS "periodCode", p."dataInicial" AS "startDate", p."dataFinal" AS "endDate",
