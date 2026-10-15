@@ -23,6 +23,112 @@
   text-transform: uppercase;
 }
 
+/* Cabecalho de grupo como botao (acordeao). Mantem o visual do rotulo. */
+.ds-sidebar-nav-group > .ds-sidebar-nav-group-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition: color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+}
+
+.ds-sidebar-nav-group-toggle > span:first-child {
+  flex: 1;
+}
+
+.ds-sidebar-nav-group-toggle:hover {
+  color: #d7d0c4;
+  background: rgba(216, 195, 145, 0.06);
+}
+
+.ds-sidebar-nav-group-toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.ds-sidebar-nav-group-toggle[aria-expanded="false"] .ds-sidebar-nav-group-chevron {
+  transform: rotate(-90deg);
+}
+
+.ds-sidebar-nav-group-chevron {
+  flex: 0 0 auto;
+  transition: transform var(--dur-fast) var(--ease);
+}
+
+/* Pendencia de um grupo fechado: o numero nao pode sumir junto com os itens. */
+.ds-sidebar-nav-group-toggle .ds-sidebar-nav-item-badge {
+  margin-left: 0;
+  letter-spacing: 0;
+}
+
+.ds-sidebar-nav-group-items {
+  display: grid;
+  gap: 3px;
+}
+
+/* Busca no topo do menu. */
+.ds-sidebar-nav-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: -4px;
+  padding: 0 10px;
+  height: 34px;
+  border-radius: 8px;
+  background: rgba(216, 195, 145, 0.08);
+  border: 1px solid rgba(216, 195, 145, 0.14);
+  color: #a49c8d;
+  transition: border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+}
+
+.ds-sidebar-nav-search:focus-within {
+  border-color: var(--gold);
+  background: rgba(216, 195, 145, 0.12);
+}
+
+.ds-sidebar-nav-search svg {
+  flex: 0 0 auto;
+}
+
+.ds-sidebar-nav-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--paper);
+  font: inherit;
+  font-size: 13px;
+}
+
+.ds-sidebar-nav-search input::placeholder {
+  color: #8f887d;
+}
+
+.ds-sidebar-nav-search kbd {
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid rgba(216, 195, 145, 0.2);
+  color: #8f887d;
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+
+.ds-sidebar-nav-empty {
+  margin: 0;
+  padding: 6px 10px;
+  color: #8f887d;
+  font-size: 12.5px;
+}
+
 .ds-sidebar-nav-item-wrap {
   display: flex;
   align-items: center;

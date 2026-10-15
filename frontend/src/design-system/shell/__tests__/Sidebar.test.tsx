@@ -78,8 +78,8 @@ describe("Sidebar", () => {
   test("favoritos aparecem como grupo no topo quando >0", () => {
     render(<Sidebar {...baseProps} favorites={["purchases"]} />);
     expect(screen.getByText("Favoritos")).toBeInTheDocument();
-    // "Compras" aparece 2x: no grupo Favoritos + no grupo Operação
-    expect(screen.getAllByRole("button", { name: /Compras/ }).length).toBe(2);
+    // O favorito MOVE para o grupo Favoritos: "Compras" aparece uma vez so.
+    expect(screen.getAllByRole("button", { name: /Compras/ }).length).toBe(1);
   });
 
   test("showDevBadge=true renderiza DEV badge", () => {

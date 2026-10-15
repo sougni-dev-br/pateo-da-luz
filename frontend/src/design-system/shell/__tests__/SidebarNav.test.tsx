@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { LayoutDashboard, ReceiptText, WalletCards } from "lucide-react";
-import { describe, expect, test, vi } from "vitest";
-import { SidebarNav, withFavoritesGroup } from "../SidebarNav";
+import { beforeEach, describe, expect, test, vi } from "vitest";
+import { SidebarNav, filterGroupsByQuery, withFavoritesGroup } from "../SidebarNav";
 import type { SidebarSectionGroup } from "../types";
 
 const GROUPS: SidebarSectionGroup[] = [
@@ -21,6 +21,10 @@ const GROUPS: SidebarSectionGroup[] = [
 
 const noop = () => undefined;
 
+beforeEach(() => {
+  window.localStorage.clear();
+});
+
 describe("SidebarNav", () => {
   test("renderiza <nav> semantico com aria-label", () => {
     render(<SidebarNav groups={GROUPS} activeId="dashboard" favorites={[]} onNavigate={noop} onToggleFavorite={noop} />);
@@ -33,8 +37,8 @@ describe("SidebarNav", () => {
     expect(screen.getByText("Visão geral")).toBeInTheDocument();
     expect(screen.getByText("Operação")).toBeInTheDocument();
     expect(screen.getByText("Financeiro")).toBeInTheDocument();
-    // Cada section renderiza um <button> de nav + <button> de estrela.
-    expect(screen.getAllByRole("button").length).toBe(6);
+    // Por grupo: 1 cabecalho (acordeao) + 1 botao de nav + 1 estrela.
+    expect(screen.getAllByRole("button").length).toBe(9);
   });
 
   test("item ativo marca aria-current=page e classe active", () => {
@@ -108,11 +112,11 @@ describe("withFavoritesGroup", () => {
     expect(out).toBe(GROUPS);
   });
 
-  test("prepende grupo Favoritos com items filtrados", () => {
+  test("move o favorito para o grupo Favoritos e some com o grupo que esvaziar", () => {
     const out = withFavoritesGroup(GROUPS, ["purchases"]);
     expect(out[0].group).toBe("Favoritos");
     expect(out[0].items.map((i) => i.id)).toEqual(["purchases"]);
-    expect(out.length).toBe(GROUPS.length + 1);
+    expect(out.map((g) => g.group)).toEqual(["Favoritos", "Visão geral", "Financeiro"]);
   });
 
   test("ignora favorites que nao existem", () => {
@@ -149,5 +153,113 @@ describe("SidebarNav recolhida", () => {
   test("o rotulo do grupo sai da arvore acessivel quando recolhida", () => {
     render(<SidebarNav {...props} collapsed />);
     expect(screen.queryByText("Operação")).not.toBeInTheDocument();
+  });
+});
+
+describe("SidebarNav acordeao", () => {
+  const props = {
+    groups: GROUPS,
+    activeId: "dashboard",
+    favorites: [] as string[],
+    onNavigate: noop,
+    onToggleFavorite: noop
+  };
+
+  test("clicar no cabecalho fecha o grupo e aria-expanded acompanha", () => {
+    render(<SidebarNav {...props} />);
+    const header = screen.getByRole("button", { name: "Financeiro" });
+    expect(header.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(header);
+    expect(header.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("button", { name: /Contas a pagar/ })).not.toBeInTheDocument();
+    fireEvent.click(header);
+    expect(screen.getByRole("button", { name: /Contas a pagar/ })).toBeInTheDocument();
+  });
+
+  test("grupo fechado continua fechado depois de remontar (localStorage)", () => {
+    const first = render(<SidebarNav {...props} />);
+    fireEvent.click(screen.getByRole("button", { name: "Financeiro" }));
+    first.unmount();
+    render(<SidebarNav {...props} />);
+    expect(screen.queryByRole("button", { name: /Contas a pagar/ })).not.toBeInTheDocument();
+  });
+
+  test("navegar para um item de grupo fechado reabre o grupo", () => {
+    window.localStorage.setItem("pateo:sidebar:grupos-fechados", JSON.stringify(["Financeiro"]));
+    const { rerender } = render(<SidebarNav {...props} />);
+    expect(screen.queryByRole("button", { name: /Contas a pagar/ })).not.toBeInTheDocument();
+    rerender(<SidebarNav {...props} activeId="payables" />);
+    expect(screen.getByRole("button", { name: /Contas a pagar/ })).toBeInTheDocument();
+  });
+
+  test("grupo fechado mostra a soma das pendencias no cabecalho", () => {
+    window.localStorage.setItem("pateo:sidebar:grupos-fechados", JSON.stringify(["Operação"]));
+    render(<SidebarNav {...props} badges={{ purchases: 25 }} />);
+    expect(screen.getByRole("button", { name: /Operação/ })).toHaveTextContent("25");
+  });
+
+  test("localStorage corrompido nao quebra: tudo aberto", () => {
+    window.localStorage.setItem("pateo:sidebar:grupos-fechados", "{nao-e-json");
+    render(<SidebarNav {...props} />);
+    expect(screen.getByRole("button", { name: /Contas a pagar/ })).toBeInTheDocument();
+  });
+});
+
+describe("SidebarNav busca", () => {
+  const props = {
+    groups: GROUPS,
+    activeId: "dashboard",
+    favorites: [] as string[],
+    onNavigate: noop,
+    onToggleFavorite: noop
+  };
+
+  test("filtra sem acento e sem caixa, mesmo com o grupo fechado", () => {
+    window.localStorage.setItem("pateo:sidebar:grupos-fechados", JSON.stringify(["Visão geral"]));
+    render(<SidebarNav {...props} />);
+    fireEvent.change(screen.getByRole("searchbox", { name: "Buscar no menu" }), { target: { value: "DASH" } });
+    expect(screen.getByRole("button", { name: /Dashboard/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Compras/ })).not.toBeInTheDocument();
+  });
+
+  test("sem resultado mostra aviso", () => {
+    render(<SidebarNav {...props} />);
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "zzz" } });
+    expect(screen.getByRole("status")).toHaveTextContent("Nenhum item encontrado.");
+  });
+
+  test("Enter abre o primeiro resultado e limpa a busca", () => {
+    const onNavigate = vi.fn();
+    render(<SidebarNav {...props} onNavigate={onNavigate} />);
+    const input = screen.getByRole("searchbox");
+    fireEvent.change(input, { target: { value: "contas" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onNavigate).toHaveBeenCalledWith("payables");
+    expect(input).toHaveValue("");
+  });
+
+  test("Escape limpa a busca", () => {
+    render(<SidebarNav {...props} />);
+    const input = screen.getByRole("searchbox");
+    fireEvent.change(input, { target: { value: "com" } });
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(input).toHaveValue("");
+  });
+
+  test("Ctrl+K foca o campo de busca", () => {
+    render(<SidebarNav {...props} />);
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    expect(screen.getByRole("searchbox")).toHaveFocus();
+  });
+
+  test("recolhida a so icones nao renderiza busca", () => {
+    render(<SidebarNav {...props} collapsed />);
+    expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
+  });
+});
+
+describe("filterGroupsByQuery", () => {
+  test("busca vazia devolve os grupos originais", () => {
+    expect(filterGroupsByQuery(GROUPS, "  ")).toBe(GROUPS);
   });
 });
