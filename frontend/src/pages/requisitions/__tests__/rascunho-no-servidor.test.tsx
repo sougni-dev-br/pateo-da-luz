@@ -86,6 +86,10 @@ describe("rascunho da requisição salvo no sistema", () => {
 
   test("outra pessoa salvou antes: avisa e deixa escolher entre a versão dela e a minha", async () => {
     salvarRascunhoDaRequisicao.mockRejectedValueOnce(new ApiError("Outra pessoa alterou esta requisição (Maria).", 409, { version: 7 }));
+    getRascunhoDaRequisicao.mockResolvedValue({
+      id: "r9", version: 7, updatedAt: "2026-10-15T10:00:00Z", updatedByName: "Maria",
+      conteudo: { cabecalho: cabecalhoVazio(), escolhas: { p4: { unit: "UN", quantity: "9" } } }
+    });
     montar({ cabecalho: cabecalhoVazio(), escolhas: { p1: { unit: "KG", quantity: "2" } }, servidor: { id: "r9", version: 4 } });
     await digitar("FARINHA", "3");
     expect(await screen.findByText(/Outra pessoa alterou/, undefined, ESPERA)).toBeTruthy();
@@ -94,6 +98,21 @@ describe("rascunho da requisição salvo no sistema", () => {
     fireEvent.click(screen.getByRole("button", { name: "Manter a minha" }));
     await waitFor(() => expect(salvarRascunhoDaRequisicao).toHaveBeenLastCalledWith("r9", expect.objectContaining({ version: 7 })));
     await waitFor(() => expect(screen.queryByText(/Outra pessoa alterou/)).toBeNull());
+  });
+
+  test("versão velha guardada no aparelho (recarregou a página) com o mesmo conteúdo no sistema: sem conflito, segue salvando", async () => {
+    salvarRascunhoDaRequisicao.mockRejectedValueOnce(new ApiError("Outra pessoa alterou esta requisição.", 409, { version: 7 }));
+    const cabecalho = cabecalhoVazio();
+    getRascunhoDaRequisicao.mockResolvedValue({
+      id: "r9", version: 7, updatedAt: "2026-10-15T10:00:00Z", updatedByName: "Eu",
+      conteudo: { cabecalho, escolhas: { p1: { unit: "KG", quantity: "3" } } }
+    });
+    montar({ cabecalho, escolhas: { p1: { unit: "KG", quantity: "2" } }, servidor: { id: "r9", version: 4 } });
+    await digitar("FARINHA", "3");
+    await waitFor(() => expect(getRascunhoDaRequisicao).toHaveBeenCalled(), ESPERA);
+    await digitar("FARINHA", "4");
+    await waitFor(() => expect(salvarRascunhoDaRequisicao).toHaveBeenLastCalledWith("r9", expect.objectContaining({ version: 7 })), ESPERA);
+    expect(screen.queryByText(/Outra pessoa alterou/)).toBeNull();
   });
 
   test("'Ver a mais recente' troca os itens pelos do sistema", async () => {

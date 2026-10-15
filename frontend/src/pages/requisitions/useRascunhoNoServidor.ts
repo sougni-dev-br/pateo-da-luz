@@ -15,6 +15,11 @@ export type RascunhoNoServidor = { id: string; version: number };
 
 export type EstadoDoRascunho = "parado" | "salvando" | "salvo" | "falhou" | "conflito";
 
+const mesmoConteudo = (a: ConteudoDoRascunhoDaRequisicao, b: ConteudoDoRascunhoDaRequisicao) => {
+  const normalizar = (c: ConteudoDoRascunhoDaRequisicao) => JSON.stringify([c.cabecalho, Object.entries(c.escolhas).sort(([x], [y]) => x.localeCompare(y))]);
+  return normalizar(a) === normalizar(b);
+};
+
 /** Espera depois da última digitação: a requisição é montada em rajadas, não a cada tecla. */
 const ESPERA_MS = 600;
 
@@ -26,6 +31,8 @@ type Entrada = {
   /** true enquanto se registra: nada é salvo por cima. */
   pausado: boolean;
   onAviso: (tom: "warning", mensagem: string) => void;
+  /** Depois de cada salvamento no sistema: o aparelho grava a versão nova, senão recarregar a página usa uma versão velha e dá conflito. */
+  onSalvo?: () => void;
 };
 
 /**
@@ -33,7 +40,7 @@ type Entrada = {
  * (localStorage) segue como rede de segurança sem internet; este hook só espelha no servidor, com versão
  * para que dois aparelhos editando não se sobrescrevam em silêncio.
  */
-export function useRascunhoNoServidor({ inicial, cabecalho, escolhas, resumo, pausado, onAviso }: Entrada) {
+export function useRascunhoNoServidor({ inicial, cabecalho, escolhas, resumo, pausado, onAviso, onSalvo }: Entrada) {
   const servidorRef = useRef<RascunhoNoServidor | null>(inicial);
   const [estado, setEstado] = useState<EstadoDoRascunho>(inicial ? "salvo" : "parado");
   const [conflito, setConflito] = useState<{ version: number; mensagem: string } | null>(null);
@@ -45,6 +52,8 @@ export function useRascunhoNoServidor({ inicial, cabecalho, escolhas, resumo, pa
   const encerradoRef = useRef(false);
   const avisoRef = useRef(onAviso);
   avisoRef.current = onAviso;
+  const salvoRef = useRef(onSalvo);
+  salvoRef.current = onSalvo;
 
   const rodar = useCallback(async () => {
     do {
@@ -71,6 +80,14 @@ export function useRascunhoNoServidor({ inicial, cabecalho, escolhas, resumo, pa
           servidorRef.current = { id: salvo.id, version: salvo.version };
         } catch (falha) {
           if (falha instanceof ApiError && falha.status === 409) {
+            // Versão velha guardada no aparelho (recarregou a página): se o sistema já tem exatamente o que está na tela, não há conflito.
+            const noSistema = await getRascunhoDaRequisicao(servidorRef.current.id).catch(() => null);
+            if (noSistema && mesmoConteudo(noSistema.conteudo, conteudo)) {
+              servidorRef.current = { id: noSistema.id, version: noSistema.version };
+              setEstado("salvo");
+              salvoRef.current?.();
+              continue;
+            }
             conflitoRef.current = true;
             setConflito({ version: Number(falha.body?.version) || servidorRef.current.version, mensagem: falha.message });
             setEstado("conflito");
@@ -87,6 +104,7 @@ export function useRascunhoNoServidor({ inicial, cabecalho, escolhas, resumo, pa
         }
       }
       setEstado("salvo");
+      salvoRef.current?.();
     } while (refazerRef.current);
   }, []);
 

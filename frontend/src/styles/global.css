@@ -16140,12 +16140,10 @@ td.count-list-divergent {
 
 /* Só a busca e a visão ficam grudadas: o resto dos filtros rola com a lista e não come a tela do celular */
 .rq-fixos {
-  position: sticky; top: var(--rq-topo, 0px); z-index: 15;
+  position: sticky; top: calc(var(--rq-topo, 0px) - var(--rq-pad-topo, 0px)); z-index: 15;
   display: flex; flex-direction: column; gap: 10px; padding: 10px 14px;
   background: var(--paper);
   border-bottom: 1px solid var(--line); border-radius: var(--radius-xl) var(--radius-xl) 0 0;
-  /* Opaco, e pinta a faixa acima: a lista rolava visível no vão entre o cabeçalho do app e a busca */
-  box-shadow: 0 -48px 0 0 var(--paper);
 }
 .rq-extras { display: flex; flex-direction: column; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
 .rq-busca { position: relative; display: flex; align-items: center; }
@@ -16255,11 +16253,10 @@ td.count-list-divergent {
 
 /* Barra de ação: sempre à vista, com o que falta dito em palavras */
 .rq-barra {
-  position: sticky; bottom: 0; z-index: 20; display: flex; align-items: center; gap: 8px;
+  position: sticky; bottom: calc(var(--rq-topo, 0px) - var(--rq-pad-base, 0px)); z-index: 20; display: flex; align-items: center; gap: 8px;
   padding: 6px 12px calc(6px + env(safe-area-inset-bottom, 0px));
   background: var(--paper);
-  /* Opaco, e pinta a faixa abaixo: linhas da lista apareciam sob a barra e ao redor dela */
-  border-top: 1px solid var(--line); box-shadow: 0 48px 0 0 var(--paper);
+  border-top: 1px solid var(--line);
 }
 /* Uma linha só: contagem, estado e botões, sem cobrir a lista com um cartão alto */
 .rq-barra-resumo { flex: 1; min-width: 0; display: flex; flex-direction: row; align-items: baseline; gap: 8px; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

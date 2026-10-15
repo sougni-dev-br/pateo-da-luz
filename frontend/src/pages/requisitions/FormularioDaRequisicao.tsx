@@ -88,13 +88,16 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAvis
     const nomes = Object.keys(escolhasComQuantidade(escolhas)).map((id) => itemPorId.get(id)?.name).filter((n): n is string => Boolean(n));
     return nomes.length > 3 ? `${nomes.slice(0, 3).join(", ")} e mais ${nomes.length - 3}` : nomes.join(", ");
   }, [escolhas, itemPorId]);
+  const aoSalvarNoServidorRef = useRef<() => void>(() => {});
+  const raizRef = useRef<HTMLDivElement | null>(null);
   const noServidor = useRascunhoNoServidor({
     inicial: modelo?.servidor ?? guardado?.servidor ?? null,
     cabecalho,
     escolhas,
     resumo: resumoDoRascunho,
     pausado: enviando,
-    onAviso
+    onAviso,
+    onSalvo: () => aoSalvarNoServidorRef.current?.()
   });
 
   // Produto do rascunho que saiu do cadastro não pode ficar invisível dentro da requisição.
@@ -126,6 +129,26 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAvis
     const { cabecalho: c, escolhas: e } = ultimoRef.current;
     salvarRascunho(user.id, { cabecalho: c, escolhas: escolhasComQuantidade(e), servidor: noServidor.servidorRef.current });
   }, [user.id, noServidor.servidorRef]);
+
+  useEffect(() => {
+    aoSalvarNoServidorRef.current = guardarAgora;
+  }, [guardarAgora]);
+
+  // Busca e barra grudam na borda da área rolável, mas ela tem respiro (padding) que deixava a lista aparecer no vão.
+  useEffect(() => {
+    const raiz = raizRef.current;
+    const area = raiz?.closest<HTMLElement>(".content");
+    if (!raiz || !area) return;
+    const medir = () => {
+      const rola = /(auto|scroll)/.test(getComputedStyle(area).overflowY);
+      const estilo = getComputedStyle(area);
+      raiz.style.setProperty("--rq-pad-topo", rola ? estilo.paddingTop : "0px");
+      raiz.style.setProperty("--rq-pad-base", rola ? estilo.paddingBottom : "0px");
+    };
+    medir();
+    window.addEventListener("resize", medir);
+    return () => window.removeEventListener("resize", medir);
+  }, []);
 
   useEffect(() => {
     if (enviando) return;
@@ -338,7 +361,7 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAvis
   const filtrando = texto.trim() !== "" || localId !== null || visao !== "TODOS";
 
   return (
-    <div className="rq">
+    <div className="rq" ref={raizRef}>
       {noServidor.conflito && (
         <div className="req-banner is-aviso" role="alert">
           <span>{noServidor.conflito.mensagem}</span>
