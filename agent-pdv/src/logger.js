@@ -46,8 +46,22 @@ async function write(level, message, extra) {
   process.stdout.write(line);
 }
 
+// Os métodos não são aguardados pelos chamadores; guardamos as gravações
+// pendentes para que o entry point faça flush() antes de encerrar o processo
+// (process.exit descarta appendFile em andamento).
+const pending = new Set();
+
+function track(promise) {
+  const p = promise.catch(() => {}).finally(() => pending.delete(p));
+  pending.add(p);
+  return p;
+}
+
 export const logger = {
-  info: (message, extra) => write("INFO", message, extra),
-  warn: (message, extra) => write("WARN", message, extra),
-  error: (message, extra) => write("ERROR", message, extra)
+  info: (message, extra) => track(write("INFO", message, extra)),
+  warn: (message, extra) => track(write("WARN", message, extra)),
+  error: (message, extra) => track(write("ERROR", message, extra)),
+  flush: async () => {
+    while (pending.size > 0) await Promise.all([...pending]);
+  }
 };

@@ -15,9 +15,16 @@
 //   node sync.js --inicio=2026-06-01 --fim=06-05   → sincroniza intervalo
 //   node sync.js --dias=10                         → ultimos 10 dias
 
+import os from "node:os";
+import path from "node:path";
+import { readFile, writeFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import { BackendClient } from "./backend-client.js";
 import { loadConfig } from "./config.js";
 import { logger } from "./logger.js";
 import { syncPeriod } from "./sync-core.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const DIAS_PADRAO = 5;
 
@@ -52,6 +59,10 @@ async function main() {
   const { start, end } = resolvePeriod(args);
   logger.info(`Alvo: ${start === end ? start : `${start} → ${end}`}`);
 
+  const startedAt = Date.now();
+  let exitCode = 0;
+  const base = { periodoInicio: start, periodoFim: end };
+  let result;
   try {
     const report = await syncPeriod(config, start, end);
     logger.info("Sync concluído com sucesso", {
@@ -59,11 +70,41 @@ async function main() {
       totalBruto: report.totalBruto,
       totalTickets: report.totalTickets
     });
-    process.exit(0);
+    result = {
+      ...base,
+      status: "ok",
+      mensagem: null,
+      batchId: report.batchId ?? null,
+      diasImportados: report.diasImportados ?? null,
+      totalBruto: report.totalBruto ?? null
+    };
   } catch (err) {
     logger.error("Sync falhou", { message: err.message });
-    process.exit(1);
+    exitCode = 1;
+    result = { ...base, status: "erro", mensagem: String(err.message).slice(0, 500) };
   }
+
+  await reportHeartbeat(config, { ...result, duracaoMs: Date.now() - startedAt });
+  await logger.flush();
+  process.exit(exitCode);
+}
+
+// Grava status.json local e avisa o backend. Nunca lança: o resultado do sync
+// já está decidido e o heartbeat é só observabilidade.
+async function reportHeartbeat(config, result) {
+  const pkg = JSON.parse(await readFile(path.resolve(__dirname, "..", "package.json"), "utf-8").catch(() => "{}"));
+  const payload = {
+    ...result,
+    agenteVersion: pkg.version ?? null,
+    agenteHost: os.hostname(),
+    ocorridoEm: new Date().toISOString()
+  };
+  try {
+    await writeFile(path.resolve(__dirname, "..", "status.json"), JSON.stringify(payload, null, 2), "utf-8");
+  } catch (err) {
+    logger.warn("status.json não gravado", { message: err.message });
+  }
+  await new BackendClient(config.backend).heartbeat(payload);
 }
 
 main();

@@ -85,6 +85,24 @@ Register-ScheduledTask `
     -Description "Sincroniza faturamento do Agile PDV com o ERP Pateo da Luz" `
     -RunLevel Highest | Out-Null
 
+# 6) Tarefa semanal de reconciliação: puxa os ultimos 30 dias para pegar
+# cancelamentos/estornos/ajustes feitos depois da janela de 5 dias.
+# Segunda 10:00; StartWhenAvailable roda no proximo logon se a maquina
+# estava desligada.
+$WeeklyName = "PateoAgentSync30d"
+if (Get-ScheduledTask -TaskName $WeeklyName -ErrorAction SilentlyContinue) {
+    Unregister-ScheduledTask -TaskName $WeeklyName -Confirm:$false
+}
+$weeklyAction = New-ScheduledTaskAction -Execute $NodeExe -Argument "`"$SyncScript`" --dias=30" -WorkingDirectory $AgentRoot
+$weeklyTrigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday -At "10:00"
+Register-ScheduledTask `
+    -TaskName $WeeklyName `
+    -Action $weeklyAction `
+    -Trigger $weeklyTrigger `
+    -Settings $settings `
+    -Description "Reconciliação semanal (30 dias) do Agile PDV com o ERP Pateo da Luz" `
+    -RunLevel Highest | Out-Null
+
 Write-Host "" -ForegroundColor Green
 Write-Host "Instalação concluída." -ForegroundColor Green
 Write-Host "" -ForegroundColor Green

@@ -88,6 +88,7 @@ async function main() {
   }
 
   logger.info(`Backfill finalizado: ${ok} OK, ${fail} falha(s)`);
+  await logger.flush();
   process.exit(fail > 0 ? 1 : 0);
 }
 

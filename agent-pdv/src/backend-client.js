@@ -76,6 +76,34 @@ export class BackendClient {
   }
 }
 
+// Heartbeat: relata o resultado de cada execução (ok/erro) para o ERP poder
+// avisar quando o sync parar. Tentativa única, timeout curto e NUNCA lança:
+// falha de heartbeat não pode transformar um sync bem-sucedido em erro.
+BackendClient.prototype.heartbeat = async function heartbeat(payload) {
+  const url = `${this.baseUrl}/integrations/agile/heartbeat`;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Agile-Token": this.ingestToken },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+    if (!response.ok) {
+      logger.warn("Heartbeat: backend não aceitou", { status: response.status });
+      return false;
+    }
+    logger.info("Heartbeat enviado", { status: payload.status });
+    return true;
+  } catch (err) {
+    logger.warn("Heartbeat: falha ao enviar", { message: err.message });
+    return false;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+};
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
