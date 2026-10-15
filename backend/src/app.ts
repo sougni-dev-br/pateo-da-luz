@@ -39,6 +39,7 @@ import { fichaCadastralPublicoRouter } from "./modules/payroll/ficha-cadastral-p
 import { scheduleRouter } from "./modules/payroll/schedule.routes.js";
 import { payrollRouter } from "./modules/payroll/payroll.routes.js";
 import { rescisoesRouter } from "./modules/payroll/rescisoes.routes.js";
+import { feriasRouter } from "./modules/payroll/ferias.routes.js";
 import { vtFareRouter } from "./modules/payroll/vt-fare.routes.js";
 import { extrasRouter } from "./modules/payroll/extras.routes.js";
 import { extrasPagamentosRouter } from "./modules/payroll/extras-pagamentos.routes.js";
@@ -172,6 +173,7 @@ app.use("/payroll/tip", tipCommissionRouter);
 app.use("/payroll/vt-fares", vtFareRouter);
 // Antes de /payroll (e sob ele: o controle de acesso resolve para o módulo da Folha).
 app.use("/payroll/rescisoes", rescisoesRouter);
+app.use("/payroll/ferias", feriasRouter);
 app.use("/payroll", payrollRouter);
 app.use("/extras/payments", extrasPagamentosRouter);
 app.use("/extras", extrasPainelRouter);

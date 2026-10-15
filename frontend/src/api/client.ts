@@ -8000,6 +8000,49 @@ export function getRescisoes() {
   return request<ListaRescisoes>("/payroll/rescisoes");
 }
 
+// ─── Férias (RH → Férias) ────────────────────────────────────────────────────────
+export type SituacaoFerias = "EM_AQUISICAO" | "DISPONIVEL" | "A_VENCER" | "VENCIDA" | "PROGRAMADA" | "GOZADA";
+export type NivelFerias = "ok" | "atencao" | "perigo";
+export type ProgramacaoFerias = {
+  id: string; aquisitivoInicio: string; gozoInicio: string | null; gozoFim: string | null;
+  dias: number; diasAbono: number; status: "PROGRAMADA" | "GOZADA"; observacao: string | null; passouDaData: boolean;
+};
+export type PeriodoFerias = {
+  aquisitivoInicio: string; aquisitivoFim: string; limiteInicioGozo: string; fimConcessivo: string;
+  diasDireito: number; diasGozados: number; diasProgramados: number; diasAbono: number; diasPendentes: number;
+  situacao: SituacaoFerias; nivel: NivelFerias; diasParaLimite: number | null; diasParaCompletar: number | null;
+  foraDoPrazo: boolean; doHistorico: boolean; programacoes: ProgramacaoFerias[];
+};
+export type PessoaFerias = {
+  employeeId: string; nome: string; empresa: string | null; admissao: string | null; nivel: NivelFerias; periodos: PeriodoFerias[];
+};
+export type ListaFerias = {
+  hoje: string;
+  pessoas: PessoaFerias[];
+  semDataDeAdmissao: Array<{ employeeId: string; nome: string }>;
+  resumo: { vencidas: number; aVencer: number };
+};
+export type PedidoFerias = {
+  aquisitivoInicio: string; gozoInicio: string; dias: number; diasAbono: number; observacao?: string; status?: "PROGRAMADA" | "GOZADA";
+};
+
+export function getFerias() {
+  return request<ListaFerias>("/payroll/ferias");
+}
+export function programarFerias(employeeId: string, pedido: PedidoFerias) {
+  return request<{ id: string }>("/payroll/ferias", json("POST", { employeeId, ...pedido }));
+}
+/** Quita o saldo de um período como "já gozado", sem datas (férias tiradas antes da tela ou já na contabilidade). */
+export function marcarFeriasGozadas(employeeId: string, aquisitivoInicio: string) {
+  return request<{ id: string }>("/payroll/ferias", json("POST", { employeeId, aquisitivoInicio, semDatas: true }));
+}
+export function atualizarFerias(id: string, mudanca: Partial<Omit<PedidoFerias, "aquisitivoInicio">>) {
+  return request<{ id: string }>(`/payroll/ferias/${encodeURIComponent(id)}`, json("PATCH", mudanca));
+}
+export function cancelarFerias(id: string) {
+  return request<{ ok: boolean }>(`/payroll/ferias/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
 export function getRescisaoDetalhe(employeeId: string) {
   return request<DetalheRescisao>(`/payroll/rescisoes/${encodeURIComponent(employeeId)}`);
 }

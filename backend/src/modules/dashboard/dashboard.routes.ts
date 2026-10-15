@@ -4,6 +4,7 @@ import { prisma } from "../../config/database.js";
 import { requireRole } from "../security/security-utils.js";
 import { getMonthlyCmv } from "../monthly/monthly.service.js";
 import { excludeAggregatorsSql } from "../purchases/purchase-aggregators.js";
+import { carregarFerias, contarAlertas } from "../payroll/ferias.routes.js";
 
 export const dashboardRouter = Router();
 
@@ -739,6 +740,36 @@ dashboardRouter.get("/alerts", async (request, response) => {
       actionLabel: "Ver faturamento",
       actionPath: "/financeiro/faturamento"
     });
+  }
+
+  // Férias: só contagem (sem nomes) e nunca derruba o painel se a leitura falhar.
+  try {
+    const { vencidas, aVencer } = contarAlertas(await carregarFerias());
+    const plural = (n: number) => (n !== 1 ? "s" : "");
+    if (vencidas > 0) {
+      alerts.push({
+        type: "danger",
+        code: "VACATION_OVERDUE",
+        title: "Férias vencidas ou fora do prazo",
+        description: `${vencidas} período${plural(vencidas)} de férias passou do limite para gozo (pago em dobro) ou está programado depois dele.`,
+        count: vencidas,
+        actionLabel: "Ver férias",
+        actionPath: "/rh/ferias"
+      });
+    }
+    if (aVencer > 0) {
+      alerts.push({
+        type: "warning",
+        code: "VACATION_DUE_SOON",
+        title: "Férias a programar",
+        description: `${aVencer} período${plural(aVencer)} de férias chega${aVencer !== 1 ? "m" : ""} ao limite para gozo em até 90 dias e ainda não ${aVencer !== 1 ? "têm" : "tem"} datas.`,
+        count: aVencer,
+        actionLabel: "Programar férias",
+        actionPath: "/rh/ferias"
+      });
+    }
+  } catch (err) {
+    console.error("[dashboard] alerta de férias indisponível:", err instanceof Error ? err.message : err);
   }
 
   if (cmvStatus === "missing") {

@@ -4,6 +4,7 @@
 export const ROTAS_RH = {
   funcionarios: "/rh/funcionarios",
   escala: "/rh/escala",
+  ferias: "/rh/ferias",
   gorjeta: "/rh/gorjeta",
   rescisoes: "/rh/rescisoes",
   folha: "/rh/folha",
