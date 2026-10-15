@@ -2,6 +2,10 @@ import { describe, expect, test } from "vitest";
 import { FATOR_MAXIMO, pecaSemConversao, validarConversaoManual } from "../conversao-manual.js";
 
 describe("validarConversaoManual", () => {
+  test("'peça' vira a unidade PÇ", () => {
+    expect(validarConversaoManual({ fromUnit: "peça", factor: "3,5" }, "KG", [])).toEqual({ ok: true, valor: { fromUnit: "PÇ", toUnit: "KG", factor: 3.5, jaCadastrada: false } });
+  });
+
   test("1 UN = 3,5 KG no produto contado em KG", () => {
     expect(validarConversaoManual({ fromUnit: "un", factor: "3,5" }, "KG", [])).toEqual({ ok: true, valor: { fromUnit: "UN", toUnit: "KG", factor: 3.5, jaCadastrada: false } });
   });
@@ -49,6 +53,11 @@ describe("pecaSemConversao", () => {
   test("BACON PEÇA contado em KG sem conversão para UN", () => {
     expect(pecaSemConversao("BACON PEÇA", "KG", [])).toBe(true);
     expect(pecaSemConversao("QUEIJO PECA 2KG", "kg", [])).toBe(true);
+  });
+
+  test("peça cadastrada como PÇ (ou como UN, no legado) resolve a pendência", () => {
+    expect(pecaSemConversao("BACON PEÇA", "KG", [{ fromUnit: "PÇ", toUnit: "KG", factor: 3.5 }])).toBe(false);
+    expect(pecaSemConversao("BACON PEÇA", "KG", [{ fromUnit: "UN", toUnit: "KG", factor: 3.5 }])).toBe(false);
   });
 
   test("com a conversão cadastrada, ou contado em UN, ou sem 'peça' no nome, não é pendência", () => {

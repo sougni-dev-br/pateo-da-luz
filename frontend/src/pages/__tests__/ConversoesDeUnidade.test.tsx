@@ -34,7 +34,7 @@ const rotina = (produtos: unknown[], resumo?: Record<string, number>) => ({
 });
 
 const todos = [
-  produto("a", "BACON PEÇA", { usosEmRequisicoes: 12, pendencias: [{ unidade: "UN", origem: "NOME_PECA", linhas: 0, valor: 0, proposta: null }] }),
+  produto("a", "BACON PEÇA", { usosEmRequisicoes: 12, pendencias: [{ unidade: "PÇ", origem: "NOME_PECA", linhas: 0, valor: 0, proposta: null }] }),
   produto("b", "FARINHA TRIGO 5KG", { sectorId: "s2", sectorName: "FREEZER", pendencias: [{ unidade: "PCT", origem: "COMPRA", linhas: 4, valor: 200, proposta: { factor: 5, confianca: "alta", motivo: '"5KG" no nome: 1 PCT = 5 KG.' } }] }),
   produto("c", "QUEIJO", { status: "PARCIAL", conversoes: [{ fromUnit: "SC", toUnit: "KG", factor: 25 }], pendencias: [{ unidade: "PC", origem: "COMPRA", linhas: 6, valor: 900, proposta: null }] }),
   produto("d", "AZEITE", { status: "CADASTRADO", conversoes: [{ fromUnit: "LATA", toUnit: "L", factor: 5 }] })
@@ -45,7 +45,7 @@ const montar = (url = "/estoque/conversoes") => render(<MemoryRouter initialEntr
 describe("ConversoesDeUnidade", () => {
   beforeEach(() => {
     getRotinaDeConversoes.mockResolvedValue(rotina(todos));
-    getUnits.mockResolvedValue([{ id: "1", code: "UN", isActive: true }, { id: "2", code: "CX", isActive: true }, { id: "3", code: "KG", isActive: true }, { id: "4", code: "PCT", isActive: true }]);
+    getUnits.mockResolvedValue([{ id: "1", code: "UN", isActive: true }, { id: "5", code: "PÇ", isActive: true }, { id: "2", code: "CX", isActive: true }, { id: "3", code: "KG", isActive: true }, { id: "4", code: "PCT", isActive: true }]);
   });
   afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
@@ -63,7 +63,7 @@ describe("ConversoesDeUnidade", () => {
     await screen.findByText("BACON PEÇA");
     expect(screen.getByText(/O nome diz peça/)).toBeTruthy();
     expect(screen.getByText(/pedido 12× em requisições/)).toBeTruthy();
-    expect(screen.getByText("1 UN (unidade ou peça) =")).toBeTruthy();
+    expect(screen.getByText("1 PÇ =")).toBeTruthy();
   });
 
   test("a sugestão do sistema vem preenchida e explicada", async () => {
@@ -74,14 +74,14 @@ describe("ConversoesDeUnidade", () => {
   });
 
   test("cadastrar 1 peça = 3,5 kg: salva, avisa e busca a lista de novo", async () => {
-    cadastrarConversao.mockResolvedValue({ criada: true, comprasConvertidas: 0, comprasEmPeriodoFechado: 0, conversao: { fromUnit: "UN", toUnit: "KG", factor: 3.5 } });
+    cadastrarConversao.mockResolvedValue({ criada: true, comprasConvertidas: 0, comprasEmPeriodoFechado: 0, conversao: { fromUnit: "PÇ", toUnit: "KG", factor: 3.5 } });
     montar();
-    fireEvent.change(await screen.findByLabelText("Quanto vale 1 UN em KG"), { target: { value: "3,5" } });
+    fireEvent.change(await screen.findByLabelText("Quanto vale 1 PÇ em KG"), { target: { value: "3,5" } });
     getRotinaDeConversoes.mockResolvedValue(rotina(todos.slice(1), { total: 4, pendentes: 1, parciais: 1, cadastrados: 2, naoPrecisa: 0 }));
     fireEvent.click(within(screen.getByText("BACON PEÇA").closest("li") as HTMLElement).getByRole("button", { name: "Salvar" }));
 
-    await waitFor(() => expect(cadastrarConversao).toHaveBeenCalledWith({ productId: "a", fromUnit: "UN", factor: "3,5" }));
-    expect(await screen.findByText(/1 UN = 3,5 KG cadastrada/)).toBeTruthy();
+    await waitFor(() => expect(cadastrarConversao).toHaveBeenCalledWith({ productId: "a", fromUnit: "PÇ", factor: "3,5" }));
+    expect(await screen.findByText(/1 PÇ = 3,5 KG cadastrada/)).toBeTruthy();
     await waitFor(() => expect(screen.queryByText("BACON PEÇA")).toBeNull());
     expect(getRotinaDeConversoes).toHaveBeenCalledTimes(2);
   });
@@ -89,7 +89,7 @@ describe("ConversoesDeUnidade", () => {
   test("erro do servidor aparece no cartão, com o valor digitado ainda lá", async () => {
     cadastrarConversao.mockRejectedValue(new Error("Já existe a conversão 1 UN = 4 KG neste produto."));
     montar();
-    const campo = (await screen.findByLabelText("Quanto vale 1 UN em KG")) as HTMLInputElement;
+    const campo = (await screen.findByLabelText("Quanto vale 1 PÇ em KG")) as HTMLInputElement;
     fireEvent.change(campo, { target: { value: "3,5" } });
     fireEvent.click(within(screen.getByText("BACON PEÇA").closest("li") as HTMLElement).getByRole("button", { name: "Salvar" }));
     expect(await screen.findByText(/Já existe a conversão/)).toBeTruthy();

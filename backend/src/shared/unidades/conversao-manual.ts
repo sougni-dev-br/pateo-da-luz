@@ -51,10 +51,10 @@ const PECA_NO_NOME = /\bPE[CÇ]AS?\b|\bP[CÇ]\b/i;
 
 /**
  * Produto contado em medida (KG, L...) cujo nome diz "peça" e ainda não sabe quanto pesa uma peça:
- * ninguém consegue requisitar "1 peça" enquanto isso não for cadastrado. A peça é a UN do sistema.
+ * ninguém consegue requisitar "1 peça" enquanto isso não for cadastrado. A unidade é PÇ; a conversão antiga em UN também vale.
  */
 export function pecaSemConversao(nome: string, unidadeDeContagem: string | null | undefined, cadastradas: UnitConversion[]): boolean {
   const contagem = normalizarUnidade(unidadeDeContagem);
   if (!contagem || !MEDIDAS.has(contagem) || !PECA_NO_NOME.test(nome)) return false;
-  return resolveUnitFactor("UN", contagem, cadastradas) == null;
+  return resolveUnitFactor("PÇ", contagem, cadastradas) == null && resolveUnitFactor("UN", contagem, cadastradas) == null;
 }

@@ -4,8 +4,7 @@ import { ApiError, cadastrarConversao } from "../../api/client";
 import { Button } from "../../design-system";
 import { formatarQuantidade } from "../desperdicio/quantidade";
 
-/** Peça é a UN do sistema: a tela diz isso para ninguém procurar uma unidade "PEÇA" que não existe. */
-export const nomeDaUnidade = (unidade: string) => (unidade === "UN" ? "UN (unidade ou peça)" : unidade);
+export const nomeDaUnidade = (unidade: string) => unidade;
 
 const fatorEmTexto = (valor: number) => String(valor).replace(".", ",");
 

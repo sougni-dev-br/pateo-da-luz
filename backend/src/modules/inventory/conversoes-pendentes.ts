@@ -78,8 +78,8 @@ export function montarRotina(carregados: ProdutoCarregadoParaConversao[], apoio:
       });
     }
     // "BACON PEÇA" contado em KG: ninguém requisita 1 peça sem saber quanto ela pesa.
-    if (!porUnidade.has("UN") && pecaSemConversao(p.nome, p.contagem, p.entrada.cadastradas)) {
-      porUnidade.set("UN", { unidade: "UN", origem: "NOME_PECA", linhas: 0, valor: 0, proposta: null });
+    if (!porUnidade.has("PÇ") && !porUnidade.has("UN") && pecaSemConversao(p.nome, p.contagem, p.entrada.cadastradas)) {
+      porUnidade.set("PÇ", { unidade: "PÇ", origem: "NOME_PECA", linhas: 0, valor: 0, proposta: null });
     }
     const pendencias = Array.from(porUnidade.values()).sort((a, b) => b.valor - a.valor || b.linhas - a.linhas);
     const conversoes = p.entrada.cadastradas.map((c) => ({ fromUnit: normalizarUnidade(c.fromUnit), toUnit: normalizarUnidade(c.toUnit), factor: c.factor }));

@@ -40,7 +40,7 @@ describe("montarRotina: situação da conversão de cada produto", () => {
 
   test("BACON PEÇA em KG pede a conversão da peça (UN) como pendência", () => {
     const r = montarRotina([produto("b", "BACON PEÇA", "KG")], apoio(["b"], { saldos: new Map([["b", 0.1]]) }));
-    expect(r.produtos[0].pendencias).toEqual([{ unidade: "UN", origem: "NOME_PECA", linhas: 0, valor: 0, proposta: null }]);
+    expect(r.produtos[0].pendencias).toEqual([{ unidade: "PÇ", origem: "NOME_PECA", linhas: 0, valor: 0, proposta: null }]);
     expect(r.produtos[0].saldo).toBe(0.1);
   });
 
