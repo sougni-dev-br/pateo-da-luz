@@ -14,11 +14,11 @@ export type LinhaDeCompra = {
 };
 
 /**
- * Quem fornece o item por padrão, como no planejamento de compra: o fornecedor principal do cadastro; sem ele,
- * o de menor preço histórico. O de menor preço aparece sempre como recomendação, para a pessoa trocar com um toque.
+ * Quem fornece o item por padrão: o de menor preço no histórico de compras, mesmo quando o cadastro tem um
+ * fornecedor principal (decisão do Eli). Sem histórico de preço, vale o principal. A pessoa troca com um toque.
  */
-export function fornecedorPadrao(principalId: string | null, menorPrecoId: string | null): string | null {
-  return principalId ?? menorPrecoId ?? null;
+export function fornecedorPadrao(menorPrecoId: string | null, principalId: string | null): string | null {
+  return menorPrecoId ?? principalId ?? null;
 }
 
 type LeituraDePreco = {

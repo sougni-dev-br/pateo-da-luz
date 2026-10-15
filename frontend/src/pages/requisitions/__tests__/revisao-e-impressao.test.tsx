@@ -56,7 +56,7 @@ describe("RevisaoDoPedido", () => {
   test("traz os fornecedores recomendados pelo menor preço e marca o de menor preço", async () => {
     getRequisitionPurchaseDraft.mockResolvedValue(rascunho({
       items: [{
-        ...base, productId: "p1", name: "FARINHA", unit: "KG", withdrawn: 3, balance: 40, suggestedQuantity: 3, defaultSupplierId: "f1", unitPrice: 12,
+        ...base, productId: "p1", name: "FARINHA", unit: "KG", withdrawn: 3, balance: 40, suggestedQuantity: 3, defaultSupplierId: "f2", unitPrice: 8,
         supplierOptions: [opcao("f2", "Horta Viva", 8), opcao("f1", "Moinho Bom", 12)],
         bestPriceSupplierId: "f2", bestPriceSupplierName: "Horta Viva", bestUnitPrice: 8, lastUnitPrice: 12, hasCheaperAlternative: true, priceComparisonNote: "Menor preço histórico"
       }]
@@ -64,14 +64,15 @@ describe("RevisaoDoPedido", () => {
     montar();
     const grupo = await screen.findByRole("group", { name: /Fornecedores recomendados para FARINHA/ });
     expect(grupo.textContent).toContain("menor preço");
-    // o padrão é o fornecedor do cadastro (como no planejamento), mas o mais barato é oferecido com um toque
-    expect(screen.getByRole("button", { name: /Moinho Bom/ }).getAttribute("aria-pressed")).toBe("true");
+    // o padrão é o de menor preço; trocar para o outro com um toque faz o alerta de "mais barato" aparecer
+    expect(screen.getByRole("button", { name: /Horta Viva/ }).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: /Moinho Bom/ }));
     fireEvent.click(await screen.findByRole("button", { name: /Menor preço: Horta Viva/ }));
     await waitFor(() => expect(screen.getByRole("button", { name: /Horta Viva/ }).getAttribute("aria-pressed")).toBe("true"));
     expect(screen.queryByRole("button", { name: /Menor preço: Horta Viva/ })).toBeNull();
   });
 
-  test("sem fornecedor principal, o padrão é o de menor preço histórico e a unidade em embalagem pede revisão", async () => {
+  test("o padrão é o de menor preço histórico e a unidade em embalagem pede revisão", async () => {
     getRequisitionPurchaseDraft.mockResolvedValue(rascunho({
       items: [{
         ...base, productId: "p1", name: "FARINHA", unit: "KG", withdrawn: 3, balance: 40, suggestedQuantity: 3, defaultSupplierId: "f2", unitPrice: 40,

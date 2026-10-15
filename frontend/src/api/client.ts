@@ -3539,7 +3539,7 @@ export type RequisitionPurchaseItem = {
   estoqueIdeal: number | null;
   /** Reposição sugerida (= o que saiu); a quantidade confirmada na revisão é a que vale. */
   suggestedQuantity: number;
-  /** Fornecedor principal do cadastro; sem ele, o de menor preço histórico (como no planejamento de compra). */
+  /** O de menor preço no histórico; sem histórico de preço, o principal do cadastro. */
   defaultSupplierId: string | null;
   unitPrice: number | null;
   preferredSupplierId: string | null;

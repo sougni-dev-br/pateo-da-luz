@@ -9,13 +9,13 @@ import {
   validarItensDoPedido
 } from "../requisicao-pedido.js";
 
-describe("fornecedorPadrao (premissa do planejamento de compra)", () => {
-  test("o fornecedor principal do cadastro vem primeiro", () => {
-    expect(fornecedorPadrao("principal", "maisBarato")).toBe("principal");
+describe("fornecedorPadrao", () => {
+  test("o de menor preço histórico vem primeiro, mesmo com fornecedor principal no cadastro", () => {
+    expect(fornecedorPadrao("maisBarato", "principal")).toBe("maisBarato");
   });
 
-  test("sem principal, vale o de menor preço histórico", () => {
-    expect(fornecedorPadrao(null, "maisBarato")).toBe("maisBarato");
+  test("sem histórico de preço, vale o principal do cadastro", () => {
+    expect(fornecedorPadrao(null, "principal")).toBe("principal");
   });
 
   test("sem principal e sem histórico, não chuta", () => {

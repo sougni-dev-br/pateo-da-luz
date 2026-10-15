@@ -89,7 +89,7 @@ requisicaoPedidoRouter.get("/:id", async (request, response) => {
       // Fornecedor principal inativo não é oferecido: a tela o mostraria selecionado e o servidor o descartaria.
       const principalId = item.fornecedorPrincipalId && ativos.has(item.fornecedorPrincipalId) ? item.fornecedorPrincipalId : null;
       const leitura = leituraDePreco(item.productId, principalId, principalId ? item.fornecedorPrincipalNome : null);
-      const padrao = fornecedorPadrao(principalId, leitura.bestPriceSupplierId);
+      const padrao = fornecedorPadrao(leitura.bestPriceSupplierId, principalId);
       return {
         productId: item.productId,
         name: item.productName,
