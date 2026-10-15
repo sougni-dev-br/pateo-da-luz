@@ -8,6 +8,7 @@ import { parseBody } from "../../shared/validate-body.js";
 import { normalizeText } from "../../shared/utils/normalize-text.js";
 import { linhasDeConversaoInformada, normalizarUnidade } from "../../shared/unidades/conversao.js";
 import { carregarDetalhe, categoriaResumida, conversoesDaFicha, separarItensPorCardapio, textoDaEmbalagemInferida, toCostItem } from "./dish-detail.js";
+import { simularCustoDeReferencia } from "./dish-custo-referencia.simulacao.js";
 import { carregarCustosDeReferencia, custoDaFichaPelaReferencia, type CustoDeReferencia } from "../inventory/custo-de-referencia.js";
 import { anexarFichas,primeiroProblemaDeFicha, resolverFichas, sugerirFichasDeProducao } from "./dish-fichas-de-producao.js";
 import { concluirFichaDoPrato } from "../waste/waste-ficha.js";
@@ -303,6 +304,17 @@ dishesRouter.get("/", async (request, response) => {
 // Preparações do buffet criadas pelo lançamento de desperdício (o purê, uma guarnição). Ficam fora da lista de pratos
 // (não são vendidas) e vêm aqui: as que aguardam ficha primeiro, com o que mais saiu na frente, para o responsável
 // cobrar da equipe o que falta pelo que mais pesa; depois as que já têm ficha.
+// Simulacao somente leitura: custo das fichas com o custo medio do estoque x o custo de referencia.
+dishesRouter.get("/custo-referencia/simulacao", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  if (!user) return;
+  try {
+    response.json(await simularCustoDeReferencia());
+  } catch (error) {
+    response.status(500).json({ message: error instanceof Error ? error.message : "Erro ao simular o custo de referência." });
+  }
+});
+
 dishesRouter.get("/buffet", async (_request, response) => {
   const pratos = await prisma.dish.findMany({
     where: { fichaDeBuffet: true },
