@@ -22,7 +22,7 @@ export type PratoDoSalaoComCusto = {
  * cardápio do salão. Uma leitura só para todos os pratos: serve ao relatório de margem sem uma
  * consulta por prato.
  */
-export async function carregarPratosDoSalaoComCusto(client: ClienteDoBanco): Promise<PratoDoSalaoComCusto[]> {
+export async function carregarPratosDoSalaoComCusto(client: ClienteDoBanco, referencia?: boolean): Promise<PratoDoSalaoComCusto[]> {
   const pratos = await client.dish.findMany({
     where: { isActive: true, fichaDeProducao: false, OR: [{ menu: MENU_DO_SALAO }, { alsoMenu: MENU_DO_SALAO }] },
     select: {
@@ -41,6 +41,7 @@ export async function carregarPratosDoSalaoComCusto(client: ClienteDoBanco): Pro
           componentDishId: true,
           product: {
             select: {
+              id: true,
               name: true,
               unit: true,
               stockUnit: true,
@@ -55,7 +56,7 @@ export async function carregarPratosDoSalaoComCusto(client: ClienteDoBanco): Pro
   });
 
   // Ingrediente pode ser outra ficha (de produção): uma leitura só resolve as de todos os pratos.
-  const comProduto = new Map((await anexarFichas(client, pratos.flatMap((prato) => prato.items))).map((item) => [item.id, item]));
+  const comProduto = new Map((await anexarFichas(client, pratos.flatMap((prato) => prato.items), referencia)).map((item) => [item.id, item]));
 
   return pratos.map((prato) => {
     const precoFicha = prato.salePriceDefault ? Number(prato.salePriceDefault) : null;

@@ -14,6 +14,7 @@ import {
   FileCog,
   FileInput,
   FileSignature,
+  Palmtree,
   FileSpreadsheet,
   FileScan,
   HandCoins,
@@ -100,6 +101,7 @@ const Escala = lazy(() => import("./pages/Escala").then((module) => ({ default: 
 const Folha = lazy(() => import("./pages/Folha").then((module) => ({ default: module.Folha })));
 const FolhaGorjeta = lazy(() => import("./pages/FolhaGorjeta").then((module) => ({ default: module.FolhaGorjeta })));
 const ExtratoRh = lazy(() => import("./pages/ExtratoRh").then((module) => ({ default: module.ExtratoRh })));
+const Ferias = lazy(() => import("./pages/rh/Ferias").then((module) => ({ default: module.Ferias })));
 const Rescisoes = lazy(() => import("./pages/rh/Rescisoes").then((module) => ({ default: module.Rescisoes })));
 const Extras = lazy(() => import("./pages/Extras").then((module) => ({ default: module.Extras })));
 const FichasCadastrais = lazy(() => import("./pages/rh/fichas/FichasCadastrais").then((module) => ({ default: module.FichasCadastrais })));
@@ -197,6 +199,9 @@ const sections = [
   { id: "employees", label: "Funcionários", icon: UsersIcon, showInSidebar: true, group: "Pessoas", path: ROTAS_RH.funcionarios, matchers: [ROTAS_RH.funcionarios, "/pessoal", "/pessoal/funcionarios"], description: "Cadastro de funcionários — base para escala, VT e folha de pagamento" },
   { id: "employee-forms", label: "Fichas cadastrais", icon: FileUser, showInSidebar: true, group: "Pessoas", path: ROTAS_RH.fichas, matchers: [ROTAS_RH.fichas, `${ROTAS_RH.fichas}/:id`], description: "Link para a pessoa preencher a ficha e mandar os documentos pelo celular; conferência, impressão e admissão" },
   { id: "schedule", label: "Escala", icon: CalendarDays, showInSidebar: true, group: "Pessoas", path: ROTAS_RH.escala, matchers: [ROTAS_RH.escala, "/pessoal/escala"], description: "Escala mensal de folgas (6×1 / 5×2) — domingos e feriados destacados; base para o cálculo do VT" },
+  // Férias: período e prazo calculados da data de registro; usa a permissão da Folha ("payroll"),
+  // a mesma das rotas /payroll/ferias.
+  { id: "ferias", label: "Férias", icon: Palmtree, showInSidebar: true, group: "Pessoas", path: ROTAS_RH.ferias, matchers: [ROTAS_RH.ferias], permissionId: "payroll", description: "Programação de férias: período aquisitivo, prazo para gozo, alerta de vencimento e datas decididas" },
   // A antiga "Folha e VT" virou três telas; as três usam a permissão da Folha ("payroll"),
   // a mesma de antes: ninguém perde nem ganha acesso com a divisão.
   { id: "payroll-adiantamento", label: "Adiantamento e 1ª quinzena", icon: Banknote, showInSidebar: true, group: "Folha", path: ROTAS_RH.adiantamento, matchers: [ROTAS_RH.adiantamento], permissionId: "payroll", description: "Quem recebe no dia 15 e no dia 20: o que está no Contas a Pagar, o que falta lançar e a lista para pagar no banco" },
@@ -773,6 +778,7 @@ export function App() {
               <Route path={ROTAS_RH.funcionarios} element={<Funcionarios />} />
               <Route path={ROTAS_RH.escala} element={<Escala />} />
               <Route path={ROTAS_RH.gorjeta} element={<FolhaGorjeta />} />
+              <Route path={ROTAS_RH.ferias} element={<Ferias />} />
               <Route path={ROTAS_RH.rescisoes} element={<Rescisoes />} />
               <Route path={ROTAS_RH.folha} element={<Folha key="lancamentos" secao="lancamentos" />} />
               <Route path={ROTAS_RH.vt} element={<Folha key="vt" secao="vt" />} />

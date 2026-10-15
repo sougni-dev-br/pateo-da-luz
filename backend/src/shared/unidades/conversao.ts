@@ -29,7 +29,7 @@ const FATORES_UNIVERSAIS: Record<string, number> = {
 };
 
 /** Grafias que significam a mesma unidade. A base tem as tres para "unidade". */
-const SINONIMOS: Record<string, string> = {
+export const SINONIMOS_DE_UNIDADE: Readonly<Record<string, string>> = {
   UNI: "UN",
   UND: "UN",
   UNIDADE: "UN",
@@ -57,7 +57,7 @@ export function normalizarUnidade(unit: unknown): string {
     .trim()
     .toUpperCase()
     .replace(/\.+$/, "");
-  return SINONIMOS[bruto] ?? bruto;
+  return SINONIMOS_DE_UNIDADE[bruto] ?? bruto;
 }
 
 /**

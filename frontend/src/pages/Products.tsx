@@ -1,7 +1,9 @@
-﻿import { History, Pencil, PowerOff, RefreshCw, Search, X } from "lucide-react";
+﻿import { History, Pencil, PowerOff, RefreshCw, Search, Wand2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { EmbalagensDeCompra } from "./products/EmbalagensDeCompra";
 import {
   addProductAlias,
+  ApiError,
   bulkPatchProductDreCategory,
   Category,
   DRECategory,
@@ -28,6 +30,7 @@ import { useSession } from "../context/SessionContext";
 import { hasPermission } from "../lib/permissions";
 import { useRevealScroll } from "../lib/useRevealScroll";
 import { SimpleBarChart } from "../components/SimpleBarChart";
+import { ConversoesAutomaticas } from "./compras/ConversoesAutomaticas";
 import {
   EmptyState,
   IconButton,
@@ -217,6 +220,9 @@ type ProductFormTab = (typeof productFormTabs)[number]["id"];
 export function Products() {
   const { user } = useSession();
   const canEdit = hasPermission(user, "products", "edit");
+  // A aplicacao em lote mexe nas compras: so quem tem cargo de gestao (o backend confere).
+  const podeConverterEmLote = canEdit && ["ADMIN", "GESTAO_COMPLETA"].includes(String(user?.role ?? ""));
+  const [mostrarConversoes, setMostrarConversoes] = useState(false);
   const canDelete = hasPermission(user, "products", "delete");
   const canCreateMasterData = hasPermission(user, "master-data", "create");
   const [products, setProducts] = useState<Product[]>([]);
@@ -248,6 +254,10 @@ export function Products() {
   const flashTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   const [form, setForm] = useState(emptyProduct);
+  // O que o formulario carregou. Vai junto ao salvar para o backend apagar so o
+  // que o operador tirou: conversao criada pela ficha tecnica ou pela revisao de
+  // embalagens depois da abertura do formulario nao esta aqui e e preservada.
+  const [conversoesCarregadas, setConversoesCarregadas] = useState<Array<{ fromUnit: string; toUnit: string }>>([]);
   const [history, setHistory] = useState<ProductHistory | null>(null);
   const [conversionForm, setConversionForm] = useState(emptyConversion);
   const [activeFormTab, setActiveFormTab] = useState<ProductFormTab>("identification");
@@ -478,6 +488,7 @@ export function Products() {
       externalCode: nextCode.code
     };
     setForm(fresh);
+    setConversoesCarregadas([]);
     setConversionForm(emptyConversion);
     setAlias("");
     setActiveFormTab("identification");
@@ -504,11 +515,22 @@ export function Products() {
     const subcategory = subcategories.find((item) => item.id === form.subcategoryId);
 
     try {
-      const saved = await saveProduct({
+      const payload = {
         ...form,
+        unitConversionsCarregadas: form.id ? conversoesCarregadas : [],
         categoryName: category?.name,
         subcategoryName: subcategory?.name
-      });
+      };
+      let saved;
+      try {
+        saved = await saveProduct(payload);
+      } catch (erro) {
+        // Trocar a unidade de contagem de produto com historico nao converte saldo,
+        // custo nem contagens: o backend pede confirmacao explicita.
+        if (!(erro instanceof ApiError && erro.status === 409 && erro.body?.code === "TROCA_DA_UNIDADE_DE_CONTAGEM")) throw erro;
+        if (!window.confirm(erro.message)) return;
+        saved = await saveProduct({ ...payload, confirmarTrocaDaUnidadeDeContagem: true });
+      }
 
       // O apelido e gravado depois do produto. Se ele conflitar com outro
       // produto, o cadastro ja foi salvo — dizer "erro ao salvar" mandaria o
@@ -662,7 +684,13 @@ export function Products() {
             <p>Cadastro operacional</p>
             <h2>Indicadores de produtos</h2>
           </div>
+          {podeConverterEmLote && (
+            <button type="button" className="secondary-button" aria-pressed={mostrarConversoes} onClick={() => setMostrarConversoes((v) => !v)}>
+              <Wand2 size={16} /> Conversões automáticas
+            </button>
+          )}
         </div>
+        {mostrarConversoes && <ConversoesAutomaticas onFechar={() => setMostrarConversoes(false)} onAplicado={() => void loadProducts()} />}
         <div className="summary-grid dashboard-summary">
           <SummaryCard label="Produtos cadastrados" value={totalProdutos} />
           <SummaryCard label="Ativos" value={totalAtivos} tone="success" />
@@ -871,7 +899,7 @@ export function Products() {
             <section className="form-section">
               <div className="form-section-header">
                 <h3>Unidades e conversao</h3>
-                <span>Unidade padrao, compra, estoque e conversoes futuras.</span>
+                <span>Unidade padrão, de compra, de estoque e as embalagens em que o fornecedor entrega.</span>
               </div>
               <div className="form-grid">
                 <label>
@@ -898,81 +926,27 @@ export function Products() {
                     {units.map((unit) => <option key={unit.id} value={unit.code}>{unit.code} - {unit.name}</option>)}
                   </select>
                 </label>
-                <label>
-                  Unidade base futura
-                  <select value={form.baseUnit} onChange={(event) => setForm({ ...form, baseUnit: event.target.value })}>
-                    <option value="">Selecione</option>
-                    {units.map((unit) => <option key={unit.id} value={unit.code}>{unit.code} - {unit.name}</option>)}
-                  </select>
-                </label>
-                <label>
-                  Fator de conversao
-                  <input value={form.conversionFactor} onChange={(event) => setForm({ ...form, conversionFactor: event.target.value })} />
-                </label>
-                <label>
-                  Peso medio
-                  <input value={form.packageWeight} onChange={(event) => setForm({ ...form, packageWeight: event.target.value })} />
-                </label>
+                {/* "Unidade base futura", "Fator de conversao" e "Peso medio" sairam da tela:
+                    eram gravados e nenhum calculo os lia, entao quem preenchia achava que tinha
+                    configurado a conversao. A conversao que vale e a de "Embalagens de compra".
+                    Os valores antigos continuam no cadastro (o formulario os devolve intactos). */}
               </div>
-              <div className="subsection compact-note">
-                <h3>Embalagens de compra</h3>
-                <p className="field-hint">
-                  Como o produto chega na nota e quantas unidades de contagem vêm em cada embalagem. Ex.: De <strong>PCT</strong> para <strong>UN</strong>, fator <strong>50</strong> — a nota "10 PCT" entra como 500 UN no estoque, com o custo de cada unidade.
-                </p>
-                <div className="form-grid">
-                  <label>
-                    Embalagem (De)
-                    <input placeholder="PCT, CX, FD…" value={conversionForm.fromUnit} onChange={(event) => setConversionForm({ ...conversionForm, fromUnit: event.target.value })} />
-                  </label>
-                  <label>
-                    Unidade de contagem (Para)
-                    <input placeholder="UN, KG…" value={conversionForm.toUnit} onChange={(event) => setConversionForm({ ...conversionForm, toUnit: event.target.value })} />
-                  </label>
-                  <label>
-                    Quantas vêm em cada (Fator)
-                    <input placeholder="50" inputMode="decimal" value={conversionForm.factor} onChange={(event) => setConversionForm({ ...conversionForm, factor: event.target.value })} />
-                  </label>
-                  <label>
-                    Peso médio
-                    <input value={conversionForm.averagePackageWeight} onChange={(event) => setConversionForm({ ...conversionForm, averagePackageWeight: event.target.value })} />
-                  </label>
-                  <label>
-                    Observações
-                    <input value={conversionForm.notes} onChange={(event) => setConversionForm({ ...conversionForm, notes: event.target.value })} />
-                  </label>
-                  <button
-                    className="secondary-button"
-                    type="button"
-                    onClick={() => {
-                      if (!conversionForm.fromUnit || !conversionForm.toUnit || !conversionForm.factor) return;
-                      setForm({ ...form, unitConversions: [...form.unitConversions, conversionForm] });
-                      setConversionForm(emptyConversion);
-                    }}
-                  >
-                    Adicionar conversao
-                  </button>
-                </div>
-                {form.unitConversions.length > 0 && (
-                  <div className="columns-list">
-                    {form.unitConversions.map((conversion, index) => (
-                      <span key={`${conversion.fromUnit}-${conversion.toUnit}-${index}`}>
-                        {conversion.fromUnit} {" -> "} {conversion.toUnit}: <strong>{conversion.factor}</strong>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setForm({
-                              ...form,
-                              unitConversions: form.unitConversions.filter((_, currentIndex) => currentIndex !== index)
-                            })
-                          }
-                        >
-                          remover
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <EmbalagensDeCompra
+                unidades={units}
+                unidadeDeContagem={form.stockUnit || form.unit}
+                conversoes={form.unitConversions}
+                origem={conversionForm.fromUnit}
+                fator={conversionForm.factor}
+                onOrigem={(fromUnit) => setConversionForm({ ...conversionForm, fromUnit })}
+                onFator={(factor) => setConversionForm({ ...conversionForm, factor })}
+                onAdicionar={(conversao) => {
+                  setForm({ ...form, unitConversions: [...form.unitConversions, conversao] });
+                  setConversionForm(emptyConversion);
+                }}
+                onRemover={(indice) =>
+                  setForm({ ...form, unitConversions: form.unitConversions.filter((_, atual) => atual !== indice) })
+                }
+              />
             </section>
           )}
 
@@ -1410,6 +1384,7 @@ export function Products() {
                         setActiveFormTab("identification");
                         setFormOpenKey((n) => n + 1);
                         setForm(hydrated);
+                        setConversoesCarregadas(hydrated.unitConversions.map(({ fromUnit, toUnit }) => ({ fromUnit, toUnit })));
                         setAlias("");
                         setSnapshot(normalizeForm(hydrated));
                         setAliasSnapshot("");

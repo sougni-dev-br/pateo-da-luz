@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type Response } from "express";
 import crypto from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
@@ -9,9 +9,12 @@ import { resolveProductNameConflict } from "./product-name-conflict.js";
 import { parseBody } from "../../shared/validate-body.js";
 import { resolvePagination } from "../../shared/pagination.js";
 import { productSchema, productStatusSchema } from "./product.schemas.js";
-import { auditLog, requestIp, requireRole } from "../security/security-utils.js";
+import { auditLog, requestIp, requireMenuPermission, requireRole } from "../security/security-utils.js";
 import { beverageSectorName, normalizeInventorySectorInput } from "../master-data/inventory-sector-utils.js";
-import { detectarEmbalagem } from "../../shared/unidades/conversao.js";
+import { detectarEmbalagem, normalizarUnidade } from "../../shared/unidades/conversao.js";
+import { sqlCompraNaUnidadeDeContagem } from "../../shared/unidades/compra-na-contagem.sql.js";
+import { aplicarConversoes, listarPropostasDeConversao } from "./conversao-automatica.service.js";
+import { conversoesASairem, prepararConversoesEnviadas, type ConversaoCanonica, type ConversaoEnviada, type ConversaoGravada } from "./product-conversoes.js";
 
 export const productRouter = Router();
 
@@ -189,24 +192,55 @@ async function syncProductPurchaseParameters(productId: string, body: Record<str
   `;
 }
 
-async function replaceProductUnitConversions(productId: string, conversions: ProductConversionPayload[] = []) {
-  await prisma.$executeRaw`DELETE FROM "ProductUnitConversion" WHERE "productId" = ${productId}`;
+async function replaceProductUnitConversions(
+  productId: string,
+  enviadas: ConversaoCanonica[] | null,
+  carregadas: Array<{ fromUnit?: string | null; toUnit?: string | null }> | null | undefined
+) {
+  // Payload sem a lista (outra tela, cliente antigo) nao mexe nas conversoes.
+  if (enviadas == null) return;
 
-  for (const conversion of conversions) {
-    const fromUnit = normalizeUnit(conversion.fromUnit);
-    const toUnit = normalizeUnit(conversion.toUnit);
-    const factor = parseDecimalInput(conversion.factor);
-    if (!fromUnit || !toUnit || !factor || factor <= 0) continue;
-
-    await prisma.$executeRaw`
-      INSERT INTO "ProductUnitConversion"
-        ("id", "productId", "fromUnit", "toUnit", "factor", "averagePackageWeight", "notes", "isActive", "updatedAt")
-      VALUES
-        (${crypto.randomUUID()}, ${productId}, ${fromUnit}, ${toUnit}, ${factor},
-         ${parseDecimalInput(conversion.averagePackageWeight)}, ${asText(conversion.notes)},
-         ${conversion.isActive ?? true}, CURRENT_TIMESTAMP)
+  await prisma.$transaction(async (tx) => {
+    const gravadas = await tx.$queryRaw<ConversaoGravada[]>`
+      SELECT "id", "fromUnit", "toUnit" FROM "ProductUnitConversion" WHERE "productId" = ${productId}
     `;
+    const saem = conversoesASairem({ gravadas, enviadas, carregadas });
+    if (saem.length) {
+      await tx.$executeRaw`DELETE FROM "ProductUnitConversion" WHERE "id" IN (${Prisma.join(saem)})`;
+    }
+    for (const conversao of enviadas) {
+      await tx.$executeRaw`
+        INSERT INTO "ProductUnitConversion"
+          ("id", "productId", "fromUnit", "toUnit", "factor", "averagePackageWeight", "notes", "isActive", "updatedAt")
+        VALUES
+          (${crypto.randomUUID()}, ${productId}, ${conversao.fromUnit}, ${conversao.toUnit}, ${conversao.factor},
+           ${conversao.averagePackageWeight}, ${conversao.notes}, ${conversao.isActive}, CURRENT_TIMESTAMP)
+        ON CONFLICT ("productId", "fromUnit", "toUnit") DO UPDATE SET
+          "factor" = EXCLUDED."factor",
+          "averagePackageWeight" = EXCLUDED."averagePackageWeight",
+          "notes" = EXCLUDED."notes",
+          "isActive" = EXCLUDED."isActive",
+          "updatedAt" = CURRENT_TIMESTAMP
+      `;
+    }
+  });
+}
+
+/** Valida as conversoes antes de qualquer gravacao; responde 400 e devolve null quando nao passam. */
+function conversoesDoCorpo(body: Record<string, unknown>, response: Response): { enviadas: ConversaoCanonica[] | null } | null {
+  if (!Array.isArray(body.unitConversions)) return { enviadas: null };
+  const preparadas = prepararConversoesEnviadas(body.unitConversions as ConversaoEnviada[]);
+  if (!preparadas.ok) {
+    response.status(400).json({ message: preparadas.erro });
+    return null;
   }
+  return { enviadas: preparadas.conversoes };
+}
+
+function conversoesCarregadas(body: Record<string, unknown>) {
+  return Array.isArray(body.unitConversionsCarregadas)
+    ? (body.unitConversionsCarregadas as Array<{ fromUnit?: string | null; toUnit?: string | null }>)
+    : null;
 }
 
 /**
@@ -773,6 +807,42 @@ productRouter.patch("/bulk-dre", async (request, response) => {
   response.json({ ok: true, updated: result.count });
 });
 
+// Conversoes que o nome do produto e as compras ja dizem ("SACO C800" comprado em
+// CX e contado em UN). A lista mostra todas; aplicar cadastra e refaz as compras
+// sem conversao. O fator e sempre recalculado no servidor.
+productRouter.get("/conversoes-automaticas", async (request, response) => {
+  const user = await requireMenuPermission(request, response);
+  if (!user) return;
+  try {
+    response.json({ produtos: await listarPropostasDeConversao() });
+  } catch (error) {
+    response.status(500).json({ message: error instanceof Error ? error.message : "Erro ao montar as conversões automáticas." });
+  }
+});
+
+productRouter.post("/conversoes-automaticas/aplicar", async (request, response) => {
+  const user = await requireMenuPermission(request, response);
+  if (!user) return;
+  const body = (request.body ?? {}) as { escolhas?: unknown; todasDeAltaConfianca?: unknown };
+  const escolhas = Array.isArray(body.escolhas)
+    ? body.escolhas
+        .map((e) => e as { productId?: unknown; fromUnit?: unknown })
+        .filter((e) => typeof e.productId === "string" && typeof e.fromUnit === "string")
+        .map((e) => ({ productId: e.productId as string, fromUnit: e.fromUnit as string }))
+        .slice(0, 2000)
+    : [];
+  const todasDeAltaConfianca = body.todasDeAltaConfianca === true;
+  if (!todasDeAltaConfianca && escolhas.length === 0) {
+    response.status(400).json({ message: "Escolha ao menos uma conversão ou aplique todas as de alta confiança." });
+    return;
+  }
+  try {
+    response.json(await aplicarConversoes({ escolhas, todasDeAltaConfianca, userId: user.id }));
+  } catch (error) {
+    response.status(500).json({ message: error instanceof Error ? error.message : "Erro ao aplicar as conversões." });
+  }
+});
+
 productRouter.post("/", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
@@ -780,6 +850,8 @@ productRouter.post("/", async (request, response) => {
   const body = parseBody(productSchema, request.body, response);
   if (!body) return;
   const name = body.name;
+  const conversoes = conversoesDoCorpo(body, response);
+  if (!conversoes) return;
 
   const conflict = await checkProductNameConflict(normalizeText(name), null);
   if (!conflict.ok) {
@@ -819,7 +891,7 @@ productRouter.post("/", async (request, response) => {
   });
   await updateProductConversionDefaults(product.id, body);
   await syncProductPurchaseParameters(product.id, body);
-  await replaceProductUnitConversions(product.id, body.unitConversions);
+  await replaceProductUnitConversions(product.id, conversoes.enviadas, conversoesCarregadas(body));
   await auditLog({
     userId: user.id,
     action: "CREATE_PRODUCT",
@@ -840,6 +912,8 @@ productRouter.put("/:id", async (request, response) => {
   const body = parseBody(productSchema, request.body, response);
   if (!body) return;
   const name = body.name;
+  const conversoes = conversoesDoCorpo(body, response);
+  if (!conversoes) return;
 
   const conflict = await checkProductNameConflict(normalizeText(name), request.params.id);
   if (!conflict.ok) {
@@ -853,7 +927,7 @@ productRouter.put("/:id", async (request, response) => {
 
   const [previous] = await prisma.$queryRaw<Array<Record<string, unknown>>>`
     SELECT
-      "id", "inventorySectorId", "categoryId", "subcategoryId", "unit", "accountType", "controlsStock",
+      "id", "inventorySectorId", "categoryId", "subcategoryId", "unit", "stockUnit", "accountType", "controlsStock",
       "externalCode", "estoqueMinimo", "estoqueIdeal", "leadTimeCompraDias", "fornecedorPrincipalId",
       "storageLocation", "storageCorridor", "storageShelf", "storagePosition", "storageNotes"
     FROM "Product"
@@ -884,6 +958,32 @@ productRouter.put("/:id", async (request, response) => {
   }
   const persistedExternalCode = previous.externalCode ? String(previous.externalCode) : await ensureUniqueProductCode();
   const unitMeasure = await unitCodeFromId(body.unitMeasureId);
+
+  // Saldo, custo medio, contagens e compras convertidas estao na unidade de contagem
+  // atual. Trocar a unidade nao converte nada disso: 10 CX viram "10 UN" e o custo
+  // da caixa vira custo da unidade. So passa com confirmacao explicita.
+  const contagemAntes = normalizarUnidade(previous.stockUnit ?? previous.unit);
+  const contagemDepois = normalizarUnidade(normalizeUnit(body.stockUnit ?? body.baseUnit) ?? unitMeasure?.code ?? null);
+  const trocouContagem = Boolean(contagemAntes) && contagemAntes !== contagemDepois;
+  if (trocouContagem) {
+    const [uso] = await prisma.$queryRaw<Array<{ compras: bigint; contagens: bigint; saldo: Prisma.Decimal | null }>>`
+      SELECT
+        (SELECT COUNT(*) FROM "PurchaseItem" WHERE "productId" = ${request.params.id}) AS compras,
+        (SELECT COUNT(*) FROM "OperationalInventoryItem" WHERE "productId" = ${request.params.id} AND "countedQuantity" IS NOT NULL) AS contagens,
+        (SELECT "currentQuantity" FROM "InventoryStock" WHERE "productId" = ${request.params.id}) AS saldo
+    `;
+    const temHistorico = Number(uso?.compras ?? 0) > 0 || Number(uso?.contagens ?? 0) > 0 || Number(uso?.saldo ?? 0) !== 0;
+    if (temHistorico && body.confirmarTrocaDaUnidadeDeContagem !== true) {
+      response.status(409).json({
+        code: "TROCA_DA_UNIDADE_DE_CONTAGEM",
+        message:
+          `Este produto é contado em ${contagemAntes} e já tem ${Number(uso?.compras ?? 0)} compra(s) e ${Number(uso?.contagens ?? 0)} contagem(ns) nessa unidade. ` +
+          `Trocar para ${contagemDepois || "(vazio)"} não converte saldo, custo médio nem contagens anteriores. ` +
+          `Confirme só se a unidade estava errada desde o início.`
+      });
+      return;
+    }
+  }
 
   const product = await prisma.product.update({
     where: { id: request.params.id },
@@ -974,7 +1074,7 @@ productRouter.put("/:id", async (request, response) => {
       userAgent: String(request.headers["user-agent"] ?? "")
     });
   }
-  await replaceProductUnitConversions(product.id, body.unitConversions);
+  await replaceProductUnitConversions(product.id, conversoes.enviadas, conversoesCarregadas(body));
   await auditLog({
     userId: user.id,
     action: "UPDATE_PRODUCT",
@@ -1064,7 +1164,9 @@ productRouter.get("/:id/history", async (request, response) => {
         FROM "CmvPeriod" p
         JOIN "Purchase" purchase ON purchase."purchaseDate" >= p."dataInicial" AND purchase."purchaseDate" <= p."dataFinal"
         JOIN "PurchaseItem" item ON item."purchaseId" = purchase."id" AND item."productId" = ${request.params.id}
+        JOIN "Product" item_product ON item_product."id" = item."productId"
         WHERE purchase."status" <> 'CANCELLED'
+          AND ${sqlCompraNaUnidadeDeContagem("item", "item_product")}
         GROUP BY p."id"
       )
       SELECT p."code" AS "periodCode", p."dataInicial" AS "startDate", p."dataFinal" AS "endDate",

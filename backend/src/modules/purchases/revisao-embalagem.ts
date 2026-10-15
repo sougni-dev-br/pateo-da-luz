@@ -9,6 +9,8 @@
 // O sinal e o preco: dentro do mesmo produto, uma linha que custa 10x ou mais
 // que a mais barata quase sempre e pacote/caixa lancado como unidade.
 
+import { normalizarUnidade } from "../../shared/unidades/conversao.js";
+
 export const RAZAO_SUSPEITA = 10;
 
 export type LinhaDeCompra = {
@@ -57,10 +59,11 @@ export type ValidacaoDeEmbalagem =
 /** Valida a escolha de uma linha: avulso, ou embalagem com unidade e fator. */
 export function validarEmbalagem(entrada: { avulso?: unknown; unidade?: unknown; fator?: unknown }, unidadeDeContagem: string): ValidacaoDeEmbalagem {
   if (entrada.avulso === true) return { ok: true, avulso: true };
-  const unidade = String(entrada.unidade ?? "").trim().toUpperCase();
+  // Canonica: "CAIXA" e "CX" sao a mesma embalagem, e "UND" e a propria unidade.
+  const unidade = normalizarUnidade(entrada.unidade);
   const fator = typeof entrada.fator === "number" ? entrada.fator : Number(String(entrada.fator ?? "").replace(",", "."));
   if (!unidade) return { ok: false, erro: "Escolha a embalagem (PCT, CX, FD...)." };
-  if (unidade === unidadeDeContagem.toUpperCase()) {
+  if (unidade === normalizarUnidade(unidadeDeContagem)) {
     return { ok: false, erro: `A embalagem precisa ter outro nome que a unidade de contagem (${unidadeDeContagem}): use PCT, CX, FD...` };
   }
   if (!Number.isFinite(fator) || fator <= 1) return { ok: false, erro: "Informe quantas unidades vem em cada embalagem (mais que 1)." };

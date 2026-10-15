@@ -1836,6 +1836,8 @@ export type ItemDaConferencia = {
   anteriorData: string | null;
   anteriorCodigo: string | null;
   compras: number;
+  /** Compras do intervalo sem conversao para a unidade de contagem: ficaram fora da soma. */
+  comprasForaDaConta?: number;
   /** Desperdicio registrado no periodo (0 = nenhum). Explica consumo; nao muda a conta do CMV. */
   desperdicio: number;
   disponivel: number | null;
@@ -2318,6 +2320,48 @@ export function aplicarEmbalagens(itens: Array<{ itemId: string; avulso?: true; 
   });
 }
 
+export type PropostaDeConversao = {
+  fromUnit: string;
+  toUnit: string;
+  factor: number;
+  /** "alta": o sistema aplica sozinho. "baixa": precisa de conferencia. */
+  confianca: "alta" | "baixa";
+  origem: string;
+  motivo: string;
+  precoConfirma: boolean | null;
+  linhas: number;
+  valor: number;
+};
+
+export type ProdutoComPropostasDeConversao = {
+  productId: string;
+  codigo: string | null;
+  nome: string;
+  unidadeDeContagem: string;
+  propostas: PropostaDeConversao[];
+};
+
+export type ResultadoDasConversoesAutomaticas = {
+  conversoesCriadas: number;
+  comprasConvertidas: number;
+  comprasEmPeriodoFechado: number;
+  produtos: Array<{ productId: string; nome: string; fromUnit: string; toUnit: string; factor: number; comprasConvertidas: number; comprasEmPeriodoFechado: number }>;
+};
+
+/** Conversoes que o nome do produto e as compras ja dizem, ainda nao cadastradas. */
+export function getConversoesAutomaticas() {
+  return request<{ produtos: ProdutoComPropostasDeConversao[] }>("/products/conversoes-automaticas");
+}
+
+/** Cadastra as conversoes escolhidas (ou todas as de alta confianca) e refaz as compras sem conversao. */
+export function aplicarConversoesAutomaticas(payload: { escolhas?: Array<{ productId: string; fromUnit: string }>; todasDeAltaConfianca?: boolean }) {
+  return request<ResultadoDasConversoesAutomaticas>("/products/conversoes-automaticas/aplicar", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
 export function updatePurchase(id: string, payload: ManualPurchasePayload & { supplierChangeReason?: string | null }) {
   return request<PurchaseDetail>(`/purchases/${id}`, {
     method: "PUT",
@@ -2562,6 +2606,9 @@ export function saveProduct(
     name: string;
     categoryName?: string;
     subcategoryName?: string;
+    /** Conversoes que o formulario carregou: so estas podem ser apagadas ao salvar. */
+    unitConversionsCarregadas?: Array<{ fromUnit: string; toUnit: string }>;
+    confirmarTrocaDaUnidadeDeContagem?: boolean;
   }
 ) {
   const path = payload.id ? `/products/${payload.id}` : "/products";
@@ -3154,6 +3201,8 @@ export type ReferenciaDaContagem = {
   anteriorData: string | null;
   anteriorCodigo: string | null;
   compras: number;
+  /** Compras do intervalo sem conversao para a unidade de contagem: ficaram fora da soma. */
+  comprasForaDaConta?: number;
   custoUnitario: number | null;
 };
 
@@ -3336,6 +3385,8 @@ export type ItemDaPosicao = {
   valor: number | null;
   comprasDesde: number;
   valorComprasDesde: number;
+  /** Compras do intervalo sem conversao para a unidade de contagem: ficaram fora da soma. */
+  comprasForaDaConta?: number;
 };
 
 export function getPosicaoDoEstoque() {
@@ -8036,6 +8087,49 @@ export type DetalheRescisao = {
 
 export function getRescisoes() {
   return request<ListaRescisoes>("/payroll/rescisoes");
+}
+
+// ─── Férias (RH → Férias) ────────────────────────────────────────────────────────
+export type SituacaoFerias = "EM_AQUISICAO" | "DISPONIVEL" | "A_VENCER" | "VENCIDA" | "PROGRAMADA" | "GOZADA";
+export type NivelFerias = "ok" | "atencao" | "perigo";
+export type ProgramacaoFerias = {
+  id: string; aquisitivoInicio: string; gozoInicio: string | null; gozoFim: string | null;
+  dias: number; diasAbono: number; status: "PROGRAMADA" | "GOZADA"; observacao: string | null; passouDaData: boolean;
+};
+export type PeriodoFerias = {
+  aquisitivoInicio: string; aquisitivoFim: string; limiteInicioGozo: string; fimConcessivo: string;
+  diasDireito: number; diasGozados: number; diasProgramados: number; diasAbono: number; diasPendentes: number;
+  situacao: SituacaoFerias; nivel: NivelFerias; diasParaLimite: number | null; diasParaCompletar: number | null;
+  foraDoPrazo: boolean; doHistorico: boolean; programacoes: ProgramacaoFerias[];
+};
+export type PessoaFerias = {
+  employeeId: string; nome: string; empresa: string | null; admissao: string | null; nivel: NivelFerias; periodos: PeriodoFerias[];
+};
+export type ListaFerias = {
+  hoje: string;
+  pessoas: PessoaFerias[];
+  semDataDeAdmissao: Array<{ employeeId: string; nome: string }>;
+  resumo: { vencidas: number; aVencer: number };
+};
+export type PedidoFerias = {
+  aquisitivoInicio: string; gozoInicio: string; dias: number; diasAbono: number; observacao?: string; status?: "PROGRAMADA" | "GOZADA";
+};
+
+export function getFerias() {
+  return request<ListaFerias>("/payroll/ferias");
+}
+export function programarFerias(employeeId: string, pedido: PedidoFerias) {
+  return request<{ id: string }>("/payroll/ferias", json("POST", { employeeId, ...pedido }));
+}
+/** Quita o saldo de um período como "já gozado", sem datas (férias tiradas antes da tela ou já na contabilidade). */
+export function marcarFeriasGozadas(employeeId: string, aquisitivoInicio: string) {
+  return request<{ id: string }>("/payroll/ferias", json("POST", { employeeId, aquisitivoInicio, semDatas: true }));
+}
+export function atualizarFerias(id: string, mudanca: Partial<Omit<PedidoFerias, "aquisitivoInicio">>) {
+  return request<{ id: string }>(`/payroll/ferias/${encodeURIComponent(id)}`, json("PATCH", mudanca));
+}
+export function cancelarFerias(id: string) {
+  return request<{ ok: boolean }>(`/payroll/ferias/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 export function getRescisaoDetalhe(employeeId: string) {

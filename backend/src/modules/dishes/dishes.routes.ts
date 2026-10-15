@@ -8,9 +8,12 @@ import { parseBody } from "../../shared/validate-body.js";
 import { normalizeText } from "../../shared/utils/normalize-text.js";
 import { linhasDeConversaoInformada, normalizarUnidade } from "../../shared/unidades/conversao.js";
 import { carregarDetalhe, categoriaResumida, conversoesDaFicha, separarItensPorCardapio, textoDaEmbalagemInferida, toCostItem } from "./dish-detail.js";
-import { anexarFichas, primeiroProblemaDeFicha, resolverFichas, sugerirFichasDeProducao } from "./dish-fichas-de-producao.js";
+import { simularCustoDeReferencia } from "./dish-custo-referencia.simulacao.js";
+import { carregarCustosDeReferencia, custoDaFichaPelaReferencia, type CustoDeReferencia } from "../inventory/custo-de-referencia.js";
+import { anexarFichas,primeiroProblemaDeFicha, resolverFichas, sugerirFichasDeProducao } from "./dish-fichas-de-producao.js";
 import { concluirFichaDoPrato } from "../waste/waste-ficha.js";
-import { auditLog, requestIp, requireRole } from "../security/security-utils.js";
+import { auditLog, requestIp, requireMenuPermission, requireRole } from "../security/security-utils.js";
+import { userHasPermission } from "../security/menu-permissions.js";
 import { MENUS, registrarRotasDeCategoria } from "./dish-categories.js";
 import { registrarRevisao } from "./dish-revisions.js";
 import { registrarRotasDeListagem } from "./dish-listings.js";
@@ -302,6 +305,21 @@ dishesRouter.get("/", async (request, response) => {
 // Preparações do buffet criadas pelo lançamento de desperdício (o purê, uma guarnição). Ficam fora da lista de pratos
 // (não são vendidas) e vêm aqui: as que aguardam ficha primeiro, com o que mais saiu na frente, para o responsável
 // cobrar da equipe o que falta pelo que mais pesa; depois as que já têm ficha.
+// Simulacao somente leitura: custo das fichas com o custo medio do estoque x o custo de referencia.
+dishesRouter.get("/custo-referencia/simulacao", async (request, response) => {
+  const user = await requireMenuPermission(request, response);
+  if (!user) return;
+  if (!(await userHasPermission(user, "inventory-costs", "view"))) {
+    response.status(403).json({ message: "Usuário sem permissão para ver custos do estoque." });
+    return;
+  }
+  try {
+    response.json(await simularCustoDeReferencia());
+  } catch (error) {
+    response.status(500).json({ message: error instanceof Error ? error.message : "Erro ao simular o custo de referência." });
+  }
+});
+
 dishesRouter.get("/buffet", async (_request, response) => {
   const pratos = await prisma.dish.findMany({
     where: { fichaDeBuffet: true },
@@ -977,12 +995,13 @@ dishesRouter.get("/products/search", async (request, response) => {
   // stockUnit e conversions vao junto para a tela conseguir prever o custo do
   // ingrediente antes de salvar. O calculo que vale continua sendo o do
   // backend, em dish-cost.ts.
+  const referencia = custoDaFichaPelaReferencia() ? await carregarCustosDeReferencia(products.map((p) => p.id)) : new Map<string, CustoDeReferencia>();
   response.json(products.map((p) => ({
     id: p.id,
     externalCode: p.externalCode,
     name: p.name,
     unit: p.stockUnit || p.unit,
-    averageCost: Number(p.inventoryStock?.averageCost ?? 0),
+    averageCost: referencia.get(p.id)?.valor ?? Number(p.inventoryStock?.averageCost ?? 0),
     conversions: conversoesDaFicha(p),
     embalagemInferida: textoDaEmbalagemInferida(p)
   })));

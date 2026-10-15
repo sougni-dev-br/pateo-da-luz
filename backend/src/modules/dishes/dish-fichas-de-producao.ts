@@ -4,6 +4,7 @@
 // Regras: até MAX_NIVEIS níveis de ficha dentro de ficha, nunca em ciclo (uma ficha não pode conter a si mesma,
 // direta ou indiretamente), e a quantidade é dada na unidade de rendimento da ficha de baixo (1 UN = 1 porção).
 import { calculateDishCost } from "./dish-cost.js";
+import { carregarReferenciaDosItens, itemComReferencia } from "./dish-custo-referencia.js";
 import { separarItensPorCardapio, toCostItem, type ClienteDoBanco, type ItemComProduto, type ProdutoDoItem } from "./dish-itens.js";
 import { normalizarUnidade, resolveUnitFactor } from "../../shared/unidades/conversao.js";
 
@@ -57,14 +58,14 @@ const SELECAO = {
  * e calcula o custo de cada uma de baixo para cima. Ciclo ou profundidade além do limite deixam a ficha sem custo
  * (incompleta) em vez de travar.
  */
-export async function resolverFichas(client: ClienteDoBanco, ids: string[]): Promise<Map<string, FichaResolvida>> {
+export async function resolverFichas(client: ClienteDoBanco, ids: string[], referencia?: boolean): Promise<Map<string, FichaResolvida>> {
   type Carregada = Awaited<ReturnType<typeof carregarNivel>>[number];
   const carregadas = new Map<string, Carregada>();
   let fronteira = [...new Set(ids)];
   for (let nivel = 0; nivel < MAX_NIVEIS + 1 && fronteira.length > 0; nivel++) {
     const novas = fronteira.filter((id) => !carregadas.has(id));
     if (novas.length === 0) break;
-    const linhas = await carregarNivel(client, novas);
+    const linhas = await carregarNivel(client, novas, referencia);
     for (const linha of linhas) carregadas.set(linha.id, linha);
     fronteira = [...new Set(linhas.flatMap((l) => l.items.map((i) => i.componentDishId)).filter((id): id is string => Boolean(id)))];
   }
@@ -123,8 +124,11 @@ export async function resolverFichas(client: ClienteDoBanco, ids: string[]): Pro
   return resolvidas;
 }
 
-function carregarNivel(client: ClienteDoBanco, ids: string[]) {
-  return client.dish.findMany({ where: { id: { in: ids } }, select: SELECAO });
+async function carregarNivel(client: ClienteDoBanco, ids: string[], ligado?: boolean) {
+  const linhas = await client.dish.findMany({ where: { id: { in: ids } }, select: SELECAO });
+  const mapa = await carregarReferenciaDosItens(linhas.flatMap((l) => l.items), ligado);
+  if (mapa.size === 0) return linhas;
+  return linhas.map((l) => ({ ...l, items: l.items.map((i) => itemComReferencia(i, mapa)) }));
 }
 
 /** A ficha de produção vista como se fosse um produto: unidade de rendimento e custo por unidade. */
@@ -148,11 +152,14 @@ export function produtoDaFicha(ficha: FichaResolvida): ProdutoDoItem {
  */
 export async function anexarFichas<T extends { componentDishId: string | null; product: ProdutoDoItem | null }>(
   client: ClienteDoBanco,
-  itens: T[]
+  itens: T[],
+  referencia?: boolean
 ): Promise<Array<Omit<T, "product"> & { product: ProdutoDoItem }>> {
   const ids = [...new Set(itens.map((i) => i.componentDishId).filter((id): id is string => Boolean(id)))];
-  const fichas = ids.length > 0 ? await resolverFichas(client, ids) : new Map<string, FichaResolvida>();
-  return itens.map((item) => {
+  const fichas = ids.length > 0 ? await resolverFichas(client, ids, referencia) : new Map<string, FichaResolvida>();
+  const mapa = await carregarReferenciaDosItens(itens, referencia);
+  return itens.map((original) => {
+    const item = itemComReferencia(original, mapa);
     if (item.componentDishId) {
       const ficha = fichas.get(item.componentDishId);
       return { ...item, product: produtoDaFicha(ficha ?? { id: item.componentDishId, name: "Ficha", code: null, yieldUnit: "UN", custoPorUnidade: null, incompleta: true, motivo: "Ficha de produção não encontrada." }) };
