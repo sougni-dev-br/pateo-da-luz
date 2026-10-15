@@ -22,6 +22,7 @@ const sectors = [{ id: "camara", name: "CAMARA FRIA" }, { id: "seco", name: "EST
 const catalogo = [
   { id: "p1", name: "FARINHA", code: "10", unit: "KG", conversions: [], embalagemInferida: null, sectorId: "seco", balance: 3 },
   { id: "p2", name: "ALFACE AMERICANA", code: "327", unit: "KG", conversions: [], embalagemInferida: null, sectorId: "camara", balance: 44 },
+  { id: "p4", name: "OVO", code: "70", unit: "UN", conversions: [], embalagemInferida: null, sectorId: "camara", balance: 30 },
   { id: "p3", name: "AMENDOIM", code: "50", unit: "KG", conversions: [], embalagemInferida: null, sectorId: "seco", balance: 0 }
 ];
 
@@ -32,6 +33,8 @@ function montar(onCriada = vi.fn()) {
 
 const qtd = (nome: string) => screen.findByLabelText(`Quantidade de ${nome}`) as Promise<HTMLInputElement>;
 const digitar = async (nome: string, valor: string) => fireEvent.change(await qtd(nome), { target: { value: valor } });
+// A unidade fica sempre à mostra nos produtos que convertem: procura dentro da linha do produto.
+const unidadeDe = (nome: string, unidade: string) => within(screen.getByText(nome).closest("li") as HTMLElement).getByRole("button", { name: unidade });
 const registrar = () => screen.getByRole("button", { name: "Registrar" }) as HTMLButtonElement;
 
 describe("FormularioDaRequisicao", () => {
@@ -40,6 +43,28 @@ describe("FormularioDaRequisicao", () => {
     getRequisitionCatalog.mockResolvedValue(catalogo);
   });
   afterEach(() => { cleanup(); vi.clearAllMocks(); });
+
+  test("escolher um produto de uma só unidade não empurra os de baixo (toques rápidos descendo a lista)", async () => {
+    montar();
+    const linha = (await screen.findByText("OVO")).closest("li") as HTMLElement;
+    const antes = linha.querySelectorAll("*").length;
+    fireEvent.click(screen.getByLabelText("Aumentar OVO"));
+    expect((await qtd("OVO")).value).toBe("1");
+    expect(linha.querySelectorAll("*").length).toBe(antes);
+    expect(linha.querySelector(".rq-detalhe")).toBeNull();
+    expect(within(linha).getByText(/fica com 29 UN/)).toBeTruthy();
+  });
+
+  test("o produto que converte já mostra a unidade antes de escolher, sem empurrar a lista depois", async () => {
+    montar();
+    const linha = (await screen.findByText("FARINHA")).closest("li") as HTMLElement;
+    const antes = linha.querySelectorAll("*").length;
+    expect(within(linha).getByRole("button", { name: "KG" })).toBeTruthy();
+    fireEvent.click(screen.getByLabelText("Aumentar FARINHA"));
+    await qtd("FARINHA");
+    expect(linha.querySelectorAll("*").length).toBeLessThanOrEqual(antes + 1);
+    expect(linha.querySelector(".rq-detalhe")).not.toBeNull();
+  });
 
   test("lista os produtos com saldo e esconde os sem saldo", async () => {
     montar();
@@ -69,7 +94,7 @@ describe("FormularioDaRequisicao", () => {
   test("500 g de um item com 3 kg de saldo é aceito e mostra a conversão", async () => {
     montar();
     await digitar("FARINHA", "500");
-    fireEvent.click(screen.getByRole("button", { name: "G" }));
+    fireEvent.click(unidadeDe("FARINHA", "G"));
     expect(await screen.findByText(/0,5 KG/)).toBeTruthy();
     expect(registrar().disabled).toBe(false);
   });
@@ -104,7 +129,7 @@ describe("FormularioDaRequisicao", () => {
     const onCriada = montar();
     createRequisition.mockResolvedValue({ id: "r1", code: "REQ-1", items: [] });
     await digitar("FARINHA", "500");
-    fireEvent.click(screen.getByRole("button", { name: "G" }));
+    fireEvent.click(unidadeDe("FARINHA", "G"));
 
     await waitFor(() => expect(lerRascunho("u1")?.escolhas.p1).toEqual({ unit: "G", quantity: "500" }), { timeout: 2000 });
 
@@ -138,10 +163,10 @@ describe("FormularioDaRequisicao", () => {
   test("apagar a quantidade para redigitar mantém a unidade escolhida", async () => {
     montar();
     await digitar("FARINHA", "500");
-    fireEvent.click(screen.getByRole("button", { name: "G" }));
+    fireEvent.click(unidadeDe("FARINHA", "G"));
     await digitar("FARINHA", "");
     await digitar("FARINHA", "300");
-    expect((screen.getByRole("button", { name: "G" })).getAttribute("aria-pressed")).toBe("true");
+    expect((unidadeDe("FARINHA", "G")).getAttribute("aria-pressed")).toBe("true");
     expect(await screen.findByText(/0,3 KG/)).toBeTruthy();
   });
 

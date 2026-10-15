@@ -1218,6 +1218,8 @@ model PurchaseOrder {
   supplierNameSnapshot String
   status               String              @default("RASCUNHO")
   source               String              @default("MANUAL")
+  /// Requisição de insumos de onde o pedido foi gerado (source = REQUISICAO).
+  sourceRequisitionId  String?
   createdByUserId      String?
   reviewedByUserId     String?
   approvedByUserId     String?
@@ -1236,6 +1238,7 @@ model PurchaseOrder {
   @@index([supplierId])
   @@index([status])
   @@index([source])
+  @@index([sourceRequisitionId])
   @@index([createdAt])
   @@index([expectedDeliveryDate])
 }

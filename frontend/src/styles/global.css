@@ -16204,3 +16204,85 @@ td.count-list-divergent {
   .rq-linha { grid-template-columns: minmax(220px, 1.2fr) auto minmax(280px, 1.3fr); }
   .rq-detalhe { grid-column: auto; }
 }
+
+/* ── Pedido de compra a partir da requisição: revisão das quantidades ─────────────────── */
+.rp-topo { padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; }
+.rp-topo h3 { margin: 0; font-size: 17px; }
+.rp-topo p { margin: 0; font-size: 13.5px; line-height: 1.45; }
+.rp-voltar { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 4px; border: none; background: transparent; color: var(--muted); font-weight: 600; cursor: pointer; }
+.rp-linha {
+  position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px 12px;
+  padding: 12px 14px 12px 17px; border-bottom: 1px solid var(--line); background: var(--paper);
+}
+.rp-linha::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: transparent; }
+.rp-linha:last-child { border-bottom: none; }
+.rp-linha.is-alterada { background: #fff4de; }
+.rp-linha.is-alterada::before { background: var(--gold); }
+.rp-linha.has-problema { background: rgba(159,45,45,0.05); }
+.rp-linha.has-problema::before { background: var(--danger); }
+.rp-linha.is-fora .rq-info { opacity: 0.5; }
+.rp-unidade { min-width: 28px; font-size: 13px; font-weight: 700; color: var(--muted); }
+.rp-detalhe { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.rp-fornecedor { display: flex; flex-direction: column; gap: 2px; flex: 1 1 220px; min-width: 0; }
+.rp-rotulo { font-size: 11.5px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; color: var(--muted); }
+.rp-fornecedor select { min-height: 44px; font-size: 16px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--paper); color: var(--ink); width: 100%; box-sizing: border-box; }
+.rp-extras { padding: 12px 14px; border-top: 1px solid var(--line); font-size: 13px; }
+.rp-extras summary { cursor: pointer; color: var(--muted); min-height: 32px; }
+.rp-extras .req-field { margin-top: 10px; }
+.rp-extras input { min-height: 44px; font-size: 16px; }
+.rp-resultado { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 22px 18px; }
+.rp-resultado h3 { margin: 0; }
+.rp-pedidos { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; width: 100%; }
+.rp-pedidos li { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
+.rp-resultado-acoes { display: flex; flex-wrap: wrap; gap: 10px; }
+@media (min-width: 900px) {
+  .rp-linha { grid-template-columns: minmax(220px, 1.2fr) auto minmax(300px, 1.4fr); }
+  .rp-detalhe { grid-column: auto; }
+}
+
+/* ── Folha impressa da requisição (A4 em pé): só aparece no papel ────────────────────── */
+.rf-raiz { position: fixed; left: -10000px; top: 0; visibility: hidden; }
+@media print {
+  @page { size: A4 portrait; margin: 12mm; }
+  body.imprimindo-requisicao > *:not(.rf-raiz) { display: none !important; }
+  body.imprimindo-requisicao { margin: 0 !important; background: #fff !important; }
+  body.imprimindo-requisicao .rf-raiz { position: static; left: auto; visibility: visible; }
+}
+.rf-folha { width: 186mm; color: #000; background: #fff; font-family: Arial, Helvetica, sans-serif; font-size: 10pt; }
+.rf-folha * { box-sizing: border-box; }
+.rf-topo { display: flex; justify-content: space-between; align-items: flex-end; gap: 8mm; padding-bottom: 2mm; border-bottom: 1.4pt solid #000; }
+.rf-marca { margin: 0; font-size: 8pt; letter-spacing: 0.18em; text-transform: uppercase; color: #444; }
+.rf-topo h1 { margin: 0; font-size: 16pt; text-transform: uppercase; letter-spacing: 0.02em; }
+.rf-codigo { margin: 0; font-size: 12pt; font-weight: 700; text-align: right; }
+.rf-meta { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.5mm 4mm; margin: 3mm 0; }
+.rf-meta div { border-bottom: 0.5pt solid #999; padding-bottom: 0.8mm; }
+.rf-meta dt { font-size: 6.8pt; font-weight: 700; text-transform: uppercase; color: #555; }
+.rf-meta dd { margin: 0; font-size: 10pt; }
+.rf-meta .rf-meta-largo { grid-column: 1 / -1; }
+.rf-tabela { width: 100%; border-collapse: collapse; }
+.rf-tabela thead { display: table-header-group; }
+.rf-tabela th { font-size: 7.5pt; text-transform: uppercase; text-align: left; padding: 1.2mm 1.5mm; border-bottom: 1pt solid #000; }
+.rf-tabela td { padding: 1.4mm 1.5mm; border-bottom: 0.4pt solid #bbb; vertical-align: middle; }
+.rf-tabela tr { break-inside: avoid; page-break-inside: avoid; }
+.rf-tabela .rf-local th { background: #e8e8e8; font-size: 8.5pt; letter-spacing: 0.05em; border-bottom: 0.6pt solid #888; }
+.rf-num { text-align: right !important; white-space: nowrap; }
+.rf-conf { width: 8mm; }
+.rf-caixa { display: inline-block; width: 4.2mm; height: 4.2mm; border: 0.8pt solid #000; vertical-align: middle; }
+.rf-total { margin: 3mm 0 0; font-size: 9pt; text-align: right; color: #333; }
+.rf-assinaturas { display: grid; grid-template-columns: 1.3fr 1.3fr 1fr; gap: 8mm; margin-top: 16mm; break-inside: avoid; }
+.rf-assinaturas span { display: block; border-bottom: 0.8pt solid #000; height: 8mm; }
+.rf-assinaturas small { font-size: 7.5pt; color: #444; }
+.rq-ferramentas { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+
+/* Telas muito estreitas (iPhone SE e parecidos): o nome ganha a linha toda e os controles descem */
+@media (max-width: 350px) {
+  .rq-linha, .rp-linha { grid-template-columns: minmax(0, 1fr); }
+  .rq-controle { justify-self: end; }
+  .rq-barra { flex-wrap: wrap; }
+  .rq-barra-resumo { flex-basis: 100%; }
+  .rq-barra > button:last-of-type { flex: 1; }
+}
+
+/* Toques rápidos em + e −: sem o atraso e o zoom de toque duplo do celular */
+.rq button, .rq input, .rq select, .rq label, .rq summary { touch-action: manipulation; }
+.rq-meta .rq-status { flex: 0 1 auto; }

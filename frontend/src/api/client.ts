@@ -1477,6 +1477,8 @@ export type InventoryRequisitionItem = {
   stockBefore: string | null;
   stockAfter: string | null;
   currentStock?: string | null;
+  /** Local do produto no estoque (câmara fria, freezer...): a folha impressa agrupa por ele. */
+  storageSectorName?: string | null;
   createdAt: string;
 };
 
@@ -2043,7 +2045,9 @@ export type PurchaseOrder = {
   supplierId: string;
   supplierNameSnapshot: string;
   status: "RASCUNHO" | "EM_REVISAO" | "APROVADO" | "ENVIADO" | "RECEBIDO_PARCIAL" | "RECEBIDO" | "CANCELADO";
-  source: "MANUAL" | "PRE_LISTA_COMPRADOR" | "PLANEJAMENTO_COMPRA";
+  source: "MANUAL" | "PRE_LISTA_COMPRADOR" | "PLANEJAMENTO_COMPRA" | "REQUISICAO";
+  /** Requisição de insumos de onde o pedido foi gerado (source = REQUISICAO). */
+  sourceRequisitionId?: string | null;
   createdByUserId: string | null;
   createdByUserName?: string | null;
   approvedByUserName?: string | null;
@@ -3493,7 +3497,7 @@ export type PurchaseOrderFromPlanningResult = {
     totalEstimated: number;
     status: string;
   }>;
-  skippedItems: Array<{ productId: string | null; reason: string }>;
+  skippedItems: Array<{ productId: string | null; reason: string; productName?: string | null }>;
 };
 
 export function createPurchaseOrdersFromPlanning(payload: {
@@ -3507,6 +3511,60 @@ export function createPurchaseOrdersFromPlanning(payload: {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
   });
+}
+
+export type RequisitionPurchaseSupplierOption = {
+  supplierId: string;
+  supplierName: string;
+  /** Último preço por 1 unidade do estoque; null quando a compra não tinha conversão. */
+  unitPrice: number | null;
+  lastPurchaseDate: string;
+  purchaseCount: number;
+};
+
+export type RequisitionPurchaseItem = {
+  productId: string;
+  name: string;
+  code: string | null;
+  unit: string | null;
+  /** O que saiu do estoque nesta requisição. */
+  withdrawn: number;
+  balance: number | null;
+  estoqueMinimo: number | null;
+  estoqueIdeal: number | null;
+  /** Reposição sugerida (= o que saiu); a quantidade confirmada na revisão é a que vale. */
+  suggestedQuantity: number;
+  defaultSupplierId: string | null;
+  unitPrice: number | null;
+  supplierOptions: RequisitionPurchaseSupplierOption[];
+};
+
+export type RequisitionPurchaseDraft = {
+  requisition: { id: string; code: string; date: string; shift: string; reason: string; sectorName: string | null; requestedByName: string | null };
+  items: RequisitionPurchaseItem[];
+  suppliers: Array<{ id: string; name: string }>;
+  existingOrders: Array<{ id: string; code: string; supplierName: string; status: string; totalItems: number }>;
+};
+
+export function getRequisitionPurchaseDraft(requisitionId: string) {
+  return request<RequisitionPurchaseDraft>(`/purchase-orders/from-requisition/${requisitionId}`, undefined, 30_000);
+}
+
+export function createPurchaseOrdersFromRequisition(
+  requisitionId: string,
+  payload: {
+    items: Array<{ productId: string; supplierId: string; requestedQuantity: number; unitPriceEstimated?: number | null }>;
+    notes?: string | null;
+    expectedDeliveryDate?: string | null;
+    /** A requisição já gerou pedido: só gera outro com esta confirmação. */
+    confirmarOutroPedido?: boolean;
+  }
+) {
+  return request<PurchaseOrderFromPlanningResult>(`/purchase-orders/from-requisition/${requisitionId}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  }, 45_000);
 }
 
 export function updatePurchaseOrder(id: string, payload: { expectedDeliveryDate?: string | null; notes?: string | null; items?: Array<{ id: string; requestedQuantity: number | string; notes?: string | null }> }) {

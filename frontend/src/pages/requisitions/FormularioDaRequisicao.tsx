@@ -1,4 +1,4 @@
-import { Trash2, X } from "lucide-react";
+import { Printer, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiError,
@@ -14,6 +14,7 @@ import { Button } from "../../design-system";
 import { lerNumero } from "../../lib/fichaTecnica";
 import { hojeLocalIso } from "../../lib/datas";
 import { CabecalhoCompacto, MOTIVOS, TURNOS } from "./CabecalhoCompacto";
+import { useImpressaoDaRequisicao } from "./ImpressaoDaRequisicao";
 import { FiltrosDoCatalogo, type OpcaoDeLocal } from "./FiltrosDoCatalogo";
 import { LinhaDoCatalogo } from "./LinhaDoCatalogo";
 import { SEM_LOCAL, contarPorLocal, escolhaInicial, escolhasComQuantidade, filtrarCatalogo, linhaDe, turnoPelaHora, type Escolha, type Escolhas, type Visao } from "./catalogo";
@@ -53,7 +54,9 @@ function QuadroVazio({ visao, filtrando, onLimpar }: { visao: Visao; filtrando: 
 
 export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAviso }: Props) {
   const guardado = useMemo(() => (modelo ? null : lerRascunho(user.id)), [modelo, user.id]);
-  const catalogo = useCatalogo();
+  const catalogo = useCatalogo(user.id);
+  const { imprimir, portal } = useImpressaoDaRequisicao();
+  const [salvo, setSalvo] = useState(false);
   const [cabecalho, setCabecalho] = useState<DadosDoCabecalho>(modelo?.cabecalho ?? guardado?.cabecalho ?? cabecalhoVazio());
   const [escolhas, setEscolhas] = useState<Escolhas>(modelo?.escolhas ?? guardado?.escolhas ?? {});
   const [recuperadoEm, setRecuperadoEm] = useState<number | null>(guardado ? guardado.salvoEm : null);
@@ -94,7 +97,11 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAvis
 
   useEffect(() => {
     if (enviando) return;
-    const espera = setTimeout(guardarAgora, 400);
+    setSalvo(false);
+    const espera = setTimeout(() => {
+      guardarAgora();
+      setSalvo(true);
+    }, 400);
     return () => clearTimeout(espera);
   }, [cabecalho, escolhas, enviando, guardarAgora]);
 
@@ -183,6 +190,26 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAvis
       destino.scrollIntoView({ block: "center", behavior: "smooth" });
     }
   }, []);
+
+  function imprimirLista() {
+    const localDe = new Map(sectors.map((setor) => [setor.id, setor.name]));
+    imprimir({
+      codigo: null,
+      data: cabecalho.date,
+      turno: TURNOS[cabecalho.shift] ?? cabecalho.shift,
+      setor: sectors.find((setor) => setor.id === cabecalho.sectorId)?.name ?? null,
+      motivo: cabecalho.reason === "OTHER" && cabecalho.reasonNotes ? cabecalho.reasonNotes : MOTIVOS[cabecalho.reason] ?? cabecalho.reason,
+      observacoes: cabecalho.notes || null,
+      responsavel: user.name,
+      itens: linhas.map((linha) => ({
+        codigo: linha.productCode,
+        nome: linha.productName,
+        quantidade: lerNumero(linha.quantity),
+        unidade: linha.unit,
+        local: localDe.get(itemPorId.get(linha.productId)?.sectorId ?? "") ?? null
+      }))
+    });
+  }
 
   function limparFiltros() {
     setTexto("");
@@ -280,6 +307,20 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAvis
           onMostrarSemSaldo={setMostrarSemSaldo}
         />
 
+        {catalogo.desatualizadaDesde != null && (
+          <div className="req-banner is-aviso" role="status">
+            <span>Sem conexão com o servidor: usando a lista guardada às {quando(catalogo.desatualizadaDesde)}. Os saldos podem estar desatualizados; o servidor confere de novo ao registrar.</span>
+            <Button variant="secondary" onClick={catalogo.recarregar}>Atualizar</Button>
+          </div>
+        )}
+
+        {visao === "ESCOLHIDOS" && linhas.length > 0 && (
+          <div className="rq-ferramentas">
+            <span>{linhas.length} {linhas.length === 1 ? "produto escolhido" : "produtos escolhidos"}</span>
+            <Button variant="secondary" leadingIcon={<Printer size={14} />} onClick={imprimirLista}>Imprimir lista</Button>
+          </div>
+        )}
+
         {catalogo.falhou && (
           <div className="req-banner is-erro" role="alert">
             <span>Não consegui carregar os produtos do estoque.</span>
@@ -316,12 +357,13 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAvis
           ) : problemas.size > 0 ? (
             <button type="button" className="rq-barra-problema" onClick={() => escolherVisao("PROBLEMA")}>{problemas.size} com problema — ver</button>
           ) : (
-            <span>pronto para registrar</span>
+            <span>pronto para registrar{salvo ? " · rascunho salvo" : ""}</span>
           )}
         </div>
         <Button variant="secondary" leadingIcon={<Trash2 size={16} />} aria-label="Limpar requisição" onClick={descartar} disabled={enviando || linhas.length === 0}><span className="rq-limpar-texto">Limpar</span></Button>
         <Button variant="primary" onClick={registrar} disabled={!pronta || enviando}>{enviando ? "Registrando…" : "Registrar"}</Button>
       </div>
+      {portal}
     </div>
   );
 }

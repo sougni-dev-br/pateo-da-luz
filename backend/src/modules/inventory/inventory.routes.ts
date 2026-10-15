@@ -6033,9 +6033,11 @@ inventoryRouter.get("/requisitions/:id", async (request, response) => {
       p."name" AS "productName",
       p."externalCode" AS "productCode",
       COALESCE(p."stockUnit", p."unit") AS "unit",
-      s."currentQuantity" AS "currentStock"
+      s."currentQuantity" AS "currentStock",
+      psec."name" AS "storageSectorName"
     FROM "InventoryRequisitionItem" i
     LEFT JOIN "Product" p ON p."id" = i."productId"
+    LEFT JOIN "InventorySector" psec ON psec."id" = p."inventorySectorId"
     LEFT JOIN "InventoryStock" s ON s."productId" = i."productId"
     WHERE i."requisitionId" = ${row.id}
     ORDER BY i."createdAt"

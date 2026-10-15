@@ -58,6 +58,7 @@ function toInputDate(value?: string | null) {
 const sourceLabels: Record<string, string> = {
   PRE_LISTA_COMPRADOR: "Pre-lista",
   PLANEJAMENTO_COMPRA: "Planejamento de compra",
+  REQUISICAO: "Requisição de insumos",
   MANUAL: "Manual"
 };
 

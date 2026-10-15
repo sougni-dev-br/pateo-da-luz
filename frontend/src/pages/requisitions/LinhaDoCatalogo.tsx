@@ -16,39 +16,41 @@ type Props = {
 
 const MAXIMO_NO_SEGMENTADO = 3;
 
-function Situacao({ item, situacao, escolha }: { item: RequisitionCatalogItem; situacao: SituacaoDaLinha; escolha: Escolha }) {
+/**
+ * O que a linha diz sobre o que foi digitado. Fica no lugar do saldo, na mesma linha de texto: escolher um
+ * produto não pode empurrar os de baixo, ou o toque seguinte (+, +, + descendo a lista) erra o alvo.
+ */
+function Status({ item, situacao, escolha }: { item: RequisitionCatalogItem; situacao: SituacaoDaLinha; escolha: Escolha }) {
   const base = normalizarUnidade(item.unit) || escolha.unit;
   const trocouDeUnidade = normalizarUnidade(escolha.unit) !== normalizarUnidade(base);
   const digitado = `${escolha.quantity} ${escolha.unit}`;
 
   if (situacao.tipo === "SEM_CONVERSAO") {
-    return <p className="rq-status is-aviso" role="status">Não sei converter {escolha.unit} para {base} neste item. Troque a unidade.</p>;
+    return <span className="rq-status is-aviso" role="status">Não sei converter {escolha.unit} para {base}. Troque a unidade.</span>;
   }
   if (situacao.tipo === "FALTA") {
     return (
-      <p className="rq-status is-erro" role="status">
+      <span className="rq-status is-erro" role="status">
         {item.balance <= 0 ? "Sem saldo em estoque." : `Faltam ${formatarQuantidade(situacao.falta)} ${base}.`}
         {trocouDeUnidade && ` ${digitado} = ${formatarQuantidade(situacao.emEstoque)} ${base}.`}
-      </p>
+      </span>
     );
   }
   if (situacao.tipo === "OK") {
     return (
-      <p className="rq-status is-ok">
+      <span className="rq-status is-ok">
         {trocouDeUnidade && <>{digitado} = <b>{formatarQuantidade(situacao.emEstoque)} {base}</b> · </>}
         fica com {formatarQuantidade(situacao.ficaCom)} {base}
-      </p>
+      </span>
     );
   }
   if (escolha.quantity.trim() !== "") {
-    return <p className="rq-status is-aviso" role="status">Digite uma quantidade maior que zero.</p>;
+    return <span className="rq-status is-aviso" role="status">Digite uma quantidade maior que zero.</span>;
   }
   return null;
 }
 
-function SeletorDeUnidade({ item, valor, onEscolher }: { item: RequisitionCatalogItem; valor: string; onEscolher: (unidade: string) => void }) {
-  const opcoes = unidadesDaLinha({ stockUnit: item.unit, conversions: item.conversions });
-  if (opcoes.length <= 1) return <span className="rq-unidade-unica">{opcoes[0] ?? valor}</span>;
+function SeletorDeUnidade({ item, opcoes, valor, onEscolher }: { item: RequisitionCatalogItem; opcoes: string[]; valor: string; onEscolher: (unidade: string) => void }) {
   if (opcoes.length <= MAXIMO_NO_SEGMENTADO) {
     return (
       <div className="rq-segmentos" role="group" aria-label={`Unidade de ${item.name}`}>
@@ -71,21 +73,23 @@ function LinhaDoCatalogoBase({ item, escolha, onMudar, onTirar, onProxima }: Pro
   const escolhida = escolha != null;
   const unidade = escolha?.unit ?? base;
   const passo = passoDaUnidade(unidade);
+  const opcoes = unidadesDaLinha({ stockUnit: item.unit, conversions: item.conversions });
   const situacao = escolha ? situacaoDaLinha(linhaDe(item, escolha), item.balance) : null;
   const invalida = situacao?.tipo === "VAZIA" && (escolha?.quantity.trim() ?? "") !== "";
   const problema = situacao?.tipo === "FALTA" || situacao?.tipo === "SEM_CONVERSAO" || invalida;
   const bloqueada = semSaldo && !escolhida;
+  const status = escolha && situacao ? <Status item={item} situacao={situacao} escolha={escolha} /> : null;
 
   return (
     <li
-      className={`rq-linha${escolhida ? " is-escolhida" : ""}${problema ? " has-problema" : ""}${bloqueada ? " is-sem-saldo" : ""}`}
+      className={`rq-linha${escolhida && escolha.quantity.trim() !== "" ? " is-escolhida" : ""}${problema ? " has-problema" : ""}${bloqueada ? " is-sem-saldo" : ""}`}
       data-produto={item.id}
     >
       <div className="rq-info">
         <strong className="rq-nome">{item.name}</strong>
         <span className="rq-meta">
           {item.code && <span>Cód. {item.code}</span>}
-          <span className={`rq-saldo${semSaldo ? " is-zero" : ""}`}>{semSaldo ? "sem saldo" : `saldo ${formatarQuantidade(item.balance)} ${base}`}</span>
+          {status ?? <span className={`rq-saldo${semSaldo ? " is-zero" : ""}`}>{semSaldo ? "sem saldo" : `saldo ${formatarQuantidade(item.balance)} ${base}`}</span>}
         </span>
       </div>
 
@@ -144,11 +148,10 @@ function LinhaDoCatalogoBase({ item, escolha, onMudar, onTirar, onProxima }: Pro
         </button>
       </div>
 
-      {escolha && situacao && (
+      {/* A unidade fica sempre à mostra nos produtos que convertem: aparecer só depois de escolher empurraria a lista */}
+      {opcoes.length > 1 && !bloqueada && (
         <div className="rq-detalhe">
-          <SeletorDeUnidade item={item} valor={escolha.unit} onEscolher={(u) => onMudar(item, { unit: u })} />
-          <Situacao item={item} situacao={situacao} escolha={escolha} />
-          <button type="button" className="rq-tirar" onClick={() => onTirar(item.id)}>Tirar</button>
+          <SeletorDeUnidade item={item} opcoes={opcoes} valor={unidade} onEscolher={(u) => onMudar(item, { unit: u })} />
         </div>
       )}
     </li>

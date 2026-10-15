@@ -6,6 +6,8 @@ import { auditLog, requestIp, requireRole } from "../security/security-utils.js"
 import { userHasPermission } from "../security/menu-permissions.js";
 import { buildBuyerSupportReport } from "../inventory/inventory.routes.js";
 import { createPurchaseOrderPdf, type PurchaseOrderItemEntry } from "./purchase-order-pdf.js";
+import { nextPurchaseOrderCode } from "./purchase-order-code.js";
+import { requisicaoPedidoRouter } from "./purchase-order-requisicao.routes.js";
 
 export const purchaseOrderRouter = Router();
 
@@ -44,21 +46,6 @@ function asDate(value: unknown) {
 function csvEscape(value: unknown) {
   const text = String(value ?? "");
   return `"${text.replace(/"/g, '""')}"`;
-}
-
-async function nextPurchaseOrderCode(tx: Prisma.TransactionClient, year: number) {
-  await tx.$executeRaw`
-    INSERT INTO "PurchaseOrderSequence" ("year", "currentValue", "updatedAt")
-    VALUES (${year}, 0, CURRENT_TIMESTAMP)
-    ON CONFLICT ("year") DO NOTHING
-  `;
-  const [row] = await tx.$queryRaw<Array<{ currentValue: number }>>`
-    UPDATE "PurchaseOrderSequence"
-    SET "currentValue" = "currentValue" + 1, "updatedAt" = CURRENT_TIMESTAMP
-    WHERE "year" = ${year}
-    RETURNING "currentValue"
-  `;
-  return `PC-${year}-${String(row.currentValue).padStart(4, "0")}`;
 }
 
 async function getOrder(id: string, opts: { includeAudits?: boolean } = {}): Promise<PurchaseOrderRecord | null> {
@@ -135,6 +122,9 @@ purchaseOrderRouter.get("/", async (request, response) => {
   }, {});
   response.json({ summary, orders });
 });
+
+// Antes de "/:id": "from-requisition/<id>" não pode ser lido como id de pedido.
+purchaseOrderRouter.use("/from-requisition", requisicaoPedidoRouter);
 
 purchaseOrderRouter.get("/:id", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "VISUALIZACAO"]);
