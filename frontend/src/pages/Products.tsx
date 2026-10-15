@@ -1,5 +1,6 @@
 ﻿import { History, Pencil, PowerOff, RefreshCw, Search, Wand2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { EmbalagensDeCompra } from "./products/EmbalagensDeCompra";
 import {
   addProductAlias,
   ApiError,
@@ -898,7 +899,7 @@ export function Products() {
             <section className="form-section">
               <div className="form-section-header">
                 <h3>Unidades e conversao</h3>
-                <span>Unidade padrao, compra, estoque e conversoes futuras.</span>
+                <span>Unidade padrão, de compra, de estoque e as embalagens em que o fornecedor entrega.</span>
               </div>
               <div className="form-grid">
                 <label>
@@ -930,65 +931,22 @@ export function Products() {
                     configurado a conversao. A conversao que vale e a de "Embalagens de compra".
                     Os valores antigos continuam no cadastro (o formulario os devolve intactos). */}
               </div>
-              <div className="subsection compact-note">
-                <h3>Embalagens de compra</h3>
-                <p className="field-hint">
-                  Como o produto chega na nota e quantas unidades de contagem vêm em cada embalagem. Ex.: De <strong>PCT</strong> para <strong>UN</strong>, fator <strong>50</strong> — a nota "10 PCT" entra como 500 UN no estoque, com o custo de cada unidade.
-                </p>
-                <div className="form-grid">
-                  <label>
-                    Embalagem (De)
-                    <input placeholder="PCT, CX, FD…" value={conversionForm.fromUnit} onChange={(event) => setConversionForm({ ...conversionForm, fromUnit: event.target.value })} />
-                  </label>
-                  <label>
-                    Unidade de contagem (Para)
-                    <input placeholder="UN, KG…" value={conversionForm.toUnit} onChange={(event) => setConversionForm({ ...conversionForm, toUnit: event.target.value })} />
-                  </label>
-                  <label>
-                    Quantas vêm em cada (Fator)
-                    <input placeholder="50" inputMode="decimal" value={conversionForm.factor} onChange={(event) => setConversionForm({ ...conversionForm, factor: event.target.value })} />
-                  </label>
-                  <label>
-                    Peso médio
-                    <input value={conversionForm.averagePackageWeight} onChange={(event) => setConversionForm({ ...conversionForm, averagePackageWeight: event.target.value })} />
-                  </label>
-                  <label>
-                    Observações
-                    <input value={conversionForm.notes} onChange={(event) => setConversionForm({ ...conversionForm, notes: event.target.value })} />
-                  </label>
-                  <button
-                    className="secondary-button"
-                    type="button"
-                    onClick={() => {
-                      if (!conversionForm.fromUnit || !conversionForm.toUnit || !conversionForm.factor) return;
-                      setForm({ ...form, unitConversions: [...form.unitConversions, conversionForm] });
-                      setConversionForm(emptyConversion);
-                    }}
-                  >
-                    Adicionar conversao
-                  </button>
-                </div>
-                {form.unitConversions.length > 0 && (
-                  <div className="columns-list">
-                    {form.unitConversions.map((conversion, index) => (
-                      <span key={`${conversion.fromUnit}-${conversion.toUnit}-${index}`}>
-                        {conversion.fromUnit} {" -> "} {conversion.toUnit}: <strong>{conversion.factor}</strong>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setForm({
-                              ...form,
-                              unitConversions: form.unitConversions.filter((_, currentIndex) => currentIndex !== index)
-                            })
-                          }
-                        >
-                          remover
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <EmbalagensDeCompra
+                unidades={units}
+                unidadeDeContagem={form.stockUnit || form.unit}
+                conversoes={form.unitConversions}
+                origem={conversionForm.fromUnit}
+                fator={conversionForm.factor}
+                onOrigem={(fromUnit) => setConversionForm({ ...conversionForm, fromUnit })}
+                onFator={(factor) => setConversionForm({ ...conversionForm, factor })}
+                onAdicionar={(conversao) => {
+                  setForm({ ...form, unitConversions: [...form.unitConversions, conversao] });
+                  setConversionForm(emptyConversion);
+                }}
+                onRemover={(indice) =>
+                  setForm({ ...form, unitConversions: form.unitConversions.filter((_, atual) => atual !== indice) })
+                }
+              />
             </section>
           )}
 
