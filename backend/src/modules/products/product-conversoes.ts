@@ -48,6 +48,9 @@ export function chaveDaConversao(fromUnit: unknown, toUnit: unknown): string {
   return `${normalizarUnidade(fromUnit)}>${normalizarUnidade(toUnit)}`;
 }
 
+/** Vírgula, ponto e vírgula ou espaço no meio: é uma lista ("PCT, CX, FD"), não uma unidade. */
+const UNIDADE_COM_LISTA = /[\s,;]/;
+
 function formatar(n: number) {
   return n.toLocaleString("pt-BR", { maximumFractionDigits: 6 });
 }
@@ -69,6 +72,10 @@ export function prepararConversoesEnviadas(
     const factor = numero(linha.factor);
     if (!fromUnit || !toUnit || factor == null) continue;
 
+    const invalida = [fromUnit, toUnit].find((u) => UNIDADE_COM_LISTA.test(u));
+    if (invalida) {
+      return { ok: false, erro: `"${invalida}" não é uma unidade: informe uma só (CX, PCT, FD...), sem vírgula nem espaço.` };
+    }
     if (fromUnit === toUnit) {
       return { ok: false, erro: `Conversão de ${fromUnit} para ${fromUnit} não existe: as duas pontas são a mesma unidade.` };
     }

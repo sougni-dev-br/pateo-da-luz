@@ -19,6 +19,15 @@ describe("prepararConversoesEnviadas", () => {
     expect(r.ok).toBe(false);
   });
 
+  it("recusa lista de unidades no lugar de uma unidade ('PCT, CX, FD' gravado em producao)", () => {
+    for (const unidade of ["PCT, CX, FD", "CX FD", "PCT;CX"]) {
+      const r = prepararConversoesEnviadas([{ fromUnit: unidade, toUnit: "UN", factor: 12 }]);
+      expect(r.ok).toBe(false);
+      const volta = prepararConversoesEnviadas([{ fromUnit: "UN", toUnit: unidade, factor: 12 }]);
+      expect(volta.ok).toBe(false);
+    }
+  });
+
   it("recusa duplicata que so difere na grafia", () => {
     const r = prepararConversoesEnviadas([
       { fromUnit: "CX", toUnit: "UN", factor: 12 },
