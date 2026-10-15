@@ -9,7 +9,8 @@ import { cancelarSnapshotEmCascata, carregarSnapshotCancelavel, cloneFinalAsNext
 import { auditLog, requestIp, requireMenuPermission, type SessionUser } from "../security/security-utils.js";
 import { userHasPermission } from "../security/menu-permissions.js";
 import { parseDecimalInput } from "../../shared/utils/parse-decimal.js";
-import { converterItemDeCompra, normalizarUnidade } from "../../shared/unidades/conversao.js";
+import { converterItemDeCompra, normalizarUnidade, type UnitConversion } from "../../shared/unidades/conversao.js";
+import { proporConversoes } from "../../shared/unidades/conversao-automatica.js";
 import { sqlCompraNaUnidadeDeContagem } from "../../shared/unidades/compra-na-contagem.sql.js";
 import { cancelamentoDeveCancelarBase, podeReaproveitarBase, reaberturaDeveSoltarBase } from "./base-oficial.js";
 import { mensagemDeTipoMigrado } from "./tipos-de-movimento.js";
@@ -446,6 +447,47 @@ async function upsertStock(input: {
  * outra quantidade. Se mexesse no total, mexeria nas compras do mes e o CMV
  * mudaria pelos dois lados.
  */
+async function conversaoAutomaticaDaCompra(input: {
+  productId: string;
+  nome: string;
+  unidadeDeEstoque: string | null;
+  unidadeDaNota: string | null;
+  quantidade: number;
+  total: number;
+  cadastradas: UnitConversion[];
+}): Promise<UnitConversion | null> {
+  if (!input.unidadeDaNota) return null;
+  const [referencia] = await prisma.$queryRaw<Array<{ preco: number | null }>>`
+    SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY pi."totalPrice" / NULLIF(COALESCE(pi."convertedQuantity", pi."quantity"), 0)) AS preco
+    FROM "PurchaseItem" pi
+    JOIN "Purchase" p ON p."id" = pi."purchaseId"
+    JOIN "Product" pr ON pr."id" = pi."productId"
+    WHERE pi."productId" = ${input.productId} AND p."status" = 'ACTIVE'
+      AND pi."totalPrice" > 0 AND COALESCE(pi."convertedQuantity", pi."quantity") > 0
+      AND ${sqlCompraNaUnidadeDeContagem()}
+  `;
+  const [proposta] = proporConversoes({
+    nome: input.nome,
+    unidadeDeContagem: input.unidadeDeEstoque,
+    cadastradas: input.cadastradas,
+    unidadesDaNota: [{
+      unidade: input.unidadeDaNota,
+      linhas: 1,
+      valor: input.total,
+      precoPorUnidade: input.quantidade > 0 ? input.total / input.quantidade : null
+    }],
+    precoNaContagem: referencia?.preco == null ? null : Number(referencia.preco)
+  });
+  if (!proposta || proposta.confianca !== "alta") return null;
+  await prisma.$executeRaw`
+    INSERT INTO "ProductUnitConversion" ("id", "productId", "fromUnit", "toUnit", "factor", "isActive", "notes", "updatedAt")
+    VALUES (${crypto.randomUUID()}, ${input.productId}, ${proposta.fromUnit}, ${proposta.toUnit}, ${proposta.factor}, true,
+            ${`Automática (cadastrada na compra): ${proposta.motivo}`}, CURRENT_TIMESTAMP)
+    ON CONFLICT ("productId", "fromUnit", "toUnit") DO NOTHING
+  `;
+  return { fromUnit: proposta.fromUnit, toUnit: proposta.toUnit, factor: proposta.factor };
+}
+
 // Calcula e grava no item de compra a quantidade na unidade de contagem. Separado
 // da entrada de estoque porque a edicao da nota e a revisao de embalagens
 // precisam recalcular sem mexer em movimentacao (a edicao recriava os itens e a
@@ -461,8 +503,9 @@ export async function gravarConversaoDoItemDeCompra(input: {
     controlsStock: boolean;
     stockUnit: string | null;
     unit: string | null;
+    name?: string | null;
   }>>`
-    SELECT "controlsStock", "stockUnit", "unit"
+    SELECT "controlsStock", "stockUnit", "unit", "name"
     FROM "Product"
     WHERE "id" = ${input.productId}
     LIMIT 1
@@ -477,17 +520,39 @@ export async function gravarConversaoDoItemDeCompra(input: {
 
   const unidadeDeEstoque = product.stockUnit ?? product.unit;
   const quantidadeBruta = input.quantity > 0 ? input.quantity : 0;
-  const conversao = converterItemDeCompra({
+  const cadastradas: UnitConversion[] = conversions.map((c) => ({
+    fromUnit: c.fromUnit,
+    toUnit: c.toUnit,
+    factor: Number(c.factor)
+  }));
+  const converter = () => converterItemDeCompra({
     quantity: quantidadeBruta,
     unitPrice: quantidadeBruta > 0 ? input.totalCost / quantidadeBruta : 0,
     unidadeDaCompra: input.unit,
     unidadeDeEstoque,
-    conversions: conversions.map((c) => ({
-      fromUnit: c.fromUnit,
-      toUnit: c.toUnit,
-      factor: Number(c.factor)
-    }))
+    conversions: cadastradas
   });
+  let conversao = converter();
+
+  // Conversao automatica: a nota veio numa unidade sem conversao e o nome do
+  // produto resolve sem ambiguidade ("SACO C800" em CX -> 800 UN). Cadastra e
+  // converte ja; leitura ambigua ou desmentida pelo preco fica para a tela de
+  // conversoes automaticas, e a linha segue marcada em conversionMissing.
+  if (conversao.conversionMissing && product.name) {
+    const automatica = await conversaoAutomaticaDaCompra({
+      productId: input.productId,
+      nome: product.name,
+      unidadeDeEstoque,
+      unidadeDaNota: input.unit,
+      quantidade: quantidadeBruta,
+      total: input.totalCost,
+      cadastradas
+    });
+    if (automatica) {
+      cadastradas.push(automatica);
+      conversao = converter();
+    }
+  }
 
   // Gravado mesmo para produto que nao controla estoque: a inteligencia de preco
   // por fornecedor le estes campos para nao comparar preco de caixa com preco

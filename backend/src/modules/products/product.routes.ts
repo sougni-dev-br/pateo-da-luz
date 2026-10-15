@@ -13,6 +13,7 @@ import { auditLog, requestIp, requireRole } from "../security/security-utils.js"
 import { beverageSectorName, normalizeInventorySectorInput } from "../master-data/inventory-sector-utils.js";
 import { detectarEmbalagem, normalizarUnidade } from "../../shared/unidades/conversao.js";
 import { sqlCompraNaUnidadeDeContagem } from "../../shared/unidades/compra-na-contagem.sql.js";
+import { aplicarConversoes, listarPropostasDeConversao } from "./conversao-automatica.service.js";
 import { conversoesASairem, prepararConversoesEnviadas, type ConversaoCanonica, type ConversaoEnviada, type ConversaoGravada } from "./product-conversoes.js";
 
 export const productRouter = Router();
@@ -804,6 +805,42 @@ productRouter.patch("/bulk-dre", async (request, response) => {
   });
 
   response.json({ ok: true, updated: result.count });
+});
+
+// Conversoes que o nome do produto e as compras ja dizem ("SACO C800" comprado em
+// CX e contado em UN). A lista mostra todas; aplicar cadastra e refaz as compras
+// sem conversao. O fator e sempre recalculado no servidor.
+productRouter.get("/conversoes-automaticas", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  if (!user) return;
+  try {
+    response.json({ produtos: await listarPropostasDeConversao() });
+  } catch (error) {
+    response.status(500).json({ message: error instanceof Error ? error.message : "Erro ao montar as conversões automáticas." });
+  }
+});
+
+productRouter.post("/conversoes-automaticas/aplicar", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  if (!user) return;
+  const body = (request.body ?? {}) as { escolhas?: unknown; todasDeAltaConfianca?: unknown };
+  const escolhas = Array.isArray(body.escolhas)
+    ? body.escolhas
+        .map((e) => e as { productId?: unknown; fromUnit?: unknown })
+        .filter((e) => typeof e.productId === "string" && typeof e.fromUnit === "string")
+        .map((e) => ({ productId: e.productId as string, fromUnit: e.fromUnit as string }))
+        .slice(0, 2000)
+    : [];
+  const todasDeAltaConfianca = body.todasDeAltaConfianca === true;
+  if (!todasDeAltaConfianca && escolhas.length === 0) {
+    response.status(400).json({ message: "Escolha ao menos uma conversão ou aplique todas as de alta confiança." });
+    return;
+  }
+  try {
+    response.json(await aplicarConversoes({ escolhas, todasDeAltaConfianca, userId: user.id }));
+  } catch (error) {
+    response.status(500).json({ message: error instanceof Error ? error.message : "Erro ao aplicar as conversões." });
+  }
 });
 
 productRouter.post("/", async (request, response) => {
