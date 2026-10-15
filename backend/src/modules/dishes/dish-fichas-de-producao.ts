@@ -4,6 +4,7 @@
 // Regras: até MAX_NIVEIS níveis de ficha dentro de ficha, nunca em ciclo (uma ficha não pode conter a si mesma,
 // direta ou indiretamente), e a quantidade é dada na unidade de rendimento da ficha de baixo (1 UN = 1 porção).
 import { calculateDishCost } from "./dish-cost.js";
+import { carregarReferenciaDosItens, itemComReferencia } from "./dish-custo-referencia.js";
 import { separarItensPorCardapio, toCostItem, type ClienteDoBanco, type ItemComProduto, type ProdutoDoItem } from "./dish-itens.js";
 import { normalizarUnidade, resolveUnitFactor } from "../../shared/unidades/conversao.js";
 
@@ -123,8 +124,11 @@ export async function resolverFichas(client: ClienteDoBanco, ids: string[]): Pro
   return resolvidas;
 }
 
-function carregarNivel(client: ClienteDoBanco, ids: string[]) {
-  return client.dish.findMany({ where: { id: { in: ids } }, select: SELECAO });
+async function carregarNivel(client: ClienteDoBanco, ids: string[]) {
+  const linhas = await client.dish.findMany({ where: { id: { in: ids } }, select: SELECAO });
+  const referencia = await carregarReferenciaDosItens(linhas.flatMap((l) => l.items));
+  if (referencia.size === 0) return linhas;
+  return linhas.map((l) => ({ ...l, items: l.items.map((i) => itemComReferencia(i, referencia)) }));
 }
 
 /** A ficha de produção vista como se fosse um produto: unidade de rendimento e custo por unidade. */
@@ -152,7 +156,9 @@ export async function anexarFichas<T extends { componentDishId: string | null; p
 ): Promise<Array<Omit<T, "product"> & { product: ProdutoDoItem }>> {
   const ids = [...new Set(itens.map((i) => i.componentDishId).filter((id): id is string => Boolean(id)))];
   const fichas = ids.length > 0 ? await resolverFichas(client, ids) : new Map<string, FichaResolvida>();
-  return itens.map((item) => {
+  const referencia = await carregarReferenciaDosItens(itens);
+  return itens.map((original) => {
+    const item = itemComReferencia(original, referencia);
     if (item.componentDishId) {
       const ficha = fichas.get(item.componentDishId);
       return { ...item, product: produtoDaFicha(ficha ?? { id: item.componentDishId, name: "Ficha", code: null, yieldUnit: "UN", custoPorUnidade: null, incompleta: true, motivo: "Ficha de produção não encontrada." }) };
