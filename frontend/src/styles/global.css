@@ -16142,8 +16142,10 @@ td.count-list-divergent {
 .rq-fixos {
   position: sticky; top: var(--rq-topo, 0px); z-index: 15;
   display: flex; flex-direction: column; gap: 10px; padding: 10px 14px;
-  background: rgba(255,255,255,0.97); backdrop-filter: blur(8px);
+  background: var(--paper);
   border-bottom: 1px solid var(--line); border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  /* Opaco, e pinta a faixa acima: a lista rolava visível no vão entre o cabeçalho do app e a busca */
+  box-shadow: 0 -48px 0 0 var(--paper);
 }
 .rq-extras { display: flex; flex-direction: column; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
 .rq-busca { position: relative; display: flex; align-items: center; }
@@ -16255,8 +16257,9 @@ td.count-list-divergent {
 .rq-barra {
   position: sticky; bottom: 0; z-index: 20; display: flex; align-items: center; gap: 8px;
   padding: 6px 12px calc(6px + env(safe-area-inset-bottom, 0px));
-  background: var(--surface, #fff);
-  border-top: 1px solid var(--line); box-shadow: 0 -1px 0 rgba(22,21,18,0.04);
+  background: var(--paper);
+  /* Opaco, e pinta a faixa abaixo: linhas da lista apareciam sob a barra e ao redor dela */
+  border-top: 1px solid var(--line); box-shadow: 0 48px 0 0 var(--paper);
 }
 /* Uma linha só: contagem, estado e botões, sem cobrir a lista com um cartão alto */
 .rq-barra-resumo { flex: 1; min-width: 0; display: flex; flex-direction: row; align-items: baseline; gap: 8px; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
