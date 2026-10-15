@@ -2861,6 +2861,7 @@ model Employee {
   dependentes            EmployeeDependente[]
   fichasCadastrais       FichaCadastral[]
   feriasRegistradas      EmployeeFerias[]
+  feriasProgramadas      FeriasProgramacao[]
   anotacoesCarteira      EmployeeAnotacaoCarteira[]
   // Auditoria / soft delete
   createdById            String
@@ -3237,6 +3238,27 @@ model EmployeeDependente {
   updatedAt      DateTime  @updatedAt
 
   @@index([employeeId])
+}
+
+// Programação de férias (tela RH → Férias). O período aquisitivo e o prazo de gozo são
+// CALCULADOS da admissão (ferias-calc.ts); aqui fica só o que alguém decidiu: quando a pessoa
+// sai, por quantos dias, se vende o abono (até 10 dias) e se já gozou. O histórico lido da
+// ficha de registro continua em EmployeeFerias (só consulta).
+model FeriasProgramacao {
+  id               String    @id @default(cuid())
+  employeeId       String
+  employee         Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  aquisitivoInicio DateTime  @db.Date
+  gozoInicio       DateTime? @db.Date
+  dias             Int
+  diasAbono        Int       @default(0)
+  status           String    @default("PROGRAMADA") // PROGRAMADA | GOZADA
+  observacao       String?
+  createdById      String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([employeeId, aquisitivoInicio])
 }
 
 model EmployeeFerias {

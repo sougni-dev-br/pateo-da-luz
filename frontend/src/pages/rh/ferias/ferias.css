@@ -1,0 +1,100 @@
+/* ═══════════════════════════════════════════════════════════════════
+   RH → Férias — prefixo fe-. Só tokens de styles/tokens (sem hex soltos).
+═══════════════════════════════════════════════════════════════════ */
+
+.fe-tela { display: grid; gap: 14px; min-width: 0; container-type: inline-size; }
+.fe-tela :is(button, a, input, select, textarea):focus-visible { outline: 2px solid var(--gold-dark); outline-offset: 2px; }
+
+.fe-topo { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.fe-topo h2 { margin: 0; font-size: var(--fs-h2); }
+.fe-topo p { margin: 2px 0 0; color: var(--muted); font-size: var(--fs-sm); }
+.fe-topo-acoes { display: flex; gap: 8px; flex-wrap: wrap; }
+.fe-ajuda { margin: 0; color: var(--muted); font-size: var(--fs-sm); }
+.fe-sub { font-size: var(--fs-xs); color: var(--muted); }
+.fe-rotulo { display: block; font-size: var(--fs-2xs); text-transform: uppercase; letter-spacing: var(--ls-eyebrow); color: var(--muted); }
+
+/* ── Filtros (contagem + filtro, um clique) ────────────────────────── */
+.fe-filtros { display: flex; gap: 8px; flex-wrap: wrap; }
+.fe-filtro {
+  --cor: var(--muted);
+  display: inline-flex; align-items: baseline; gap: 6px;
+  padding: 6px 12px 6px 10px;
+  border: 1px solid var(--line); border-left: 3px solid var(--cor); border-radius: var(--radius-md);
+  background: var(--paper); color: var(--ink); font: inherit; font-size: var(--fs-sm); cursor: pointer;
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+.fe-filtro strong { font-size: var(--fs-lg); font-variant-numeric: tabular-nums; }
+.fe-filtro:hover { border-color: var(--line-strong); border-left-color: var(--cor); box-shadow: var(--shadow-soft); }
+.fe-filtro[aria-pressed="true"] { background: var(--gold-tint); border-color: var(--gold-dark); border-left-color: var(--cor); }
+.fe-filtro--warning { --cor: var(--warning); }
+.fe-filtro--info { --cor: var(--info); }
+.fe-filtro--success { --cor: var(--success); }
+
+/* ── Lista: um período por linha, borda à esquerda pela urgência ───── */
+.fe-lista { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.fe-linha {
+  --cor: var(--line-strong);
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 0.8fr) minmax(0, 1.8fr);
+  gap: 8px 16px; align-items: start;
+  padding: 12px 14px;
+  border: 1px solid var(--line); border-left: 4px solid var(--cor); border-radius: var(--radius-md);
+  background: var(--paper);
+  font-size: var(--fs-sm);
+  transition: background var(--dur-fast) var(--ease);
+}
+.fe-linha:hover { background: var(--row-hover); }
+.fe-linha--atencao { --cor: var(--warning); background: var(--tint-warning); border-color: var(--tint-warning-border); border-left-color: var(--cor); }
+.fe-linha--perigo { --cor: var(--danger); background: var(--tint-danger); border-color: var(--tint-danger-border); border-left-color: var(--cor); }
+.fe-pessoa { display: grid; gap: 2px; min-width: 0; }
+.fe-periodo, .fe-limite, .fe-situacao { display: grid; gap: 2px; font-variant-numeric: tabular-nums; }
+.fe-situacao { justify-items: start; }
+.fe-acoes { display: grid; gap: 6px; justify-items: start; }
+.fe-programacao { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.fe-botoes { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+
+.fe-formulario { grid-column: 1 / -1; padding-top: 10px; border-top: 1px dashed var(--line-strong); }
+
+/* Pelo tamanho do painel (e não da janela): com o menu lateral aberto a área útil é bem menor. */
+@container (max-width: 860px) {
+  .fe-linha { grid-template-columns: minmax(0, 1fr) auto; }
+  .fe-linha > .fe-periodo, .fe-linha > .fe-limite { grid-column: 1 / -1; }
+  .fe-linha > .fe-situacao { grid-row: 1; grid-column: 2; justify-items: end; text-align: right; }
+  .fe-linha > .fe-acoes { grid-column: 1 / -1; }
+}
+
+/* Telas bem estreitas (320px, zoom de 400%): tudo em uma coluna, na mesma ordem da leitura. */
+@container (max-width: 480px) {
+  .fe-linha { grid-template-columns: minmax(0, 1fr); }
+  .fe-linha > .fe-situacao { grid-row: auto; grid-column: 1; justify-items: start; text-align: left; }
+  .fe-situacao .fe-sub { white-space: normal; }
+}
+
+/* ── Formulário de programação ─────────────────────────────────────── */
+.fe-form { display: grid; gap: 12px; }
+.fe-form-campos { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; align-items: start; }
+.fe-abono {
+  display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: start;
+  padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--paper-soft); cursor: pointer;
+}
+.fe-abono span { display: grid; gap: 2px; }
+.fe-abono small { color: var(--muted); font-size: var(--fs-xs); }
+.fe-previa { margin: 0; padding: 8px 12px; border-radius: var(--radius-md); background: var(--gold-tint); font-size: var(--fs-sm); }
+.fe-form-acoes { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* ── Refinos de UX ─────────────────────────────────────────────────── */
+/* Regiões vivas ficam no DOM mesmo vazias (display:none impede o anúncio): só somem da vista. */
+.fe-aviso:empty, .fe-previa-area:empty, .fe-sr {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
+}
+.fe-nome { margin: 0; font-size: inherit; font-weight: var(--fw-semibold); overflow-wrap: anywhere; line-height: var(--lh-snug); }
+.fe-tela [aria-disabled="true"] { opacity: 0.6; cursor: not-allowed; }
+.fe-topo h2:focus { outline: none; }
+.fe-abono--indisponivel { margin: 0; color: var(--ink-soft); font-size: var(--fs-xs); background: transparent; border-style: dashed; cursor: default; }
+/* Texto pequeno sobre o fundo vermelho claro precisa de mais contraste que o cinza padrão. */
+.fe-linha--perigo .fe-sub, .fe-linha--perigo .fe-rotulo { color: var(--ink-soft); }
+.fe-situacao .fe-sub { white-space: nowrap; }
+.fe-linha .ds-button-secondary:not(:disabled):hover { border-color: var(--gold-dark); }
+@media (prefers-reduced-motion: reduce) {
+  .fe-filtro, .fe-linha { transition: none; }
+}
