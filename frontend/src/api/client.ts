@@ -1535,6 +1535,71 @@ export function getRequisitionCatalog() {
   return request<RequisitionCatalogItem[]>("/inventory/requisitions/catalog", undefined, 30_000);
 }
 
+export type PendenciaDeConversao = {
+  unidade: string;
+  /** COMPRA: já se comprou nessa unidade; CADASTRO: é a unidade de compra do produto; NOME_PECA: o nome diz "peça". */
+  origem: "COMPRA" | "CADASTRO" | "NOME_PECA";
+  linhas: number;
+  valor: number;
+  proposta: { factor: number; confianca: "alta" | "baixa"; motivo: string } | null;
+};
+
+export type StatusDaConversao = "PENDENTE" | "PARCIAL" | "CADASTRADO" | "NAO_PRECISA";
+
+export type ProdutoDaRotinaDeConversao = {
+  productId: string;
+  codigo: string | null;
+  nome: string;
+  unidadeDeContagem: string;
+  saldo: number | null;
+  sectorId: string | null;
+  sectorName: string | null;
+  /** PENDENTE: nenhuma conversão cadastrada; PARCIAL: cadastrada, mas falta uma unidade em uso; NAO_PRECISA: conferido. */
+  status: StatusDaConversao;
+  conversoes: Array<{ fromUnit: string; toUnit: string; factor: number }>;
+  pendencias: PendenciaDeConversao[];
+  /** Vezes em que saiu em requisição nos últimos 90 dias. */
+  usosEmRequisicoes: number;
+  conferidoPorNome: string | null;
+  conferidoEm: string | null;
+};
+
+export type RotinaDeConversoes = {
+  produtos: ProdutoDaRotinaDeConversao[];
+  resumo: { total: number; pendentes: number; parciais: number; cadastrados: number; naoPrecisa: number };
+  locais: Array<{ id: string; nome: string }>;
+};
+
+/** A rotina do estoquista: todo produto com a situação da conversão (pendente, parcial, cadastrada, não precisa). */
+export function getRotinaDeConversoes() {
+  return request<RotinaDeConversoes>("/inventory/requisitions/conversions", undefined, 60_000);
+}
+
+/** Marca (ou desmarca) o produto como "não precisa de conversão": sai da fila sem cadastro. */
+export function conferirConversaoDoProduto(productId: string, naoPrecisa: boolean) {
+  return request<{ productId: string; naoPrecisa: boolean }>(`/inventory/requisitions/conversions/${productId}/conferencia`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ naoPrecisa })
+  });
+}
+
+export type ResultadoDaConversaoCadastrada = {
+  criada: boolean;
+  comprasConvertidas: number;
+  comprasEmPeriodoFechado: number;
+  conversao: { fromUnit: string; toUnit: string; factor: number };
+};
+
+/** Cadastra "1 <fromUnit> = <factor> <unidade do estoque>" e refaz as compras sem conversão dessa unidade. */
+export function cadastrarConversao(payload: { productId: string; fromUnit: string; factor: string | number }) {
+  return request<ResultadoDaConversaoCadastrada>("/inventory/requisitions/conversions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  }, 60_000);
+}
+
 export function getRequisitions(filters?: { startDate?: string; endDate?: string; sectorId?: string; shift?: string; clientRequestId?: string }) {
   return request<InventoryRequisition[]>(`/inventory/requisitions${toQueryString(filters)}`, undefined, 30_000);
 }

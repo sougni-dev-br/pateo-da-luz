@@ -143,6 +143,7 @@ export function Requisitions({ user }: { user: AppUser }) {
             modelo={modelo}
             onCriada={aoCriar}
             onAviso={(tone, message) => setNotice({ tone, message })}
+            onPedirUnidade={(item) => navigate(`/estoque/conversoes?produto=${encodeURIComponent(item.id)}`)}
           />
         </div>
       )}
