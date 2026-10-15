@@ -127,6 +127,9 @@ export async function carregarDetalhe(client: ClienteDoBanco, id: string) {
     fichaDeBuffet: dish.fichaDeBuffet,
     fichaPendente: dish.fichaPendente,
     fichaDeProducao: dish.fichaDeProducao,
+    // Conferência pela cozinha: nula = ainda não conferida.
+    conferidaEm: dish.fichaConferidaEm,
+    conferidaPorId: dish.fichaConferidaPorId,
     calculatedCost: custo.totalCost,
     custoPorcao: custo.costPerServing,
     margemBruta: custo.margemBruta,

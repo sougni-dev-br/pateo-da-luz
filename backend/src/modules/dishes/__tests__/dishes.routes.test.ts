@@ -56,8 +56,9 @@ const detalheMinimo = (id: string) => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  db.dishItem.findMany.mockResolvedValue([]);
   db.dish.findUnique.mockImplementation(async (arg: { where: { id: string }; select?: object }) =>
-    arg.select ? { menu: "CARDAPIO" } : detalheMinimo(arg.where.id));
+    arg.select ? { menu: "CARDAPIO", yieldQty: 1, yieldUnit: "UN" } : detalheMinimo(arg.where.id));
   db.dishRevision.create.mockResolvedValue({});
   db.dishCategory.findUnique.mockResolvedValue({ name: "A la carte", menu: "CARDAPIO" });
   vi.mocked(requireRole).mockResolvedValue({ id: "u1", role: "ADMIN" } as never);
@@ -422,7 +423,7 @@ describe("pratos aguardando ficha (criados pelo desperdício)", () => {
     db.wasteEntry.findMany.mockResolvedValue([{ id: "w1", quantity: 2, unit: "UN" }]);
     // carregarDetalhe lê o prato: devolve uma ficha com custo conhecido (1 ingrediente, 10 por porção).
     db.dish.findUnique.mockImplementation(async (arg: { where: { id: string }; select?: object }) =>
-      arg.select ? { menu: "CARDAPIO" } : {
+      arg.select ? { menu: "CARDAPIO", yieldQty: 1, yieldUnit: "UN" } : {
         ...detalheMinimo(arg.where.id),
         items: [{ id: "i1", menu: "CARDAPIO", productId: "p1", quantity: 1, unit: "UN", wasteFactor: 0, sortOrder: 0, product: { id: "p1", name: "Batata", unit: "UN", stockUnit: "UN", externalCode: null, inventoryStock: { averageCost: 10, currentQuantity: 5 }, conversions: [] } }],
       });
@@ -591,7 +592,7 @@ describe("ficha de produção x prato vendido", () => {
 
   test("editar: ficha de produção que já é ingrediente de outra não vira prato vendido", async () => {
     db.dish.findUnique.mockImplementation(async (arg: { where: { id: string }; select?: object }) =>
-      arg.select ? { menu: "CARDAPIO", alsoMenu: null, alsoCategoryId: null, fichaDeProducao: true } : detalheMinimo(arg.where.id));
+      arg.select ? { yieldQty: 1, yieldUnit: "UN", menu: "CARDAPIO", alsoMenu: null, alsoCategoryId: null, fichaDeProducao: true } : detalheMinimo(arg.where.id));
     db.dishItem.count.mockResolvedValue(2);
     const r = await request(app).put("/dishes/massa").send({ ...producao, fichaDeProducao: false });
     expect(r.status).toBe(400);
@@ -610,7 +611,7 @@ describe("ficha de produção x prato vendido", () => {
 
   test("editar sem mandar o tipo (tela antiga) mantém a ficha de produção como está e continua sem preço", async () => {
     db.dish.findUnique.mockImplementation(async (arg: { where: { id: string }; select?: object }) =>
-      arg.select ? { menu: "CARDAPIO", alsoMenu: null, alsoCategoryId: null, fichaDeProducao: true, yieldUnit: "UN" } : detalheMinimo(arg.where.id));
+      arg.select ? { yieldQty: 1, yieldUnit: "UN", menu: "CARDAPIO", alsoMenu: null, alsoCategoryId: null, fichaDeProducao: true, yieldUnit: "UN" } : detalheMinimo(arg.where.id));
     const r = await request(app).put("/dishes/massa").send({ ...producao, salePriceDefault: 40 });
     expect(r.status).toBe(200);
     expect(db.dish.update.mock.calls[0][0].data).toMatchObject({ fichaDeProducao: true, salePriceDefault: null, categoryId: null });
@@ -662,7 +663,7 @@ describe("ficha de produção em uso", () => {
 
   test("preparação do buffet do desperdício não vira ficha de produção", async () => {
     db.dish.findUnique.mockImplementation(async (arg: { where: { id: string }; select?: object }) =>
-      arg.select ? { menu: "CARDAPIO", alsoMenu: null, alsoCategoryId: null, fichaDeProducao: false, fichaDeBuffet: true, yieldUnit: "UN" } : detalheMinimo(arg.where.id));
+      arg.select ? { yieldQty: 1, yieldUnit: "UN", menu: "CARDAPIO", alsoMenu: null, alsoCategoryId: null, fichaDeProducao: false, fichaDeBuffet: true, yieldUnit: "UN" } : detalheMinimo(arg.where.id));
     const r = await request(app).put("/dishes/pure").send({ ...producao, fichaDeProducao: true });
     expect(r.status).toBe(400);
     expect(r.body.message).toMatch(/buffet/);
@@ -692,3 +693,61 @@ describe("ficha de produção em uso", () => {
   });
 });
 
+
+describe("conferência da ficha pela cozinha", () => {
+  test("marcar como conferida grava quem e quando; ficha sem ingredientes não pode", async () => {
+    db.dishItem.count.mockResolvedValueOnce(0);
+    const vazia = await request(app).post("/dishes/d1/conferir");
+    expect(vazia.status).toBe(400);
+    expect(vazia.body.message).toMatch(/ainda não tem ingredientes/);
+    expect(db.dish.update).not.toHaveBeenCalled();
+
+    db.dishItem.count.mockResolvedValueOnce(4);
+    const ok = await request(app).post("/dishes/d1/conferir");
+    expect(ok.status).toBe(200);
+    expect(db.dish.update).toHaveBeenCalledWith({ where: { id: "d1" }, data: { fichaConferidaEm: expect.any(Date), fichaConferidaPorId: "u1" } });
+    expect(auditLog).toHaveBeenCalled();
+  });
+
+  test("prato inexistente: 404", async () => {
+    db.dish.findUnique.mockResolvedValueOnce(null);
+    expect((await request(app).post("/dishes/x/conferir")).status).toBe(404);
+  });
+
+  test("desmarcar limpa a conferência", async () => {
+    const r = await request(app).delete("/dishes/d1/conferir");
+    expect(r.status).toBe(200);
+    expect(db.dish.update).toHaveBeenCalledWith({ where: { id: "d1" }, data: { fichaConferidaEm: null, fichaConferidaPorId: null } });
+  });
+
+  const itemGravado = (quantity: number) => ({ menu: "CARDAPIO", productId: "p1", componentDishId: null, quantity, unit: "G", wasteFactor: 0 });
+
+  test("salvar sem mudar a receita nem o rendimento mantém a conferência", async () => {
+    db.dishItem.findMany.mockResolvedValue([itemGravado(150)]);
+    const r = await request(app).put("/dishes/d1").send({ ...pratoValido, items: [{ productId: "p1", quantity: 150, unit: "G", wasteFactor: 0 }] });
+    expect(r.status).toBe(200);
+    expect(db.dish.update).toHaveBeenCalledTimes(1);
+  });
+
+  test("mudar uma quantidade, e só ela, tira a conferência", async () => {
+    db.dishItem.findMany.mockResolvedValueOnce([itemGravado(150)]).mockResolvedValue([itemGravado(200)]);
+    const r = await request(app).put("/dishes/d1").send({ ...pratoValido, items: [{ productId: "p1", quantity: 200, unit: "G", wasteFactor: 0 }] });
+    expect(r.status).toBe(200);
+    expect(db.dish.update).toHaveBeenLastCalledWith({ where: { id: "d1" }, data: { fichaConferidaEm: null, fichaConferidaPorId: null } });
+  });
+
+  test("mudar o rendimento tira a conferência", async () => {
+    const r = await request(app).put("/dishes/d1").send({ ...pratoValido, yieldQty: 2 });
+    expect(r.status).toBe(200);
+    expect(db.dish.update).toHaveBeenLastCalledWith({ where: { id: "d1" }, data: { fichaConferidaEm: null, fichaConferidaPorId: null } });
+  });
+
+  test("o detalhe diz quem conferiu", async () => {
+    db.dish.findUnique.mockImplementation(async (arg: { where: { id: string }; select?: object }) =>
+      arg.select ? { yieldQty: 1, yieldUnit: "UN", menu: "CARDAPIO" } : { ...detalheMinimo(arg.where.id), fichaConferidaEm: new Date("2026-10-15T12:00:00Z"), fichaConferidaPorId: "u9" });
+    (db.user as { findUnique?: unknown }).findUnique = vi.fn().mockResolvedValue({ name: "Ana" });
+    const r = await request(app).get("/dishes/d1");
+    expect(r.body).toMatchObject({ conferidaPor: "Ana" });
+    expect(r.body.conferidaEm).toBe("2026-10-15T12:00:00.000Z");
+  });
+});

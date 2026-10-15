@@ -2,12 +2,14 @@ import { ChefHat, Plus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   bulkUpdateDishes,
+  confirmDishFicha,
   deactivateDish,
   getDishCategories,
   getDishDetail,
   getBuffetDishes,
   getDishes,
   reactivateDish,
+  unconfirmDishFicha,
   type BuffetDish,
   type DishCategory,
   type DishDetail,
@@ -291,6 +293,19 @@ export function FichasTecnicas() {
     notificar("success", `${base}${reflexo}`);
   }
 
+  async function conferirFicha(conferida: boolean) {
+    if (!detalhe) return;
+    const { id, name } = detalhe;
+    try {
+      if (conferida) await confirmDishFicha(id);
+      else await unconfirmDishFicha(id);
+      await Promise.all([carregar(), selecionadoRef.current === id ? abrirDetalhe(id) : Promise.resolve()]);
+      notificar("success", conferida ? `“${name}” marcada como conferida.` : `Conferência de “${name}” desmarcada.`);
+    } catch (erro) {
+      notificar("error", mensagemDe(erro, "Não foi possível atualizar a conferência."));
+    }
+  }
+
   async function alternarAtivo() {
     if (!detalhe) return;
     const { id, name, isActive } = detalhe;
@@ -403,6 +418,8 @@ export function FichasTecnicas() {
           onImprimir={() => imprimir([folhaDoPrato(detalheDoSelecionado)])}
           onFechar={voltar}
           onPrecosMudaram={() => { void abrirDetalhe(detalheDoSelecionado.id); void carregar(); }}
+          onConferir={() => void conferirFicha(true)}
+          onDesconferir={() => void conferirFicha(false)}
           notificar={notificar}
         />
         </>

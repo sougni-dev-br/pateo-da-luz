@@ -29,6 +29,9 @@ type Props = {
   onFechar: () => void;
   /** Depois de mexer no preço de uma loja: recarrega o prato. */
   onPrecosMudaram: () => void;
+  /** A cozinha conferiu a ficha / tirar a conferência. */
+  onConferir: () => void;
+  onDesconferir: () => void;
   notificar: (tom: "success" | "error", mensagem: string) => void;
 };
 
@@ -93,6 +96,31 @@ function AvisoDoDelivery({ prato, canEdit, onEditar }: Pick<Props, "prato" | "ca
         <>
           {" "}
           <button type="button" className="ft-link" onClick={onEditar}>Informar as quantidades do delivery</button>
+        </>
+      )}
+    </Alert>
+  );
+}
+
+/** Ficha montada: diz se a cozinha já conferiu os ingredientes e as quantidades, e deixa conferir (ou desfazer). */
+function AvisoDaConferencia({ prato, canEdit, onConferir, onDesconferir }: Pick<Props, "prato" | "canEdit" | "onConferir" | "onDesconferir">) {
+  if (prato.items.length === 0 || prato.fichaDeBuffet) return null;
+  if (prato.conferidaEm) {
+    return (
+      <p className="ft-conferida" role="status">
+        Ficha conferida{prato.conferidaPor ? ` por ${prato.conferidaPor}` : ""} em {dataHora(prato.conferidaEm)}.
+        {canEdit && <>{" "}<button type="button" className="ft-link" onClick={onDesconferir}>Desmarcar</button></>}
+      </p>
+    );
+  }
+  return (
+    <Alert tone="warning" title="Ficha ainda não conferida">
+      Os ingredientes e as quantidades desta ficha ainda não foram conferidos com a cozinha, então podem não ser os de verdade.
+      Quando baterem com o que se faz, marque como conferida. Mudar a receita depois tira a conferência.
+      {canEdit && (
+        <>
+          {" "}
+          <button type="button" className="ft-link" onClick={onConferir}>Marcar como conferida</button>
         </>
       )}
     </Alert>
@@ -225,7 +253,7 @@ function ajudaDoCustoPorPorcao(prato: DishDetail): string | undefined {
   return partes.length > 0 ? partes.join(" · ") : undefined;
 }
 
-export function DetalheDoPrato({ prato, canEdit, onEditar, onCopiar, onAlternarAtivo, onImprimir, onFechar, onPrecosMudaram, notificar }: Props) {
+export function DetalheDoPrato({ prato, canEdit, onEditar, onCopiar, onAlternarAtivo, onImprimir, onFechar, onPrecosMudaram, onConferir, onDesconferir, notificar }: Props) {
   const semFicha = prato.items.length === 0;
   const faixa = faixaDeCmv(prato.cmvPercentual);
   const mostraCmv = !semFicha && prato.cmvPercentual != null;
@@ -269,6 +297,7 @@ export function DetalheDoPrato({ prato, canEdit, onEditar, onCopiar, onAlternarA
       </header>
 
       <Aviso prato={prato} canEdit={canEdit} onEditar={onEditar} />
+      <AvisoDaConferencia prato={prato} canEdit={canEdit} onConferir={onConferir} onDesconferir={onDesconferir} />
       <AvisoDoDelivery prato={prato} canEdit={canEdit} onEditar={onEditar} />
       {prato.alsoMenu && <ExplicacaoDasFichas />}
 
