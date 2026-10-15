@@ -5,16 +5,15 @@ import {
   InventoryRequisition,
   InventoryRequisitionItem,
   InventorySector,
-  InventoryStock,
-  getInventoryStocks,
   getRequisition,
-  getRequisitionProductsByIds,
   getRequisitions,
   getSectors
 } from "../api/client";
 import { Button, EmptyState, IconButton, PanelEyebrow, StatusBadge, Table } from "../design-system";
 import { Notice, useNotice } from "../components/Notice";
 import { formatDate, formatNumber } from "../utils/format";
+import type { Escolhas } from "./requisitions/catalogo";
+import { lerRascunho } from "./requisitions/rascunho";
 import { FormularioDaRequisicao, MOTIVOS, TURNOS, cabecalhoVazio, type ModeloInicial } from "./requisitions/FormularioDaRequisicao";
 
 const shiftLabels = TURNOS;
@@ -26,7 +25,6 @@ const shiftTone = (shift: string) =>
 export function Requisitions({ user }: { user: AppUser }) {
   const [view, setView] = useState<"form" | "list">("form");
   const [sectors, setSectors] = useState<InventorySector[]>([]);
-  const [saldos, setSaldos] = useState<Map<string, number> | null>(null);
   const [modelo, setModelo] = useState<ModeloInicial | null>(null);
   const [formKey, setFormKey] = useState(0);
   const [confirmedRequisition, setConfirmedRequisition] = useState<InventoryRequisition | null>(null);
@@ -38,9 +36,6 @@ export function Requisitions({ user }: { user: AppUser }) {
 
   useEffect(() => {
     getSectors().then(setSectors).catch(() => {});
-    getInventoryStocks().then((stocks: InventoryStock[]) => {
-      setSaldos(new Map(stocks.map((s) => [s.productId, Number(s.currentQuantity)])));
-    }).catch(() => {});
     loadRequisitions();
   }, []);
 
@@ -58,26 +53,17 @@ export function Requisitions({ user }: { user: AppUser }) {
   }
 
   async function duplicateRequisition(id: string) {
+    if (lerRascunho(user.id) && !window.confirm("Há uma requisição em andamento. Substituir pelos itens desta?")) return;
     try {
       const req = await getRequisition(id);
-      const itens = (req.items ?? []).filter((i) => i.productId);
-      const produtos = await getRequisitionProductsByIds(itens.map((i) => i.productId!));
-      const porId = new Map(produtos.map((p) => [p.id, p]));
+      const escolhas: Escolhas = {};
+      for (const item of req.items ?? []) {
+        // A retirada fica na unidade do estoque; o formulário confere o saldo de hoje ao abrir.
+        if (item.productId) escolhas[item.productId] = { unit: item.unit ?? "UN", quantity: String(Number(item.quantity)).replace(".", ",") };
+      }
       setModelo({
         cabecalho: { ...cabecalhoVazio(), shift: req.shift, reason: req.reason, reasonNotes: req.reasonNotes ?? "", sectorId: req.sectorId ?? "", notes: req.notes ?? "" },
-        linhas: itens.flatMap((i) => {
-          const produto = porId.get(i.productId!);
-          if (!produto) return [];
-          return [{
-            productId: produto.id,
-            productName: produto.name,
-            productCode: produto.code,
-            stockUnit: produto.unit,
-            conversions: produto.conversions,
-            unit: produto.unit ?? i.unit ?? "UN",
-            quantity: String(Number(i.quantity)).replace(".", ",")
-          }];
-        })
+        escolhas
       });
       setFormKey((k) => k + 1);
       setConfirmedRequisition(null);
@@ -90,16 +76,6 @@ export function Requisitions({ user }: { user: AppUser }) {
   function aoCriar(created: InventoryRequisition) {
     setConfirmedRequisition(created);
     setNotice({ tone: "success", message: `${created.code} registrada com sucesso.` });
-    // Saldos novos vêm da própria resposta: não precisa recarregar a lista inteira.
-    if (created.items) {
-      setSaldos((atual) => {
-        const proximo = new Map(atual ?? []);
-        for (const item of created.items ?? []) {
-          if (item.productId && item.stockAfter != null) proximo.set(item.productId, Number(item.stockAfter));
-        }
-        return proximo;
-      });
-    }
     setRequisitions((prev) => [{ ...created, itemCount: created.items?.length ?? 0 }, ...prev]);
   }
 
@@ -136,16 +112,18 @@ export function Requisitions({ user }: { user: AppUser }) {
         </button>
       </div>
 
-      {view === "form" && !confirmedRequisition && (
-        <FormularioDaRequisicao
-          key={formKey}
-          user={user}
-          sectors={sectors}
-          saldos={saldos}
-          modelo={modelo}
-          onCriada={aoCriar}
-          onAviso={(tone, message) => setNotice({ tone, message })}
-        />
+      {/* Escondido, não desmontado: ir ao histórico e voltar não pode descartar o que já foi montado */}
+      {!confirmedRequisition && (
+        <div hidden={view !== "form"}>
+          <FormularioDaRequisicao
+            key={formKey}
+            user={user}
+            sectors={sectors}
+            modelo={modelo}
+            onCriada={aoCriar}
+            onAviso={(tone, message) => setNotice({ tone, message })}
+          />
+        </div>
       )}
 
       {view === "form" && confirmedRequisition && (

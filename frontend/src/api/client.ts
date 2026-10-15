@@ -1511,7 +1511,8 @@ export type CreateRequisitionPayload = {
   items: Array<{ productId: string; quantity: number; unit: string }>;
 };
 
-export type RequisitionProductHit = {
+/** Uma linha da lista de onde se escolhe o que retirar: o produto, o saldo e o que ele sabe converter. */
+export type RequisitionCatalogItem = {
   id: string;
   name: string;
   code: string | null;
@@ -1520,14 +1521,14 @@ export type RequisitionProductHit = {
   /** g, kg, ml, l, embalagem do nome e o que estiver cadastrado: convertem para `unit` no servidor. */
   conversions: DishUnitConversion[];
   embalagemInferida: string | null;
+  /** Local do estoque (câmara fria, freezer, bar...); null quando o produto ainda não tem. */
+  sectorId: string | null;
+  /** Saldo na unidade do estoque; 0 quando não há registro de saldo. */
+  balance: number;
 };
 
-export function searchRequisitionProducts(search: string) {
-  return request<RequisitionProductHit[]>(`/inventory/requisitions/products${toQueryString({ search })}`);
-}
-
-export function getRequisitionProductsByIds(ids: string[]) {
-  return request<RequisitionProductHit[]>(`/inventory/requisitions/products${toQueryString({ ids: ids.join(",") })}`);
+export function getRequisitionCatalog() {
+  return request<RequisitionCatalogItem[]>("/inventory/requisitions/catalog", undefined, 30_000);
 }
 
 export function getRequisitions(filters?: { startDate?: string; endDate?: string; sectorId?: string; shift?: string; clientRequestId?: string }) {

@@ -10,8 +10,9 @@ import { auditLog, requestIp, requireMenuPermission, type SessionUser } from "..
 import { userHasPermission } from "../security/menu-permissions.js";
 import { parseDecimalInput } from "../../shared/utils/parse-decimal.js";
 import { converterItemDeCompra, normalizarUnidade } from "../../shared/unidades/conversao.js";
-import { SELECT_DE_UNIDADES, conversoesDoInsumo, textoDaEmbalagem, unidadeDoInsumo } from "../../shared/unidades/insumo.js";
+import { SELECT_DE_UNIDADES, conversoesDoInsumo, unidadeDoInsumo } from "../../shared/unidades/insumo.js";
 import { converterQuantidade } from "../waste/waste.js";
+import { itemDoCatalogo } from "./requisicao-catalogo.js";
 import { cancelamentoDeveCancelarBase, podeReaproveitarBase, reaberturaDeveSoltarBase } from "./base-oficial.js";
 import { mensagemDeTipoMigrado } from "./tipos-de-movimento.js";
 import { classificarItemDaConferencia, ordenarConferencia, resumirConferencia } from "./conferencia.js";
@@ -5989,43 +5990,24 @@ inventoryRouter.get("/requisitions", async (request, response) => {
   response.json(rows.map((row) => ({ ...row, itemCount: Number(row.itemCount) })));
 });
 
-// Busca de produto da requisicao: devolve a unidade do estoque e as conversoes (g, kg, ml, l, embalagem
-// lida do nome) para a tela oferecer so as unidades que o servidor sabe converter.
-inventoryRouter.get("/requisitions/products", async (request, response) => {
+// Lista de onde se escolhe o que retirar: todo insumo que controla estoque, com saldo, local e conversoes.
+// A tela filtra e busca aqui mesmo (sem ida ao servidor a cada letra) e so mostra o que tem saldo por padrao.
+inventoryRouter.get("/requisitions/catalog", async (request, response) => {
   const user = await requireMenuPermission(request, response);
   if (!user) return;
 
-  // `ids` serve a duplicar uma requisicao: traz as unidades dos produtos dela de uma vez.
-  const ids = String(request.query.ids ?? "").split(",").map((id) => id.trim()).filter(Boolean).slice(0, 200);
-  const search = String(request.query.search ?? "").trim().slice(0, 80);
-  if (ids.length === 0 && search.length < 1) {
-    response.json([]);
-    return;
-  }
-
-  const produtos = await prisma.product.findMany({
-    where: ids.length > 0
-      ? { id: { in: ids }, isActive: true }
-      : {
-          isActive: true,
-          controlsStock: { not: false },
-          OR: [{ name: { contains: search, mode: "insensitive" } }, { externalCode: { contains: search, mode: "insensitive" } }]
-        },
-    select: { id: true, externalCode: true, ...SELECT_DE_UNIDADES },
-    orderBy: { name: "asc" },
-    take: ids.length > 0 ? 200 : 30
-  });
-  response.json(produtos.map((p) => {
-    const conversoes = conversoesDoInsumo(p);
-    return {
-      id: p.id,
-      name: p.name,
-      code: p.externalCode,
-      unit: unidadeDoInsumo(p),
-      conversions: conversoes,
-      embalagemInferida: textoDaEmbalagem(p, conversoes)
-    };
-  }));
+  const [produtos, saldos] = await Promise.all([
+    prisma.product.findMany({
+      where: { isActive: true, controlsStock: { not: false } },
+      select: { id: true, externalCode: true, inventorySectorId: true, ...SELECT_DE_UNIDADES },
+      orderBy: { name: "asc" }
+    }),
+    prisma.$queryRaw<Array<{ productId: string; currentQuantity: Prisma.Decimal }>>`
+      SELECT "productId", "currentQuantity" FROM "InventoryStock"
+    `
+  ]);
+  const saldoPorProduto = new Map(saldos.map((s) => [s.productId, Number(s.currentQuantity)]));
+  response.json(produtos.map((p) => itemDoCatalogo(p, saldoPorProduto.get(p.id))));
 });
 
 inventoryRouter.get("/requisitions/:id", async (request, response) => {
