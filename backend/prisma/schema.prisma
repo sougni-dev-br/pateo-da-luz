@@ -4069,3 +4069,19 @@ model AgileBuffetCusto {
 
   @@unique([ano, mes], map: "agbuffetcusto_mes_key")
 }
+
+/// Requisição em andamento salva no sistema (qualquer aparelho, qualquer pessoa com acesso a Requisições).
+/// O estoque só baixa ao concluir; até lá é só este rascunho.
+model InventoryRequisitionDraft {
+  id              String   @id
+  payload         Json
+  itemCount       Int      @default(0)
+  summary         String?
+  version         Int      @default(1)
+  createdByUserId String?
+  updatedByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([updatedAt])
+}
