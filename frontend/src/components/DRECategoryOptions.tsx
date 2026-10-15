@@ -22,9 +22,11 @@ export function dreGroupLabel(groupKey: string): string {
  * <optgroup> por grupo DRE (na ordem gerencial), categorias em ordem
  * alfabética dentro de cada grupo. Usar dentro de um <select>.
  */
-export function DRECategoryOptions({ categories }: { categories: DRECategory[] }) {
+type CategoryOption = Pick<DRECategory, "id" | "name" | "dreGroup">;
+
+export function DRECategoryOptions({ categories }: { categories: CategoryOption[] }) {
   const groupOrder = new Map(DRE_GROUPS.map((g, i) => [g.value, i]));
-  const grouped = new Map<string, DRECategory[]>();
+  const grouped = new Map<string, CategoryOption[]>();
 
   for (const cat of categories) {
     if (!grouped.has(cat.dreGroup)) grouped.set(cat.dreGroup, []);
