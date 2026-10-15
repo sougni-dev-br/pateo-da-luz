@@ -10807,7 +10807,8 @@ tr.dre-row-selected td {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  z-index: 40;
+  /* Acima do cabeçalho (70) e da gaveta (90) do celular, que cobriam o título. */
+  z-index: 95;
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -10859,12 +10860,42 @@ tr.dre-row-selected td {
   max-height: calc(100vh - 160px);
 }
 
+.tax-sem-categoria {
+  color: var(--warning);
+  font-weight: 600;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 14px 24px;
+  border-top: 1px solid var(--line);
+  background: var(--paper);
+}
+
+/* Aviso que pede ação (ex.: guia sem categoria some do grupo Impostos no DRE). */
+.field-hint--alerta {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--tint-warning-border);
+  border-radius: 6px;
+  background: var(--tint-warning);
+  color: var(--warning);
+  font-weight: 500;
+}
+
 /* ── pnova field helpers (reutilizado em TaxPayments e Requisitions) ─── */
 .pnova-fieldset {
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 14px 16px 16px;
   margin: 0;
+}
+
+/* Linhas e campos do mesmo bloco ficavam encostados uns nos outros. */
+.pnova-fieldset > :not(legend) + :not(legend) {
+  margin-top: 12px;
 }
 
 .pnova-fieldset legend {
@@ -10931,6 +10962,8 @@ tr.dre-row-selected td {
 @media (max-width: 640px) {
   .modal-overlay { padding: 16px 8px; }
   .modal-body { padding: 16px; }
+  .modal-footer { padding: 12px 16px; }
+  .modal-footer > button { flex: 1; }
   .pnova-field-row { flex-direction: column; }
 }
 

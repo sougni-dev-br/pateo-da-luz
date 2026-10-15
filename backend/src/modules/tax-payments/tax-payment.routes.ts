@@ -6,6 +6,7 @@ import multer from "multer";
 import { prisma } from "../../config/database.js";
 import { auditLog, getSessionUser, requestIp } from "../security/security-utils.js";
 import { buildExistingDedupKeys, previewTaxImport } from "./tax-payment-import.service.js";
+import { categoriaIdPorNome, sugerirCategoriaImposto } from "./categoria-imposto.js";
 
 export const taxPaymentRouter = Router();
 
@@ -28,6 +29,27 @@ function computeStatus(paymentDate: Date | null, dueDate: Date): string {
   if (paymentDate) return "PAID";
   if (dueDate < new Date()) return "OVERDUE";
   return "PENDING";
+}
+
+function categoriasAtivas() {
+  return prisma.dRECategory.findMany({
+    where: { isActive: true },
+    select: { id: true, name: true, dreGroup: true },
+    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+  });
+}
+
+function categoriaSugerida(
+  categorias: ReadonlyArray<{ id: string; name: string }>,
+  documentType: unknown,
+  description: unknown
+) {
+  const nome = sugerirCategoriaImposto(
+    typeof documentType === "string" ? documentType : null,
+    typeof description === "string" ? description : null
+  );
+  const dreCategoryId = categoriaIdPorNome(categorias, nome);
+  return { dreCategoryId, nome: dreCategoryId ? nome : null };
 }
 
 type TaxPaymentRow = {
@@ -157,6 +179,18 @@ taxPaymentRouter.get("/", async (request, response) => {
   });
 });
 
+// ─── Categorias do DRE para a tela de impostos ────────────────────────────────
+// Ficam aqui (e não só em /dre) porque quem lança guia nem sempre tem acesso ao DRE.
+// Precisam vir antes de "/:id", senão o Express trata o nome da rota como id.
+taxPaymentRouter.get("/categorias-dre", async (_request, response) => {
+  response.json(await categoriasAtivas());
+});
+
+taxPaymentRouter.get("/categoria-sugerida", async (request, response) => {
+  const { documentType, description } = request.query;
+  response.json(categoriaSugerida(await categoriasAtivas(), documentType, description));
+});
+
 // ─── GET /tax-payments/:id ────────────────────────────────────────────────────
 taxPaymentRouter.get("/:id", async (request, response) => {
   const { id } = request.params;
@@ -210,6 +244,12 @@ taxPaymentRouter.post("/", async (request, response) => {
   const parsedCompetence = competenceDate ? new Date(competenceDate as string) : null;
   if (await competenciaBloqueada(parsedCompetence, "Cadastro de imposto", response)) return;
 
+  // Sem categoria a guia cai em "Não categorizadas" no DRE. Campo ausente = regra pelo
+  // tipo da guia; null ou "" = a pessoa escolheu deixar sem categoria.
+  const categoriaId = dreCategoryId === undefined
+    ? categoriaSugerida(await categoriasAtivas(), documentType, description).dreCategoryId
+    : ((dreCategoryId as string) || null);
+
   const created = await prisma.taxPayment.create({
     data: {
       id: crypto.randomUUID(),
@@ -227,7 +267,7 @@ taxPaymentRouter.post("/", async (request, response) => {
       status: status as "PENDING" | "PAID" | "OVERDUE" | "CANCELED" | "WITHOUT_RECEIPT",
       comments: (comments as string) || null,
       source: "MANUAL",
-      dreCategoryId: (dreCategoryId as string) || null,
+      dreCategoryId: categoriaId,
       createdById: user.id,
     },
   });
@@ -543,7 +583,16 @@ taxPaymentRouter.post("/import-xlsx/preview", upload.single("file"), async (requ
 
   try {
     const preview = await previewTaxImport(request.file.path, existingKeySet);
-    return response.json(preview);
+    // Mostra na prévia em que categoria do DRE cada tipo vai entrar; null = sem regra.
+    const categorias = await categoriasAtivas();
+    const categoriasPorTipo: Record<string, Array<string | null>> = {};
+    for (const row of preview.rows) {
+      if (!row.valid || !row.documentType) continue;
+      const nomes = categoriasPorTipo[row.documentType] ?? [];
+      const { nome } = categoriaSugerida(categorias, row.documentType, row.description);
+      if (!nomes.includes(nome)) categoriasPorTipo[row.documentType] = [...nomes, nome];
+    }
+    return response.json({ ...preview, categoriasPorTipo });
   } catch (error) {
     fs.unlink(request.file.path, () => undefined);
     return response.status(400).json({ message: error instanceof Error ? error.message : "Erro ao processar arquivo." });
@@ -593,6 +642,7 @@ taxPaymentRouter.post("/import-xlsx/confirm", async (request, response) => {
   }
 
   const batchId = importBatchId ?? crypto.randomUUID();
+  const categorias = await categoriasAtivas();
 
   const created = await prisma.$transaction(async (tx) => {
     const records = [];
@@ -618,6 +668,7 @@ taxPaymentRouter.post("/import-xlsx/confirm", async (request, response) => {
           comments: row.comments,
           source: "IMPORT_XLSX",
           importBatchId: batchId,
+          dreCategoryId: categoriaSugerida(categorias, row.documentType, row.description).dreCategoryId,
           createdById: user.id,
         },
       });

@@ -6,6 +6,7 @@ import { auditLog, requireRole } from "../security/security-utils.js";
 import { FERIAS_CATEGORY, FOLHA_CATEGORY, RESCISAO_CATEGORY, VT_CATEGORY } from "../payroll/payroll.service.js";
 import { custoExtrasSql } from "../payroll/extras-custo.js";
 import { createDrePdf, type DreSummary } from "./dre-pdf.js";
+import { suggestCategory } from "./sugestao-categoria.js";
 import {
   CATEGORIAS_CMV_GERENCIAL,
   getCmvPurchaseTotalByCompetenceMonth,
@@ -890,47 +891,6 @@ dreRouter.patch("/installment/:id/category", async (request, response) => {
 // ─────────────────────────────────────────────
 // CLASSIFICAÇÃO DE DESPESAS
 // ─────────────────────────────────────────────
-
-// Regras de sugestão automática de categoria por nome do fornecedor
-const CATEGORY_SUGGESTIONS: Array<{ patterns: string[]; name: string }> = [
-  { patterns: ["enel ", "cpfl", "energisa", "cemig", "celpe", "coelba", "eletropaulo"], name: "Energia Elétrica" },
-  { patterns: ["sabesp", "sanepar", "copasa", "aegea", "embasa"], name: "Água e Esgoto" },
-  { patterns: ["comgas", "comgás", "ultragaz", "supergasbras", "liquigas", "liqgás"], name: "Gás" },
-  { patterns: ["claro", "vivo", "tim ", "oi ", "sky ", "algar", "net cabo", "brisanet", "vero "], name: "Telefonia / Internet" },
-  { patterns: ["ifood", "99food", "keeta", "rappi", "uber eats", "ubereats"], name: "Marketing e Delivery" },
-  { patterns: ["contabilidade", "escritorio de contab", "assessoria contab"], name: "Contador" },
-  { patterns: ["simples nacional", " das ", "irrf", "darf", "gare", "icms ", "iss "], name: "Simples Nacional" },
-  { patterns: ["inss patronal", "inss "], name: "INSS" },
-  { patterns: ["fgts"], name: "FGTS" },
-  { patterns: ["aluguel", "locacao", "locação"], name: "Aluguel" },
-  { patterns: ["condominio", "condomínio", "fundo de promocao", "fundo de promoção"], name: "Condomínio" },
-  { patterns: ["iptu"], name: "IPTU" },
-  { patterns: ["seguro"], name: "Seguro" },
-  { patterns: ["folha de pagamento", "folha pagamento", "rescisao", "rescisão", "ferias ", "férias "], name: "Folha de Pagamento" },
-  { patterns: ["vale transporte", "vale-transporte"], name: "Vale-Transporte" },
-  { patterns: ["plano de saude", "plano de saúde", "unimed", "sulamerica", "bradesco saude", "amil", "hapvida"], name: "Plano de Saúde" },
-  { patterns: ["mr clean", "kativa", "limpeza", "higienizacao", "higienização", "descartav"], name: "Material de Limpeza" },
-  { patterns: ["software", "sistema", "licenca", "licença", "saas", "chatgpt", "chat- gpt", "wix", "totvs", "linx"], name: "Sistema / Software" },
-  { patterns: ["globo play", "netflix", "streaming", "spotify", "amazon prime", "disney"], name: "Streaming / TV" },
-  { patterns: ["manutencao", "manutenção", "reparo", "reforma", "assistencia tecnica", "assistência técnica"], name: "Manutenção" },
-  { patterns: ["marketing", "publicidade", "propaganda", "locacao de site", "locação de site"], name: "Marketing" },
-  { patterns: ["frigo utensil", "equipamento", "eletrodomest"], name: "Equipamentos" },
-  { patterns: ["papel plastico", "prafesta", "ricapel", "quality papel", "embalagen", "shopee", "kalunga"], name: "Descartáveis" },
-  { patterns: ["banco", "tarifa bancaria", "tarifa bancária", "juros bancarios", "juros bancários", "iof bancario"], name: "Tarifa PIX / TEF" },
-  { patterns: ["prolabore", "pró-labore", "pro-labore"], name: "Pró-labore" },
-];
-
-function normalizeSup(s: string): string {
-  return s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
-}
-
-function suggestCategory(supplierName: string): string | null {
-  const n = normalizeSup(supplierName);
-  for (const rule of CATEGORY_SUGGESTIONS) {
-    if (rule.patterns.some((p) => n.includes(p))) return rule.name;
-  }
-  return null;
-}
 
 // Listar parcelas não categorizadas (com busca, ordenação, sugestão automática e filtro CMV)
 dreRouter.get("/pending", async (request, response) => {

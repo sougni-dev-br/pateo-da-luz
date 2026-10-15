@@ -5431,7 +5431,20 @@ export type TaxImportPreview = {
   rows: TaxImportPreviewRow[];
   byCompany: Record<string, { legalName: string | null; tradeName: string | null; count: number; total: number }>;
   byDocumentType: Record<string, { count: number; total: number }>;
+  // Categoria do DRE em que cada tipo vai entrar; null = sem regra (fica sem categoria).
+  categoriasPorTipo?: Record<string, Array<string | null>>;
 };
+
+export type TaxDreCategory = Pick<DRECategory, "id" | "name" | "dreGroup">;
+
+export function getTaxDreCategories() {
+  return request<TaxDreCategory[]>("/tax-payments/categorias-dre");
+}
+
+export function getTaxCategorySuggestion(documentType: string, description: string) {
+  const params = new URLSearchParams({ documentType, description });
+  return request<{ dreCategoryId: string | null; nome: string | null }>(`/tax-payments/categoria-sugerida?${params}`);
+}
 
 export function getTaxPayments(filters: TaxPaymentFilters = {}) {
   const params = new URLSearchParams();

@@ -2,6 +2,7 @@ import { Copy, Plus, Search, Upload, X } from "lucide-react";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   type AppUser,
+  type TaxDreCategory,
   type TaxImportPreview,
   type TaxPayment,
   type TaxPaymentDetail,
@@ -11,14 +12,18 @@ import {
   confirmTaxImport,
   createTaxPayment,
   deleteTaxPayment,
+  getTaxCategorySuggestion,
+  getTaxDreCategories,
   getTaxPayment,
   getTaxPayments,
   previewTaxImportXlsx,
   updateTaxPayment,
 } from "../api/client";
+import { DRECategoryOptions } from "../components/DRECategoryOptions";
 import { Notice, type NoticeState, useNotice } from "../components/Notice";
 import { Money, StatusBadge as DsStatusBadge, useFormatCurrency } from "../design-system";
 import type { StatusTone } from "../design-system";
+import { competenciaSugerida } from "../lib/competencia-imposto";
 import { hasPermission } from "../lib/permissions";
 
 const DOCUMENT_TYPES = [
@@ -158,7 +163,7 @@ function ImportModal({ onClose, onImported, notify }: ImportModalProps) {
 
         {preview && (
           <div className="modal-body stack">
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 8 }}>
               <KpiCard label="Total de linhas" value={String(preview.totalRows)} />
               <KpiCard label="Válidas" value={String(preview.validRows)} color="#22c55e" />
               <KpiCard label="Inválidas" value={String(preview.invalidRows)} color="#ef4444" />
@@ -171,11 +176,19 @@ function ImportModal({ onClose, onImported, notify }: ImportModalProps) {
               <div>
                 <strong style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>POR TIPO</strong>
                 <table className="data-table" style={{ marginTop: 4 }}>
-                  <thead><tr><th>Tipo</th><th>Qtd</th><th>Total</th></tr></thead>
+                  <thead><tr><th>Tipo</th><th>Categoria no DRE</th><th>Qtd</th><th>Total</th></tr></thead>
                   <tbody>
                     {Object.entries(preview.byDocumentType).map(([dt, info]) => (
                       <tr key={dt}>
                         <td>{dt}</td>
+                        <td>
+                          {(preview.categoriasPorTipo?.[dt] ?? []).map((c, i) => (
+                            <React.Fragment key={c ?? "sem"}>
+                              {i > 0 && " · "}
+                              {c ?? <span className="tax-sem-categoria">Sem categoria</span>}
+                            </React.Fragment>
+                          ))}
+                        </td>
                         <td>{info.count}</td>
                         <td><Money value={info.total} /></td>
                       </tr>
@@ -183,6 +196,12 @@ function ImportModal({ onClose, onImported, notify }: ImportModalProps) {
                   </tbody>
                 </table>
               </div>
+            )}
+
+            {Object.values(preview.categoriasPorTipo ?? {}).some((cats) => cats.includes(null)) && (
+              <p className="field-hint field-hint--alerta">
+                Guias sem categoria entram em "Não categorizadas" no DRE. Depois de importar, abra cada uma e escolha a categoria.
+              </p>
             )}
 
             {preview.invalidRows > 0 && (
@@ -258,9 +277,44 @@ function EditModal({ editId, prefillData, onClose, onSaved, notify, canEdit }: E
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [detail, setDetail] = useState<TaxPaymentDetail | null>(null);
+  const [categorias, setCategorias] = useState<TaxDreCategory[]>([]);
+  // Enquanto a pessoa não escolhe, categoria e competência seguem o tipo e o vencimento.
+  const [categoriaEscolhida, setCategoriaEscolhida] = useState(false);
+  const [competenciaDigitada, setCompetenciaDigitada] = useState(false);
+  // O aviso da página fica atrás do formulário; erro ao salvar aparece aqui dentro.
+  const [erroAoSalvar, setErroAoSalvar] = useState<string | null>(null);
+  const erroRef = useRef<HTMLParagraphElement>(null);
 
   useEffect(() => {
-    if (!editId) { setForm(prefillData ? { ...EMPTY_FORM, ...prefillData } : EMPTY_FORM); return; }
+    if (erroAoSalvar) erroRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [erroAoSalvar]);
+
+  useEffect(() => {
+    getTaxDreCategories()
+      .then(setCategorias)
+      .catch(() => notify({ tone: "error", message: "Erro ao carregar as categorias do DRE." }));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (categoriaEscolhida || !form.documentType) return;
+    // Resposta que chega depois de a pessoa escolher a categoria é descartada.
+    let descartada = false;
+    const timer = setTimeout(() => {
+      getTaxCategorySuggestion(form.documentType, form.description)
+        .then((s) => { if (!descartada) setForm((prev) => ({ ...prev, dreCategoryId: s.dreCategoryId ?? "" })); })
+        .catch(() => undefined);
+    }, 300);
+    return () => { descartada = true; clearTimeout(timer); };
+  }, [form.documentType, form.description, categoriaEscolhida]);
+
+  useEffect(() => {
+    if (!editId) {
+      const inicial = prefillData ? { ...EMPTY_FORM, ...prefillData } : EMPTY_FORM;
+      setForm(inicial);
+      setCategoriaEscolhida(Boolean(inicial.dreCategoryId));
+      setCompetenciaDigitada(Boolean(inicial.competenceDate));
+      return;
+    }
     setLoading(true);
     getTaxPayment(editId)
       .then((d) => {
@@ -280,6 +334,8 @@ function EditModal({ editId, prefillData, onClose, onSaved, notify, canEdit }: E
           dreCategoryId: d.dreCategoryId ?? "",
           status: d.status,
         });
+        setCategoriaEscolhida(Boolean(d.dreCategoryId));
+        setCompetenciaDigitada(true);
       })
       .catch(() => notify({ tone: "error", message: "Erro ao carregar lançamento." }))
       .finally(() => setLoading(false));
@@ -288,6 +344,7 @@ function EditModal({ editId, prefillData, onClose, onSaved, notify, canEdit }: E
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
+    setErroAoSalvar(null);
     try {
       const payload = {
         cnpj: form.cnpj || null,
@@ -301,7 +358,8 @@ function EditModal({ editId, prefillData, onClose, onSaved, notify, canEdit }: E
         paymentDate: form.paymentDate || null,
         paidAmount: form.paidAmount || null,
         comments: form.comments || null,
-        dreCategoryId: form.dreCategoryId || null,
+        // Sem escolha da pessoa vai "undefined" e o servidor aplica a regra; null é "sem categoria".
+        dreCategoryId: form.dreCategoryId || (categoriaEscolhida ? null : undefined),
         status: form.status as TaxPaymentStatus,
       };
       if (editId) {
@@ -314,7 +372,7 @@ function EditModal({ editId, prefillData, onClose, onSaved, notify, canEdit }: E
       onSaved();
       onClose();
     } catch (err) {
-      notify({ tone: "error", message: err instanceof Error ? err.message : "Erro ao salvar." });
+      setErroAoSalvar(err instanceof Error ? err.message : "Erro ao salvar.");
     } finally {
       setSaving(false);
     }
@@ -322,6 +380,35 @@ function EditModal({ editId, prefillData, onClose, onSaved, notify, canEdit }: E
 
   const f = (field: keyof FormData) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm((prev) => ({ ...prev, [field]: e.target.value }));
+
+  function handleTipoOuVencimento(field: "documentType" | "dueDate") {
+    return (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+      const value = e.target.value;
+      setForm((prev) => {
+        const next = { ...prev, [field]: value };
+        return competenciaDigitada ? next : { ...next, competenceDate: competenciaSugerida(next.documentType, next.dueDate) };
+      });
+    };
+  }
+
+  function handleCompetencia(e: React.ChangeEvent<HTMLInputElement>) {
+    setCompetenciaDigitada(true);
+    setForm((prev) => ({ ...prev, competenceDate: e.target.value }));
+  }
+
+  function handleCategoria(e: React.ChangeEvent<HTMLSelectElement>) {
+    setCategoriaEscolhida(true);
+    setForm((prev) => ({ ...prev, dreCategoryId: e.target.value }));
+  }
+
+  const categoriaAtual = categorias.find((c) => c.id === form.dreCategoryId);
+  const semCategoria = Boolean(form.documentType) && !form.dreCategoryId;
+  const avisoCategoria = semCategoria
+    ? "Sem categoria, esta guia entra em \"Não categorizadas\" no DRE, fora do grupo Impostos."
+    : form.documentType && !categoriaEscolhida
+      ? `Sugerida pelo tipo da guia${categoriaAtual?.dreGroup === "PESSOAL" ? " (encargo da folha, grupo Pessoal)" : ""}.`
+      : null;
+  const competenciaSugeridaAtiva = !competenciaDigitada && Boolean(form.competenceDate);
 
   if (loading) return (
     <div className="modal-overlay">
@@ -366,7 +453,7 @@ function EditModal({ editId, prefillData, onClose, onSaved, notify, canEdit }: E
               <div className="pnova-field-row">
                 <label className="pnova-field" style={{ flex: 1 }}>
                   <span>Tipo *</span>
-                  <select value={form.documentType} onChange={f("documentType")} required disabled={!canEdit}>
+                  <select value={form.documentType} onChange={handleTipoOuVencimento("documentType")} required disabled={!canEdit}>
                     <option value="">Selecione...</option>
                     {DOCUMENT_TYPES.map((dt) => <option key={dt} value={dt}>{dt}</option>)}
                   </select>
@@ -382,6 +469,27 @@ function EditModal({ editId, prefillData, onClose, onSaved, notify, canEdit }: E
                 <span>Descrição</span>
                 <input type="text" value={form.description} onChange={f("description")} disabled={!canEdit} />
               </label>
+              <label className="pnova-field">
+                <span>Categoria no DRE</span>
+                <select
+                  value={form.dreCategoryId}
+                  onChange={handleCategoria}
+                  disabled={!canEdit}
+                  aria-describedby={avisoCategoria ? "tax-categoria-aviso" : undefined}
+                >
+                  <option value="">Sem categoria</option>
+                  <DRECategoryOptions categories={categorias} />
+                </select>
+                {avisoCategoria && (
+                  <small
+                    id="tax-categoria-aviso"
+                    className={semCategoria ? "field-hint field-hint--alerta" : "field-hint"}
+                    aria-live="polite"
+                  >
+                    {avisoCategoria}
+                  </small>
+                )}
+              </label>
             </fieldset>
 
             {/* Datas e valores */}
@@ -390,11 +498,20 @@ function EditModal({ editId, prefillData, onClose, onSaved, notify, canEdit }: E
               <div className="pnova-field-row">
                 <label className="pnova-field">
                   <span>Competência</span>
-                  <input type="date" value={form.competenceDate} onChange={f("competenceDate")} disabled={!canEdit} />
+                  <input
+                    type="date"
+                    value={form.competenceDate}
+                    onChange={handleCompetencia}
+                    disabled={!canEdit}
+                    aria-describedby={competenciaSugeridaAtiva ? "tax-competencia-aviso" : undefined}
+                  />
+                  {competenciaSugeridaAtiva && (
+                    <small id="tax-competencia-aviso" className="field-hint">Mês anterior ao vencimento.</small>
+                  )}
                 </label>
                 <label className="pnova-field">
                   <span>Vencimento *</span>
-                  <input type="date" value={form.dueDate} onChange={f("dueDate")} required disabled={!canEdit} />
+                  <input type="date" value={form.dueDate} onChange={handleTipoOuVencimento("dueDate")} required disabled={!canEdit} />
                 </label>
                 <label className="pnova-field">
                   <span>Valor *</span>
@@ -419,6 +536,9 @@ function EditModal({ editId, prefillData, onClose, onSaved, notify, canEdit }: E
               <textarea value={form.comments} onChange={f("comments")} rows={2} disabled={!canEdit} style={{ resize: "vertical" }} />
             </label>
 
+            {erroAoSalvar && (
+              <p ref={erroRef} className="field-hint field-hint--alerta" role="alert">{erroAoSalvar}</p>
+            )}
           </div>
 
           {canEdit && (
