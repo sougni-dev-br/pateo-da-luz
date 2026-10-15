@@ -8,6 +8,8 @@ export type EstadoDoCatalogo = {
   /** Lista guardada no aparelho usada porque o servidor não respondeu: os saldos podem estar desatualizados. */
   desatualizadaDesde: number | null;
   recarregar: () => void;
+  /** Conversão recém-cadastrada na própria linha: a unidade já aparece sem esperar a lista voltar do servidor. */
+  comConversao: (productId: string, conversao: { fromUnit: string; toUnit: string; factor: number }) => void;
 };
 
 const chave = (userId: string) => `pateo:requisicao-catalogo:v2:${userId}`;
@@ -71,5 +73,13 @@ export function useCatalogo(userId: string): EstadoDoCatalogo {
   }, [tentativa]);
 
   const recarregar = useCallback(() => setTentativa((n) => n + 1), []);
-  return { itens, falhou, desatualizadaDesde, recarregar };
+  const comConversao = useCallback((productId: string, conversao: { fromUnit: string; toUnit: string; factor: number }) => {
+    setItens((atuais) => {
+      if (!atuais) return atuais;
+      const proxima = atuais.map((i) => (i.id === productId && !i.conversions.some((c) => c.fromUnit === conversao.fromUnit) ? { ...i, conversions: [...i.conversions, conversao] } : i));
+      guardarCopia(userId, proxima);
+      return proxima;
+    });
+  }, [userId]);
+  return { itens, falhou, desatualizadaDesde, recarregar, comConversao };
 }

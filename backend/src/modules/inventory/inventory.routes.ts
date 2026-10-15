@@ -16,6 +16,7 @@ import { SELECT_DE_UNIDADES, conversoesDoInsumo, unidadeDoInsumo } from "../../s
 import { converterQuantidade } from "../waste/waste.js";
 import { carregarInteligenciaDePreco } from "./preco-por-fornecedor.js";
 import { itemDoCatalogo } from "./requisicao-catalogo.js";
+import { requisicaoRascunhoRouter } from "./requisicao-rascunho.routes.js";
 import { cancelamentoDeveCancelarBase, podeReaproveitarBase, reaberturaDeveSoltarBase } from "./base-oficial.js";
 import { mensagemDeTipoMigrado } from "./tipos-de-movimento.js";
 import { classificarItemDaConferencia, ordenarConferencia, resumirConferencia } from "./conferencia.js";
@@ -5960,6 +5961,9 @@ inventoryRouter.get("/requisitions", async (request, response) => {
   response.json(rows.map((row) => ({ ...row, itemCount: Number(row.itemCount) })));
 });
 
+// Antes de "/requisitions/:id": "drafts" não pode ser lido como id de requisição.
+inventoryRouter.use("/requisitions/drafts", requisicaoRascunhoRouter);
+
 // Lista de onde se escolhe o que retirar: todo insumo que controla estoque, com saldo, local e conversoes.
 // A tela filtra e busca aqui mesmo (sem ida ao servidor a cada letra) e so mostra o que tem saldo por padrao.
 inventoryRouter.get("/requisitions/catalog", async (request, response) => {
@@ -6022,6 +6026,8 @@ inventoryRouter.post("/requisitions", async (request, response) => {
   if (!user) return;
 
   const clientRequestId = asText(request.body.clientRequestId);
+  // Rascunho em andamento de onde esta requisição veio: sai da lista na mesma transação que baixa o estoque.
+  const draftId = asText(request.body.draftId);
   const date = parseLocalDate(request.body.date ?? new Date());
   const shift = asText(request.body.shift) ?? "MORNING";
   const reason = asText(request.body.reason) ?? "DAILY_PRODUCTION";
@@ -6217,6 +6223,7 @@ inventoryRouter.post("/requisitions", async (request, response) => {
       )
     `;
   }
+    if (draftId) await tx.inventoryRequisitionDraft.deleteMany({ where: { id: draftId } });
   }, { timeout: 120_000, maxWait: 15_000 });
 
   await auditLog({

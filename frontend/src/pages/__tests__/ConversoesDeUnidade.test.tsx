@@ -160,10 +160,15 @@ describe("'+ unidade' na linha da requisição", () => {
   afterEach(() => cleanup());
   const item = { id: "p1", name: "BACON PEÇA", code: "366", unit: "KG", conversions: [], embalagemInferida: null, sectorId: null, balance: 0.1 };
 
-  test("leva para as conversões deste produto, sem mudar a linha", () => {
-    const onPedirUnidade = vi.fn();
-    render(<ul><LinhaDoCatalogo item={item} escolha={undefined} onMudar={vi.fn()} onTirar={vi.fn()} onProxima={vi.fn()} onPedirUnidade={onPedirUnidade} /></ul>);
+  test("abre o cadastro na própria linha e, ao salvar, avisa a conversão nova (já com PÇ escolhida)", async () => {
+    getUnits.mockResolvedValue([{ id: "1", code: "UN", isActive: true }, { id: "2", code: "PÇ", isActive: true }, { id: "3", code: "KG", isActive: true }]);
+    cadastrarConversao.mockResolvedValue({ criada: true, comprasConvertidas: 0, comprasEmPeriodoFechado: 0, conversao: { fromUnit: "PÇ", toUnit: "KG", factor: 3.5 } });
+    const onUnidadeCadastrada = vi.fn();
+    render(<ul><LinhaDoCatalogo item={item} escolha={undefined} onMudar={vi.fn()} onTirar={vi.fn()} onProxima={vi.fn()} onUnidadeCadastrada={onUnidadeCadastrada} /></ul>);
     fireEvent.click(screen.getByRole("button", { name: "Cadastrar outra unidade para BACON PEÇA" }));
-    expect(onPedirUnidade).toHaveBeenCalledWith(item);
+    fireEvent.change(await screen.findByLabelText("Quanto vale 1 PÇ em KG"), { target: { value: "3,5" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(cadastrarConversao).toHaveBeenCalledWith({ productId: "p1", fromUnit: "PÇ", factor: "3,5" }));
+    await waitFor(() => expect(onUnidadeCadastrada).toHaveBeenCalledWith(item, { fromUnit: "PÇ", toUnit: "KG", factor: 3.5 }));
   });
 });

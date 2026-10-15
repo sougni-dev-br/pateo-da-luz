@@ -1,14 +1,18 @@
 ﻿import { CheckCircle2, ClipboardList, Copy, Eye, Plus, Printer, ShoppingCart, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   AppUser,
   InventoryRequisition,
   InventoryRequisitionItem,
   InventorySector,
+  apagarRascunhoDaRequisicao,
+  getRascunhoDaRequisicao,
   getRequisition,
   getRequisitions,
-  getSectors
+  getSectors,
+  listarRascunhosDaRequisicao,
+  type RascunhoDaRequisicaoResumo
 } from "../api/client";
 import { Button, EmptyState, IconButton, StatusBadge, Table } from "../design-system";
 import { Notice, useNotice } from "../components/Notice";
@@ -18,6 +22,7 @@ import type { Escolhas } from "./requisitions/catalogo";
 import { lerRascunho } from "./requisitions/rascunho";
 import { dadosDaRequisicaoRegistrada, useImpressaoDaRequisicao } from "./requisitions/ImpressaoDaRequisicao";
 import { RevisaoDoPedido } from "./requisitions/RevisaoDoPedido";
+import { EmAndamento } from "./requisitions/EmAndamento";
 import { FormularioDaRequisicao, MOTIVOS, TURNOS, cabecalhoVazio, type ModeloInicial } from "./requisitions/FormularioDaRequisicao";
 
 const shiftLabels = TURNOS;
@@ -33,7 +38,11 @@ const shiftTone = (shift: string) =>
   shift === "MORNING" ? "info" : shift === "AFTERNOON" ? "warning" : "neutral";
 
 export function Requisitions({ user }: { user: AppUser }) {
-  const [view, setView] = useState<"form" | "list" | "pedido">("form");
+  const [view, setView] = useState<"form" | "list" | "andamento" | "pedido">("form");
+  const [rascunhos, setRascunhos] = useState<RascunhoDaRequisicaoResumo[] | null>(null);
+  const [rascunhosFalhou, setRascunhosFalhou] = useState(false);
+  const [abertoId, setAbertoId] = useState<string | null>(null);
+  const salvarAgoraRef = useRef<(() => Promise<void>) | null>(null);
   const [pedidoDe, setPedidoDe] = useState<string | null>(null);
   const [sectors, setSectors] = useState<InventorySector[]>([]);
   const [modelo, setModelo] = useState<ModeloInicial | null>(null);
@@ -52,7 +61,19 @@ export function Requisitions({ user }: { user: AppUser }) {
   useEffect(() => {
     getSectors().then(setSectors).catch(() => {});
     loadRequisitions();
+    carregarRascunhos();
   }, []);
+
+  // Na aba "Em andamento" a lista acompanha o que outros aparelhos fazem, sem precisar sair e voltar.
+  useEffect(() => {
+    if (view !== "andamento") return;
+    const atualizar = () => { if (document.visibilityState === "visible") void carregarRascunhos(); };
+    const intervalo = setInterval(atualizar, 10_000);
+    window.addEventListener("focus", atualizar);
+    return () => { clearInterval(intervalo); window.removeEventListener("focus", atualizar); };
+    // carregarRascunhos só usa refs e setters
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view]);
 
   useEffect(() => {
     if (!detailId) { setDetail(null); return; }
@@ -62,6 +83,40 @@ export function Requisitions({ user }: { user: AppUser }) {
       .catch(() => setNotice({ tone: "error", message: "Não foi possível carregar os detalhes." }))
       .finally(() => setLoadingDetail(false));
   }, [detailId]);
+
+  async function carregarRascunhos() {
+    setRascunhosFalhou(false);
+    // O que acabou de ser digitado ainda pode estar esperando a pausa da digitação: salva já, depois lista.
+    await salvarAgoraRef.current?.().catch(() => {});
+    listarRascunhosDaRequisicao().then(setRascunhos).catch(() => setRascunhosFalhou(true));
+  }
+
+  async function abrirRascunho(id: string) {
+    if (id === abertoId) { setView("form"); return; }
+    const local = lerRascunho(user.id);
+    if (local && !local.servidor && !window.confirm("Há uma requisição em andamento só neste aparelho, ainda sem salvar no sistema. Substituir por esta?")) return;
+    try {
+      const rascunho = await getRascunhoDaRequisicao(id);
+      setModelo({ cabecalho: rascunho.conteudo.cabecalho, escolhas: rascunho.conteudo.escolhas, servidor: { id: rascunho.id, version: rascunho.version } });
+      setFormKey((k) => k + 1);
+      setConfirmedRequisition(null);
+      setAbertoId(id);
+      setView("form");
+    } catch {
+      setNotice({ tone: "error", message: "Não consegui abrir esta requisição. Ela pode ter sido concluída ou descartada em outro aparelho." });
+      carregarRascunhos();
+    }
+  }
+
+  async function descartarRascunho(rascunho: RascunhoDaRequisicaoResumo) {
+    if (!window.confirm(`Descartar a requisição com ${rascunho.itemCount} ${rascunho.itemCount === 1 ? "produto" : "produtos"}? Isso vale para todos os aparelhos.`)) return;
+    try {
+      await apagarRascunhoDaRequisicao(rascunho.id);
+      setRascunhos((atuais) => (atuais ?? []).filter((r) => r.id !== rascunho.id));
+    } catch {
+      setNotice({ tone: "error", message: "Não consegui descartar. Tente de novo." });
+    }
+  }
 
   function loadRequisitions() {
     getRequisitions().then(setRequisitions).catch(() => {});
@@ -106,10 +161,13 @@ export function Requisitions({ user }: { user: AppUser }) {
     setConfirmedRequisition(created);
     setNotice({ tone: "success", message: `${created.code} registrada com sucesso.` });
     setRequisitions((prev) => [{ ...created, itemCount: created.items?.length ?? 0 }, ...prev]);
+    setAbertoId(null);
+    carregarRascunhos();
   }
 
   function novaRequisicao() {
     setModelo(null);
+    setAbertoId(null);
     setConfirmedRequisition(null);
     setFormKey((k) => k + 1);
   }
@@ -122,6 +180,13 @@ export function Requisitions({ user }: { user: AppUser }) {
         <button type="button" className={view === "form" ? "active" : ""} onClick={() => setView("form")}>
           <Plus size={14} style={{ verticalAlign: "middle", marginRight: 4 }} />
           Nova requisição
+        </button>
+        <button
+          type="button"
+          className={view === "andamento" ? "active" : ""}
+          onClick={() => { setView("andamento"); carregarRascunhos(); }}
+        >
+          Em andamento{rascunhos && rascunhos.length > 0 ? ` (${rascunhos.length})` : ""}
         </button>
         <button
           type="button"
@@ -143,9 +208,21 @@ export function Requisitions({ user }: { user: AppUser }) {
             modelo={modelo}
             onCriada={aoCriar}
             onAviso={(tone, message) => setNotice({ tone, message })}
-            onPedirUnidade={(item) => navigate(`/estoque/conversoes?produto=${encodeURIComponent(item.id)}`)}
+            onRascunho={setAbertoId}
+            salvarAgoraRef={salvarAgoraRef}
           />
         </div>
+      )}
+
+      {view === "andamento" && (
+        <EmAndamento
+          rascunhos={rascunhos}
+          falhou={rascunhosFalhou}
+          abertoId={abertoId}
+          onAbrir={(id) => void abrirRascunho(id)}
+          onDescartar={(r) => void descartarRascunho(r)}
+          onTentarDeNovo={carregarRascunhos}
+        />
       )}
 
       {view === "pedido" && pedidoDe && (

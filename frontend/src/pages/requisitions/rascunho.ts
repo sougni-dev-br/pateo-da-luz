@@ -5,7 +5,10 @@ import type { Escolhas } from "./catalogo";
 
 export type DadosDoCabecalho = { date: string; shift: string; reason: string; reasonNotes: string; sectorId: string; notes: string };
 
-export type Rascunho = { cabecalho: DadosDoCabecalho; escolhas: Escolhas; salvoEm: number };
+/** Id e versão do rascunho espelhado no sistema: recarregar a página continua o mesmo rascunho em vez de criar outro. */
+export type VinculoComServidor = { id: string; version: number };
+
+export type Rascunho = { cabecalho: DadosDoCabecalho; escolhas: Escolhas; salvoEm: number; servidor?: VinculoComServidor | null };
 
 const chave = (userId: string) => `pateo:requisicao-rascunho:v2:${userId}`;
 
@@ -35,7 +38,9 @@ export function lerRascunho(userId: string): Rascunho | null {
     const escolhas: Escolhas = {};
     for (const [id, valor] of Object.entries(dados.escolhas)) if (ehEscolha(valor)) escolhas[id] = valor;
     if (Object.keys(escolhas).length === 0) return null;
-    return { cabecalho: dados.cabecalho, escolhas, salvoEm: Number(dados.salvoEm) || 0 };
+    const s = dados.servidor;
+    const servidor = s && typeof s.id === "string" && Number.isFinite(Number(s.version)) ? { id: s.id, version: Number(s.version) } : null;
+    return { cabecalho: dados.cabecalho, escolhas, salvoEm: Number(dados.salvoEm) || 0, servidor };
   } catch {
     return null;
   }

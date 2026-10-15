@@ -1506,6 +1506,8 @@ export type InventoryRequisition = {
 
 export type CreateRequisitionPayload = {
   clientRequestId?: string;
+  /** Rascunho salvo no sistema que esta requisição conclui: o servidor o apaga junto com o registro. */
+  draftId?: string | null;
   date: string;
   shift: string;
   reason: string;
@@ -1614,6 +1616,52 @@ export function createRequisition(payload: CreateRequisitionPayload) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
   }, 45_000);
+}
+
+/** O que o rascunho da requisição guarda: cabeçalho e, por produto, unidade e quantidade digitadas. */
+export type ConteudoDoRascunhoDaRequisicao = {
+  cabecalho: { date: string; shift: string; reason: string; reasonNotes: string; sectorId: string; notes: string };
+  escolhas: Record<string, { unit: string; quantity: string }>;
+};
+
+export type ItemDoRascunhoDaRequisicao = { productId: string; name: string; quantity: string; unit: string };
+
+export type RascunhoDaRequisicaoResumo = {
+  id: string;
+  itens: ItemDoRascunhoDaRequisicao[];
+  itemCount: number;
+  summary: string | null;
+  version: number;
+  date: string | null;
+  shift: string | null;
+  createdByName: string | null;
+  updatedByName: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type RascunhoDaRequisicao = { id: string; conteudo: ConteudoDoRascunhoDaRequisicao; version: number; updatedAt: string; updatedByName: string | null };
+
+
+export function listarRascunhosDaRequisicao() {
+  return request<RascunhoDaRequisicaoResumo[]>("/inventory/requisitions/drafts");
+}
+
+export function getRascunhoDaRequisicao(id: string) {
+  return request<RascunhoDaRequisicao>(`/inventory/requisitions/drafts/${encodeURIComponent(id)}`);
+}
+
+export function criarRascunhoDaRequisicao(corpo: { conteudo: ConteudoDoRascunhoDaRequisicao; summary: string | null }) {
+  return request<{ id: string; version: number }>("/inventory/requisitions/drafts", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(corpo) });
+}
+
+/** 409 = outra pessoa salvou antes (o corpo traz a versão atual); 404 = foi concluído ou descartado. */
+export function salvarRascunhoDaRequisicao(id: string, corpo: { conteudo: ConteudoDoRascunhoDaRequisicao; summary: string | null; version: number }) {
+  return request<{ id: string; version: number }>(`/inventory/requisitions/drafts/${encodeURIComponent(id)}`, { method: "PUT", headers: JSON_HEADERS, body: JSON.stringify(corpo) });
+}
+
+export function apagarRascunhoDaRequisicao(id: string) {
+  return request<{ ok: boolean }>(`/inventory/requisitions/drafts/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 export type InventoryMovement = {

@@ -16140,9 +16140,9 @@ td.count-list-divergent {
 
 /* Só a busca e a visão ficam grudadas: o resto dos filtros rola com a lista e não come a tela do celular */
 .rq-fixos {
-  position: sticky; top: var(--rq-topo, 0px); z-index: 15;
+  position: sticky; top: calc(var(--rq-topo, 0px) - var(--rq-pad-topo, 0px)); z-index: 15;
   display: flex; flex-direction: column; gap: 10px; padding: 10px 14px;
-  background: rgba(255,255,255,0.97); backdrop-filter: blur(8px);
+  background: var(--paper);
   border-bottom: 1px solid var(--line); border-radius: var(--radius-xl) var(--radius-xl) 0 0;
 }
 .rq-extras { display: flex; flex-direction: column; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
@@ -16253,25 +16253,27 @@ td.count-list-divergent {
 
 /* Barra de ação: sempre à vista, com o que falta dito em palavras */
 .rq-barra {
-  position: sticky; bottom: 0; z-index: 20; display: flex; align-items: center; gap: 10px;
-  padding: 12px 14px calc(12px + env(safe-area-inset-bottom, 0px));
-  background: rgba(255,255,255,0.97); backdrop-filter: blur(8px);
-  border: 1px solid var(--line); border-radius: var(--radius-xl); box-shadow: 0 -8px 24px rgba(22,21,18,0.1);
+  position: sticky; bottom: calc(var(--rq-topo, 0px) - var(--rq-pad-base, 0px)); z-index: 20; display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px calc(6px + env(safe-area-inset-bottom, 0px));
+  background: var(--paper);
+  border-top: 1px solid var(--line);
 }
-.rq-barra-resumo { flex: 1; min-width: 0; display: flex; flex-direction: column; font-size: 12.5px; color: var(--muted); }
-.rq-barra-resumo strong { color: var(--ink); font-size: 15px; font-variant-numeric: tabular-nums; }
-.rq-barra-problema { padding: 0; border: none; background: transparent; color: var(--danger); font-weight: 700; font-size: 12.5px; text-align: left; cursor: pointer; text-decoration: underline; }
-.rq-barra button[class*="ds-button"], .rq-barra > button { min-height: 48px; }
+/* Uma linha só: contagem, estado e botões, sem cobrir a lista com um cartão alto */
+.rq-barra-resumo { flex: 1; min-width: 0; display: flex; flex-direction: row; align-items: baseline; gap: 8px; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rq-barra-resumo strong { color: var(--ink); font-size: 13.5px; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.rq-barra-resumo span { overflow: hidden; text-overflow: ellipsis; }
+.rq-barra-problema { padding: 0; border: none; background: transparent; color: var(--danger); font-weight: 700; font-size: 12px; text-align: left; cursor: pointer; text-decoration: underline; }
+.rq-barra button[class*="ds-button"], .rq-barra > button { min-height: 38px; padding-top: 0; padding-bottom: 0; }
 
 /* Abaixo de 900px o app mostra a barra superior fixa (61px): os filtros grudam logo abaixo dela */
 @media (max-width: 900px) {
   .rq { --rq-topo: 61px; }
 }
 @media (max-width: 640px) {
-  .rq-bloco, .rq-cabecalho, .rq-barra { border-radius: var(--radius-lg); }
-  .rq-barra { margin-bottom: 64px; } /* a barra do navegador do celular cobria o botão */
+  .rq-bloco, .rq-cabecalho { border-radius: var(--radius-lg); }
+  .rq-barra { padding-bottom: calc(22px + env(safe-area-inset-bottom, 0px)); } /* a barra do navegador do celular cobria o botão */
   .rq-limpar-texto { display: none; } /* no celular o Limpar vira só a lixeira: o espaço é do resumo e do Registrar */
-  .rq-barra > button:last-of-type { flex: 0 0 auto; min-width: 140px; }
+  .rq-barra > button:last-of-type { flex: 0 0 auto; min-width: 110px; }
 }
 @media (min-width: 900px) {
   .rq-linha { grid-template-columns: minmax(220px, 1.2fr) auto minmax(280px, 1.3fr); }
@@ -16351,9 +16353,7 @@ td.count-list-divergent {
 @media (max-width: 350px) {
   .rq-linha, .rp-linha { grid-template-columns: minmax(0, 1fr); }
   .rq-controle { justify-self: end; }
-  .rq-barra { flex-wrap: wrap; }
-  .rq-barra-resumo { flex-basis: 100%; }
-  .rq-barra > button:last-of-type { flex: 1; }
+  .rq-barra > button:last-of-type { flex: 0 0 auto; }
 }
 
 /* Toques rápidos em + e −: sem o atraso e o zoom de toque duplo do celular */
@@ -16442,3 +16442,28 @@ td.count-list-divergent {
 .cv-conferido, .cv-dica { margin: 0; font-size: 12.5px; line-height: 1.4; }
 .cv-acoes { display: flex; flex-wrap: wrap; gap: 8px; }
 .cv-mais { display: flex; justify-content: center; padding: 14px; }
+
+/* Requisições em andamento (salvas no sistema) */
+.ea-lista { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.ea-cartao { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 16px; border: 1px solid var(--border, #d9d9d9); border-radius: 12px; background: var(--surface, #fff); }
+.ea-cartao.is-aberto { border-color: var(--accent, #8a5a2b); box-shadow: 0 0 0 1px var(--accent, #8a5a2b) inset; }
+.ea-texto { display: grid; gap: 3px; min-width: 0; }
+.ea-resumo { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ea-acoes { display: flex; gap: 8px; flex-shrink: 0; }
+@media (max-width: 640px) {
+  .ea-cartao { flex-direction: column; align-items: stretch; }
+  .ea-acoes { justify-content: flex-end; }
+  .ea-resumo { white-space: normal; }
+}
+
+/* Cadastro de unidade na própria linha da requisição */
+.rq-nova-unidade { grid-column: 1 / -1; display: grid; gap: 8px; margin-top: 8px; padding: 10px 12px; border: 1px dashed var(--gold, #b8893b); border-radius: 10px; background: color-mix(in srgb, var(--gold, #b8893b) 8%, transparent); }
+.rq-nova-unidade-topo { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; }
+.rq-nova-unidade-fechar { border: none; background: transparent; cursor: pointer; min-width: 28px; min-height: 28px; }
+
+/* Itens da requisição em andamento: o que tem dentro, sem abrir */
+.ea-itens { list-style: none; margin: 4px 0 2px; padding: 0; display: grid; gap: 2px; font-size: 13.5px; }
+.ea-itens li { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; border-bottom: 1px dotted var(--line); }
+.ea-itens li:last-child { border-bottom: none; }
+.ea-item-nome { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ea-itens b { font-variant-numeric: tabular-nums; flex-shrink: 0; }

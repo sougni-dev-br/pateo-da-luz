@@ -1,5 +1,5 @@
 import { Printer, Trash2, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import {
   ApiError,
   createRequisition,
@@ -21,13 +21,15 @@ import { SEM_LOCAL, contarPorLocal, escolhaInicial, escolhasComQuantidade, filtr
 import { resumirLinhas, situacaoDaLinha } from "./linhas";
 import { apagarRascunho, lerRascunho, salvarRascunho, type DadosDoCabecalho } from "./rascunho";
 import { useCatalogo } from "./useCatalogo";
+import type { ConversaoNova } from "./UnidadeNaLinha";
+import { useRascunhoNoServidor, type RascunhoNoServidor } from "./useRascunhoNoServidor";
 
 export { MOTIVOS, TURNOS };
 
 export const cabecalhoVazio = (): DadosDoCabecalho => ({ date: hojeLocalIso(), shift: turnoPelaHora(), reason: "DAILY_PRODUCTION", reasonNotes: "", sectorId: "", notes: "" });
 
 /** Requisição duplicada do histórico: o cabeçalho e o que foi retirado, para conferir e ajustar. */
-export type ModeloInicial = { cabecalho: DadosDoCabecalho; escolhas: Escolhas };
+export type ModeloInicial = { cabecalho: DadosDoCabecalho; escolhas: Escolhas; /** Rascunho aberto de "Em andamento": continua o mesmo no sistema. */ servidor?: RascunhoNoServidor };
 
 type Props = {
   user: AppUser;
@@ -36,8 +38,12 @@ type Props = {
   modelo: ModeloInicial | null;
   onCriada: (criada: InventoryRequisition) => void;
   onAviso: (tom: "success" | "warning" | "error", mensagem: string) => void;
-  /** "+ unidade" na linha: abre as conversões com este produto. */
-  onPedirUnidade?: (item: RequisitionCatalogItem) => void;
+  /** Conversão cadastrada na linha (o cadastro já foi salvo no sistema). */
+  onConversaoCadastrada?: (item: RequisitionCatalogItem) => void;
+  /** Id do rascunho no sistema que esta tela está salvando (null enquanto não há). */
+  onRascunho?: (id: string | null) => void;
+  /** A tela de fora chama isto antes de listar os rascunhos: o que acabou de ser digitado já tem que estar no sistema. */
+  salvarAgoraRef?: MutableRefObject<(() => Promise<void>) | null>;
 };
 
 const quando = (instante: number) => new Date(instante).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
@@ -54,7 +60,7 @@ function QuadroVazio({ visao, filtrando, onLimpar }: { visao: Visao; filtrando: 
   );
 }
 
-export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAviso, onPedirUnidade }: Props) {
+export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAviso, onConversaoCadastrada, onRascunho, salvarAgoraRef }: Props) {
   const guardado = useMemo(() => (modelo ? null : lerRascunho(user.id)), [modelo, user.id]);
   const catalogo = useCatalogo(user.id);
   const { imprimir, portal } = useImpressaoDaRequisicao();
@@ -77,6 +83,23 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAvis
   const itens = catalogo.itens;
   const itemPorId = useMemo(() => new Map((itens ?? []).map((i) => [i.id, i])), [itens]);
 
+  // Nome dos primeiros produtos: é o que a aba "Em andamento" mostra para reconhecer a requisição.
+  const resumoDoRascunho = useMemo(() => {
+    const nomes = Object.keys(escolhasComQuantidade(escolhas)).map((id) => itemPorId.get(id)?.name).filter((n): n is string => Boolean(n));
+    return nomes.length > 3 ? `${nomes.slice(0, 3).join(", ")} e mais ${nomes.length - 3}` : nomes.join(", ");
+  }, [escolhas, itemPorId]);
+  const aoSalvarNoServidorRef = useRef<() => void>(() => {});
+  const raizRef = useRef<HTMLDivElement | null>(null);
+  const noServidor = useRascunhoNoServidor({
+    inicial: modelo?.servidor ?? guardado?.servidor ?? null,
+    cabecalho,
+    escolhas,
+    resumo: resumoDoRascunho,
+    pausado: enviando,
+    onAviso,
+    onSalvo: () => aoSalvarNoServidorRef.current?.()
+  });
+
   // Produto do rascunho que saiu do cadastro não pode ficar invisível dentro da requisição.
   useEffect(() => {
     if (!itens) return;
@@ -88,14 +111,44 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAvis
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [itens]);
 
+  useEffect(() => {
+    if (!salvarAgoraRef) return;
+    salvarAgoraRef.current = noServidor.sincronizar;
+    return () => { salvarAgoraRef.current = null; };
+  }, [salvarAgoraRef, noServidor.sincronizar]);
+
+  useEffect(() => {
+    onRascunho?.(noServidor.servidorRef.current?.id ?? null);
+  }, [noServidor.estado, noServidor.servidorRef, onRascunho]);
+
   // O rascunho acompanha cada mudança: perder 35 itens digitados por recarregar a página não pode acontecer.
   const ultimoRef = useRef({ cabecalho, escolhas });
   ultimoRef.current = { cabecalho, escolhas };
   const guardarAgora = useCallback(() => {
     if (!guardarAoSairRef.current) return;
     const { cabecalho: c, escolhas: e } = ultimoRef.current;
-    salvarRascunho(user.id, { cabecalho: c, escolhas: escolhasComQuantidade(e) });
-  }, [user.id]);
+    salvarRascunho(user.id, { cabecalho: c, escolhas: escolhasComQuantidade(e), servidor: noServidor.servidorRef.current });
+  }, [user.id, noServidor.servidorRef]);
+
+  useEffect(() => {
+    aoSalvarNoServidorRef.current = guardarAgora;
+  }, [guardarAgora]);
+
+  // Busca e barra grudam na borda da área rolável, mas ela tem respiro (padding) que deixava a lista aparecer no vão.
+  useEffect(() => {
+    const raiz = raizRef.current;
+    const area = raiz?.closest<HTMLElement>(".content");
+    if (!raiz || !area) return;
+    const medir = () => {
+      const rola = /(auto|scroll)/.test(getComputedStyle(area).overflowY);
+      const estilo = getComputedStyle(area);
+      raiz.style.setProperty("--rq-pad-topo", rola ? estilo.paddingTop : "0px");
+      raiz.style.setProperty("--rq-pad-base", rola ? estilo.paddingBottom : "0px");
+    };
+    medir();
+    window.addEventListener("resize", medir);
+    return () => window.removeEventListener("resize", medir);
+  }, []);
 
   useEffect(() => {
     if (enviando) return;
@@ -183,6 +236,15 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAvis
     });
   }, []);
 
+  const { comConversao } = catalogo;
+  const aoCadastrarUnidade = useCallback((item: RequisitionCatalogItem, conversao: ConversaoNova) => {
+    comConversao(item.id, conversao);
+    // Já escolhe a unidade nova: a pessoa cadastrou porque é nela que vai pedir.
+    setEscolhas((atuais) => ({ ...atuais, [item.id]: { ...(atuais[item.id] ?? escolhaInicial(item, "")), unit: conversao.fromUnit } }));
+    onAviso("success", `${item.name}: 1 ${conversao.fromUnit} = ${conversao.factor} ${conversao.toUnit} cadastrada.`);
+    onConversaoCadastrada?.(item);
+  }, [comConversao, onAviso, onConversaoCadastrada]);
+
   const irParaProxima = useCallback((productId: string, direcao: 1 | -1) => {
     const campos = Array.from(listaRef.current?.querySelectorAll<HTMLInputElement>(".rq-qtd:not(:disabled)") ?? []);
     const atual = campos.findIndex((c) => c.closest<HTMLElement>(".rq-linha")?.dataset.produto === productId);
@@ -213,6 +275,17 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAvis
     });
   }
 
+  async function trazerDoServidor() {
+    try {
+      const conteudo = await noServidor.usarDoServidor();
+      if (!conteudo) return;
+      setCabecalho(conteudo.cabecalho);
+      setEscolhas(conteudo.escolhas);
+    } catch {
+      onAviso("error", "Não consegui buscar a versão mais recente. Tente de novo.");
+    }
+  }
+
   function limparFiltros() {
     setTexto("");
     setLocalId(null);
@@ -223,6 +296,7 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAvis
     if (linhas.length > 0 && !window.confirm(`Descartar a requisição com ${linhas.length} ${linhas.length === 1 ? "item" : "itens"}?`)) return;
     guardarAoSairRef.current = true;
     apagarRascunho(user.id);
+    void noServidor.descartar();
     setCabecalho(cabecalhoVazio());
     setEscolhas({});
     setRecuperadoEm(null);
@@ -249,7 +323,11 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAvis
     setEnviando(true);
     setErro(null);
     try {
+      // O rascunho no sistema é concluído junto com o registro: o servidor o apaga na mesma transação.
+      await noServidor.aguardar();
+      payload.draftId = noServidor.servidorRef.current?.id ?? null;
       const criada = await createRequisition(payload);
+      noServidor.encerrar();
       guardarAoSairRef.current = false;
       apagarRascunho(user.id);
       idDoPedidoRef.current = null;
@@ -261,6 +339,7 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAvis
         try {
           const achadas = await getRequisitions({ clientRequestId });
           if (achadas.length > 0) {
+            noServidor.encerrar();
             guardarAoSairRef.current = false;
             apagarRascunho(user.id);
             idDoPedidoRef.current = null;
@@ -282,7 +361,15 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAvis
   const filtrando = texto.trim() !== "" || localId !== null || visao !== "TODOS";
 
   return (
-    <div className="rq">
+    <div className="rq" ref={raizRef}>
+      {noServidor.conflito && (
+        <div className="req-banner is-aviso" role="alert">
+          <span>{noServidor.conflito.mensagem}</span>
+          <Button variant="secondary" onClick={() => void trazerDoServidor()}>Ver a mais recente</Button>
+          <Button variant="secondary" onClick={noServidor.manterMinha}>Manter a minha</Button>
+        </div>
+      )}
+
       {recuperadoEm != null && (
         <div className="req-banner is-info" role="status">
           <span>Rascunho recuperado{recuperadoEm ? ` (salvo em ${quando(recuperadoEm)})` : ""}. Nada se perde se você sair desta tela.</span>
@@ -340,7 +427,7 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAvis
           visiveis.length > 0 ? (
             <ul className="rq-lista" ref={listaRef}>
               {visiveis.map((item) => (
-                <LinhaDoCatalogo key={item.id} item={item} escolha={escolhas[item.id]} onMudar={mudar} onTirar={tirar} onProxima={irParaProxima} onPedirUnidade={onPedirUnidade} />
+                <LinhaDoCatalogo key={item.id} item={item} escolha={escolhas[item.id]} onMudar={mudar} onTirar={tirar} onProxima={irParaProxima} onUnidadeCadastrada={aoCadastrarUnidade} />
               ))}
             </ul>
           ) : (
@@ -359,7 +446,7 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAvis
           ) : problemas.size > 0 ? (
             <button type="button" className="rq-barra-problema" onClick={() => escolherVisao("PROBLEMA")}>{problemas.size} com problema — ver</button>
           ) : (
-            <span>pronto para registrar{salvo ? " · rascunho salvo" : ""}</span>
+            <span>pronto para registrar{salvo ? ` · ${textoDoSalvamento(noServidor.estado)}` : ""}</span>
           )}
         </div>
         <Button variant="secondary" leadingIcon={<Trash2 size={16} />} aria-label="Limpar requisição" onClick={descartar} disabled={enviando || linhas.length === 0}><span className="rq-limpar-texto">Limpar</span></Button>
@@ -369,6 +456,9 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAvis
     </div>
   );
 }
+
+const textoDoSalvamento = (estado: string) =>
+  estado === "salvo" ? "salvo no sistema" : estado === "salvando" ? "salvando…" : estado === "falhou" ? "salvo só neste aparelho" : estado === "conflito" ? "conflito com outro aparelho" : "rascunho salvo";
 
 /** Mensagem do servidor com o que importa: quais produtos faltam e quanto. */
 function mensagemDoServidor(falha: unknown): string {
