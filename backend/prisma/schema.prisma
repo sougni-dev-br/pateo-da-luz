@@ -4085,3 +4085,12 @@ model InventoryRequisitionDraft {
 
   @@index([updatedAt])
 }
+
+/// Produto conferido pelo estoquista como "não precisa de conversão" (sai da fila da rotina de conversões).
+model ProductConversionReview {
+  productId        String   @id
+  status           String   @default("NAO_PRECISA")
+  note             String?
+  reviewedByUserId String?
+  reviewedAt       DateTime @default(now())
+}

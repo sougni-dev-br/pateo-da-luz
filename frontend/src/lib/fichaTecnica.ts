@@ -18,6 +18,10 @@ export const CMV_ALTO = 40;
 
 const SINONIMOS: Record<string, string> = {
   UNI: "UN", UND: "UN", UNIDADE: "UN", UNIDADES: "UN",
+  PECA: "PÇ",
+  PEÇA: "PÇ",
+  PECAS: "PÇ",
+  PEÇAS: "PÇ",
   CAIXA: "CX", PCTE: "PCT", PACOTE: "PCT", FARDO: "FD",
   LT: "L", LTS: "L", LITRO: "L", LITROS: "L",
   GR: "G", GRS: "G", GRAMA: "G", GRAMAS: "G",

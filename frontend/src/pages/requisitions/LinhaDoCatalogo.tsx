@@ -12,6 +12,8 @@ type Props = {
   onMudar: (item: RequisitionCatalogItem, parcial: Partial<Escolha>) => void;
   onTirar: (productId: string) => void;
   onProxima: (productId: string, direcao: 1 | -1) => void;
+  /** Falta a unidade que a pessoa usa (ex.: peça): abre as conversões já com este produto. */
+  onPedirUnidade?: (item: RequisitionCatalogItem) => void;
 };
 
 const MAXIMO_NO_SEGMENTADO = 3;
@@ -67,7 +69,7 @@ function SeletorDeUnidade({ item, opcoes, valor, onEscolher }: { item: Requisiti
   );
 }
 
-function LinhaDoCatalogoBase({ item, escolha, onMudar, onTirar, onProxima }: Props) {
+function LinhaDoCatalogoBase({ item, escolha, onMudar, onTirar, onProxima, onPedirUnidade }: Props) {
   const base = normalizarUnidade(item.unit) || "UN";
   const semSaldo = item.balance <= 0;
   const escolhida = escolha != null;
@@ -89,6 +91,7 @@ function LinhaDoCatalogoBase({ item, escolha, onMudar, onTirar, onProxima }: Pro
         <strong className="rq-nome">{item.name}</strong>
         <span className="rq-meta">
           {item.code && <span>Cód. {item.code}</span>}
+          {onPedirUnidade && <button type="button" className="rq-mais-unidade" onClick={() => onPedirUnidade(item)} aria-label={`Cadastrar outra unidade para ${item.name}`}>+ unidade</button>}
           {status ?? <span className={`rq-saldo${semSaldo ? " is-zero" : ""}`}>{semSaldo ? "sem saldo" : `saldo ${formatarQuantidade(item.balance)} ${base}`}</span>}
         </span>
       </div>
