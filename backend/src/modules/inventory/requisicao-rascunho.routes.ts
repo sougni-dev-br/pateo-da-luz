@@ -109,5 +109,5 @@ requisicaoRascunhoRouter.delete("/:id", async (request, response) => {
   if (!user) return;
 
   await prisma.inventoryRequisitionDraft.deleteMany({ where: { id: request.params.id } });
-  response.status(204).end();
+  response.json({ ok: true });
 });

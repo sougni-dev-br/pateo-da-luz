@@ -21,13 +21,14 @@ import { SEM_LOCAL, contarPorLocal, escolhaInicial, escolhasComQuantidade, filtr
 import { resumirLinhas, situacaoDaLinha } from "./linhas";
 import { apagarRascunho, lerRascunho, salvarRascunho, type DadosDoCabecalho } from "./rascunho";
 import { useCatalogo } from "./useCatalogo";
+import { useRascunhoNoServidor, type RascunhoNoServidor } from "./useRascunhoNoServidor";
 
 export { MOTIVOS, TURNOS };
 
 export const cabecalhoVazio = (): DadosDoCabecalho => ({ date: hojeLocalIso(), shift: turnoPelaHora(), reason: "DAILY_PRODUCTION", reasonNotes: "", sectorId: "", notes: "" });
 
 /** Requisição duplicada do histórico: o cabeçalho e o que foi retirado, para conferir e ajustar. */
-export type ModeloInicial = { cabecalho: DadosDoCabecalho; escolhas: Escolhas };
+export type ModeloInicial = { cabecalho: DadosDoCabecalho; escolhas: Escolhas; /** Rascunho aberto de "Em andamento": continua o mesmo no sistema. */ servidor?: RascunhoNoServidor };
 
 type Props = {
   user: AppUser;
@@ -38,6 +39,8 @@ type Props = {
   onAviso: (tom: "success" | "warning" | "error", mensagem: string) => void;
   /** "+ unidade" na linha: abre as conversões com este produto. */
   onPedirUnidade?: (item: RequisitionCatalogItem) => void;
+  /** Id do rascunho no sistema que esta tela está salvando (null enquanto não há). */
+  onRascunho?: (id: string | null) => void;
 };
 
 const quando = (instante: number) => new Date(instante).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
@@ -54,7 +57,7 @@ function QuadroVazio({ visao, filtrando, onLimpar }: { visao: Visao; filtrando: 
   );
 }
 
-export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAviso, onPedirUnidade }: Props) {
+export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAviso, onPedirUnidade, onRascunho }: Props) {
   const guardado = useMemo(() => (modelo ? null : lerRascunho(user.id)), [modelo, user.id]);
   const catalogo = useCatalogo(user.id);
   const { imprimir, portal } = useImpressaoDaRequisicao();
@@ -77,6 +80,20 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAvis
   const itens = catalogo.itens;
   const itemPorId = useMemo(() => new Map((itens ?? []).map((i) => [i.id, i])), [itens]);
 
+  // Nome dos primeiros produtos: é o que a aba "Em andamento" mostra para reconhecer a requisição.
+  const resumoDoRascunho = useMemo(() => {
+    const nomes = Object.keys(escolhasComQuantidade(escolhas)).map((id) => itemPorId.get(id)?.name).filter((n): n is string => Boolean(n));
+    return nomes.length > 3 ? `${nomes.slice(0, 3).join(", ")} e mais ${nomes.length - 3}` : nomes.join(", ");
+  }, [escolhas, itemPorId]);
+  const noServidor = useRascunhoNoServidor({
+    inicial: modelo?.servidor ?? guardado?.servidor ?? null,
+    cabecalho,
+    escolhas,
+    resumo: resumoDoRascunho,
+    pausado: enviando,
+    onAviso
+  });
+
   // Produto do rascunho que saiu do cadastro não pode ficar invisível dentro da requisição.
   useEffect(() => {
     if (!itens) return;
@@ -88,14 +105,18 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAvis
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [itens]);
 
+  useEffect(() => {
+    onRascunho?.(noServidor.servidorRef.current?.id ?? null);
+  }, [noServidor.estado, noServidor.servidorRef, onRascunho]);
+
   // O rascunho acompanha cada mudança: perder 35 itens digitados por recarregar a página não pode acontecer.
   const ultimoRef = useRef({ cabecalho, escolhas });
   ultimoRef.current = { cabecalho, escolhas };
   const guardarAgora = useCallback(() => {
     if (!guardarAoSairRef.current) return;
     const { cabecalho: c, escolhas: e } = ultimoRef.current;
-    salvarRascunho(user.id, { cabecalho: c, escolhas: escolhasComQuantidade(e) });
-  }, [user.id]);
+    salvarRascunho(user.id, { cabecalho: c, escolhas: escolhasComQuantidade(e), servidor: noServidor.servidorRef.current });
+  }, [user.id, noServidor.servidorRef]);
 
   useEffect(() => {
     if (enviando) return;
@@ -213,6 +234,17 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAvis
     });
   }
 
+  async function trazerDoServidor() {
+    try {
+      const conteudo = await noServidor.usarDoServidor();
+      if (!conteudo) return;
+      setCabecalho(conteudo.cabecalho);
+      setEscolhas(conteudo.escolhas);
+    } catch {
+      onAviso("error", "Não consegui buscar a versão mais recente. Tente de novo.");
+    }
+  }
+
   function limparFiltros() {
     setTexto("");
     setLocalId(null);
@@ -223,6 +255,7 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAvis
     if (linhas.length > 0 && !window.confirm(`Descartar a requisição com ${linhas.length} ${linhas.length === 1 ? "item" : "itens"}?`)) return;
     guardarAoSairRef.current = true;
     apagarRascunho(user.id);
+    void noServidor.descartar();
     setCabecalho(cabecalhoVazio());
     setEscolhas({});
     setRecuperadoEm(null);
@@ -249,7 +282,11 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAvis
     setEnviando(true);
     setErro(null);
     try {
+      // O rascunho no sistema é concluído junto com o registro: o servidor o apaga na mesma transação.
+      await noServidor.aguardar();
+      payload.draftId = noServidor.servidorRef.current?.id ?? null;
       const criada = await createRequisition(payload);
+      noServidor.encerrar();
       guardarAoSairRef.current = false;
       apagarRascunho(user.id);
       idDoPedidoRef.current = null;
@@ -261,6 +298,7 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAvis
         try {
           const achadas = await getRequisitions({ clientRequestId });
           if (achadas.length > 0) {
+            noServidor.encerrar();
             guardarAoSairRef.current = false;
             apagarRascunho(user.id);
             idDoPedidoRef.current = null;
@@ -283,6 +321,14 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAvis
 
   return (
     <div className="rq">
+      {noServidor.conflito && (
+        <div className="req-banner is-aviso" role="alert">
+          <span>{noServidor.conflito.mensagem}</span>
+          <Button variant="secondary" onClick={() => void trazerDoServidor()}>Ver a mais recente</Button>
+          <Button variant="secondary" onClick={noServidor.manterMinha}>Manter a minha</Button>
+        </div>
+      )}
+
       {recuperadoEm != null && (
         <div className="req-banner is-info" role="status">
           <span>Rascunho recuperado{recuperadoEm ? ` (salvo em ${quando(recuperadoEm)})` : ""}. Nada se perde se você sair desta tela.</span>
@@ -359,7 +405,7 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAvis
           ) : problemas.size > 0 ? (
             <button type="button" className="rq-barra-problema" onClick={() => escolherVisao("PROBLEMA")}>{problemas.size} com problema — ver</button>
           ) : (
-            <span>pronto para registrar{salvo ? " · rascunho salvo" : ""}</span>
+            <span>pronto para registrar{salvo ? ` · ${textoDoSalvamento(noServidor.estado)}` : ""}</span>
           )}
         </div>
         <Button variant="secondary" leadingIcon={<Trash2 size={16} />} aria-label="Limpar requisição" onClick={descartar} disabled={enviando || linhas.length === 0}><span className="rq-limpar-texto">Limpar</span></Button>
@@ -369,6 +415,9 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAvis
     </div>
   );
 }
+
+const textoDoSalvamento = (estado: string) =>
+  estado === "salvo" ? "salvo no sistema" : estado === "salvando" ? "salvando…" : estado === "falhou" ? "salvo só neste aparelho" : estado === "conflito" ? "conflito com outro aparelho" : "rascunho salvo";
 
 /** Mensagem do servidor com o que importa: quais produtos faltam e quanto. */
 function mensagemDoServidor(falha: unknown): string {

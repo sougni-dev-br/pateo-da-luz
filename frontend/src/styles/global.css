@@ -16442,3 +16442,16 @@ td.count-list-divergent {
 .cv-conferido, .cv-dica { margin: 0; font-size: 12.5px; line-height: 1.4; }
 .cv-acoes { display: flex; flex-wrap: wrap; gap: 8px; }
 .cv-mais { display: flex; justify-content: center; padding: 14px; }
+
+/* Requisições em andamento (salvas no sistema) */
+.ea-lista { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.ea-cartao { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 16px; border: 1px solid var(--border, #d9d9d9); border-radius: 12px; background: var(--surface, #fff); }
+.ea-cartao.is-aberto { border-color: var(--accent, #8a5a2b); box-shadow: 0 0 0 1px var(--accent, #8a5a2b) inset; }
+.ea-texto { display: grid; gap: 3px; min-width: 0; }
+.ea-resumo { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ea-acoes { display: flex; gap: 8px; flex-shrink: 0; }
+@media (max-width: 640px) {
+  .ea-cartao { flex-direction: column; align-items: stretch; }
+  .ea-acoes { justify-content: flex-end; }
+  .ea-resumo { white-space: normal; }
+}
