@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 const getRequisitionPurchaseDraft = vi.fn();
 const createPurchaseOrdersFromRequisition = vi.fn();
 const getRequisitionCatalog = vi.fn();
+const getPurchaseOrder = vi.fn();
 
 vi.mock("../../../api/client", () => ({
   ApiError: class ApiError extends Error {
@@ -11,7 +12,11 @@ vi.mock("../../../api/client", () => ({
   },
   getRequisitionPurchaseDraft: (...args: unknown[]) => getRequisitionPurchaseDraft(...args),
   createPurchaseOrdersFromRequisition: (...args: unknown[]) => createPurchaseOrdersFromRequisition(...args),
-  getRequisitionCatalog: (...args: unknown[]) => getRequisitionCatalog(...args)
+  getRequisitionCatalog: (...args: unknown[]) => getRequisitionCatalog(...args),
+  getPurchaseOrder: (...args: unknown[]) => getPurchaseOrder(...args),
+  changePurchaseOrderStatus: vi.fn(),
+  downloadPurchaseOrderPdf: vi.fn(),
+  getPurchaseOrderPdfBlob: vi.fn()
 }));
 
 // O valor monetário depende do contexto de ocultar valores do app; aqui basta o número.
@@ -39,11 +44,14 @@ const rascunho = (extra: Record<string, unknown> = {}) => ({
   ...extra
 });
 
-const montar = () => render(<RevisaoDoPedido requisicaoId="r1" onVoltar={vi.fn()} onAbrirPedidos={vi.fn()} />);
+const montar = () => render(<RevisaoDoPedido requisicaoId="r1" canApprove onVoltar={vi.fn()} onAbrirPedidos={vi.fn()} />);
 const gerar = () => screen.getByRole("button", { name: /Gerar pedido/ }) as HTMLButtonElement;
 
 describe("RevisaoDoPedido", () => {
-  beforeEach(() => getRequisitionPurchaseDraft.mockResolvedValue(rascunho()));
+  beforeEach(() => {
+    getRequisitionPurchaseDraft.mockResolvedValue(rascunho());
+    getPurchaseOrder.mockResolvedValue({ id: "o1", code: "PC-2026-0001", status: "RASCUNHO", supplierNameSnapshot: "Moinho Bom", supplierPhone: null, supplierEmail: null, items: [] });
+  });
   afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
   test("começa pelo que saiu e bloqueia enquanto um item está sem fornecedor", async () => {

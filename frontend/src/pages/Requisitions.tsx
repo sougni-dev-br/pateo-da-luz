@@ -153,6 +153,7 @@ export function Requisitions({ user }: { user: AppUser }) {
         <RevisaoDoPedido
           key={pedidoDe}
           requisicaoId={pedidoDe}
+          canApprove={hasPermission(user, "purchase-orders", "approve")}
           onVoltar={() => setView(confirmedRequisition ? "form" : "list")}
           onAbrirPedidos={(busca) => navigate(`/compras/pedidos${busca ? `?search=${encodeURIComponent(busca)}` : ""}`)}
         />

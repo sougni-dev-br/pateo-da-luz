@@ -51,10 +51,12 @@ function csvEscape(value: unknown) {
 async function getOrder(id: string, opts: { includeAudits?: boolean } = {}): Promise<PurchaseOrderRecord | null> {
   const includeAudits = opts.includeAudits ?? true;
   const [order] = await prisma.$queryRaw<Array<Record<string, unknown>>>`
-    SELECT po.*, u."name" AS "createdByUserName", au."name" AS "approvedByUserName"
+    SELECT po.*, u."name" AS "createdByUserName", au."name" AS "approvedByUserName",
+           sup."phone" AS "supplierPhone", sup."email" AS "supplierEmail", sup."contactName" AS "supplierContactName"
     FROM "PurchaseOrder" po
     LEFT JOIN "User" u ON u."id" = po."createdByUserId"
     LEFT JOIN "User" au ON au."id" = po."approvedByUserId"
+    LEFT JOIN "Supplier" sup ON sup."id" = po."supplierId"
     WHERE po."id" = ${id}
   `;
   if (!order) return null;

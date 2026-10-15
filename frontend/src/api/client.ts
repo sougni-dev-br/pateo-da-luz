@@ -2048,6 +2048,10 @@ export type PurchaseOrder = {
   source: "MANUAL" | "PRE_LISTA_COMPRADOR" | "PLANEJAMENTO_COMPRA" | "REQUISICAO";
   /** Requisição de insumos de onde o pedido foi gerado (source = REQUISICAO). */
   sourceRequisitionId?: string | null;
+  /** Contato do fornecedor (só no detalhe do pedido): serve para enviar o pedido por WhatsApp ou e-mail. */
+  supplierPhone?: string | null;
+  supplierEmail?: string | null;
+  supplierContactName?: string | null;
   createdByUserId: string | null;
   createdByUserName?: string | null;
   approvedByUserName?: string | null;
@@ -2369,6 +2373,11 @@ export function getTaxPaymentHistory(id: string) {
 
 export function downloadSupplierPositionPdf(filters?: { supplierId?: string; startDate?: string; endDate?: string }) {
   return download(`/purchases/reports/supplier-position.pdf${toQueryString(filters)}`, "posicao-fornecedor.pdf");
+}
+
+/** O PDF do pedido como arquivo, para compartilhar pelo celular (WhatsApp, e-mail) sem baixar e anexar à mão. */
+export function getPurchaseOrderPdfBlob(id: string) {
+  return fetchBlob(`/purchase-orders/${id}/pdf`);
 }
 
 export function downloadPurchaseOrderPdf(id: string, code: string) {

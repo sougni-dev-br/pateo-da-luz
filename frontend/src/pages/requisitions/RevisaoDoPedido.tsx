@@ -8,12 +8,15 @@ import {
   type RequisitionPurchaseDraft
 } from "../../api/client";
 import { Button, Money } from "../../design-system";
+import { EnvioDoPedido } from "../../components/EnvioDoPedido";
 import { formatDate } from "../../utils/format";
 import { LinhaDoPedido } from "./LinhaDoPedido";
 import { decisoesIniciais, itensParaEnviar, podeGerar, resumirPedido, situacaoDoItem, type DecisaoDoItem, type Decisoes } from "./pedido";
 
 type Props = {
   requisicaoId: string;
+  /** Quem pode aprovar o pedido (aprovar é o passo antes de mandar ao fornecedor). */
+  canApprove: boolean;
   onVoltar: () => void;
   onAbrirPedidos: (busca: string) => void;
 };
@@ -24,7 +27,7 @@ type Filtro = "TODOS" | "ALTERADOS" | "SEM_FORNECEDOR" | "FORA";
  * Revisão antes de virar pedido de compra: a requisição diz o que saiu; aqui a pessoa decide quanto comprar e de quem.
  * O que ficar nesta tela é o que vale para o pedido (a retirada fica guardada só como sugestão).
  */
-export function RevisaoDoPedido({ requisicaoId, onVoltar, onAbrirPedidos }: Props) {
+export function RevisaoDoPedido({ requisicaoId, canApprove, onVoltar, onAbrirPedidos }: Props) {
   const [rascunho, setRascunho] = useState<RequisitionPurchaseDraft | null>(null);
   const [falhou, setFalhou] = useState<string | null>(null);
   const [decisoes, setDecisoes] = useState<Decisoes>({});
@@ -120,14 +123,13 @@ export function RevisaoDoPedido({ requisicaoId, onVoltar, onAbrirPedidos }: Prop
     return (
       <section className="rq-bloco rp-resultado" aria-live="polite">
         <CheckCircle2 size={30} className="req-success-icon" aria-hidden />
-        <h3>{resultado.createdOrders.length === 1 ? "Pedido criado" : `${resultado.createdOrders.length} pedidos criados`} em rascunho</h3>
-        <p className="muted">Eles seguem o fluxo normal: revise, envie para aprovação e depois ao fornecedor, em Pedidos de compra.</p>
+        <h3>{resultado.createdOrders.length === 1 ? "Pedido criado" : `${resultado.createdOrders.length} pedidos criados`}</h3>
+        <p className="muted">Agora é só aprovar, gerar o PDF e mandar ao fornecedor. A quantidade que você confirmou é a que vale.</p>
         <ul className="rp-pedidos">
           {resultado.createdOrders.map((pedido) => (
             <li key={pedido.id}>
-              <strong>{pedido.code}</strong>
-              <span>{pedido.supplierName} · {pedido.totalItems} {pedido.totalItems === 1 ? "item" : "itens"}</span>
-              {pedido.totalEstimated > 0 && <span><Money value={pedido.totalEstimated} /></span>}
+              <EnvioDoPedido orderId={pedido.id} canApprove={canApprove} />
+              {pedido.totalEstimated > 0 && <span className="muted">Total estimado <Money value={pedido.totalEstimated} /></span>}
             </li>
           ))}
         </ul>
@@ -135,7 +137,7 @@ export function RevisaoDoPedido({ requisicaoId, onVoltar, onAbrirPedidos }: Prop
           <div className="req-banner is-aviso" role="alert"><span>{resultado.skippedItems.length} {resultado.skippedItems.length === 1 ? "item ficou" : "itens ficaram"} de fora: {resultado.skippedItems.map((i) => (i.productName ? `${i.productName}: ${i.reason}` : i.reason)).join(" ")}</span></div>
         )}
         <div className="rp-resultado-acoes">
-          <Button variant="primary" leadingIcon={<ShoppingCart size={14} />} onClick={() => onAbrirPedidos(resultado.createdOrders[0]?.code ?? "")}>Abrir em Pedidos de compra</Button>
+          <Button variant="primary" leadingIcon={<ShoppingCart size={14} />} onClick={() => onAbrirPedidos(resultado.createdOrders[0]?.code ?? "")}>Ver em Pedidos de compra</Button>
           <Button variant="secondary" onClick={onVoltar}>Voltar às requisições</Button>
         </div>
       </section>

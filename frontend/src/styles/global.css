@@ -16303,3 +16303,21 @@ td.count-list-divergent {
   display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; min-height: 40px; padding: 6px 12px; border: 1px solid rgba(138,101,15,0.4);
   border-radius: 10px; background: rgba(138,101,15,0.1); color: var(--warning); font-size: 12.5px; font-weight: 600; cursor: pointer; text-align: left;
 }
+
+/* Do pedido ao fornecedor: aprovar, PDF, WhatsApp, e-mail, marcar como enviado */
+.envio-pedido { display: flex; flex-direction: column; gap: 10px; width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); box-sizing: border-box; }
+.envio-pedido-topo { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.envio-pedido-topo span:nth-child(2) { color: var(--muted); font-size: 13px; }
+.envio-pedido-status { margin-left: auto; padding: 2px 10px; border-radius: 999px; background: var(--paper-soft); color: var(--muted); font-size: 12px; font-weight: 700; }
+.envio-pedido-status.is-aprovado { background: rgba(39,103,73,0.12); color: var(--success); }
+.envio-pedido-status.is-enviado { background: rgba(47,95,152,0.12); color: var(--info); }
+.envio-pedido-acoes { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.envio-pedido-acoes .muted { font-size: 12.5px; }
+.envio-pedido-link {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 14px; border: 1px solid var(--line-strong); border-radius: 8px;
+  background: var(--paper); color: var(--ink); font-size: 14px; font-weight: 600; text-decoration: none;
+}
+.envio-pedido-link:hover { background: var(--paper-soft); }
+.envio-pedido-sem { font-size: 12.5px; color: var(--muted); }
+.envio-pedido-telefone { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); }
+.envio-pedido-telefone input { min-height: 40px; width: 170px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 8px; font-size: 16px; }
