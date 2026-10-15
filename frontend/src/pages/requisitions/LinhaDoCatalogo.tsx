@@ -1,10 +1,11 @@
 import { Minus, Plus } from "lucide-react";
-import { memo } from "react";
+import { memo, useState } from "react";
 import type { RequisitionCatalogItem } from "../../api/client";
 import { normalizarUnidade } from "../../lib/fichaTecnica";
 import { formatarQuantidade } from "../desperdicio/quantidade";
 import { linhaDe, passoDaUnidade, somarPasso, type Escolha } from "./catalogo";
 import { situacaoDaLinha, unidadesDaLinha, type SituacaoDaLinha } from "./linhas";
+import { UnidadeNaLinha, type ConversaoNova } from "./UnidadeNaLinha";
 
 type Props = {
   item: RequisitionCatalogItem;
@@ -12,8 +13,8 @@ type Props = {
   onMudar: (item: RequisitionCatalogItem, parcial: Partial<Escolha>) => void;
   onTirar: (productId: string) => void;
   onProxima: (productId: string, direcao: 1 | -1) => void;
-  /** Falta a unidade que a pessoa usa (ex.: peça): abre as conversões já com este produto. */
-  onPedirUnidade?: (item: RequisitionCatalogItem) => void;
+  /** Conversão cadastrada na própria linha (ex.: 1 PÇ = 3,5 KG): a tela passa a oferecer a unidade e já a escolhe. */
+  onUnidadeCadastrada?: (item: RequisitionCatalogItem, conversao: ConversaoNova) => void;
 };
 
 const MAXIMO_NO_SEGMENTADO = 3;
@@ -69,7 +70,8 @@ function SeletorDeUnidade({ item, opcoes, valor, onEscolher }: { item: Requisiti
   );
 }
 
-function LinhaDoCatalogoBase({ item, escolha, onMudar, onTirar, onProxima, onPedirUnidade }: Props) {
+function LinhaDoCatalogoBase({ item, escolha, onMudar, onTirar, onProxima, onUnidadeCadastrada }: Props) {
+  const [cadastrando, setCadastrando] = useState(false);
   const base = normalizarUnidade(item.unit) || "UN";
   const semSaldo = item.balance <= 0;
   const escolhida = escolha != null;
@@ -91,7 +93,7 @@ function LinhaDoCatalogoBase({ item, escolha, onMudar, onTirar, onProxima, onPed
         <strong className="rq-nome">{item.name}</strong>
         <span className="rq-meta">
           {item.code && <span>Cód. {item.code}</span>}
-          {onPedirUnidade && <button type="button" className="rq-mais-unidade" onClick={() => onPedirUnidade(item)} aria-label={`Cadastrar outra unidade para ${item.name}`}>+ unidade</button>}
+          {onUnidadeCadastrada && <button type="button" className="rq-mais-unidade" aria-expanded={cadastrando} onClick={() => setCadastrando((v) => !v)} aria-label={`Cadastrar outra unidade para ${item.name}`}>+ unidade</button>}
           {status ?? <span className={`rq-saldo${semSaldo ? " is-zero" : ""}`}>{semSaldo ? "sem saldo" : `saldo ${formatarQuantidade(item.balance)} ${base}`}</span>}
         </span>
       </div>
@@ -156,6 +158,10 @@ function LinhaDoCatalogoBase({ item, escolha, onMudar, onTirar, onProxima, onPed
         <div className="rq-detalhe">
           <SeletorDeUnidade item={item} opcoes={opcoes} valor={unidade} onEscolher={(u) => onMudar(item, { unit: u })} />
         </div>
+      )}
+
+      {cadastrando && onUnidadeCadastrada && (
+        <UnidadeNaLinha item={item} onFechar={() => setCadastrando(false)} onCadastrada={(i, c) => { setCadastrando(false); onUnidadeCadastrada(i, c); }} />
       )}
     </li>
   );

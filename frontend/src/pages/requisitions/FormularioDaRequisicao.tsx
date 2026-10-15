@@ -21,6 +21,7 @@ import { SEM_LOCAL, contarPorLocal, escolhaInicial, escolhasComQuantidade, filtr
 import { resumirLinhas, situacaoDaLinha } from "./linhas";
 import { apagarRascunho, lerRascunho, salvarRascunho, type DadosDoCabecalho } from "./rascunho";
 import { useCatalogo } from "./useCatalogo";
+import type { ConversaoNova } from "./UnidadeNaLinha";
 import { useRascunhoNoServidor, type RascunhoNoServidor } from "./useRascunhoNoServidor";
 
 export { MOTIVOS, TURNOS };
@@ -37,8 +38,8 @@ type Props = {
   modelo: ModeloInicial | null;
   onCriada: (criada: InventoryRequisition) => void;
   onAviso: (tom: "success" | "warning" | "error", mensagem: string) => void;
-  /** "+ unidade" na linha: abre as conversões com este produto. */
-  onPedirUnidade?: (item: RequisitionCatalogItem) => void;
+  /** Conversão cadastrada na linha (o cadastro já foi salvo no sistema). */
+  onConversaoCadastrada?: (item: RequisitionCatalogItem) => void;
   /** Id do rascunho no sistema que esta tela está salvando (null enquanto não há). */
   onRascunho?: (id: string | null) => void;
 };
@@ -57,7 +58,7 @@ function QuadroVazio({ visao, filtrando, onLimpar }: { visao: Visao; filtrando: 
   );
 }
 
-export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAviso, onPedirUnidade, onRascunho }: Props) {
+export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAviso, onConversaoCadastrada, onRascunho }: Props) {
   const guardado = useMemo(() => (modelo ? null : lerRascunho(user.id)), [modelo, user.id]);
   const catalogo = useCatalogo(user.id);
   const { imprimir, portal } = useImpressaoDaRequisicao();
@@ -203,6 +204,15 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAvis
       return resto;
     });
   }, []);
+
+  const { comConversao } = catalogo;
+  const aoCadastrarUnidade = useCallback((item: RequisitionCatalogItem, conversao: ConversaoNova) => {
+    comConversao(item.id, conversao);
+    // Já escolhe a unidade nova: a pessoa cadastrou porque é nela que vai pedir.
+    setEscolhas((atuais) => ({ ...atuais, [item.id]: { ...(atuais[item.id] ?? escolhaInicial(item, "")), unit: conversao.fromUnit } }));
+    onAviso("success", `${item.name}: 1 ${conversao.fromUnit} = ${conversao.factor} ${conversao.toUnit} cadastrada.`);
+    onConversaoCadastrada?.(item);
+  }, [comConversao, onAviso, onConversaoCadastrada]);
 
   const irParaProxima = useCallback((productId: string, direcao: 1 | -1) => {
     const campos = Array.from(listaRef.current?.querySelectorAll<HTMLInputElement>(".rq-qtd:not(:disabled)") ?? []);
@@ -386,7 +396,7 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAvis
           visiveis.length > 0 ? (
             <ul className="rq-lista" ref={listaRef}>
               {visiveis.map((item) => (
-                <LinhaDoCatalogo key={item.id} item={item} escolha={escolhas[item.id]} onMudar={mudar} onTirar={tirar} onProxima={irParaProxima} onPedirUnidade={onPedirUnidade} />
+                <LinhaDoCatalogo key={item.id} item={item} escolha={escolhas[item.id]} onMudar={mudar} onTirar={tirar} onProxima={irParaProxima} onUnidadeCadastrada={aoCadastrarUnidade} />
               ))}
             </ul>
           ) : (

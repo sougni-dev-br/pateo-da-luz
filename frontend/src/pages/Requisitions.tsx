@@ -195,7 +195,6 @@ export function Requisitions({ user }: { user: AppUser }) {
             onCriada={aoCriar}
             onAviso={(tone, message) => setNotice({ tone, message })}
             onRascunho={setAbertoId}
-            onPedirUnidade={(item) => navigate(`/estoque/conversoes?produto=${encodeURIComponent(item.id)}`)}
           />
         </div>
       )}

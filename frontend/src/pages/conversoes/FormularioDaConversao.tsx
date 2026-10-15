@@ -16,7 +16,7 @@ type Props = {
   unidade: string;
   sugestao: number | null;
   rotuloDaSugestao?: string;
-  aoSalvar: (mensagem: string) => void;
+  aoSalvar: (mensagem: string, conversao: { fromUnit: string; toUnit: string; factor: number }) => void;
 };
 
 /** "1 UN (unidade ou peça) = [ 3,5 ] KG  [Salvar]": o cadastro de uma conversão, na própria linha. */
@@ -31,7 +31,7 @@ export function FormularioDaConversao({ produtoId, contagem, unidade, sugestao, 
     setErro(null);
     try {
       const r = await cadastrarConversao({ productId: produtoId, fromUnit: unidade, factor: fator });
-      aoSalvar(`1 ${r.conversao.fromUnit} = ${formatarQuantidade(r.conversao.factor)} ${r.conversao.toUnit} cadastrada${r.comprasConvertidas > 0 ? ` · ${r.comprasConvertidas} compras convertidas` : ""}.`);
+      aoSalvar(`1 ${r.conversao.fromUnit} = ${formatarQuantidade(r.conversao.factor)} ${r.conversao.toUnit} cadastrada${r.comprasConvertidas > 0 ? ` · ${r.comprasConvertidas} compras convertidas` : ""}.`, r.conversao);
     } catch (falha) {
       setErro(falha instanceof ApiError || falha instanceof Error ? falha.message : "Não foi possível cadastrar a conversão.");
     } finally {

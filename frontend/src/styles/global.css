@@ -16455,3 +16455,8 @@ td.count-list-divergent {
   .ea-acoes { justify-content: flex-end; }
   .ea-resumo { white-space: normal; }
 }
+
+/* Cadastro de unidade na própria linha da requisição */
+.rq-nova-unidade { grid-column: 1 / -1; display: grid; gap: 8px; margin-top: 8px; padding: 10px 12px; border: 1px dashed var(--gold, #b8893b); border-radius: 10px; background: color-mix(in srgb, var(--gold, #b8893b) 8%, transparent); }
+.rq-nova-unidade-topo { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; }
+.rq-nova-unidade-fechar { border: none; background: transparent; cursor: pointer; min-width: 28px; min-height: 28px; }
