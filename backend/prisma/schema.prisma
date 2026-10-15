@@ -1762,6 +1762,10 @@ model Dish {
   pendentePorId        String?
   pendenteObservacao   String?
   fichaConcluidaEm     DateTime?
+  // Conferência da ficha pela cozinha: nula = ainda não conferida (todas começam assim). Qualquer mudança nos ingredientes,
+  // nas quantidades ou no rendimento volta a deixá-la sem conferir.
+  fichaConferidaEm     DateTime?
+  fichaConferidaPorId  String?
   items                DishItem[]
   // Onde esta ficha entra como ingrediente de outra (ficha de producao).
   usadaComoIngrediente DishItem[]          @relation("DishComponente")

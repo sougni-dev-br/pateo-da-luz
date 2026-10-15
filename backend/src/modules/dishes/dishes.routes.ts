@@ -92,6 +92,19 @@ const dishBodySchema = z.object({
   alsoItems: dishItemsSchema.optional()
 });
 
+/** Retrato dos ingredientes de uma ficha (todos os cardápios), para saber se uma gravação mudou a receita de verdade. */
+async function assinaturaDaFicha(client: Pick<typeof prisma, "dishItem">, dishId: string): Promise<string> {
+  const itens = await client.dishItem.findMany({
+    where: { dishId },
+    select: { menu: true, productId: true, componentDishId: true, quantity: true, unit: true, wasteFactor: true }
+  });
+  return JSON.stringify(
+    itens
+      .map((item) => [item.menu, item.productId ?? "", item.componentDishId ?? "", Number(item.quantity), normalizarUnidade(item.unit), Number(item.wasteFactor)])
+      .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))
+  );
+}
+
 /** Problema de ficha achado na revalidação dentro da transação (o que outra gravação fez enquanto esta rodava). */
 class ProblemaDeFicha extends Error {}
 
@@ -258,6 +271,7 @@ dishesRouter.get("/", async (request, response) => {
       notes: dish.notes,
       isActive: dish.isActive,
       fichaDeProducao: dish.fichaDeProducao,
+      conferidaEm: dish.fichaConferidaEm,
       itemsCount: principais.length,
       alsoItemsCount: doOutro.length,
       alsoCustoPorcao: custoDoOutro.costPerServing,
@@ -360,20 +374,56 @@ dishesRouter.get("/fichas/search", async (request, response) => {
   }));
 });
 
+// A cozinha conferiu a ficha (ingredientes e quantidades batem com o que se faz de verdade). Todas começam sem conferir; mudar a
+// receita volta a deixá-la sem conferir.
+dishesRouter.post("/:id/conferir", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  if (!user) return;
+  const id = request.params.id;
+  const prato = await prisma.dish.findUnique({ where: { id }, select: { id: true } });
+  if (!prato) {
+    response.status(404).json({ message: "Prato não encontrado." });
+    return;
+  }
+  if ((await prisma.dishItem.count({ where: { dishId: id } })) === 0) {
+    response.status(400).json({ message: "A ficha ainda não tem ingredientes: preencha antes de marcar como conferida." });
+    return;
+  }
+  const agora = new Date();
+  await prisma.dish.update({ where: { id: id }, data: { fichaConferidaEm: agora, fichaConferidaPorId: user.id } });
+  await auditLog({ userId: user.id, action: "UPDATE", entity: "Dish", entityId: id, newValue: { fichaConferidaEm: agora } });
+  response.json({ ok: true, conferidaEm: agora });
+});
+
+dishesRouter.delete("/:id/conferir", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  if (!user) return;
+  try {
+    await prisma.dish.update({ where: { id: request.params.id }, data: { fichaConferidaEm: null, fichaConferidaPorId: null } });
+  } catch (error) {
+    if (responderErroDeGravacao(error, null, response)) return;
+    throw error;
+  }
+  await auditLog({ userId: user.id, action: "UPDATE", entity: "Dish", entityId: request.params.id, newValue: { fichaConferidaEm: null } });
+  response.json({ ok: true });
+});
+
 dishesRouter.get("/:id", async (request, response) => {
   const detalhe = await carregarDetalhe(prisma, request.params.id);
   if (!detalhe) {
     response.status(404).json({ message: "Prato não encontrado." });
     return;
   }
+  const conferidor = detalhe.conferidaPorId ? await prisma.user.findUnique({ where: { id: detalhe.conferidaPorId }, select: { name: true } }) : null;
+  const comConferencia = { ...detalhe, conferidaPor: conferidor?.name ?? null };
   // Ficha de produção: quem a usa como ingrediente. Mudar o rendimento dela muda o custo de todos eles.
   if (detalhe.fichaDeProducao) {
     const usos = await prisma.dishItem.findMany({ where: { componentDishId: detalhe.id }, select: { dish: { select: { id: true, name: true } } } });
     const unicos = new Map(usos.map((uso) => [uso.dish.id, uso.dish.name]));
-    response.json({ ...detalhe, usadaEm: [...unicos].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name, "pt-BR")) });
+    response.json({ ...comConferencia, usadaEm: [...unicos].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name, "pt-BR")) });
     return;
   }
-  response.json(detalhe);
+  response.json(comConferencia);
 });
 
 /**
@@ -615,7 +665,7 @@ dishesRouter.put("/:id", async (request, response) => {
   }
 
   const id = request.params.id;
-  const atual = await prisma.dish.findUnique({ where: { id }, select: { menu: true, alsoMenu: true, alsoCategoryId: true, fichaDeProducao: true, fichaDeBuffet: true, yieldUnit: true } });
+  const atual = await prisma.dish.findUnique({ where: { id }, select: { menu: true, alsoMenu: true, alsoCategoryId: true, fichaDeProducao: true, fichaDeBuffet: true, yieldUnit: true, yieldQty: true } });
   if (!atual) {
     response.status(404).json({ message: "Prato não encontrado." });
     return;
@@ -673,6 +723,7 @@ dishesRouter.put("/:id", async (request, response) => {
     // transacao deixava a ficha permanentemente sem ingredientes se o create falhasse no meio.
     const dish = await prisma.$transaction(async (tx) => {
       await revalidarFichasNaTransacao(tx, id, itensEnviados, producao, { eraProducao: atual.fichaDeProducao, serProducao: producao, ehDeBuffet: atual.fichaDeBuffet });
+      const assinaturaAntes = await assinaturaDaFicha(tx, id);
       const atualizado = await tx.dish.update({
         where: { id },
         data: {
@@ -709,6 +760,12 @@ dishesRouter.put("/:id", async (request, response) => {
         if (body.alsoItems.length > 0) {
           await tx.dishItem.createMany({ data: body.alsoItems.map((item, index) => itemParaGravar(id, item, index, segundo.alsoMenu as string)) });
         }
+      }
+
+      // Mudou a receita (ingredientes, quantidades, perda) ou o rendimento: a conferência da cozinha não vale mais para o que está gravado.
+      const mudouRendimento = Number(atual.yieldQty) !== body.yieldQty || normalizarUnidade(atual.yieldUnit) !== normalizarUnidade(body.yieldUnit);
+      if (mudouRendimento || (await assinaturaDaFicha(tx, id)) !== assinaturaAntes) {
+        await tx.dish.update({ where: { id }, data: { fichaConferidaEm: null, fichaConferidaPorId: null } });
       }
 
       const detalhe = await carregarDetalhe(tx, id);

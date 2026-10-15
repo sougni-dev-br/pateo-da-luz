@@ -22,11 +22,22 @@ describe("montarFilaAPreencher", () => {
     prato({ id: "f", name: "Pizza de delivery", itemsCount: 0, menu: "DELIVERY" }),
   ];
 
-  test("separa pratos sem ficha e fichas incompletas, ignora pronto e inativo", () => {
+  test("separa pratos sem ficha, fichas incompletas e fichas montadas a conferir; ignora conferido e inativo", () => {
     const fila = montarFilaAPreencher(pratos, []);
     expect(fila["sem-ficha"].map((i) => i.nome)).toEqual(["Arroz especial", "Pizza de delivery", "Zebra ao molho"]);
     expect(fila.incompleta.map((i) => i.nome)).toEqual(["Risoto de funghi"]);
-    expect(fila.total).toBe(4);
+    // Feijoada está montada e completa, mas ninguém da cozinha conferiu.
+    expect(fila["a-conferir"].map((i) => i.nome)).toEqual(["Feijoada"]);
+    expect(fila.total).toBe(5);
+  });
+
+  test("ficha conferida sai da fila; ficha de produção não conferida entra, com o contexto dela", () => {
+    const fila = montarFilaAPreencher([
+      prato({ id: "d", name: "Feijoada", itemsCount: 5, conferidaEm: "2026-10-15T12:00:00.000Z" }),
+      prato({ id: "m", name: "Nhoque - Massa", itemsCount: 4, fichaDeProducao: true }),
+    ], []);
+    expect(fila["a-conferir"].map((i) => [i.nome, i.detalhe])).toEqual([["Nhoque - Massa", "Ficha de produção"]]);
+    expect(fila.total).toBe(1);
   });
 
   test("o contexto diz o cardápio e a categoria", () => {

@@ -5,6 +5,8 @@ import { ApiError, type AppUser, type DishCategory, type DishDetail, type DishLi
 vi.mock("../../../../api/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../../../api/client")>()),
   getBuffetDishes: vi.fn(),
+  confirmDishFicha: vi.fn(),
+  unconfirmDishFicha: vi.fn(),
   getDishFichaSuggestions: vi.fn(),
   searchDishFichas: vi.fn(),
   getDishes: vi.fn(),
@@ -20,7 +22,7 @@ vi.mock("../../../../api/client", async (importOriginal) => ({
 }));
 
 import {
-  deactivateDish, getBuffetDishes, getDishCategories, getDishDetail, getDishFichaSuggestions, searchDishFichas, getDishes, reactivateDish, saveDish, saveDishProductConversion, searchDishProducts,
+  confirmDishFicha, unconfirmDishFicha, deactivateDish, getBuffetDishes, getDishCategories, getDishDetail, getDishFichaSuggestions, searchDishFichas, getDishes, reactivateDish, saveDish, saveDishProductConversion, searchDishProducts,
 } from "../../../../api/client";
 import { SessionContext, type SessionContextValue } from "../../../../context/SessionContext";
 import { HideValuesProvider } from "../../../../design-system";
@@ -672,8 +674,8 @@ describe("A preencher: o que ainda falta de ficha, com impressão", () => {
 
   test("a aba soma o que falta (do desperdício, sem ficha, incompleta) e agrupa por origem", async () => {
     await abrirAPreencher();
-    // 2 do desperdício + Purê de batata (sem ficha) + Risoto de funghi (custo parcial).
-    expect(screen.getByRole("tab", { name: "A preencher (4)" })).toBeInTheDocument();
+    // 2 do desperdício + Purê de batata (sem ficha) + Risoto de funghi (custo parcial) + Risoto de camarão (montado, a conferir).
+    expect(screen.getByRole("tab", { name: "A preencher (5)" })).toBeInTheDocument();
     const aguardando = await screen.findByRole("region", { name: /Aguardando ficha/ });
     expect(within(aguardando).getByText("Purê de abóbora")).toBeInTheDocument();
     expect(within(aguardando).getByText(/4 lançamentos · 9,5 KG perdidos · pedido por Beto/)).toBeInTheDocument();
@@ -686,7 +688,7 @@ describe("A preencher: o que ainda falta de ficha, com impressão", () => {
   });
 
   test("nada por preencher: explica e ainda oferece a folha em branco", async () => {
-    vi.mocked(getDishes).mockResolvedValue([RISOTO]);
+    vi.mocked(getDishes).mockResolvedValue([{ ...RISOTO, conferidaEm: "2026-10-15T12:00:00.000Z" }]);
     await abrirAPreencher([]);
     expect(await screen.findByText("Nenhuma ficha por preencher")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Imprimir folha em branco" })).toBeInTheDocument();
@@ -1060,6 +1062,46 @@ describe("ficha de produção x prato vendido", () => {
     fireEvent.click(await screen.findByRole("tab", { name: /Produção/ }));
     expect(await screen.findByText("Nhoque - Massa")).toBeInTheDocument();
     expect(screen.queryByText("Risoto de camarão")).toBeNull();
+  });
+});
+
+describe("conferência da ficha pela cozinha", () => {
+  beforeEach(() => {
+    vi.mocked(confirmDishFicha).mockResolvedValue({ ok: true, conferidaEm: "2026-10-15T12:00:00.000Z" });
+    vi.mocked(unconfirmDishFicha).mockResolvedValue({ ok: true });
+  });
+
+  test("ficha montada e não conferida avisa e deixa marcar como conferida; a tela recarrega o prato", async () => {
+    await abrir();
+    await abrirPrato("Risoto de camarão", "d1");
+    expect(screen.getByText("Ficha ainda não conferida")).toBeInTheDocument();
+    vi.mocked(getDishDetail).mockImplementation(async (id: string) => (id === "d1" ? { ...DETALHES.d1, conferidaEm: "2026-10-15T12:00:00.000Z", conferidaPor: "Ana" } : DETALHES[id]));
+    fireEvent.click(screen.getByRole("button", { name: "Marcar como conferida" }));
+    await waitFor(() => expect(confirmDishFicha).toHaveBeenCalledWith("d1"));
+    expect(await screen.findByText(/Ficha conferida por Ana/)).toBeInTheDocument();
+    expect(screen.queryByText("Ficha ainda não conferida")).toBeNull();
+  });
+
+  test("ficha conferida mostra quem e quando, e dá para desmarcar", async () => {
+    vi.mocked(getDishDetail).mockImplementation(async (id: string) => (id === "d1" ? { ...DETALHES.d1, conferidaEm: "2026-10-15T12:00:00.000Z", conferidaPor: "Ana" } : DETALHES[id]));
+    await abrir();
+    await abrirPrato("Risoto de camarão", "d1");
+    expect(screen.getByText(/Ficha conferida por Ana/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Desmarcar" }));
+    await waitFor(() => expect(unconfirmDishFicha).toHaveBeenCalledWith("d1"));
+  });
+
+  test("ficha sem ingredientes não oferece conferir", async () => {
+    await abrir();
+    await abrirPrato("Purê de batata", "d2");
+    expect(screen.queryByText("Ficha ainda não conferida")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Marcar como conferida" })).toBeNull();
+  });
+
+  test("a aba A preencher lista as fichas montadas a conferir", async () => {
+    await abrir();
+    fireEvent.click(screen.getByRole("tab", { name: /A preencher/ }));
+    expect(await screen.findByRole("region", { name: "Ficha montada, a conferir com a cozinha" })).toBeInTheDocument();
   });
 });
 

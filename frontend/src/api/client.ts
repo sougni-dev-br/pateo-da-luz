@@ -4149,6 +4149,8 @@ export type DishListItem = {
   isActive: boolean;
   /** Ficha de produção (a massa do nhoque): não é vendida, sem preço nem CMV; só entra como ingrediente de outras fichas. */
   fichaDeProducao?: boolean;
+  /** Quando a cozinha conferiu a ficha; nulo/ausente = ainda não conferida. */
+  conferidaEm?: string | null;
   itemsCount: number;
   /** Quantas listagens ativas o prato tem nos canais (hoje, o cardapio da 99). */
   listingsCount: number;
@@ -4193,6 +4195,8 @@ export type DishDetail = Omit<DishListItem, "listingsCount" | "listingPriceMin" 
   items: DishIngredient[];
   /** Ficha de produção: as fichas que a usam como ingrediente (mudar o rendimento dela muda o custo de todas). */
   usadaEm?: Array<{ id: string; name: string }>;
+  /** Quem conferiu a ficha (nulo se não conferida). */
+  conferidaPor?: string | null;
   /** Quantidades do outro cardápio (o delivery) do prato vendido nos dois. */
   alsoItems?: DishIngredient[];
   alsoCusto?: { calculatedCost: number; custoPorcao: number; custoIncompleto: boolean; itemsCount: number };
@@ -4219,6 +4223,15 @@ export function getDishes(params: { search?: string; categoryId?: string; showIn
     categoryId: params.categoryId,
     showInactive: params.showInactive ? "true" : undefined
   })}`);
+}
+
+/** A cozinha conferiu a ficha (ingredientes e quantidades batem com o que se faz de verdade). */
+export function confirmDishFicha(id: string) {
+  return request<{ ok: true; conferidaEm: string }>(`/dishes/${id}/conferir`, { method: "POST" });
+}
+
+export function unconfirmDishFicha(id: string) {
+  return request<{ ok: true }>(`/dishes/${id}/conferir`, { method: "DELETE" });
 }
 
 export function getDishDetail(id: string) {

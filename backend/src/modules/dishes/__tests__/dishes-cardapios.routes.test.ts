@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 vi.mock("../../../config/database.js", () => {
   const prisma: Record<string, unknown> = {
     dish: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), count: vi.fn() },
-    dishItem: { createMany: vi.fn(), deleteMany: vi.fn(), count: vi.fn(), groupBy: vi.fn() },
+    dishItem: { createMany: vi.fn(), deleteMany: vi.fn(), count: vi.fn(), groupBy: vi.fn(), findMany: vi.fn() },
     dishRevision: { create: vi.fn(), findMany: vi.fn() },
     dishCategory: { findMany: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), count: vi.fn() },
     product: { findMany: vi.fn(), findUnique: vi.fn() },
@@ -44,11 +44,12 @@ const detalheMinimo = (id: string, extra: object = {}) => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  db.dishItem.findMany.mockResolvedValue([]);
   vi.mocked(requireRole).mockResolvedValue({ id: "u1", name: "Eli", role: "ADMIN" } as never);
   db.$transaction.mockImplementation(async (arg: unknown) =>
     typeof arg === "function" ? (arg as (tx: unknown) => unknown)(prisma) : Promise.all(arg as unknown[]));
   db.dish.findUnique.mockImplementation(async (arg: { where: { id: string }; select?: object }) =>
-    arg.select ? { menu: "CARDAPIO" } : detalheMinimo(arg.where.id));
+    arg.select ? { menu: "CARDAPIO", yieldQty: 1, yieldUnit: "UN" } : detalheMinimo(arg.where.id));
   db.dish.create.mockImplementation(async ({ data }: { data: object }) => ({ ...data }));
   db.dish.update.mockImplementation(async ({ where, data }: { where: { id: string }; data: object }) => ({ id: where.id, ...data }));
   db.dishRevision.create.mockResolvedValue({});
@@ -164,7 +165,7 @@ describe("cardápio do prato", () => {
 
   test("editar sem dizer o cardápio mantém o que o prato já tinha", async () => {
     db.dish.findUnique.mockImplementation(async (arg: { where: { id: string }; select?: object }) =>
-      arg.select ? { menu: "DELIVERY" } : detalheMinimo(arg.where.id, { menu: "DELIVERY" }));
+      arg.select ? { yieldQty: 1, yieldUnit: "UN", menu: "DELIVERY" } : detalheMinimo(arg.where.id, { menu: "DELIVERY" }));
     await request(app).put("/dishes/d1").send({ name: "Pizza" });
     expect(db.dish.update).toHaveBeenLastCalledWith(expect.objectContaining({ data: expect.objectContaining({ menu: "DELIVERY" }) }));
   });
@@ -249,7 +250,7 @@ describe("prato vendido nos dois cardápios", () => {
 
   test("a versão do histórico guarda o segundo cardápio", async () => {
     db.dish.findUnique.mockImplementation(async (arg: { where: { id: string }; select?: object }) =>
-      arg.select ? { menu: "CARDAPIO" } : detalheMinimo(arg.where.id, {
+      arg.select ? { menu: "CARDAPIO", yieldQty: 1, yieldUnit: "UN" } : detalheMinimo(arg.where.id, {
         alsoMenu: "DELIVERY", alsoCategory: { id: "c2", name: "Carnes", parentId: null, menu: "DELIVERY" },
         items: [{
           id: "i9", productId: "p1", menu: "DELIVERY", quantity: 120, unit: "G", wasteFactor: 0, notes: null, sortOrder: 0,
@@ -283,7 +284,7 @@ describe("histórico de versões", () => {
 
   test("a versão guarda quem fez, o custo do momento e a foto dos ingredientes", async () => {
     db.dish.findUnique.mockImplementation(async (arg: { where: { id: string }; select?: object }) =>
-      arg.select ? { menu: "CARDAPIO" } : {
+      arg.select ? { menu: "CARDAPIO", yieldQty: 1, yieldUnit: "UN" } : {
         ...detalheMinimo(arg.where.id, { name: "Risoto", salePriceDefault: 80 }),
         items: [{
           id: "i1", productId: "p1", menu: "CARDAPIO", quantity: 150, unit: "G", wasteFactor: 0.05, notes: null, sortOrder: 0,
@@ -463,7 +464,7 @@ describe("busca de ingrediente", () => {
 describe("endurecimento: tela antiga e troca de cardápio", () => {
   const selecionar = (atual: object) =>
     db.dish.findUnique.mockImplementation(async (arg: { where: { id: string }; select?: object }) =>
-      arg.select ? atual : detalheMinimo(arg.where.id));
+      arg.select ? { yieldQty: 1, yieldUnit: "UN", ...atual } : detalheMinimo(arg.where.id));
 
   test("PUT sem o campo alsoMenu (tela antiga em cache) mantém o segundo cardápio e a categoria dele", async () => {
     selecionar({ menu: "CARDAPIO", alsoMenu: "DELIVERY", alsoCategoryId: "c-del" });

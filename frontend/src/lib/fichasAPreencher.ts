@@ -5,9 +5,10 @@ import { ROTULO_DO_CARDAPIO } from "./categoriasDasFichas";
 
 // A fila de fichas por preencher: o que o responsável cobra da cozinha. Três origens, nesta ordem de urgência:
 // preparações criadas pelo lançamento de desperdício (a perda já está sem valor), pratos cadastrados que
-// nunca tiveram ficha e fichas com custo parcial. Funções puras; a tela só desenha.
+// nunca tiveram ficha, fichas com custo parcial e, por último, as fichas montadas que a cozinha ainda não conferiu
+// (todas começam assim: ficha fiel é a que a cozinha confirmou). Funções puras; a tela só desenha.
 
-export type GrupoAPreencher = "aguardando" | "sem-ficha" | "incompleta";
+export type GrupoAPreencher = "aguardando" | "sem-ficha" | "incompleta" | "a-conferir";
 
 export type ItemAPreencher = {
   /** O mesmo id do prato: abre a ficha dele. */
@@ -57,12 +58,18 @@ export function montarFilaAPreencher(pratos: DishListItem[], buffet: BuffetDish[
 
   const semFicha = doCardapio("sem-ficha");
   const incompleta = doCardapio("incompleta");
+  // Ficha montada e completa que ninguém conferiu: a cozinha confirma os ingredientes e as quantidades.
+  const aConferir = pratos
+    .filter((prato) => prato.isActive && prato.itemsCount > 0 && !prato.conferidaEm && situacaoDaFicha(prato) !== "sem-ficha" && situacaoDaFicha(prato) !== "incompleta")
+    .map<ItemAPreencher>((prato) => ({ id: prato.id, nome: prato.name, grupo: "a-conferir", detalhe: prato.fichaDeProducao ? "Ficha de produção" : detalheDoPrato(prato), lancamentos: 0, folha: folhaDoNome(prato) }))
+    .sort(porNome);
   return {
     aguardando,
     "sem-ficha": semFicha,
     incompleta,
+    "a-conferir": aConferir,
     buffetComFicha: buffet.filter((p) => !p.pending),
-    total: aguardando.length + semFicha.length + incompleta.length
+    total: aguardando.length + semFicha.length + incompleta.length + aConferir.length
   };
 }
 
