@@ -1,32 +1,41 @@
-﻿import { CheckCircle2, ClipboardList, Copy, Eye, Plus, X } from "lucide-react";
+﻿import { CheckCircle2, ClipboardList, Copy, Eye, Plus, Printer, ShoppingCart, X } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   AppUser,
   InventoryRequisition,
   InventoryRequisitionItem,
   InventorySector,
-  InventoryStock,
-  getInventoryStocks,
   getRequisition,
-  getRequisitionProductsByIds,
   getRequisitions,
   getSectors
 } from "../api/client";
-import { Button, EmptyState, IconButton, PanelEyebrow, StatusBadge, Table } from "../design-system";
+import { Button, EmptyState, IconButton, StatusBadge, Table } from "../design-system";
 import { Notice, useNotice } from "../components/Notice";
+import { hasPermission } from "../lib/permissions";
 import { formatDate, formatNumber } from "../utils/format";
+import type { Escolhas } from "./requisitions/catalogo";
+import { lerRascunho } from "./requisitions/rascunho";
+import { dadosDaRequisicaoRegistrada, useImpressaoDaRequisicao } from "./requisitions/ImpressaoDaRequisicao";
+import { RevisaoDoPedido } from "./requisitions/RevisaoDoPedido";
 import { FormularioDaRequisicao, MOTIVOS, TURNOS, cabecalhoVazio, type ModeloInicial } from "./requisitions/FormularioDaRequisicao";
 
 const shiftLabels = TURNOS;
 const reasonLabels = MOTIVOS;
 
+/** "PC-2026-0057, PC-2026-0058" cabe na tabela como "PC-2026-0057 +1"; a lista inteira fica no tooltip. */
+const resumoDosPedidos = (codigos: string) => {
+  const lista = codigos.split(", ");
+  return lista.length > 1 ? `${lista[0]} +${lista.length - 1}` : lista[0];
+};
+
 const shiftTone = (shift: string) =>
   shift === "MORNING" ? "info" : shift === "AFTERNOON" ? "warning" : "neutral";
 
 export function Requisitions({ user }: { user: AppUser }) {
-  const [view, setView] = useState<"form" | "list">("form");
+  const [view, setView] = useState<"form" | "list" | "pedido">("form");
+  const [pedidoDe, setPedidoDe] = useState<string | null>(null);
   const [sectors, setSectors] = useState<InventorySector[]>([]);
-  const [saldos, setSaldos] = useState<Map<string, number> | null>(null);
   const [modelo, setModelo] = useState<ModeloInicial | null>(null);
   const [formKey, setFormKey] = useState(0);
   const [confirmedRequisition, setConfirmedRequisition] = useState<InventoryRequisition | null>(null);
@@ -35,12 +44,13 @@ export function Requisitions({ user }: { user: AppUser }) {
   const [detail, setDetail] = useState<InventoryRequisition | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const { notice, setNotice } = useNotice();
+  const navigate = useNavigate();
+  const { imprimir, portal } = useImpressaoDaRequisicao();
+  // Gerar pedido de compra segue a permissão do módulo de pedidos, não a da requisição.
+  const podeGerarPedido = hasPermission(user, "purchase-orders", "create");
 
   useEffect(() => {
     getSectors().then(setSectors).catch(() => {});
-    getInventoryStocks().then((stocks: InventoryStock[]) => {
-      setSaldos(new Map(stocks.map((s) => [s.productId, Number(s.currentQuantity)])));
-    }).catch(() => {});
     loadRequisitions();
   }, []);
 
@@ -58,26 +68,17 @@ export function Requisitions({ user }: { user: AppUser }) {
   }
 
   async function duplicateRequisition(id: string) {
+    if (lerRascunho(user.id) && !window.confirm("Há uma requisição em andamento. Substituir pelos itens desta?")) return;
     try {
       const req = await getRequisition(id);
-      const itens = (req.items ?? []).filter((i) => i.productId);
-      const produtos = await getRequisitionProductsByIds(itens.map((i) => i.productId!));
-      const porId = new Map(produtos.map((p) => [p.id, p]));
+      const escolhas: Escolhas = {};
+      for (const item of req.items ?? []) {
+        // A retirada fica na unidade do estoque; o formulário confere o saldo de hoje ao abrir.
+        if (item.productId) escolhas[item.productId] = { unit: item.unit ?? "UN", quantity: String(Number(item.quantity)).replace(".", ",") };
+      }
       setModelo({
         cabecalho: { ...cabecalhoVazio(), shift: req.shift, reason: req.reason, reasonNotes: req.reasonNotes ?? "", sectorId: req.sectorId ?? "", notes: req.notes ?? "" },
-        linhas: itens.flatMap((i) => {
-          const produto = porId.get(i.productId!);
-          if (!produto) return [];
-          return [{
-            productId: produto.id,
-            productName: produto.name,
-            productCode: produto.code,
-            stockUnit: produto.unit,
-            conversions: produto.conversions,
-            unit: produto.unit ?? i.unit ?? "UN",
-            quantity: String(Number(i.quantity)).replace(".", ",")
-          }];
-        })
+        escolhas
       });
       setFormKey((k) => k + 1);
       setConfirmedRequisition(null);
@@ -87,19 +88,23 @@ export function Requisitions({ user }: { user: AppUser }) {
     }
   }
 
+  async function imprimirRegistrada(id: string) {
+    try {
+      const req = await getRequisition(id);
+      imprimir(dadosDaRequisicaoRegistrada(req, { turno: shiftLabels[req.shift] ?? req.shift, motivo: reasonLabels[req.reason] ?? req.reason }));
+    } catch {
+      setNotice({ tone: "error", message: "Não foi possível preparar a impressão." });
+    }
+  }
+
+  function abrirPedido(id: string) {
+    setPedidoDe(id);
+    setView("pedido");
+  }
+
   function aoCriar(created: InventoryRequisition) {
     setConfirmedRequisition(created);
     setNotice({ tone: "success", message: `${created.code} registrada com sucesso.` });
-    // Saldos novos vêm da própria resposta: não precisa recarregar a lista inteira.
-    if (created.items) {
-      setSaldos((atual) => {
-        const proximo = new Map(atual ?? []);
-        for (const item of created.items ?? []) {
-          if (item.productId && item.stockAfter != null) proximo.set(item.productId, Number(item.stockAfter));
-        }
-        return proximo;
-      });
-    }
     setRequisitions((prev) => [{ ...created, itemCount: created.items?.length ?? 0 }, ...prev]);
   }
 
@@ -113,15 +118,7 @@ export function Requisitions({ user }: { user: AppUser }) {
     <div className="stack">
       <Notice notice={notice} />
 
-      <div className="section-heading req-page-heading">
-        <div style={{ flex: 1 }}>
-          <PanelEyebrow>Estoque</PanelEyebrow>
-          <h2>Requisições de Insumos</h2>
-          <span className="muted">Registre retiradas de produtos do estoque para uso na cozinha.</span>
-        </div>
-      </div>
-
-      <div className="tabs">
+      <div className="tabs" style={view === "pedido" ? { display: "none" } : undefined}>
         <button type="button" className={view === "form" ? "active" : ""} onClick={() => setView("form")}>
           <Plus size={14} style={{ verticalAlign: "middle", marginRight: 4 }} />
           Nova requisição
@@ -136,15 +133,28 @@ export function Requisitions({ user }: { user: AppUser }) {
         </button>
       </div>
 
-      {view === "form" && !confirmedRequisition && (
-        <FormularioDaRequisicao
-          key={formKey}
-          user={user}
-          sectors={sectors}
-          saldos={saldos}
-          modelo={modelo}
-          onCriada={aoCriar}
-          onAviso={(tone, message) => setNotice({ tone, message })}
+      {/* Escondido, não desmontado: ir ao histórico e voltar não pode descartar o que já foi montado */}
+      {!confirmedRequisition && (
+        <div hidden={view !== "form"}>
+          <FormularioDaRequisicao
+            key={formKey}
+            user={user}
+            sectors={sectors}
+            modelo={modelo}
+            onCriada={aoCriar}
+            onAviso={(tone, message) => setNotice({ tone, message })}
+          />
+        </div>
+      )}
+
+      {view === "pedido" && pedidoDe && (
+        <RevisaoDoPedido
+          key={pedidoDe}
+          requisicaoId={pedidoDe}
+          canApprove={hasPermission(user, "purchase-orders", "approve")}
+          canSend={hasPermission(user, "purchase-orders", "edit")}
+          onVoltar={() => { loadRequisitions(); setView(confirmedRequisition ? "form" : "list"); }}
+          onAbrirPedidos={(busca) => navigate(`/compras/pedidos${busca ? `?search=${encodeURIComponent(busca)}` : ""}`)}
         />
       )}
 
@@ -192,10 +202,18 @@ export function Requisitions({ user }: { user: AppUser }) {
             </Table>
           )}
 
-          <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+          <div style={{ display: "flex", gap: 10, marginTop: 16, flexWrap: "wrap" }}>
             <Button variant="primary" leadingIcon={<Plus size={14} />} onClick={novaRequisicao}>
               Nova requisição
             </Button>
+            <Button variant="secondary" leadingIcon={<Printer size={14} />} onClick={() => void imprimirRegistrada(confirmedRequisition.id)}>
+              Imprimir
+            </Button>
+            {podeGerarPedido && (
+              <Button variant="secondary" leadingIcon={<ShoppingCart size={14} />} onClick={() => abrirPedido(confirmedRequisition.id)}>
+                Gerar pedido de compra
+              </Button>
+            )}
             <Button variant="secondary" leadingIcon={<ClipboardList size={14} />} onClick={() => { setView("list"); setConfirmedRequisition(null); }}>
               Ver histórico
             </Button>
@@ -208,9 +226,8 @@ export function Requisitions({ user }: { user: AppUser }) {
         <div className="form-section">
           <div className="section-heading compact-heading" style={{ marginBottom: 12 }}>
             <div style={{ flex: 1 }}>
-              <PanelEyebrow>Estoque</PanelEyebrow>
-              <h3>Histórico de requisições</h3>
-              <span className="muted">Retiradas de insumos registradas do estoque.</span>
+              <h3 style={{ margin: 0 }}>Histórico de requisições</h3>
+              <span className="muted">Retiradas registradas, com impressão e pedido de compra.</span>
             </div>
             <Button variant="primary" leadingIcon={<Plus size={14} />} onClick={() => setView("form")}>
               Nova requisição
@@ -231,9 +248,9 @@ export function Requisitions({ user }: { user: AppUser }) {
                     <Table.Th>Código</Table.Th>
                     <Table.Th>Data</Table.Th>
                     <Table.Th>Turno</Table.Th>
-                    <Table.Th>Setor</Table.Th>
                     <Table.Th>Motivo</Table.Th>
                     <Table.Th align="right">Itens</Table.Th>
+                    <Table.Th>Pedido de compra</Table.Th>
                     <Table.Th>Registrado por</Table.Th>
                     <Table.Th actions>Ações</Table.Th>
                   </Table.Row>
@@ -241,21 +258,23 @@ export function Requisitions({ user }: { user: AppUser }) {
                 <Table.Body>
                   {requisitions.map((req) => (
                     <Table.Row key={req.id}>
-                      <Table.Td><strong>{req.code}</strong></Table.Td>
+                      <Table.Td style={{ whiteSpace: "nowrap" }}><strong>{req.code}</strong></Table.Td>
                       <Table.Td style={{ whiteSpace: "nowrap" }}>{formatDate(req.date)}</Table.Td>
                       <Table.Td>
                         <StatusBadge tone={shiftTone(req.shift)}>
                           {shiftLabels[req.shift] ?? req.shift}
                         </StatusBadge>
                       </Table.Td>
-                      <Table.Td>{req.sectorName ?? "—"}</Table.Td>
                       <Table.Td truncate style={{ maxWidth: 160 }} title={reasonLabels[req.reason] ?? req.reason}>
                         {reasonLabels[req.reason] ?? req.reason}
                       </Table.Td>
                       <Table.Td align="right">{req.itemCount ?? "—"}</Table.Td>
+                      <Table.Td style={{ whiteSpace: "nowrap" }} title={req.purchaseOrderCodes ?? undefined}>{req.purchaseOrderCodes ? <StatusBadge tone="success">{resumoDosPedidos(req.purchaseOrderCodes)}</StatusBadge> : <span className="muted">—</span>}</Table.Td>
                       <Table.Td truncate style={{ maxWidth: 140 }} title={req.requestedByName ?? undefined}>{req.requestedByName ?? "—"}</Table.Td>
                       <Table.Td actions>
                         <IconButton icon={<Eye size={16} />} label="Ver requisição" onClick={() => setDetailId(req.id)} />
+                        <IconButton icon={<Printer size={16} />} label="Imprimir requisição" onClick={() => void imprimirRegistrada(req.id)} />
+                        {podeGerarPedido && <IconButton icon={<ShoppingCart size={16} />} label={req.purchaseOrderCodes ? "Ver ou gerar outro pedido de compra" : "Gerar pedido de compra"} onClick={() => abrirPedido(req.id)} />}
                         <IconButton icon={<Copy size={16} />} label="Duplicar requisição" onClick={() => void duplicateRequisition(req.id)} />
                       </Table.Td>
                     </Table.Row>
@@ -293,6 +312,10 @@ export function Requisitions({ user }: { user: AppUser }) {
                     <span>Itens</span>
                     <strong>{req.itemCount ?? "—"}</strong>
                   </div>
+                  <div className="mobile-card-row">
+                    <span>Pedido de compra</span>
+                    <strong>{req.purchaseOrderCodes ?? "—"}</strong>
+                  </div>
                   {req.requestedByName && (
                     <div className="mobile-card-row">
                       <span>Por</span>
@@ -304,6 +327,14 @@ export function Requisitions({ user }: { user: AppUser }) {
                   <Button variant="secondary" leadingIcon={<Eye size={13} />} onClick={() => setDetailId(req.id)}>
                     Ver
                   </Button>
+                  <Button variant="secondary" leadingIcon={<Printer size={13} />} onClick={() => void imprimirRegistrada(req.id)}>
+                    Imprimir
+                  </Button>
+                  {podeGerarPedido && (
+                    <Button variant="secondary" leadingIcon={<ShoppingCart size={13} />} onClick={() => abrirPedido(req.id)}>
+                      Pedido
+                    </Button>
+                  )}
                   <Button variant="secondary" leadingIcon={<Copy size={13} />} onClick={() => void duplicateRequisition(req.id)}>
                     Duplicar
                   </Button>
@@ -328,6 +359,14 @@ export function Requisitions({ user }: { user: AppUser }) {
               <button type="button" onClick={() => setDetailId(null)} aria-label="Fechar"><X size={18} /></button>
             </div>
             <div className="modal-body">
+              {detail && !loadingDetail && (
+                <div className="req-detalhe-acoes">
+                  <Button variant="secondary" leadingIcon={<Printer size={14} />} onClick={() => void imprimirRegistrada(detail.id)}>Imprimir</Button>
+                  {podeGerarPedido && (
+                    <Button variant="secondary" leadingIcon={<ShoppingCart size={14} />} onClick={() => { setDetailId(null); abrirPedido(detail.id); }}>Gerar pedido de compra</Button>
+                  )}
+                </div>
+              )}
               {loadingDetail && <p className="muted">Carregando...</p>}
               {detail && !loadingDetail && (
                 <>
@@ -380,6 +419,7 @@ export function Requisitions({ user }: { user: AppUser }) {
           </div>
         </div>
       )}
+      {portal}
     </div>
   );
 }

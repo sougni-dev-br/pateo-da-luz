@@ -14,6 +14,17 @@ export type PurchaseOrderItemEntry = {
   totalEstimated: number | null;
 };
 
+/** Sem acento de propósito: as fontes padrão do PDF não cobrem todo o português. */
+const STATUS_POR_EXTENSO: Record<string, string> = {
+  RASCUNHO: "Rascunho",
+  EM_REVISAO: "Em revisao",
+  APROVADO: "Aprovado",
+  ENVIADO: "Enviado",
+  RECEBIDO_PARCIAL: "Recebido parcialmente",
+  RECEBIDO: "Recebido",
+  CANCELADO: "Cancelado"
+};
+
 export type PurchaseOrderPdfData = {
   code: string;
   status: string;
@@ -316,7 +327,7 @@ export function createPurchaseOrderPdf(data: PurchaseOrderPdfData): Buffer {
 
   // Linha 2: Status + Data criacao + Prevista entrega
   cv.txt("Status:", MX, y, 8, F_BOLD, C_MUTED);
-  cv.txt(data.status, MX + 62, y, 9, F_REG, C_INK);
+  cv.txt(STATUS_POR_EXTENSO[data.status] ?? data.status, MX + 62, y, 9, F_REG, C_INK);
   cv.txt("Criado em:", MX + 200, y, 8, F_BOLD, C_MUTED);
   cv.txt(fmtDate(data.createdAt), MX + 258, y, 9, F_REG, C_INK);
   if (data.expectedDeliveryDate) {

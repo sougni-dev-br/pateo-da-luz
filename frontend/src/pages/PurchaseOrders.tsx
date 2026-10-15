@@ -15,6 +15,7 @@ import {
   updatePurchaseOrder
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
+import { EnvioDoPedido } from "../components/EnvioDoPedido";
 import {
   Button,
   EmptyState,
@@ -58,6 +59,7 @@ function toInputDate(value?: string | null) {
 const sourceLabels: Record<string, string> = {
   PRE_LISTA_COMPRADOR: "Pre-lista",
   PLANEJAMENTO_COMPRA: "Planejamento de compra",
+  REQUISICAO: "Requisição de insumos",
   MANUAL: "Manual"
 };
 
@@ -368,6 +370,8 @@ export function PurchaseOrders({ user }: { user: AppUser }) {
               ))}
             </Table.Body>
           </Table>
+
+          <EnvioDoPedido order={selected} orderId={selected.id} canApprove={canApprove} canSend={canOperate} acoesDeStatus={false} onAtualizado={(pedido) => { setSelected(pedido); void load(); }} />
 
           <div className="action-row end">
             {selected.status === "RASCUNHO" && canOperate && <Button variant="secondary" onClick={saveDraft}>Salvar rascunho</Button>}

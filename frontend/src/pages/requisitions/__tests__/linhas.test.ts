@@ -66,19 +66,21 @@ describe("rascunho", () => {
   const cabecalho = { date: "2026-10-15", shift: "MORNING", reason: "DAILY_PRODUCTION", reasonNotes: "", sectorId: "", notes: "" };
 
   test("salva e recupera por usuário", () => {
-    salvarRascunho("u1", { cabecalho, linhas: [linha()], deFora: [] });
-    expect(lerRascunho("u1")?.linhas).toHaveLength(1);
+    salvarRascunho("u1", { cabecalho, escolhas: { p1: { unit: "KG", quantity: "2" } } });
+    expect(lerRascunho("u1")?.escolhas).toEqual({ p1: { unit: "KG", quantity: "2" } });
     expect(lerRascunho("u2")).toBeNull();
   });
 
-  test("sem linhas não deixa rascunho", () => {
-    salvarRascunho("u1", { cabecalho, linhas: [linha()], deFora: [] });
-    salvarRascunho("u1", { cabecalho, linhas: [], deFora: [] });
+  test("sem escolhas não deixa rascunho", () => {
+    salvarRascunho("u1", { cabecalho, escolhas: { p1: { unit: "KG", quantity: "2" } } });
+    salvarRascunho("u1", { cabecalho, escolhas: {} });
     expect(lerRascunho("u1")).toBeNull();
   });
 
-  test("descarta dado corrompido sem quebrar", () => {
-    localStorage.setItem("pateo:requisicao-rascunho:v1:u1", "{lixo");
+  test("ignora escolha sem quantidade e dado corrompido", () => {
+    salvarRascunho("u1", { cabecalho, escolhas: { p1: { unit: "KG", quantity: "" }, p2: { unit: "UN", quantity: "3" } } });
+    expect(Object.keys(lerRascunho("u1")?.escolhas ?? {})).toEqual(["p2"]);
+    localStorage.setItem("pateo:requisicao-rascunho:v2:u1", "{lixo");
     expect(lerRascunho("u1")).toBeNull();
     apagarRascunho("u1");
   });
