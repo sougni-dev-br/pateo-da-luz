@@ -1511,6 +1511,25 @@ export type CreateRequisitionPayload = {
   items: Array<{ productId: string; quantity: number; unit: string }>;
 };
 
+export type RequisitionProductHit = {
+  id: string;
+  name: string;
+  code: string | null;
+  /** Unidade do estoque do item: nela o saldo é guardado e a retirada é baixada. */
+  unit: string | null;
+  /** g, kg, ml, l, embalagem do nome e o que estiver cadastrado: convertem para `unit` no servidor. */
+  conversions: DishUnitConversion[];
+  embalagemInferida: string | null;
+};
+
+export function searchRequisitionProducts(search: string) {
+  return request<RequisitionProductHit[]>(`/inventory/requisitions/products${toQueryString({ search })}`);
+}
+
+export function getRequisitionProductsByIds(ids: string[]) {
+  return request<RequisitionProductHit[]>(`/inventory/requisitions/products${toQueryString({ ids: ids.join(",") })}`);
+}
+
 export function getRequisitions(filters?: { startDate?: string; endDate?: string; sectorId?: string; shift?: string; clientRequestId?: string }) {
   return request<InventoryRequisition[]>(`/inventory/requisitions${toQueryString(filters)}`, undefined, 30_000);
 }

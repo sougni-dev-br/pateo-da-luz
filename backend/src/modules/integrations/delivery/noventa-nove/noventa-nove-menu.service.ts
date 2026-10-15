@@ -33,6 +33,8 @@ export type MenuImportStoreResult = {
   pratosCriados: number;
   listagensCriadas: number;
   listagensAtualizadas: number;
+  /** Listagens que a 99 deixou de devolver e foram pausadas (saíram do cardápio da loja). */
+  listagensPausadas?: number;
   message: string;
 };
 
@@ -125,11 +127,19 @@ export async function importarCardapios(): Promise<MenuImportResult> {
 
   // Listagens existentes deste canal, indexadas por (loja, item).
   const listagensPorChave = new Map<string, { id: string; dishId: string }>();
+  // Listagens identificadas só pelo nome (de quando a 99 ainda não devolvia código nos itens), por (loja, nome normalizado):
+  // quando o item passa a vir com código, a listagem antiga é reaproveitada e ganha a chave nova, em vez de duplicar.
+  const listagensAntigasPorNome = new Map<string, { id: string; dishId: string; externalItemId: string }>();
   for (const l of await prisma.dishListing.findMany({
     where: { channel: CANAL_99 },
-    select: { id: true, dishId: true, deliveryStoreId: true, externalItemId: true }
+    select: { id: true, dishId: true, deliveryStoreId: true, externalItemId: true, externalName: true }
   })) {
     listagensPorChave.set(`${l.deliveryStoreId ?? ""}::${l.externalItemId}`, { id: l.id, dishId: l.dishId });
+    if (l.externalItemId.startsWith("nome:")) {
+      const registro = { id: l.id, dishId: l.dishId, externalItemId: l.externalItemId };
+      listagensAntigasPorNome.set(`${l.deliveryStoreId ?? ""}::${chaveDoPrato(l.externalName)}`, registro);
+      listagensAntigasPorNome.set(`${l.deliveryStoreId ?? ""}::${l.externalItemId.slice("nome:".length)}`, registro);
+    }
   }
 
   for (const loja of lojas) {
@@ -225,7 +235,18 @@ export async function importarCardapios(): Promise<MenuImportResult> {
       // Listagem que já existe para esta loja e este item continua no prato em que está: o prato pode ter sido unido a
       // outro ou renomeado no ERP (o nome na 99 não precisa ser igual), e procurar de novo pelo nome da 99 criaria um prato
       // duplicado e levaria a listagem para ele, desfazendo a união.
-      const existente = listagensPorChave.get(`${loja.id}::${externalItemId}`);
+      let existente = listagensPorChave.get(`${loja.id}::${externalItemId}`);
+      let chaveAnterior: string | null = null;
+      if (!existente && !externalItemId.startsWith("nome:")) {
+        const antiga = listagensAntigasPorNome.get(`${loja.id}::${chave}`);
+        if (antiga) {
+          existente = { id: antiga.id, dishId: antiga.dishId };
+          chaveAnterior = antiga.externalItemId;
+          // Cada listagem antiga serve a um item só.
+          listagensAntigasPorNome.delete(`${loja.id}::${chave}`);
+          listagensAntigasPorNome.delete(`${loja.id}::${antiga.externalItemId.slice("nome:".length)}`);
+        }
+      }
       let dish: { id: string } | undefined = existente ? { id: existente.dishId } : pratosPorChave.get(chave);
       if (!dish) {
         const criado = await prisma.dish.create({
@@ -259,7 +280,8 @@ export async function importarCardapios(): Promise<MenuImportResult> {
       };
 
       if (existente) {
-        await prisma.dishListing.update({ where: { id: existente.id }, data: dados });
+        await prisma.dishListing.update({ where: { id: existente.id }, data: chaveAnterior ? { ...dados, externalItemId } : dados });
+        if (chaveAnterior) listagensPorChave.set(`${loja.id}::${externalItemId}`, existente);
         listagensAtualizadas += 1;
       } else {
         const nova = await prisma.dishListing.create({
@@ -271,6 +293,29 @@ export async function importarCardapios(): Promise<MenuImportResult> {
       }
     }
 
+    // O que a 99 não devolveu nesta leitura saiu do cardápio da loja: a listagem fica pausada (e volta sozinha se o item voltar),
+    // em vez de seguir ativa com o preço da última vez. Se a leitura veio muito menor que o cardápio conhecido, pode ser
+    // resposta parcial da 99 — nesse caso nada é pausado.
+    let listagensPausadas = 0;
+    let avisoDePausa = "";
+    if (itens.length > 0) {
+      const ativas = await prisma.dishListing.count({
+        where: { channel: CANAL_99, deliveryStoreId: loja.id, isActive: true, externalItemId: { not: { startsWith: "manual:" } } }
+      });
+      if (itens.length * 2 < ativas) {
+        avisoDePausa = ` Leitura muito menor que o cardapio conhecido (${itens.length} de ${ativas}): nada foi pausado.`;
+      } else {
+        const pausadas = await prisma.dishListing.updateMany({
+          where: {
+            channel: CANAL_99, deliveryStoreId: loja.id, isActive: true,
+            externalItemId: { not: { startsWith: "manual:" } }, lastSeenAt: { lt: agora }
+          },
+          data: { isActive: false }
+        });
+        listagensPausadas = pausadas.count;
+      }
+    }
+
     perStore.push({
       storeId: loja.id,
       storeLabel: loja.nickname,
@@ -279,8 +324,9 @@ export async function importarCardapios(): Promise<MenuImportResult> {
       pratosCriados,
       listagensCriadas,
       listagensAtualizadas,
+      listagensPausadas,
       message: `${itens.length} itens no cardapio. ${pratosCriados} prato(s) novo(s), ` +
-        `${listagensCriadas} listagem(ns) criada(s), ${listagensAtualizadas} atualizada(s).`
+        `${listagensCriadas} listagem(ns) criada(s), ${listagensAtualizadas} atualizada(s), ${listagensPausadas} pausada(s).${avisoDePausa}`
     });
   }
 

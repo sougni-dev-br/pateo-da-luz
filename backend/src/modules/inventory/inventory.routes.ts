@@ -12,6 +12,8 @@ import { parseDecimalInput } from "../../shared/utils/parse-decimal.js";
 import { converterItemDeCompra, normalizarUnidade, type UnitConversion } from "../../shared/unidades/conversao.js";
 import { proporConversoes } from "../../shared/unidades/conversao-automatica.js";
 import { sqlCompraNaUnidadeDeContagem } from "../../shared/unidades/compra-na-contagem.sql.js";
+import { SELECT_DE_UNIDADES, conversoesDoInsumo, textoDaEmbalagem, unidadeDoInsumo } from "../../shared/unidades/insumo.js";
+import { converterQuantidade } from "../waste/waste.js";
 import { cancelamentoDeveCancelarBase, podeReaproveitarBase, reaberturaDeveSoltarBase } from "./base-oficial.js";
 import { mensagemDeTipoMigrado } from "./tipos-de-movimento.js";
 import { classificarItemDaConferencia, ordenarConferencia, resumirConferencia } from "./conferencia.js";
@@ -6088,6 +6090,45 @@ inventoryRouter.get("/requisitions", async (request, response) => {
   response.json(rows.map((row) => ({ ...row, itemCount: Number(row.itemCount) })));
 });
 
+// Busca de produto da requisicao: devolve a unidade do estoque e as conversoes (g, kg, ml, l, embalagem
+// lida do nome) para a tela oferecer so as unidades que o servidor sabe converter.
+inventoryRouter.get("/requisitions/products", async (request, response) => {
+  const user = await requireMenuPermission(request, response);
+  if (!user) return;
+
+  // `ids` serve a duplicar uma requisicao: traz as unidades dos produtos dela de uma vez.
+  const ids = String(request.query.ids ?? "").split(",").map((id) => id.trim()).filter(Boolean).slice(0, 200);
+  const search = String(request.query.search ?? "").trim().slice(0, 80);
+  if (ids.length === 0 && search.length < 1) {
+    response.json([]);
+    return;
+  }
+
+  const produtos = await prisma.product.findMany({
+    where: ids.length > 0
+      ? { id: { in: ids }, isActive: true }
+      : {
+          isActive: true,
+          controlsStock: { not: false },
+          OR: [{ name: { contains: search, mode: "insensitive" } }, { externalCode: { contains: search, mode: "insensitive" } }]
+        },
+    select: { id: true, externalCode: true, ...SELECT_DE_UNIDADES },
+    orderBy: { name: "asc" },
+    take: ids.length > 0 ? 200 : 30
+  });
+  response.json(produtos.map((p) => {
+    const conversoes = conversoesDoInsumo(p);
+    return {
+      id: p.id,
+      name: p.name,
+      code: p.externalCode,
+      unit: unidadeDoInsumo(p),
+      conversions: conversoes,
+      embalagemInferida: textoDaEmbalagem(p, conversoes)
+    };
+  }));
+});
+
 inventoryRouter.get("/requisitions/:id", async (request, response) => {
   const user = await requireMenuPermission(request, response);
   if (!user) return;
@@ -6186,12 +6227,10 @@ inventoryRouter.post("/requisitions", async (request, response) => {
 
   // Busca produtos e saldos em paralelo
   const [products, stocks] = await Promise.all([
-    prisma.$queryRaw<Array<{ id: string; name: string; externalCode: string | null; controlsStock: boolean; stockUnit: string | null; unit: string | null }>>`
-      SELECT "id", "name", "externalCode", "controlsStock", "stockUnit", "unit"
-      FROM "Product"
-      WHERE "id" = ANY(${productIds}::text[])
-        AND "isActive" = true
-    `,
+    prisma.product.findMany({
+      where: { id: { in: productIds }, isActive: true },
+      select: { id: true, externalCode: true, ...SELECT_DE_UNIDADES }
+    }),
     prisma.$queryRaw<Array<{ productId: string; currentQuantity: Prisma.Decimal }>>`
       SELECT "productId", "currentQuantity"
       FROM "InventoryStock"
@@ -6208,19 +6247,47 @@ inventoryRouter.post("/requisitions", async (request, response) => {
 
   const stockMap = new Map(stocks.map((s) => [s.productId, Number(s.currentQuantity)]));
 
-  // Valida saldo negativo — tudo ou nada
-  const insufficient = parsedItems
+  // O que se digita (500 G) vira a unidade do estoque do item (0,5 KG) com a mesma regra da ficha
+  // tecnica e do desperdicio. Antes a quantidade digitada era baixada como estava, na unidade que
+  // o estoque usa: "500 G" saia como 500 KG e a requisicao era recusada por saldo.
+  type ConvertedItem = ParsedItem & { stockQuantity: number; stockUnit: string | null; typedQuantity: number; typedUnit: string | null };
+  const conversionErrors: Array<{ productId: string; productName: string; message: string }> = [];
+  const convertedItems: ConvertedItem[] = [];
+  for (const item of parsedItems) {
+    const product = productMap.get(item.productId)!;
+    const stockUnit = unidadeDoInsumo(product);
+    // Produto sem unidade cadastrada nao tem em que converter: a quantidade vale como veio.
+    const conversion = normalizarUnidade(stockUnit)
+      ? converterQuantidade(item.quantity, item.unit, stockUnit, conversoesDoInsumo(product))
+      : { ok: true as const, quantidade: item.quantity };
+    if (!conversion.ok) {
+      conversionErrors.push({ productId: item.productId, productName: product.name, message: conversion.erro });
+      continue;
+    }
+    convertedItems.push({ ...item, stockQuantity: conversion.quantidade, stockUnit, typedQuantity: item.quantity, typedUnit: item.unit });
+  }
+  if (conversionErrors.length > 0) {
+    response.status(400).json({
+      message: `Nao foi possivel converter a unidade de: ${conversionErrors.map((e) => e.productName).join(", ")}.`,
+      conversionErrors
+    });
+    return;
+  }
+
+  // Valida saldo negativo — tudo ou nada, mas dizendo QUAIS itens faltam e quanto.
+  const insufficient = convertedItems
     .map((item) => ({
-      productId: item.productId as string,
-      productName: productMap.get(item.productId as string)?.name ?? item.productId,
-      requested: item.quantity,
-      available: stockMap.get(item.productId as string) ?? 0
+      productId: item.productId,
+      productName: productMap.get(item.productId)?.name ?? item.productId,
+      requested: item.stockQuantity,
+      available: stockMap.get(item.productId) ?? 0,
+      unit: item.stockUnit
     }))
     .filter((item) => item.available - item.requested < 0);
 
   if (insufficient.length > 0) {
     response.status(400).json({
-      message: "Saldo insuficiente para um ou mais produtos.",
+      message: `Saldo insuficiente em ${insufficient.length} ${insufficient.length === 1 ? "produto" : "produtos"}: ${insufficient.map((i) => i.productName).join(", ")}.`,
       products: insufficient
     });
     return;
@@ -6253,11 +6320,13 @@ inventoryRouter.post("/requisitions", async (request, response) => {
     )
   `;
 
-  for (const item of parsedItems) {
+  for (const item of convertedItems) {
     const product = productMap.get(item.productId as string)!;
-    const unit = item.unit ?? product.stockUnit ?? product.unit;
+    const unit = item.stockUnit;
+    const quantity = item.stockQuantity;
+    const typedNote = normalizarUnidade(item.typedUnit) && normalizarUnidade(item.typedUnit) !== normalizarUnidade(unit) ? ` (digitado: ${item.typedQuantity} ${normalizarUnidade(item.typedUnit)})` : "";
     const stockBefore = stockMap.get(item.productId as string) ?? 0;
-    const stockAfter = stockBefore - item.quantity;
+    const stockAfter = stockBefore - quantity;
     const movementId = crypto.randomUUID();
     const requisitionItemId = crypto.randomUUID();
 
@@ -6267,15 +6336,15 @@ inventoryRouter.post("/requisitions", async (request, response) => {
         "sourceRequisitionId", "notes"
       )
       VALUES (
-        ${movementId}, ${item.productId}, 'INTERNAL_CONSUMPTION', ${-item.quantity},
+        ${movementId}, ${item.productId}, 'INTERNAL_CONSUMPTION', ${-quantity},
         ${unit}, ${user.id}, ${requisitionId},
-        ${`Requisicao ${code}${notes ? ` — ${notes}` : ""}`}
+        ${`Requisicao ${code}${typedNote}${notes ? ` — ${notes}` : ""}`}
       )
     `;
 
     await upsertStock({
       productId: item.productId as string,
-      quantityDelta: -item.quantity,
+      quantityDelta: -quantity,
       unit,
       unitMeasureId: null,
       unitCost: null,
@@ -6290,7 +6359,7 @@ inventoryRouter.post("/requisitions", async (request, response) => {
       VALUES (
         ${requisitionItemId}, ${requisitionId}, ${item.productId},
         ${product.name}, ${product.externalCode},
-        ${unit}, ${item.quantity}, ${movementId}, ${stockBefore}, ${stockAfter},
+        ${unit}, ${quantity}, ${movementId}, ${stockBefore}, ${stockAfter},
         CURRENT_TIMESTAMP
       )
     `;
