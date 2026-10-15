@@ -11,7 +11,7 @@ import { resolvePagination } from "../../shared/pagination.js";
 import { productSchema, productStatusSchema } from "./product.schemas.js";
 import { auditLog, requestIp, requireRole } from "../security/security-utils.js";
 import { beverageSectorName, normalizeInventorySectorInput } from "../master-data/inventory-sector-utils.js";
-import { detectarEmbalagem } from "../../shared/unidades/conversao.js";
+import { detectarEmbalagem, normalizarUnidade } from "../../shared/unidades/conversao.js";
 import { sqlCompraNaUnidadeDeContagem } from "../../shared/unidades/compra-na-contagem.sql.js";
 import { conversoesASairem, prepararConversoesEnviadas, type ConversaoCanonica, type ConversaoEnviada, type ConversaoGravada } from "./product-conversoes.js";
 
@@ -890,7 +890,7 @@ productRouter.put("/:id", async (request, response) => {
 
   const [previous] = await prisma.$queryRaw<Array<Record<string, unknown>>>`
     SELECT
-      "id", "inventorySectorId", "categoryId", "subcategoryId", "unit", "accountType", "controlsStock",
+      "id", "inventorySectorId", "categoryId", "subcategoryId", "unit", "stockUnit", "accountType", "controlsStock",
       "externalCode", "estoqueMinimo", "estoqueIdeal", "leadTimeCompraDias", "fornecedorPrincipalId",
       "storageLocation", "storageCorridor", "storageShelf", "storagePosition", "storageNotes"
     FROM "Product"
@@ -921,6 +921,32 @@ productRouter.put("/:id", async (request, response) => {
   }
   const persistedExternalCode = previous.externalCode ? String(previous.externalCode) : await ensureUniqueProductCode();
   const unitMeasure = await unitCodeFromId(body.unitMeasureId);
+
+  // Saldo, custo medio, contagens e compras convertidas estao na unidade de contagem
+  // atual. Trocar a unidade nao converte nada disso: 10 CX viram "10 UN" e o custo
+  // da caixa vira custo da unidade. So passa com confirmacao explicita.
+  const contagemAntes = normalizarUnidade(previous.stockUnit ?? previous.unit);
+  const contagemDepois = normalizarUnidade(normalizeUnit(body.stockUnit ?? body.baseUnit) ?? unitMeasure?.code ?? null);
+  const trocouContagem = Boolean(contagemAntes) && contagemAntes !== contagemDepois;
+  if (trocouContagem) {
+    const [uso] = await prisma.$queryRaw<Array<{ compras: bigint; contagens: bigint; saldo: Prisma.Decimal | null }>>`
+      SELECT
+        (SELECT COUNT(*) FROM "PurchaseItem" WHERE "productId" = ${request.params.id}) AS compras,
+        (SELECT COUNT(*) FROM "OperationalInventoryItem" WHERE "productId" = ${request.params.id} AND "countedQuantity" IS NOT NULL) AS contagens,
+        (SELECT "currentQuantity" FROM "InventoryStock" WHERE "productId" = ${request.params.id}) AS saldo
+    `;
+    const temHistorico = Number(uso?.compras ?? 0) > 0 || Number(uso?.contagens ?? 0) > 0 || Number(uso?.saldo ?? 0) !== 0;
+    if (temHistorico && body.confirmarTrocaDaUnidadeDeContagem !== true) {
+      response.status(409).json({
+        code: "TROCA_DA_UNIDADE_DE_CONTAGEM",
+        message:
+          `Este produto é contado em ${contagemAntes} e já tem ${Number(uso?.compras ?? 0)} compra(s) e ${Number(uso?.contagens ?? 0)} contagem(ns) nessa unidade. ` +
+          `Trocar para ${contagemDepois || "(vazio)"} não converte saldo, custo médio nem contagens anteriores. ` +
+          `Confirme só se a unidade estava errada desde o início.`
+      });
+      return;
+    }
+  }
 
   const product = await prisma.product.update({
     where: { id: request.params.id },

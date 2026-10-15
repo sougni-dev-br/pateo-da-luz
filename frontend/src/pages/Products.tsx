@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   addProductAlias,
+  ApiError,
   bulkPatchProductDreCategory,
   Category,
   DRECategory,
@@ -509,12 +510,22 @@ export function Products() {
     const subcategory = subcategories.find((item) => item.id === form.subcategoryId);
 
     try {
-      const saved = await saveProduct({
+      const payload = {
         ...form,
         unitConversionsCarregadas: form.id ? conversoesCarregadas : [],
         categoryName: category?.name,
         subcategoryName: subcategory?.name
-      });
+      };
+      let saved;
+      try {
+        saved = await saveProduct(payload);
+      } catch (erro) {
+        // Trocar a unidade de contagem de produto com historico nao converte saldo,
+        // custo nem contagens: o backend pede confirmacao explicita.
+        if (!(erro instanceof ApiError && erro.status === 409 && erro.body?.code === "TROCA_DA_UNIDADE_DE_CONTAGEM")) throw erro;
+        if (!window.confirm(erro.message)) return;
+        saved = await saveProduct({ ...payload, confirmarTrocaDaUnidadeDeContagem: true });
+      }
 
       // O apelido e gravado depois do produto. Se ele conflitar com outro
       // produto, o cadastro ja foi salvo — dizer "erro ao salvar" mandaria o
@@ -904,21 +915,10 @@ export function Products() {
                     {units.map((unit) => <option key={unit.id} value={unit.code}>{unit.code} - {unit.name}</option>)}
                   </select>
                 </label>
-                <label>
-                  Unidade base futura
-                  <select value={form.baseUnit} onChange={(event) => setForm({ ...form, baseUnit: event.target.value })}>
-                    <option value="">Selecione</option>
-                    {units.map((unit) => <option key={unit.id} value={unit.code}>{unit.code} - {unit.name}</option>)}
-                  </select>
-                </label>
-                <label>
-                  Fator de conversao
-                  <input value={form.conversionFactor} onChange={(event) => setForm({ ...form, conversionFactor: event.target.value })} />
-                </label>
-                <label>
-                  Peso medio
-                  <input value={form.packageWeight} onChange={(event) => setForm({ ...form, packageWeight: event.target.value })} />
-                </label>
+                {/* "Unidade base futura", "Fator de conversao" e "Peso medio" sairam da tela:
+                    eram gravados e nenhum calculo os lia, entao quem preenchia achava que tinha
+                    configurado a conversao. A conversao que vale e a de "Embalagens de compra".
+                    Os valores antigos continuam no cadastro (o formulario os devolve intactos). */}
               </div>
               <div className="subsection compact-note">
                 <h3>Embalagens de compra</h3>

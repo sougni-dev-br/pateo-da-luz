@@ -9,7 +9,7 @@ import { cancelarSnapshotEmCascata, carregarSnapshotCancelavel, cloneFinalAsNext
 import { auditLog, requestIp, requireMenuPermission, type SessionUser } from "../security/security-utils.js";
 import { userHasPermission } from "../security/menu-permissions.js";
 import { parseDecimalInput } from "../../shared/utils/parse-decimal.js";
-import { converterItemDeCompra } from "../../shared/unidades/conversao.js";
+import { converterItemDeCompra, normalizarUnidade } from "../../shared/unidades/conversao.js";
 import { sqlCompraNaUnidadeDeContagem } from "../../shared/unidades/compra-na-contagem.sql.js";
 import { cancelamentoDeveCancelarBase, podeReaproveitarBase, reaberturaDeveSoltarBase } from "./base-oficial.js";
 import { mensagemDeTipoMigrado } from "./tipos-de-movimento.js";
@@ -390,9 +390,10 @@ async function upsertStock(input: {
     input.quantityDelta > 0 && nextQuantity > 0
       ? (currentQuantity * currentAverageCost + incomingCost) / nextQuantity
       : currentAverageCost;
-  const costPerKg = input.unit?.toUpperCase() === "KG" ? nextAverageCost : null;
-  const costPerBox = ["CX", "CAIXA"].includes(input.unit?.toUpperCase() ?? "") ? nextAverageCost : null;
-  const costPerUnit = ["UN", "UNI", "UNIDADE"].includes(input.unit?.toUpperCase() ?? "") ? nextAverageCost : null;
+  const unidade = normalizarUnidade(input.unit);
+  const costPerKg = unidade === "KG" ? nextAverageCost : null;
+  const costPerBox = unidade === "CX" ? nextAverageCost : null;
+  const costPerUnit = unidade === "UN" ? nextAverageCost : null;
 
   await client.$executeRaw`
     INSERT INTO "InventoryStock" (
