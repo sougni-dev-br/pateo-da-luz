@@ -245,8 +245,11 @@ async function updateProductStorageFields(tx: TransactionClient, productId: stri
   await tx.$executeRaw`
     UPDATE "Product"
     SET
-      "stockUnit" = ${row.unit},
-      "purchaseUnit" = ${row.unit},
+      -- So preenche quando vazio: reimportar a planilha voltava a unidade de
+      -- contagem acertada no cadastro para a da planilha, e as compras seguintes
+      -- deixavam de converter (ou convertiam para a unidade errada).
+      "stockUnit" = COALESCE("stockUnit", ${row.unit}),
+      "purchaseUnit" = COALESCE("purchaseUnit", ${row.unit}),
       "storageLocation" = ${row.storageLocation},
       "storageCorridor" = ${row.storageCorridor},
       "storageShelf" = ${row.storageShelf},

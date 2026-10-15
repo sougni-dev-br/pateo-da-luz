@@ -212,7 +212,8 @@ describe("Análise: período e exportação", () => {
     await screen.findByRole("heading", { name: "Desperdício no período" });
     fireEvent.click(screen.getByRole("button", { name: "7 dias" }));
     await waitFor(() => {
-      const ultima = vi.mocked(getWasteAnalysis).mock.calls.at(-1)?.[0];
+      const chamadas = vi.mocked(getWasteAnalysis).mock.calls;
+      const ultima = chamadas[chamadas.length - 1]?.[0];
       expect(ultima && new Date(`${ultima.to}T00:00:00Z`).getTime() - new Date(`${ultima.from}T00:00:00Z`).getTime()).toBe(6 * 86_400_000);
     });
     expect(screen.getByRole("button", { name: "7 dias" })).toHaveAttribute("aria-pressed", "true");

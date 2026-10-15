@@ -18,6 +18,13 @@ describe("previaDaConversao", () => {
     expect(previaDaConversao(forminha, "CX", 1)).toEqual({ tipo: "sem_conversao", unidade: "UN" });
   });
 
+  test("massa e volume convertem sem cadastro, como no backend", () => {
+    const farinha = { unit: "KG", stockUnit: "KG", unitConversions: [] };
+    expect(previaDaConversao(farinha, "G", 500)).toEqual({ tipo: "converte", quantidade: 0.5, unidade: "KG", fator: 0.001 });
+    expect(previaDaConversao(farinha, "gr", 500)).toEqual({ tipo: "converte", quantidade: 0.5, unidade: "KG", fator: 0.001 });
+    expect(previaDaConversao({ stockUnit: "ML" }, "LT", 2)).toEqual({ tipo: "converte", quantidade: 2000, unidade: "ML", fator: 1000 });
+  });
+
   test("usa a conversao inversa", () => {
     const queijo = { unit: "KG", unitConversions: [{ fromUnit: "KG", toUnit: "PCT", factor: 4 }] };
     expect(previaDaConversao(queijo, "PCT", 2)).toEqual({ tipo: "converte", quantidade: 0.5, unidade: "KG", fator: 0.25 });

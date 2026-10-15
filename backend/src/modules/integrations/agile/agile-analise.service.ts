@@ -1,3 +1,4 @@
+import { carregarCustosDeReferencia, custoDaFichaPelaReferencia, type CustoDeReferencia } from "../../inventory/custo-de-referencia.js";
 import { ehRecebida, SITUACAO_CANCELADA, SITUACAO_RECEBIDA } from "./agile-situacao.js";
 import { montarCardapio, type LinhaAttach, type LinhaProduto } from "./agile-analise-cardapio.report.js";
 import { montarDemanda } from "./agile-analise-demanda.report.js";
@@ -471,6 +472,7 @@ export async function obterMargemBebidas(pedido: Periodo, hoje: string = hojeEmS
   const insumosTruncados = insumos.length > LIMITE_DE_INSUMOS;
 
   const bebidas = produtos.filter((p) => (CATEGORIAS_BEBIDA as readonly string[]).includes(p.categoria ?? ""));
+  const referencia = custoDaFichaPelaReferencia() ? await carregarCustosDeReferencia(ligacoes.map((l) => l.insumoId)) : new Map<string, CustoDeReferencia>();
   const vinculos: VinculoDeBebida[] = ligacoes.map((l) => {
     const quantidade = Number(l.quantity);
     const custo = custoDoVinculo(
@@ -478,7 +480,7 @@ export async function obterMargemBebidas(pedido: Periodo, hoje: string = hojeEmS
         name: l.insumo.name,
         unit: l.insumo.unit,
         stockUnit: l.insumo.stockUnit,
-        averageCost: l.insumo.inventoryStock?.averageCost == null ? null : Number(l.insumo.inventoryStock.averageCost),
+        averageCost: referencia.get(l.insumoId)?.valor ?? (l.insumo.inventoryStock?.averageCost == null ? null : Number(l.insumo.inventoryStock.averageCost)),
         conversions: l.insumo.conversions.map((c) => ({ fromUnit: c.fromUnit, toUnit: c.toUnit, factor: Number(c.factor) }))
       },
       quantidade,

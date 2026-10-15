@@ -16027,6 +16027,83 @@ td.count-list-divergent {
   outline-offset: 4px;
 }
 
+/* Cadastro de produto > Unidades > Embalagens de compra */
+.embalagens-frase {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin: 12px 0 8px;
+  font-size: 15px;
+}
+
+.embalagens-frase select,
+.embalagens-frase input {
+  width: auto;
+  min-width: 140px;
+}
+
+.embalagens-frase input {
+  width: 96px;
+  min-width: 0;
+}
+
+.embalagens-destino {
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: #eef4ea;
+}
+
+.embalagens-exemplo {
+  margin: 4px 0 12px;
+  font-weight: 600;
+}
+
+.embalagens-aviso {
+  margin: 4px 0 12px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--danger);
+  border-radius: 4px;
+  background: #fdf0ef;
+  color: var(--danger);
+  font-size: 13px;
+}
+
+.embalagens-lista {
+  display: grid;
+  gap: 6px;
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.embalagens-lista li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fffaf0;
+  font-size: 14px;
+}
+
+.embalagens-lista li.embalagem-invalida {
+  border-color: var(--danger);
+  background: #fdf0ef;
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.embalagens-lista button {
+  border: 0;
+  background: transparent;
+  color: #a12b2b;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
 /* ── Requisição de insumos: lista de itens em cartões, barra de ação fixa ─────────────── */
 .req-form { display: flex; flex-direction: column; gap: 14px; }
 .req-bloco {
