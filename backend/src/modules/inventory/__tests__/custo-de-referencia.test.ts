@@ -6,9 +6,21 @@ const SEM_CANDIDATOS: CandidatosDoCusto = { periodo: null, ultimaCompra: null, b
 const candidatos = (c: Partial<CandidatosDoCusto>): CandidatosDoCusto => ({ ...SEM_CANDIDATOS, ...c });
 
 describe("decidirCustoDeReferencia", () => {
-  it("caixa de guardanapo contada como 1 UN a R$ 490,72: as compras na unidade mandam", () => {
-    const r = decidirCustoDeReferencia({ controlsStock: true, averageCost: 490.72, candidatos: candidatos({ periodo: 8.18 }) });
+  it("compras na unidade de contagem mandam quando ficam perto do custo do estoque", () => {
+    const r = decidirCustoDeReferencia({ controlsStock: true, averageCost: 12, candidatos: candidatos({ periodo: 8.18 }) });
     expect(r).toMatchObject({ valor: 8.18, fonte: "COMPRAS_DO_PERIODO", revisar: null });
+  });
+
+  it("diferenca de dezenas de vezes (caixa contada como 1 UN a R$ 490,72) nao e aplicada sozinha: vai para revisao", () => {
+    const r = decidirCustoDeReferencia({ controlsStock: true, averageCost: 490.72, candidatos: candidatos({ periodo: 8.18 }) });
+    expect(r).toMatchObject({ valor: 490.72, fonte: "ESTOQUE" });
+    expect(r?.revisar).toMatch(/compras do período/);
+  });
+
+  it("ultima compra 34x acima do estoque (barril lancado como litro) tambem vai para revisao", () => {
+    const r = decidirCustoDeReferencia({ controlsStock: true, averageCost: 19.7, candidatos: candidatos({ ultimaCompra: { valor: 675.57, data: new Date("2026-09-01") } }) });
+    expect(r).toMatchObject({ valor: 19.7, fonte: "ESTOQUE" });
+    expect(r?.revisar).toMatch(/últimas compras/);
   });
 
   it("sem compra no periodo usa a ultima compra, depois a base", () => {
@@ -38,6 +50,7 @@ describe("decidirCustoDeReferencia", () => {
     const r = decidirCustoDeReferencia({ controlsStock: true, averageCost: 19.7, candidatos: candidatos({ base: { valor: 675.57, ano: 2026, mes: 8 } }) });
     expect(r).toMatchObject({ valor: 19.7, fonte: "ESTOQUE" });
     expect(r?.revisar).toMatch(/base oficial/);
+    expect(r?.revisar).toMatch(/34\.29x/);
   });
 
   it("base que difere menos de 3x vale", () => {

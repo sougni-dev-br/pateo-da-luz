@@ -21,8 +21,15 @@ export type CustoDeReferencia = {
   revisar: string | null;
 };
 
-/** Base oficial que difere do custo do estoque mais que isso nao e confiavel (custo de barril gravado como litro). */
-export const BASE_DIVERGENTE = { min: 1 / 3, max: 3 };
+/** Custo de referencia que difere do custo do estoque mais que isso nao e aplicado sozinho: vai para revisao. */
+export const DIVERGENCIA_MAXIMA = { min: 1 / 3, max: 3 };
+
+const ROTULO_DA_FONTE: Record<FonteDoCusto, string> = {
+  COMPRAS_DO_PERIODO: "compras do período",
+  ULTIMA_COMPRA: "últimas compras",
+  BASE_ANTERIOR: "base oficial",
+  INFORMADO: "informado"
+};
 
 const positivo = (n: number | null | undefined): n is number => typeof n === "number" && Number.isFinite(n) && n > 0;
 
@@ -40,10 +47,12 @@ export function decidirCustoDeReferencia(input: {
   const escolhido = escolherCusto({ ...input.candidatos, informado: null });
   if (!escolhido) return doEstoque(null);
 
-  if (escolhido.fonte === "BASE_ANTERIOR" && positivo(input.averageCost)) {
+  // Qualquer fonte que difira demais do custo do estoque pode estar com a unidade errada (barril lancado
+  // como litro) ou ser o estoque que esta errado: quem decide e o operador, entao o custo atual fica.
+  if (positivo(input.averageCost)) {
     const razao = escolhido.valor / input.averageCost;
-    if (razao > BASE_DIVERGENTE.max || razao < BASE_DIVERGENTE.min) {
-      return doEstoque(`A base oficial (${escolhido.valor.toFixed(2)}) difere do custo do estoque (${input.averageCost.toFixed(2)}): confira a unidade da base.`);
+    if (razao > DIVERGENCIA_MAXIMA.max || razao < DIVERGENCIA_MAXIMA.min) {
+      return doEstoque(`O custo pelas ${ROTULO_DA_FONTE[escolhido.fonte]} (${escolhido.valor.toFixed(2)}) difere de ${razao.toFixed(2)}x do custo do estoque (${input.averageCost.toFixed(2)}): confira a unidade da compra ou do estoque.`);
     }
   }
   return { valor: escolhido.valor, fonte: escolhido.fonte, detalhe: escolhido.detalhe, revisar: null };
