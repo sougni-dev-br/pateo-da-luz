@@ -16286,3 +16286,20 @@ td.count-list-divergent {
 /* Toques rápidos em + e −: sem o atraso e o zoom de toque duplo do celular */
 .rq button, .rq input, .rq select, .rq label, .rq summary { touch-action: manipulation; }
 .rq-meta .rq-status { flex: 0 1 auto; }
+
+/* Recomendação de fornecedor pelo menor preço (mesma leitura do planejamento de compra) */
+.rp-recomendados { flex: 1 1 100%; display: flex; flex-direction: column; gap: 4px; }
+.rp-recomendados-lista { display: flex; flex-wrap: wrap; gap: 8px; }
+.rp-recomendado {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px; min-height: 48px; padding: 6px 12px;
+  border: 1px solid var(--line-strong); border-radius: 12px; background: var(--paper); color: var(--ink); cursor: pointer; text-align: left;
+  max-width: 100%;
+}
+.rp-recomendado strong { font-size: 13px; overflow-wrap: anywhere; }
+.rp-recomendado span { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.rp-recomendado.is-ativo { border-color: var(--ink); background: var(--ink); }
+.rp-recomendado.is-ativo strong, .rp-recomendado.is-ativo span { color: var(--paper); }
+.rp-alerta {
+  display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; min-height: 40px; padding: 6px 12px; border: 1px solid rgba(138,101,15,0.4);
+  border-radius: 10px; background: rgba(138,101,15,0.1); color: var(--warning); font-size: 12.5px; font-weight: 600; cursor: pointer; text-align: left;
+}

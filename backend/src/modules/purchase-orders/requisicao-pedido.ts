@@ -6,15 +6,6 @@ export const QUANTIDADE_MAXIMA = 100_000;
 /** Preço por unidade acima disso é erro de digitação (e estouraria a coluna do total estimado). */
 export const PRECO_MAXIMO = 1_000_000;
 
-export type OpcaoDeFornecedor = {
-  supplierId: string;
-  supplierName: string;
-  /** Último preço pago por 1 unidade do estoque (convertido); null quando a compra não tinha conversão. */
-  lastUnitPrice: number | null;
-  lastPurchaseDate: Date;
-  purchaseCount: number;
-};
-
 export type LinhaDeCompra = {
   productId: string;
   supplierId: string | null;
@@ -22,17 +13,27 @@ export type LinhaDeCompra = {
   unitPrice: number | null;
 };
 
-/** Quem fornece o item por padrão: o fornecedor principal do cadastro; sem ele, o da última compra. */
-export function fornecedorPadrao(principalId: string | null, opcoes: OpcaoDeFornecedor[]): string | null {
-  if (principalId) return principalId;
-  const maisRecente = [...opcoes].sort((a, b) => b.lastPurchaseDate.getTime() - a.lastPurchaseDate.getTime())[0];
-  return maisRecente?.supplierId ?? null;
+/**
+ * Quem fornece o item por padrão, como no planejamento de compra: o fornecedor principal do cadastro; sem ele,
+ * o de menor preço histórico. O de menor preço aparece sempre como recomendação, para a pessoa trocar com um toque.
+ */
+export function fornecedorPadrao(principalId: string | null, menorPrecoId: string | null): string | null {
+  return principalId ?? menorPrecoId ?? null;
 }
 
-/** Preço da última compra daquele fornecedor, se houver. */
-export function precoDoFornecedor(opcoes: OpcaoDeFornecedor[], supplierId: string | null): number | null {
-  if (!supplierId) return null;
-  return opcoes.find((o) => o.supplierId === supplierId)?.lastUnitPrice ?? null;
+type LeituraDePreco = {
+  supplierPriceOptions: Array<{ supplierId: string; bestUnitPrice: number }>;
+  lastUnitPrice: number | null;
+  bestUnitPrice: number | null;
+};
+
+/** Preço de referência do fornecedor escolhido (o menor que ele já praticou); sem histórico dele, o último ou o menor geral. */
+export function precoParaFornecedor(leitura: LeituraDePreco, supplierId: string | null): number | null {
+  if (supplierId) {
+    const opcao = leitura.supplierPriceOptions.find((o) => o.supplierId === supplierId);
+    if (opcao) return opcao.bestUnitPrice;
+  }
+  return leitura.lastUnitPrice ?? leitura.bestUnitPrice ?? null;
 }
 
 /** A reposição sugerida é o que saiu: arredondada em 3 casas, que é a precisão do pedido. */

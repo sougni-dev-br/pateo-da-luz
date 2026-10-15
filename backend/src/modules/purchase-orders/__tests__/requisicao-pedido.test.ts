@@ -3,38 +3,37 @@ import {
   QUANTIDADE_MAXIMA,
   agruparPorFornecedor,
   fornecedorPadrao,
-  precoDoFornecedor,
+  precoParaFornecedor,
   quantidadeSugerida,
   totalEstimado,
-  validarItensDoPedido,
-  type OpcaoDeFornecedor
+  validarItensDoPedido
 } from "../requisicao-pedido.js";
 
-const opcao = (supplierId: string, dia: number, preco: number | null = 10): OpcaoDeFornecedor => ({
-  supplierId, supplierName: `Fornecedor ${supplierId}`, lastUnitPrice: preco, lastPurchaseDate: new Date(2026, 8, dia), purchaseCount: 1
-});
-
-describe("fornecedorPadrao", () => {
+describe("fornecedorPadrao (premissa do planejamento de compra)", () => {
   test("o fornecedor principal do cadastro vem primeiro", () => {
-    expect(fornecedorPadrao("principal", [opcao("outro", 20)])).toBe("principal");
+    expect(fornecedorPadrao("principal", "maisBarato")).toBe("principal");
   });
 
-  test("sem principal, vale o da compra mais recente", () => {
-    expect(fornecedorPadrao(null, [opcao("a", 3), opcao("b", 20), opcao("c", 9)])).toBe("b");
+  test("sem principal, vale o de menor preço histórico", () => {
+    expect(fornecedorPadrao(null, "maisBarato")).toBe("maisBarato");
   });
 
   test("sem principal e sem histórico, não chuta", () => {
-    expect(fornecedorPadrao(null, [])).toBeNull();
+    expect(fornecedorPadrao(null, null)).toBeNull();
   });
 });
 
 describe("preço e quantidade", () => {
-  test("preço do fornecedor escolhido; null quando não há histórico dele ou a compra não tinha conversão", () => {
-    const opcoes = [opcao("a", 1, 12.5), opcao("b", 2, null)];
-    expect(precoDoFornecedor(opcoes, "a")).toBe(12.5);
-    expect(precoDoFornecedor(opcoes, "b")).toBeNull();
-    expect(precoDoFornecedor(opcoes, "x")).toBeNull();
-    expect(precoDoFornecedor(opcoes, null)).toBeNull();
+  const leitura = { supplierPriceOptions: [{ supplierId: "a", bestUnitPrice: 8 }, { supplierId: "b", bestUnitPrice: 12 }], lastUnitPrice: 11, bestUnitPrice: 8 };
+
+  test("preço do fornecedor escolhido é o menor que ele já praticou", () => {
+    expect(precoParaFornecedor(leitura, "b")).toBe(12);
+  });
+
+  test("fornecedor sem histórico usa o último preço, e sem ele o menor geral", () => {
+    expect(precoParaFornecedor(leitura, "novo")).toBe(11);
+    expect(precoParaFornecedor({ ...leitura, lastUnitPrice: null }, null)).toBe(8);
+    expect(precoParaFornecedor({ supplierPriceOptions: [], lastUnitPrice: null, bestUnitPrice: null }, "x")).toBeNull();
   });
 
   test("a sugestão é o que saiu, em 3 casas", () => {

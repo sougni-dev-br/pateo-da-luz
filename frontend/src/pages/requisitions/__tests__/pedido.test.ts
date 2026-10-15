@@ -1,11 +1,40 @@
 import { describe, expect, test } from "vitest";
 import type { RequisitionPurchaseItem } from "../../../api/client";
-import { decisoesIniciais, itensParaEnviar, podeGerar, resumirPedido, situacaoDoItem } from "../pedido";
+import { decisoesIniciais, itensParaEnviar, podeGerar, precoDoItem, recomendados, resumirPedido, situacaoDoItem } from "../pedido";
+
+const opcao = (supplierId: string, bestUnitPrice: number, extra: Record<string, unknown> = {}) => ({
+  supplierId, supplierName: `F${supplierId}`, bestUnitPrice, bestPriceDate: "2026-08-01", lastUnitPrice: bestUnitPrice, lastPurchaseDate: "2026-09-01",
+  purchaseCount: 2, unit: "KG", conversionMissing: false, ...extra
+});
 
 const item = (id: string, extra: Partial<RequisitionPurchaseItem> = {}): RequisitionPurchaseItem => ({
   productId: id, name: id.toUpperCase(), code: null, unit: "KG", withdrawn: 3, balance: 10, estoqueMinimo: null, estoqueIdeal: null,
-  suggestedQuantity: 3, defaultSupplierId: "f1", unitPrice: 10,
-  supplierOptions: [{ supplierId: "f1", supplierName: "F1", unitPrice: 10, lastPurchaseDate: "2026-09-01", purchaseCount: 2 }], ...extra
+  suggestedQuantity: 3, defaultSupplierId: "f1", unitPrice: 10, preferredSupplierId: null, preferredSupplierName: null,
+  supplierOptions: [opcao("f1", 10)], bestPriceSupplierId: "f1", bestPriceSupplierName: "Ff1", bestUnitPrice: 10, lastUnitPrice: 10,
+  lastPurchaseSupplierName: "Ff1", lastPurchaseDate: "2026-09-01", hasCheaperAlternative: false, priceComparisonNote: null, conversionMissing: false, ...extra
+});
+
+describe("recomendação por menor preço", () => {
+  test("ranking: menor preço, depois mais compras, depois compra mais recente; no máximo 3", () => {
+    const r = recomendados(item("a", {
+      supplierOptions: [
+        opcao("caro", 20), opcao("b", 9, { purchaseCount: 1 }), opcao("a", 9, { purchaseCount: 5 }), opcao("c", 9, { purchaseCount: 1, lastPurchaseDate: "2026-10-01" }), opcao("d", 15)
+      ]
+    }));
+    expect(r.map((o) => o.supplierId)).toEqual(["a", "c", "b"]);
+  });
+
+  test("o preço do fornecedor escolhido é o menor que ele já praticou; sem histórico dele, o último", () => {
+    const i = item("a", { supplierOptions: [opcao("f1", 10), opcao("f2", 7)], lastUnitPrice: 11 });
+    expect(precoDoItem(i, "f2")).toBe(7);
+    expect(precoDoItem(i, "novo")).toBe(11);
+  });
+
+  test("preço em embalagem (sem conversão) pede revisão da unidade", () => {
+    const i = item("a", { supplierOptions: [opcao("f1", 40, { conversionMissing: true })] });
+    expect(situacaoDoItem(i, { quantity: "2", supplierId: "f1" }).revisarUnidade).toBe(true);
+    expect(situacaoDoItem(item("b"), { quantity: "2", supplierId: "f1" }).revisarUnidade).toBe(false);
+  });
 });
 
 describe("decisões", () => {
@@ -32,9 +61,11 @@ describe("decisões", () => {
     expect(situacaoDoItem(item("a"), { quantity: "-2", supplierId: "f1" }).invalida).toBe(true);
   });
 
-  test("preço vem do fornecedor escolhido; outro fornecedor sem histórico fica sem preço", () => {
+  test("preço vem do fornecedor escolhido; sem histórico dele usa o último preço do item; sem nenhum, fica sem preço", () => {
     expect(situacaoDoItem(item("a"), { quantity: "2", supplierId: "f1" }).preco).toBe(10);
-    expect(situacaoDoItem(item("a"), { quantity: "2", supplierId: "f9" })).toMatchObject({ preco: null, total: null });
+    expect(situacaoDoItem(item("a"), { quantity: "2", supplierId: "f9" })).toMatchObject({ preco: 10, total: 20 });
+    const semHistorico = item("a", { supplierOptions: [], lastUnitPrice: null, bestUnitPrice: null });
+    expect(situacaoDoItem(semHistorico, { quantity: "2", supplierId: "f9" })).toMatchObject({ preco: null, total: null });
   });
 });
 
@@ -59,7 +90,7 @@ describe("resumo e envio", () => {
   });
 
   test("conta quantos itens ficaram sem preço, para a tela dizer que o total é estimado", () => {
-    const sem = item("s", { supplierOptions: [] });
+    const sem = item("s", { supplierOptions: [], lastUnitPrice: null, bestUnitPrice: null });
     const r = resumirPedido([item("a"), sem], decisoesIniciais([item("a"), sem]));
     expect(r.semPreco).toBe(1);
     expect(r.total).toBe(30);

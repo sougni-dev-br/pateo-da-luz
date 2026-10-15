@@ -4,15 +4,15 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 import { auditLog, requestIp, requireRole } from "../security/security-utils.js";
 import { nextPurchaseOrderCode } from "./purchase-order-code.js";
+import { carregarInteligenciaDePreco } from "../inventory/preco-por-fornecedor.js";
 import {
   QUANTIDADE_MAXIMA,
   agruparPorFornecedor,
   fornecedorPadrao,
-  precoDoFornecedor,
+  precoParaFornecedor,
   quantidadeSugerida,
   totalEstimado,
-  validarItensDoPedido,
-  type OpcaoDeFornecedor
+  validarItensDoPedido
 } from "./requisicao-pedido.js";
 
 // Pedido de compra a partir de uma requisição de insumos: a revisão mostra o que saiu, o saldo de hoje e o
@@ -26,6 +26,8 @@ type ItemDaRequisicao = {
   unit: string | null;
   quantity: string;
   fornecedorPrincipalId: string | null;
+  fornecedorPrincipalNome: string | null;
+  fornecedorPrincipalAtivo: boolean | null;
   estoqueMinimo: string | null;
   estoqueIdeal: string | null;
   saldo: string | null;
@@ -42,49 +44,16 @@ async function carregarRequisicao(id: string) {
   if (!requisicao) return null;
   const itens = await prisma.$queryRaw<ItemDaRequisicao[]>`
     SELECT i."productId", i."productName", i."productCode", i."unit", i."quantity"::text AS "quantity",
-           p."fornecedorPrincipalId", p."estoqueMinimo"::text AS "estoqueMinimo", p."estoqueIdeal"::text AS "estoqueIdeal",
+           p."fornecedorPrincipalId", sup."name" AS "fornecedorPrincipalNome", sup."isActive" AS "fornecedorPrincipalAtivo", p."estoqueMinimo"::text AS "estoqueMinimo", p."estoqueIdeal"::text AS "estoqueIdeal",
            s."currentQuantity"::text AS "saldo"
     FROM "InventoryRequisitionItem" i
     LEFT JOIN "Product" p ON p."id" = i."productId"
+    LEFT JOIN "Supplier" sup ON sup."id" = p."fornecedorPrincipalId"
     LEFT JOIN "InventoryStock" s ON s."productId" = i."productId"
     WHERE i."requisitionId" = ${id} AND i."productId" IS NOT NULL
     ORDER BY i."productName"
   `;
   return { requisicao, itens };
-}
-
-/** Quem vendeu cada item e a que preço (últimos 24 meses, preço por unidade do estoque quando há conversão). */
-async function opcoesDeFornecedor(productIds: string[]): Promise<Map<string, OpcaoDeFornecedor[]>> {
-  if (productIds.length === 0) return new Map();
-  const linhas = await prisma.$queryRaw<Array<{ productId: string; supplierId: string; supplierName: string; price: Prisma.Decimal; convertido: boolean; purchaseDate: Date }>>`
-    SELECT i."productId", pur."supplierId", s."name" AS "supplierName",
-           COALESCE(i."convertedUnitPrice", i."unitPrice") AS "price",
-           (i."convertedUnitPrice" IS NOT NULL) AS "convertido",
-           pur."purchaseDate"
-    FROM "PurchaseItem" i
-    JOIN "Purchase" pur ON pur."id" = i."purchaseId"
-    JOIN "Supplier" s ON s."id" = pur."supplierId" AND s."isActive" = true
-    WHERE i."productId" = ANY(${productIds})
-      AND pur."status" <> 'CANCELLED'
-      AND pur."purchaseDate" >= NOW() - INTERVAL '24 months'
-      AND COALESCE(i."convertedUnitPrice", i."unitPrice") > 0
-    ORDER BY pur."purchaseDate" ASC, pur."createdAt" ASC
-  `;
-  const porProduto = new Map<string, Map<string, OpcaoDeFornecedor>>();
-  for (const l of linhas) {
-    const dosFornecedores = porProduto.get(l.productId) ?? new Map<string, OpcaoDeFornecedor>();
-    const anterior = dosFornecedores.get(l.supplierId);
-    dosFornecedores.set(l.supplierId, {
-      supplierId: l.supplierId,
-      supplierName: l.supplierName,
-      // Sem conversão o preço é da embalagem, não da unidade do estoque: não serve para estimar o pedido.
-      lastUnitPrice: l.convertido ? Number(l.price) : null,
-      lastPurchaseDate: l.purchaseDate,
-      purchaseCount: (anterior?.purchaseCount ?? 0) + 1
-    });
-    porProduto.set(l.productId, dosFornecedores);
-  }
-  return new Map(Array.from(porProduto, ([produto, mapa]) => [produto, Array.from(mapa.values())]));
 }
 
 class PedidoJaGerado extends Error {}
@@ -98,8 +67,9 @@ requisicaoPedidoRouter.get("/:id", async (request, response) => {
   const carregada = await carregarRequisicao(request.params.id);
   if (!carregada) return void response.status(404).json({ message: "Requisição não encontrada." });
 
-  const [opcoes, fornecedores, pedidos] = await Promise.all([
-    opcoesDeFornecedor(carregada.itens.map((i) => i.productId)),
+  const [leituraDePreco, fornecedores, pedidos] = await Promise.all([
+    // Mesma regra do planejamento de compra: histórico de 24 meses, preço convertido para a unidade do estoque.
+    carregarInteligenciaDePreco(carregada.itens.map((i) => i.productId), { apenasFornecedoresAtivos: true }),
     prisma.$queryRaw<Array<{ id: string; name: string }>>`SELECT "id", "name" FROM "Supplier" WHERE "isActive" = true ORDER BY "name"`,
     prisma.$queryRaw<Array<{ id: string; code: string; supplierName: string; status: string; totalItems: number }>>`
       SELECT po."id", po."code", po."supplierNameSnapshot" AS "supplierName", po."status",
@@ -115,9 +85,11 @@ requisicaoPedidoRouter.get("/:id", async (request, response) => {
   response.json({
     requisition: carregada.requisicao,
     items: carregada.itens.map((item) => {
-      const dosFornecedores = opcoes.get(item.productId) ?? [];
       const retirada = Number(item.quantity);
-      const padrao = fornecedorPadrao(item.fornecedorPrincipalId && ativos.has(item.fornecedorPrincipalId) ? item.fornecedorPrincipalId : null, dosFornecedores);
+      // Fornecedor principal inativo não é oferecido: a tela o mostraria selecionado e o servidor o descartaria.
+      const principalId = item.fornecedorPrincipalId && ativos.has(item.fornecedorPrincipalId) ? item.fornecedorPrincipalId : null;
+      const leitura = leituraDePreco(item.productId, principalId, principalId ? item.fornecedorPrincipalNome : null);
+      const padrao = fornecedorPadrao(principalId, leitura.bestPriceSupplierId);
       return {
         productId: item.productId,
         name: item.productName,
@@ -129,10 +101,20 @@ requisicaoPedidoRouter.get("/:id", async (request, response) => {
         estoqueIdeal: numero(item.estoqueIdeal),
         suggestedQuantity: quantidadeSugerida(retirada),
         defaultSupplierId: padrao,
-        unitPrice: precoDoFornecedor(dosFornecedores, padrao),
-        supplierOptions: dosFornecedores
-          .map((o) => ({ supplierId: o.supplierId, supplierName: o.supplierName, unitPrice: o.lastUnitPrice, lastPurchaseDate: o.lastPurchaseDate, purchaseCount: o.purchaseCount }))
-          .sort((a, b) => b.lastPurchaseDate.getTime() - a.lastPurchaseDate.getTime())
+        unitPrice: precoParaFornecedor(leitura, padrao),
+        preferredSupplierId: leitura.preferredSupplierId,
+        preferredSupplierName: leitura.preferredSupplierName,
+        // Ordenadas por menor preço (o primeiro é o recomendado), como no planejamento.
+        supplierOptions: leitura.supplierPriceOptions,
+        bestPriceSupplierId: leitura.bestPriceSupplierId,
+        bestPriceSupplierName: leitura.bestPriceSupplierName,
+        bestUnitPrice: leitura.bestUnitPrice,
+        lastUnitPrice: leitura.lastUnitPrice,
+        lastPurchaseSupplierName: leitura.lastPurchaseSupplierName,
+        lastPurchaseDate: leitura.lastPurchaseDate,
+        hasCheaperAlternative: leitura.hasCheaperAlternative,
+        priceComparisonNote: leitura.priceComparisonNote,
+        conversionMissing: leitura.conversionMissing
       };
     }),
     suppliers: fornecedores,
@@ -192,7 +174,7 @@ requisicaoPedidoRouter.post("/:id", async (request, response) => {
   const observacao = String(request.body?.notes ?? "").trim();
   const origem = `Gerado da requisição ${requisicao.code}`;
   const notas = observacao ? `${origem} — ${observacao}` : origem;
-  const precosDoHistorico = await opcoesDeFornecedor(aceitos.map((l) => l.productId));
+  const leituraDePreco = await carregarInteligenciaDePreco(aceitos.map((l) => l.productId), { apenasFornecedoresAtivos: true });
 
   const criados = await prisma.$transaction(async (tx) => {
     // Duas gerações simultâneas da mesma requisição (toque duplo, duas abas) esperam uma à outra:
@@ -223,7 +205,7 @@ requisicaoPedidoRouter.post("/:id", async (request, response) => {
       for (const linha of linhas) {
         const item = retiradaPorProduto.get(linha.productId)!;
         // O preço que a pessoa viu na revisão vale; sem ele, o da última compra daquele fornecedor.
-        const preco = linha.unitPrice ?? precoDoFornecedor(precosDoHistorico.get(linha.productId) ?? [], supplierId);
+        const preco = linha.unitPrice ?? precoParaFornecedor(leituraDePreco(linha.productId, null, null), supplierId);
         const totalDoItem = totalEstimado(linha.quantity, preco);
         total += totalDoItem ?? 0;
         await tx.$executeRaw`

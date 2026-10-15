@@ -1,4 +1,4 @@
-import type { RequisitionPurchaseItem } from "../../api/client";
+import type { RequisitionPurchaseItem, RequisitionPurchaseSupplierOption } from "../../api/client";
 import { lerNumero } from "../../lib/fichaTecnica";
 
 /** O que a pessoa decidiu para cada item na revisão: quanto comprar e de quem. Quantidade vazia = não comprar. */
@@ -12,9 +12,30 @@ export function decisoesIniciais(itens: RequisitionPurchaseItem[]): Decisoes {
   return Object.fromEntries(itens.map((i) => [i.productId, { quantity: emTexto(i.suggestedQuantity), supplierId: i.defaultSupplierId }]));
 }
 
+/** Preço de referência do fornecedor escolhido, como no planejamento: o menor que ele já praticou; sem histórico dele, o último ou o menor geral. */
 export function precoDoItem(item: RequisitionPurchaseItem, supplierId: string | null): number | null {
-  if (!supplierId) return null;
-  return item.supplierOptions.find((o) => o.supplierId === supplierId)?.unitPrice ?? null;
+  if (supplierId) {
+    const opcao = item.supplierOptions.find((o) => o.supplierId === supplierId);
+    if (opcao) return opcao.bestUnitPrice;
+  }
+  return item.lastUnitPrice ?? item.bestUnitPrice ?? null;
+}
+
+/** Os até 3 fornecedores recomendados: menor preço, depois mais compras, depois compra mais recente (o mesmo ranking do planejamento). */
+export function recomendados(item: RequisitionPurchaseItem): RequisitionPurchaseSupplierOption[] {
+  return [...item.supplierOptions]
+    .sort((a, b) => {
+      if (a.bestUnitPrice !== b.bestUnitPrice) return a.bestUnitPrice - b.bestUnitPrice;
+      if (a.purchaseCount !== b.purchaseCount) return b.purchaseCount - a.purchaseCount;
+      return (b.lastPurchaseDate ?? "").localeCompare(a.lastPurchaseDate ?? "");
+    })
+    .slice(0, 3);
+}
+
+/** O preço do fornecedor escolhido é da embalagem, não da unidade do estoque: revisar antes de enviar. */
+export function precisaRevisarUnidade(item: RequisitionPurchaseItem, supplierId: string | null): boolean {
+  const opcao = supplierId ? item.supplierOptions.find((o) => o.supplierId === supplierId) : null;
+  return opcao ? opcao.conversionMissing : item.conversionMissing;
 }
 
 export type SituacaoDoItem = {
@@ -24,6 +45,7 @@ export type SituacaoDoItem = {
   invalida: boolean;
   semFornecedor: boolean;
   alterada: boolean;
+  revisarUnidade: boolean;
   preco: number | null;
   total: number | null;
 };
@@ -43,6 +65,7 @@ export function situacaoDoItem(item: RequisitionPurchaseItem, decisao: DecisaoDo
     invalida,
     semFornecedor: quantidade > 0 && !supplierId,
     alterada: !foraDoPedido && !invalida ? Math.abs(quantidade - item.suggestedQuantity) > 0.0005 : texto !== emTexto(item.suggestedQuantity),
+    revisarUnidade: quantidade > 0 && precisaRevisarUnidade(item, supplierId),
     preco,
     total: preco != null && quantidade > 0 ? Math.round(quantidade * preco * 100) / 100 : null
   };

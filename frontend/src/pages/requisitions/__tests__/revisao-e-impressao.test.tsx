@@ -21,12 +21,18 @@ import { RevisaoDoPedido } from "../RevisaoDoPedido";
 import { agruparPorLocal, dadosDaRequisicaoRegistrada, useImpressaoDaRequisicao, type DadosDaFolha } from "../ImpressaoDaRequisicao";
 import { useCatalogo } from "../useCatalogo";
 
-const opcao = (supplierId: string, supplierName: string, unitPrice: number | null) => ({ supplierId, supplierName, unitPrice, lastPurchaseDate: "2026-09-01", purchaseCount: 2 });
+const opcao = (supplierId: string, supplierName: string, bestUnitPrice: number, extra: Record<string, unknown> = {}) => ({
+  supplierId, supplierName, bestUnitPrice, bestPriceDate: "2026-08-01", lastUnitPrice: bestUnitPrice, lastPurchaseDate: "2026-09-01", purchaseCount: 2, unit: "KG", conversionMissing: false, ...extra
+});
+const base = {
+  code: null, estoqueIdeal: null, preferredSupplierId: null, preferredSupplierName: null, bestPriceSupplierId: null, bestPriceSupplierName: null, bestUnitPrice: null,
+  lastUnitPrice: null, lastPurchaseSupplierName: null, lastPurchaseDate: null, hasCheaperAlternative: false, priceComparisonNote: null, conversionMissing: false
+};
 const rascunho = (extra: Record<string, unknown> = {}) => ({
   requisition: { id: "r1", code: "REQ-2026-0001", date: "2026-10-15", shift: "MORNING", reason: "DAILY_PRODUCTION", sectorName: null, requestedByName: "Eli" },
   items: [
-    { productId: "p1", name: "FARINHA", code: "10", unit: "KG", withdrawn: 3, balance: 40, estoqueMinimo: 10, estoqueIdeal: null, suggestedQuantity: 3, defaultSupplierId: "f1", unitPrice: 10, supplierOptions: [opcao("f1", "Moinho Bom", 10)] },
-    { productId: "p2", name: "TOMATE", code: "20", unit: "KG", withdrawn: 2, balance: 5, estoqueMinimo: null, estoqueIdeal: null, suggestedQuantity: 2, defaultSupplierId: null, unitPrice: null, supplierOptions: [] }
+    { ...base, productId: "p1", name: "FARINHA", code: "10", unit: "KG", withdrawn: 3, balance: 40, estoqueMinimo: 10, suggestedQuantity: 3, defaultSupplierId: "f1", unitPrice: 10, supplierOptions: [opcao("f1", "Moinho Bom", 10)], bestPriceSupplierId: "f1", bestPriceSupplierName: "Moinho Bom", bestUnitPrice: 10, lastUnitPrice: 10 },
+    { ...base, productId: "p2", name: "TOMATE", code: "20", unit: "KG", withdrawn: 2, balance: 5, estoqueMinimo: null, suggestedQuantity: 2, defaultSupplierId: null, unitPrice: null, supplierOptions: [] }
   ],
   suppliers: [{ id: "f1", name: "Moinho Bom" }, { id: "f2", name: "Horta Viva" }],
   existingOrders: [],
@@ -45,6 +51,36 @@ describe("RevisaoDoPedido", () => {
     expect((await screen.findByLabelText("Quantidade a comprar de FARINHA") as HTMLInputElement).value).toBe("3");
     expect(gerar().disabled).toBe(true);
     expect(screen.getByRole("button", { name: /1 sem fornecedor/ })).toBeTruthy();
+  });
+
+  test("traz os fornecedores recomendados pelo menor preço e marca o de menor preço", async () => {
+    getRequisitionPurchaseDraft.mockResolvedValue(rascunho({
+      items: [{
+        ...base, productId: "p1", name: "FARINHA", unit: "KG", withdrawn: 3, balance: 40, suggestedQuantity: 3, defaultSupplierId: "f1", unitPrice: 12,
+        supplierOptions: [opcao("f2", "Horta Viva", 8), opcao("f1", "Moinho Bom", 12)],
+        bestPriceSupplierId: "f2", bestPriceSupplierName: "Horta Viva", bestUnitPrice: 8, lastUnitPrice: 12, hasCheaperAlternative: true, priceComparisonNote: "Menor preço histórico"
+      }]
+    }));
+    montar();
+    const grupo = await screen.findByRole("group", { name: /Fornecedores recomendados para FARINHA/ });
+    expect(grupo.textContent).toContain("menor preço");
+    // o padrão é o fornecedor do cadastro (como no planejamento), mas o mais barato é oferecido com um toque
+    expect(screen.getByRole("button", { name: /Moinho Bom/ }).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(await screen.findByRole("button", { name: /Menor preço: Horta Viva/ }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /Horta Viva/ }).getAttribute("aria-pressed")).toBe("true"));
+    expect(screen.queryByRole("button", { name: /Menor preço: Horta Viva/ })).toBeNull();
+  });
+
+  test("sem fornecedor principal, o padrão é o de menor preço histórico e a unidade em embalagem pede revisão", async () => {
+    getRequisitionPurchaseDraft.mockResolvedValue(rascunho({
+      items: [{
+        ...base, productId: "p1", name: "FARINHA", unit: "KG", withdrawn: 3, balance: 40, suggestedQuantity: 3, defaultSupplierId: "f2", unitPrice: 40,
+        supplierOptions: [opcao("f2", "Horta Viva", 40, { conversionMissing: true })], bestPriceSupplierId: "f2", bestPriceSupplierName: "Horta Viva", bestUnitPrice: 40, lastUnitPrice: 40, conversionMissing: true
+      }]
+    }));
+    montar();
+    expect((await screen.findByLabelText("Fornecedor de FARINHA") as HTMLSelectElement).value).toBe("f2");
+    expect(screen.getByText(/pode ser da embalagem/)).toBeTruthy();
   });
 
   test("deixar o item sem fornecedor de fora libera, e a quantidade alterada é a que vai", async () => {

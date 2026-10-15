@@ -3516,10 +3516,15 @@ export function createPurchaseOrdersFromPlanning(payload: {
 export type RequisitionPurchaseSupplierOption = {
   supplierId: string;
   supplierName: string;
-  /** Último preço por 1 unidade do estoque; null quando a compra não tinha conversão. */
-  unitPrice: number | null;
+  /** Menor preço que este fornecedor já praticou (24 meses), por 1 unidade do estoque quando convertido. */
+  bestUnitPrice: number;
+  bestPriceDate: string;
+  lastUnitPrice: number;
   lastPurchaseDate: string;
   purchaseCount: number;
+  unit: string | null;
+  /** O preço é da embalagem, não da unidade do estoque: a comparação precisa de revisão. */
+  conversionMissing: boolean;
 };
 
 export type RequisitionPurchaseItem = {
@@ -3534,9 +3539,23 @@ export type RequisitionPurchaseItem = {
   estoqueIdeal: number | null;
   /** Reposição sugerida (= o que saiu); a quantidade confirmada na revisão é a que vale. */
   suggestedQuantity: number;
+  /** Fornecedor principal do cadastro; sem ele, o de menor preço histórico (como no planejamento de compra). */
   defaultSupplierId: string | null;
   unitPrice: number | null;
+  preferredSupplierId: string | null;
+  preferredSupplierName: string | null;
+  /** Quem já vendeu o item, do menor preço para o maior. */
   supplierOptions: RequisitionPurchaseSupplierOption[];
+  bestPriceSupplierId: string | null;
+  bestPriceSupplierName: string | null;
+  bestUnitPrice: number | null;
+  lastUnitPrice: number | null;
+  lastPurchaseSupplierName: string | null;
+  lastPurchaseDate: string | null;
+  /** Existe fornecedor mais barato que a referência (principal ou último), na mesma unidade. */
+  hasCheaperAlternative: boolean;
+  priceComparisonNote: string | null;
+  conversionMissing: boolean;
 };
 
 export type RequisitionPurchaseDraft = {
