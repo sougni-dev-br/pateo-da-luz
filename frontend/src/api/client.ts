@@ -1535,6 +1535,45 @@ export function getRequisitionCatalog() {
   return request<RequisitionCatalogItem[]>("/inventory/requisitions/catalog", undefined, 30_000);
 }
 
+export type PendenciaDeConversao = {
+  unidade: string;
+  /** COMPRA: já se comprou nessa unidade; CADASTRO: é a unidade de compra do produto; NOME_PECA: o nome diz "peça". */
+  origem: "COMPRA" | "CADASTRO" | "NOME_PECA";
+  linhas: number;
+  valor: number;
+  proposta: { factor: number; confianca: "alta" | "baixa"; motivo: string } | null;
+};
+
+export type ProdutoComPendenciaDeConversao = {
+  productId: string;
+  codigo: string | null;
+  nome: string;
+  unidadeDeContagem: string;
+  saldo: number | null;
+  pendencias: PendenciaDeConversao[];
+};
+
+/** O que o estoquista ainda precisa converter: unidades que o sistema não sabe levar para a unidade do estoque. */
+export function getConversoesPendentes() {
+  return request<{ produtos: ProdutoComPendenciaDeConversao[] }>("/inventory/requisitions/conversions", undefined, 60_000);
+}
+
+export type ResultadoDaConversaoCadastrada = {
+  criada: boolean;
+  comprasConvertidas: number;
+  comprasEmPeriodoFechado: number;
+  conversao: { fromUnit: string; toUnit: string; factor: number };
+};
+
+/** Cadastra "1 <fromUnit> = <factor> <unidade do estoque>" e refaz as compras sem conversão dessa unidade. */
+export function cadastrarConversao(payload: { productId: string; fromUnit: string; factor: string | number }) {
+  return request<ResultadoDaConversaoCadastrada>("/inventory/requisitions/conversions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  }, 60_000);
+}
+
 export function getRequisitions(filters?: { startDate?: string; endDate?: string; sectorId?: string; shift?: string; clientRequestId?: string }) {
   return request<InventoryRequisition[]>(`/inventory/requisitions${toQueryString(filters)}`, undefined, 30_000);
 }

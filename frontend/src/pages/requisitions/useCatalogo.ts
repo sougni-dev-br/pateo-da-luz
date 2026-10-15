@@ -38,7 +38,7 @@ function guardarCopia(userId: string, itens: RequisitionCatalogItem[]): void {
  * A última lista fica guardada no aparelho: a tela abre na hora, com o saldo novo chegando por cima,
  * e quem está no estoque com sinal fraco não fica olhando uma tela vazia.
  */
-export function useCatalogo(userId: string): EstadoDoCatalogo {
+export function useCatalogo(userId: string, versao = 0): EstadoDoCatalogo {
   const [copia] = useState<Copia | null>(() => lerCopia(userId));
   // Hora da última lista boa (guardada ou carregada nesta sessão): é a que o aviso mostra se o servidor falhar.
   const ultimaBoaRef = useRef<number | null>(copia?.salvoEm ?? null);
@@ -68,7 +68,7 @@ export function useCatalogo(userId: string): EstadoDoCatalogo {
     };
     // a cópia só vale na primeira abertura
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tentativa]);
+  }, [tentativa, versao]);
 
   const recarregar = useCallback(() => setTentativa((n) => n + 1), []);
   return { itens, falhou, desatualizadaDesde, recarregar };

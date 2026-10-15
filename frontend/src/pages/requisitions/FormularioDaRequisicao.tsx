@@ -36,6 +36,10 @@ type Props = {
   modelo: ModeloInicial | null;
   onCriada: (criada: InventoryRequisition) => void;
   onAviso: (tom: "success" | "warning" | "error", mensagem: string) => void;
+  /** Muda quando uma conversão é cadastrada: a lista de produtos busca as unidades novas. */
+  catalogoVersao?: number;
+  /** "+ unidade" na linha: abre as conversões com este produto. */
+  onPedirUnidade?: (item: RequisitionCatalogItem) => void;
 };
 
 const quando = (instante: number) => new Date(instante).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
@@ -52,9 +56,9 @@ function QuadroVazio({ visao, filtrando, onLimpar }: { visao: Visao; filtrando: 
   );
 }
 
-export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAviso }: Props) {
+export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAviso, catalogoVersao = 0, onPedirUnidade }: Props) {
   const guardado = useMemo(() => (modelo ? null : lerRascunho(user.id)), [modelo, user.id]);
-  const catalogo = useCatalogo(user.id);
+  const catalogo = useCatalogo(user.id, catalogoVersao);
   const { imprimir, portal } = useImpressaoDaRequisicao();
   const [salvo, setSalvo] = useState(false);
   const [cabecalho, setCabecalho] = useState<DadosDoCabecalho>(modelo?.cabecalho ?? guardado?.cabecalho ?? cabecalhoVazio());
@@ -338,7 +342,7 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAvis
           visiveis.length > 0 ? (
             <ul className="rq-lista" ref={listaRef}>
               {visiveis.map((item) => (
-                <LinhaDoCatalogo key={item.id} item={item} escolha={escolhas[item.id]} onMudar={mudar} onTirar={tirar} onProxima={irParaProxima} />
+                <LinhaDoCatalogo key={item.id} item={item} escolha={escolhas[item.id]} onMudar={mudar} onTirar={tirar} onProxima={irParaProxima} onPedirUnidade={onPedirUnidade} />
               ))}
             </ul>
           ) : (
