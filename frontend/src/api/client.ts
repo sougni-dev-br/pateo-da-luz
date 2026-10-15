@@ -2214,6 +2214,32 @@ export type ProductHistory = {
     purchaseNumber: string | null;
     invoiceNumber: string | null;
   }>;
+  priceComparison: {
+    unit: string | null;
+    suppliers: Array<{
+      supplierName: string;
+      lastPrice: number;
+      lastDate: string;
+      minPrice: number;
+      avgPrice: number;
+      purchases: number;
+      recent: number[];
+      daysSinceLast: number;
+      isStale: boolean;
+      lastQuantity: number | null;
+      previousPrice: number | null;
+      changePercent: number | null;
+      isCheapest: boolean;
+    }>;
+    savings: {
+      windowDays: number;
+      amount: number;
+      spent: number;
+      percent: number;
+      purchases: number;
+    } | null;
+    ignoredOtherUnit: number;
+  };
   cmvUsage: Array<{
     periodCode: string | null;
     startDate: string;

@@ -42,6 +42,7 @@ import {
   Table
 } from "../design-system";
 import { formatDate, formatNumber } from "../utils/format";
+import { PriceComparison } from "./products/PriceComparison";
 
 const emptyProduct = {
   id: "",
@@ -1485,6 +1486,8 @@ export function Products() {
               <SummaryCard label="Controla estoque" value={history.product.controlsStock === false ? "Não" : "Sim"} tone={history.product.controlsStock === false ? "warning" : "success"} />
               <SummaryCard label="Status" value={history.product.isActive ? "Ativo" : "Inativo"} tone={history.product.isActive ? "success" : "danger"} />
             </div>
+
+            <PriceComparison comparison={history.priceComparison} />
 
             <div className="subsection table-wrap">
               <h3>Histórico de contagens</h3>

@@ -15,6 +15,7 @@ import { detectarEmbalagem, normalizarUnidade } from "../../shared/unidades/conv
 import { sqlCompraNaUnidadeDeContagem } from "../../shared/unidades/compra-na-contagem.sql.js";
 import { aplicarConversoes, listarPropostasDeConversao } from "./conversao-automatica.service.js";
 import { conversoesASairem, prepararConversoesEnviadas, type ConversaoCanonica, type ConversaoEnviada, type ConversaoGravada } from "./product-conversoes.js";
+import { compararPrecos } from "./price-comparison.js";
 
 export const productRouter = Router();
 
@@ -1132,17 +1133,21 @@ productRouter.get("/:id/history", async (request, response) => {
       unit: string | null;
       unitPrice: Prisma.Decimal;
       totalPrice: Prisma.Decimal;
+      convertedUnit: string | null;
+      convertedUnitPrice: Prisma.Decimal | null;
+      convertedQuantity: Prisma.Decimal | null;
       purchaseNumber: string | null;
       invoiceNumber: string | null;
     }>>`
       SELECT pu."purchaseDate" AS "date", s."name" AS "supplierName", item."quantity", item."unit",
-             item."unitPrice", item."totalPrice", pu."purchaseNumber", pu."invoiceNumber"
+             item."unitPrice", item."totalPrice", item."convertedUnit", item."convertedUnitPrice", item."convertedQuantity",
+             pu."purchaseNumber", pu."invoiceNumber"
       FROM "PurchaseItem" item
       JOIN "Purchase" pu ON pu."id" = item."purchaseId"
       JOIN "Supplier" s ON s."id" = pu."supplierId"
       WHERE item."productId" = ${request.params.id}
         AND pu."status" <> 'CANCELLED'
-      ORDER BY pu."purchaseDate" DESC
+      ORDER BY pu."purchaseDate" DESC, pu."id" DESC
       LIMIT 120
     `,
     prisma.$queryRaw<Array<{
@@ -1208,12 +1213,24 @@ productRouter.get("/:id/history", async (request, response) => {
       ...row,
       countedQuantity: row.countedQuantity == null ? null : Number(row.countedQuantity)
     })),
-    purchases: purchases.map((row) => ({
+    purchases: purchases.map(({ convertedUnit: _cu, convertedUnitPrice: _cp, convertedQuantity: _cq, ...row }) => ({
       ...row,
       quantity: Number(row.quantity),
       unitPrice: Number(row.unitPrice),
       totalPrice: Number(row.totalPrice)
     })),
+    priceComparison: compararPrecos(
+      purchases.map((row) => ({
+        date: row.date.toISOString().slice(0, 10),
+        supplierName: row.supplierName,
+        unit: row.unit,
+        unitPrice: Number(row.unitPrice),
+        quantity: Number(row.quantity),
+        convertedUnit: row.convertedUnit,
+        convertedUnitPrice: row.convertedUnitPrice == null ? null : Number(row.convertedUnitPrice),
+        convertedQuantity: row.convertedQuantity == null ? null : Number(row.convertedQuantity)
+      }))
+    ),
     cmvUsage: cmvUsage.map((row) => ({
       ...row,
       initialQuantity: row.initialQuantity == null ? null : Number(row.initialQuantity),
