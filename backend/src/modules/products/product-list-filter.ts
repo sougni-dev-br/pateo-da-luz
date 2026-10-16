@@ -46,6 +46,6 @@ export function productListWhere(query: Record<string, unknown>): Prisma.Product
     ...(controlsStock === undefined ? {} : { controlsStock }),
     ...(isActive === undefined ? {} : { isActive }),
     ...(semDreCategoria ? { dreCategoryId: null } : {}),
-    ...(pendencia && porPendencia[pendencia] ? porPendencia[pendencia] : {})
+    ...(pendencia && Object.hasOwn(porPendencia, pendencia) ? porPendencia[pendencia] : {})
   };
 }

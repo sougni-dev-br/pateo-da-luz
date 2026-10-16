@@ -123,6 +123,12 @@ export function Products() {
   const [ultimoLote, setUltimoLote] = useState<{ id: string; alterados: number } | null>(null);
   const [desfazendo, setDesfazendo] = useState(false);
 
+  /** Marcar ou desmarcar à mão desfaz "todo o filtro": o alvo passa a ser exatamente o que está marcado. */
+  function marcar(proximo: Set<string>) {
+    setSelected(proximo);
+    setSelecionarFiltro(false);
+  }
+
   const [history, setHistory] = useState<ProductHistory | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -323,6 +329,8 @@ export function Products() {
     if (buscaDebounce.current) clearTimeout(buscaDebounce.current);
     // "Todo o filtro" vale para o filtro em que foi marcado: mudou o filtro, desmarca.
     setSelecionarFiltro(false);
+    setSelected(new Set());
+    setMostrarLote(false);
     buscaDebounce.current = setTimeout(() => loadProducts(1), 350);
     return () => { if (buscaDebounce.current) clearTimeout(buscaDebounce.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -709,8 +717,8 @@ export function Products() {
                     title="Selecionar todos visíveis"
                     checked={products.length > 0 && products.every((p) => selected.has(p.id))}
                     onChange={(e) => {
-                      if (e.target.checked) setSelected(new Set(products.map((p) => p.id)));
-                      else setSelected(new Set());
+                      if (e.target.checked) marcar(new Set(products.map((p) => p.id)));
+                      else marcar(new Set());
                     }}
                   />
                 </Table.Th>
@@ -734,7 +742,7 @@ export function Products() {
                         onChange={(e) => {
                           const next = new Set(selected);
                           if (e.target.checked) next.add(product.id); else next.delete(product.id);
-                          setSelected(next);
+                          marcar(next);
                         }}
                       />
                     </Table.Td>

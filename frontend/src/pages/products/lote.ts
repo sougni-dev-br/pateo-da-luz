@@ -52,6 +52,7 @@ export function descricaoDasMudancas(
   const linhas: string[] = [];
   if (form.categoryId !== MANTER) linhas.push(`Categoria: ${nomes.categoria ?? form.categoryId}`);
   if (form.subcategoryId !== MANTER) linhas.push(form.subcategoryId === LIMPAR ? "Subcategoria: deixar em branco" : `Subcategoria: ${nomes.subcategoria ?? form.subcategoryId}`);
+  else if (form.categoryId !== MANTER) linhas.push("Subcategoria: deixar em branco (a antiga era de outra categoria)");
   if (form.inventorySectorId !== MANTER) linhas.push(form.inventorySectorId === LIMPAR ? "Setor: deixar em branco" : `Setor: ${nomes.setor ?? form.inventorySectorId}`);
   if (form.nature !== MANTER) linhas.push(`Natureza: ${nomes.natureza ?? form.nature}`);
   if (form.controlsStock !== "") linhas.push(form.controlsStock === "sim" ? "Controla estoque: sim (entra na contagem)" : "Controla estoque: não (sai da contagem)");

@@ -166,3 +166,11 @@ describe("desfazer", () => {
     expect(desfazerEhSeguro({ ...depois, nature: "INSUMO" }, depois)).toBe(false);
   });
 });
+
+describe("planejarLote: mudar só a natureza também confere a contagem", () => {
+  test("serviço que conta estoque e está sem setor vira insumo: recusado, pede setor", () => {
+    const plano = planejarLote([produto({ nature: "SERVICO", controlsStock: true, inventorySectorId: null })], { nature: "INSUMO" }, contexto);
+    expect(plano.alterar).toHaveLength(0);
+    expect(plano.recusados[0].motivo).toMatch(/setor/i);
+  });
+});

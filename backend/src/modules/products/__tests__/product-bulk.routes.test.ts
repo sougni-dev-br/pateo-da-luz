@@ -47,7 +47,7 @@ beforeEach(() => {
   prisma.inventorySector.findMany.mockResolvedValue([{ id: "set-est", name: "ESTOQUE", isActive: true }]);
   prisma.product.findMany.mockResolvedValue([estado(), estado({ id: "p2", name: "FEIJAO" })]);
   prisma.product.count.mockResolvedValue(2);
-  prisma.product.updateMany.mockResolvedValue({ count: 2 });
+  prisma.product.updateMany.mockImplementation(async ({ where }: { where: { id: { in: string[] } } }) => ({ count: where.id.in.length }));
   prisma.auditLog.create.mockResolvedValue({});
   prisma.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => fn(prisma));
 });
@@ -71,7 +71,7 @@ describe("POST /bulk (simular)", () => {
 
   test("filtro largo demais é recusado antes de carregar produtos", async () => {
     prisma.product.count.mockResolvedValue(2500);
-    const r = await request(app).post("/bulk").send({ filtro: {}, mudancas: { isActive: false } });
+    const r = await request(app).post("/bulk").send({ filtro: { isActive: "true" }, mudancas: { isActive: false } });
     expect(r.status).toBe(400);
     expect(r.body.message).toMatch(/limite/i);
     expect(prisma.product.findMany).not.toHaveBeenCalled();
@@ -80,6 +80,13 @@ describe("POST /bulk (simular)", () => {
   test("exige ids ou filtro, nunca os dois nem nenhum", async () => {
     expect((await request(app).post("/bulk").send({ mudancas: { isActive: false } })).status).toBe(400);
     expect((await request(app).post("/bulk").send({ ids: ["p1"], filtro: {}, mudancas: { isActive: false } })).status).toBe(400);
+  });
+
+  test("filtro com critério desconhecido, vazio ou pendência inventada é recusado, não vira o catálogo inteiro", async () => {
+    expect((await request(app).post("/bulk").send({ filtro: { categoria: "SECOS" }, mudancas: { isActive: false } })).status).toBe(400);
+    expect((await request(app).post("/bulk").send({ filtro: {}, mudancas: { isActive: false } })).status).toBe(400);
+    expect((await request(app).post("/bulk").send({ filtro: { pendencia: "constructor" }, mudancas: { isActive: false } })).status).toBe(400);
+    expect(prisma.product.count).not.toHaveBeenCalled();
   });
 
   test("exige ao menos uma mudança e recusa campos desconhecidos (como a categoria DRE)", async () => {
@@ -100,7 +107,7 @@ describe("POST /bulk (simular)", () => {
 
 describe("POST /bulk (aplicar)", () => {
   test("grava numa transação, agrupa produtos com o mesmo patch e registra o lote com antes e depois", async () => {
-    const r = await request(app).post("/bulk").send({ ids: ["p1", "p2"], mudancas: { categoryId: "c-doc" }, aplicar: true });
+    const r = await request(app).post("/bulk").send({ ids: ["p1", "p2"], mudancas: { categoryId: "c-doc" }, aplicar: true, esperado: 2 });
     expect(r.status).toBe(200);
     expect(r.body).toMatchObject({ aplicado: true, alterar: 2 });
     expect(r.body.loteId).toEqual(expect.any(String));
@@ -108,27 +115,49 @@ describe("POST /bulk (aplicar)", () => {
     expect(prisma.product.updateMany.mock.calls[0][0]).toMatchObject({ where: { id: { in: ["p1", "p2"] } }, data: { categoryId: "c-doc" } });
     const lote = prisma.auditLog.create.mock.calls[0][0].data;
     expect(lote).toMatchObject({ id: r.body.loteId, action: "BULK_UPDATE_PRODUCTS", userId: "u1" });
-    expect(lote.previousValue.produtos[0]).toMatchObject({ id: "p1", antes: { categoryId: "c-sec" }, depois: { categoryId: "c-doc" } });
+    expect(lote.previousValue.produtos[0]).toMatchObject({ id: "p1", antes: { categoryId: "c-sec" }, patch: { categoryId: "c-doc" } });
   });
 
   test("produto que já tem a categoria não é tocado nem perde a subcategoria", async () => {
     prisma.product.findMany.mockResolvedValue([estado({ subcategoryId: "s-arroz" }), estado({ id: "p2", categoryId: "c-doc" })]);
-    const r = await request(app).post("/bulk").send({ ids: ["p1", "p2"], mudancas: { categoryId: "c-doc" }, aplicar: true });
+    const r = await request(app).post("/bulk").send({ ids: ["p1", "p2"], mudancas: { categoryId: "c-doc" }, aplicar: true, esperado: 1 });
     expect(r.body).toMatchObject({ alterar: 1, semMudanca: 1 });
-    expect(prisma.product.updateMany.mock.calls[0][0].where).toEqual({ id: { in: ["p1"] } });
+    expect(prisma.product.updateMany.mock.calls[0][0].where.id).toEqual({ in: ["p1"] });
     expect(prisma.product.updateMany.mock.calls[0][0].data).toEqual({ categoryId: "c-doc", subcategoryId: null });
   });
 
   test("produtos recusados ficam de fora e aparecem no resumo", async () => {
     prisma.product.findMany.mockResolvedValue([estado({ controlsStock: false, inventorySectorId: null }), estado({ id: "p2", controlsStock: false })]);
-    const r = await request(app).post("/bulk").send({ ids: ["p1", "p2"], mudancas: { controlsStock: true }, aplicar: true });
+    const r = await request(app).post("/bulk").send({ ids: ["p1", "p2"], mudancas: { controlsStock: true }, aplicar: true, esperado: 1 });
     expect(r.body).toMatchObject({ alterar: 1, recusados: 1 });
     expect(r.body.recusadosPorMotivo[0].motivo).toMatch(/setor/i);
-    expect(prisma.product.updateMany.mock.calls[0][0].where).toEqual({ id: { in: ["p2"] } });
+    expect(prisma.product.updateMany.mock.calls[0][0].where.id).toEqual({ in: ["p2"] });
+  });
+
+  test("aplicar sem a quantidade conferida é recusado", async () => {
+    const r = await request(app).post("/bulk").send({ ids: ["p1", "p2"], mudancas: { categoryId: "c-doc" }, aplicar: true });
+    expect(r.status).toBe(400);
+    expect(prisma.product.updateMany).not.toHaveBeenCalled();
+  });
+
+  test("se o plano mudou desde a conferência, recusa com 409 e não grava", async () => {
+    const r = await request(app).post("/bulk").send({ ids: ["p1", "p2"], mudancas: { categoryId: "c-doc" }, aplicar: true, esperado: 5 });
+    expect(r.status).toBe(409);
+    expect(prisma.product.updateMany).not.toHaveBeenCalled();
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  test("produto editado por outra pessoa no meio: a gravação só vale no estado lido e o lote inteiro é recusado", async () => {
+    prisma.product.updateMany.mockResolvedValue({ count: 1 });
+    const r = await request(app).post("/bulk").send({ ids: ["p1", "p2"], mudancas: { categoryId: "c-doc" }, aplicar: true, esperado: 2 });
+    expect(r.status).toBe(409);
+    expect(r.body.message).toMatch(/editados por outra pessoa/i);
+    const onde = prisma.product.updateMany.mock.calls[0][0].where;
+    expect(onde).toMatchObject({ categoryId: "c-sec", subcategoryId: null, inventorySectorId: "set-est", nature: "INSUMO", controlsStock: true, isActive: true });
   });
 
   test("sem nada a alterar não grava e não cria lote", async () => {
-    const r = await request(app).post("/bulk").send({ ids: ["p1", "p2"], mudancas: { isActive: true }, aplicar: true });
+    const r = await request(app).post("/bulk").send({ ids: ["p1", "p2"], mudancas: { isActive: true }, aplicar: true, esperado: 0 });
     expect(r.body).toMatchObject({ aplicado: true, loteId: null, alterar: 0 });
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
@@ -139,8 +168,8 @@ describe("POST /bulk/:loteId/desfazer", () => {
     id: "lote1",
     previousValue: {
       produtos: [
-        { id: "p1", antes: estado({ categoryId: "c-sec", subcategoryId: "s-arroz" }), depois: estado({ categoryId: "c-doc", subcategoryId: null }) },
-        { id: "p2", antes: estado({ id: undefined, categoryId: "c-sec" }), depois: estado({ categoryId: "c-doc" }) }
+        { id: "p1", antes: estado({ categoryId: "c-sec", subcategoryId: "s-arroz" }), patch: { categoryId: "c-doc", subcategoryId: null } },
+        { id: "p2", antes: estado({ id: undefined, categoryId: "c-sec" }), patch: { categoryId: "c-doc" } }
       ]
     }
   };
@@ -164,6 +193,20 @@ describe("POST /bulk/:loteId/desfazer", () => {
       data: { categoryId: "c-sec", subcategoryId: "s-arroz" }
     });
     expect(prisma.auditLog.create.mock.calls[0][0].data).toMatchObject({ action: "UNDO_BULK_UPDATE_PRODUCTS", entityId: "lote1" });
+  });
+
+  test("o desfazer só grava em quem ainda está como o lote deixou (guarda por estado)", async () => {
+    await request(app).post("/bulk/lote1/desfazer").send({});
+    const onde = prisma.product.updateMany.mock.calls[0][0].where;
+    expect(onde).toMatchObject({ categoryId: "c-doc", subcategoryId: null });
+  });
+
+  test("registro de desfazer usa id fixo por lote e duas tentativas simultâneas viram 409", async () => {
+    const { Prisma } = await import("@prisma/client");
+    prisma.auditLog.create.mockRejectedValue(new Prisma.PrismaClientKnownRequestError("duplicado", { code: "P2002", clientVersion: "x" }));
+    const r = await request(app).post("/bulk/lote1/desfazer").send({});
+    expect(r.status).toBe(409);
+    expect(r.body.message).toMatch(/já foi desfeito/i);
   });
 
   test("lote inexistente dá 404", async () => {

@@ -83,7 +83,8 @@ describe("LoteDeProdutos", () => {
     expect(organizarProdutosEmLote).toHaveBeenCalledWith(
       { filtro: { category: "SECOS E GRAOS", pendencia: "sem-subcategoria" } },
       { subcategoryId: "s-arroz" },
-      false
+      false,
+      undefined
     );
     expect(screen.getByText("Subcategoria: ARROZ")).toBeInTheDocument();
     expect(screen.getByText(/não mudam: Produto que conta estoque precisa de setor/)).toBeInTheDocument();
@@ -99,7 +100,7 @@ describe("LoteDeProdutos", () => {
     organizarProdutosEmLote.mockResolvedValue(resumo({ aplicado: true, loteId: "lote-1" }));
     fireEvent.click(screen.getByRole("button", { name: "Aplicar em 100 produtos" }));
     await waitFor(() => expect(onAplicado).toHaveBeenCalledWith(expect.objectContaining({ loteId: "lote-1" })));
-    expect(organizarProdutosEmLote).toHaveBeenLastCalledWith(expect.anything(), { subcategoryId: "s-arroz" }, true);
+    expect(organizarProdutosEmLote).toHaveBeenLastCalledWith(expect.anything(), { subcategoryId: "s-arroz" }, true, 100);
   });
 
   test("mudar qualquer campo depois de revisar volta ao passo de escolha", async () => {
@@ -133,5 +134,34 @@ describe("LoteDeProdutos", () => {
     fireEvent.click(screen.getByRole("button", { name: "Revisar mudanças" }));
     const aplicar = await screen.findByRole("button", { name: "Aplicar em 0 produtos" });
     expect(aplicar).toBeDisabled();
+  });
+});
+
+describe("LoteDeProdutos: seleção que muda", () => {
+  test("se o alvo muda com o resumo na tela, o resumo some e não dá para aplicar o que foi conferido antes", async () => {
+    const props = {
+      quantidade: 8,
+      categories: categories as never,
+      subcategories: subcategories as never,
+      sectors: sectors as never,
+      natures: natures as never,
+      onAplicado: vi.fn(),
+      onFechar: vi.fn()
+    };
+    const { rerender } = render(<LoteDeProdutos {...props} alvo={{ ids: ["a", "b"] }} />);
+    fireEvent.change(screen.getByLabelText("Situação"), { target: { value: "inativar" } });
+    fireEvent.click(screen.getByRole("button", { name: "Revisar mudanças" }));
+    await screen.findByRole("region", { name: "Resumo do que vai mudar" });
+    rerender(<LoteDeProdutos {...props} alvo={{ ids: ["a"] }} />);
+    expect(screen.queryByRole("region", { name: "Resumo do que vai mudar" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Aplicar em/ })).not.toBeInTheDocument();
+  });
+
+  test("o foco vai para o resumo quando ele aparece", async () => {
+    renderizar();
+    fireEvent.change(screen.getByLabelText("Situação"), { target: { value: "inativar" } });
+    fireEvent.click(screen.getByRole("button", { name: "Revisar mudanças" }));
+    const regiao = await screen.findByRole("region", { name: "Resumo do que vai mudar" });
+    await waitFor(() => expect(regiao.contains(document.activeElement)).toBe(true));
   });
 });

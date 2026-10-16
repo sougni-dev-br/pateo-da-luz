@@ -2800,11 +2800,12 @@ export type ResumoDoLote = {
   amostra: string[];
 };
 
-export function organizarProdutosEmLote(alvo: AlvoDoLote, mudancas: MudancasDoLote, aplicar: boolean) {
+/** `esperado` é a quantidade que o resumo mostrou: o servidor recusa aplicar se o plano mudou desde então. */
+export function organizarProdutosEmLote(alvo: AlvoDoLote, mudancas: MudancasDoLote, aplicar: boolean, esperado?: number) {
   return request<ResumoDoLote>("/products/bulk-update", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ...alvo, mudancas, aplicar })
+    body: JSON.stringify({ ...alvo, mudancas, aplicar, ...(aplicar ? { esperado } : {}) })
   });
 }
 

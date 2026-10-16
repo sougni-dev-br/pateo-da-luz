@@ -555,6 +555,10 @@ function actionFromRequest(request: Request, menuId: MenuId): PermissionAction {
   // fora — e trabalho colaborativo de turno, nao documento contabil.
   if ((path.endsWith("/reopen") || path.endsWith("/unlock")) && menuId !== "inventory-counting") return "approve";
 
+  // Organizar produtos em lote (e desfazer o lote) altera cadastros existentes: pede editar, nao criar.
+  // Sem isto o POST caia em "criar" e quem so podia cadastrar produto novo mexia no catalogo inteiro.
+  if (menuId === "products" && path.startsWith("/products/bulk-update") && method === "POST") return "edit";
+
   // Restaurar um registro cancelado desfaz uma exclusao: pede a acao de excluir.
   if (path.endsWith("/restore")) return "delete";
 

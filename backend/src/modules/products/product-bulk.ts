@@ -106,7 +106,8 @@ function motivoDeRecusa(depois: EstadoDoLote, patch: Partial<EstadoDoLote>, muda
     return "Durável não entra na contagem enquanto o escopo do CMV não for isolado: desligue o controle de estoque junto.";
   }
 
-  const mexeEmContagem = patch.inventorySectorId !== undefined || patch.controlsStock !== undefined || patch.isActive !== undefined;
+  const mexeEmContagem =
+    patch.inventorySectorId !== undefined || patch.controlsStock !== undefined || patch.isActive !== undefined || patch.nature !== undefined;
   const fisico = depois.nature === null || NATURE_DEFAULTS[depois.nature].fisico;
   if (mexeEmContagem && fisico && depois.controlsStock && depois.isActive && !depois.inventorySectorId) {
     return "Produto que conta estoque precisa de setor: escolha o setor junto.";

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   organizarProdutosEmLote,
   type AlvoDoLote,
@@ -38,6 +38,17 @@ export function LoteDeProdutos({ alvo, quantidade, categoriaDoFiltroId, categori
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
+  const tituloDoResumo = useRef<HTMLParagraphElement>(null);
+  // O resumo é de um alvo: se a seleção mudou, ele não vale mais e não pode ser aplicado.
+  const chaveDoAlvo = JSON.stringify(alvo);
+  useEffect(() => {
+    setResumo(null);
+  }, [chaveDoAlvo]);
+  // O botão "Revisar" some quando o resumo aparece: leva o foco para o resumo para não se perder.
+  useEffect(() => {
+    if (resumo) tituloDoResumo.current?.focus();
+  }, [resumo]);
+
   const categoriasAtivas = useMemo(() => categories.filter((c) => c.isActive !== false), [categories]);
   const categoriaEfetiva = form.categoryId || categoriaDoFiltroId || "";
   const subcategoriasDaCategoria = useMemo(
@@ -62,7 +73,7 @@ export function LoteDeProdutos({ alvo, quantidade, categoriaDoFiltroId, categori
     setCarregando(true);
     setErro(null);
     try {
-      const retorno = await organizarProdutosEmLote(alvo, mudancasDoFormulario(form), aplicar);
+      const retorno = await organizarProdutosEmLote(alvo, mudancasDoFormulario(form), aplicar, aplicar ? resumo?.alterar : undefined);
       if (aplicar) onAplicado(retorno);
       else setResumo(retorno);
     } catch (falha) {
@@ -145,11 +156,11 @@ export function LoteDeProdutos({ alvo, quantidade, categoriaDoFiltroId, categori
       )}
 
       {resumo && (
-        <div className="lote-resumo" role="region" aria-label="Resumo do que vai mudar">
+        <div className="lote-resumo" role="region" aria-label="Resumo do que vai mudar" aria-live="polite">
           <ul className="lote-mudancas">
             {descricaoDasMudancas(form, nomes).map((linha) => <li key={linha}>{linha}</li>)}
           </ul>
-          <p>
+          <p ref={tituloDoResumo} tabIndex={-1}>
             <strong>{resumo.alterar}</strong> produto{resumo.alterar === 1 ? "" : "s"} {resumo.alterar === 1 ? "será alterado" : "serão alterados"}
             {resumo.semMudanca > 0 && <> · {resumo.semMudanca} já {resumo.semMudanca === 1 ? "está" : "estão"} assim</>}
             {resumo.recusados > 0 && <> · <strong>{resumo.recusados}</strong> não {resumo.recusados === 1 ? "pode ser alterado" : "podem ser alterados"}</>}

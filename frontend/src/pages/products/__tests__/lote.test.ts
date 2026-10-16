@@ -37,3 +37,12 @@ describe("descricaoDasMudancas", () => {
     expect(linhas).toEqual(["Categoria: SECOS E GRAOS", "Subcategoria: deixar em branco", "Controla estoque: sim (entra na contagem)"]);
   });
 });
+
+describe("descricaoDasMudancas: subcategoria ao trocar de categoria", () => {
+  test("avisa que a subcategoria antiga será deixada em branco", () => {
+    expect(descricaoDasMudancas({ ...LOTE_VAZIO, categoryId: "c1" }, { categoria: "DOCES" })).toEqual([
+      "Categoria: DOCES",
+      "Subcategoria: deixar em branco (a antiga era de outra categoria)"
+    ]);
+  });
+});
