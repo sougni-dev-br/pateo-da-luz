@@ -1,4 +1,4 @@
-import { CheckCircle2, ChevronDown, ChevronRight, Eye, History, RotateCcw } from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronRight, Eye, History, ListChecks, RotateCcw } from "lucide-react";
 import { useId, useState } from "react";
 import type { MembroFolhaLote, Payable } from "../../api/client";
 import { Button, IconButton, Money } from "../../design-system";
@@ -16,6 +16,8 @@ type Acoes = {
   selecionados: Set<string>;
   onAlternar: (id: string) => void;
   onAlternarGrupo: (ids: string[], marcar: boolean) => void;
+  /** Seleciona só os títulos do grupo e abre a baixa em lote. */
+  onBaixarGrupo?: (ids: string[]) => void;
   onVer: (p: Payable) => void;
   onBaixar: (p: Payable) => void;
   onEstornar: (p: Payable) => void;
@@ -46,9 +48,11 @@ export function ListaTitulos({ grupos, hoje, ...acoes }: Props) {
 
 function Grupo({ grupo, hoje, ...acoes }: Acoes & { grupo: GrupoDeTitulos; hoje: string }) {
   const id = useId();
+  const [recolhido, setRecolhido] = useState(false);
   const selecionaveis = grupo.titulos.filter(acoes.podeSelecionar).map((p) => p.id);
   const marcados = selecionaveis.filter((sid) => acoes.selecionados.has(sid)).length;
   const todos = selecionaveis.length > 0 && marcados === selecionaveis.length;
+  const podeBaixarGrupo = acoes.podeGerir && acoes.onBaixarGrupo && selecionaveis.length > 1;
 
   return (
     <section className={`pg-grupo pg-grupo--${grupo.chave}`} aria-labelledby={id}>
@@ -63,14 +67,47 @@ function Grupo({ grupo, hoje, ...acoes }: Acoes & { grupo: GrupoDeTitulos; hoje:
             aria-label={`Selecionar todos de "${grupo.rotulo}"`}
           />
         ) : <span className="pg-check-vazio" />}
-        <h3 id={id}>{grupo.rotulo}</h3>
+        <h3 id={id}>
+          <button type="button" className="pg-grupo-toggle" aria-expanded={!recolhido} onClick={() => setRecolhido((r) => !r)}>
+            {recolhido ? <ChevronRight size={15} aria-hidden="true" /> : <ChevronDown size={15} aria-hidden="true" />}
+            {grupo.rotulo}
+          </button>
+        </h3>
         <span className="pg-grupo-qtd">{grupo.titulos.length} {grupo.titulos.length === 1 ? "título" : "títulos"}</span>
+        {podeBaixarGrupo && (
+          <button
+            type="button"
+            className="pg-grupo-baixar"
+            onClick={() => acoes.onBaixarGrupo?.(selecionaveis)}
+            aria-label={`Baixar os ${selecionaveis.length} títulos de "${grupo.rotulo}"`}
+          >
+            <ListChecks size={14} aria-hidden="true" /> Baixar grupo
+          </button>
+        )}
         <strong className="pg-grupo-total pg-num"><Money value={grupo.total} /></strong>
       </header>
-      <ul className="pg-linhas">
-        {grupo.titulos.map((p) => <Linha key={p.id} titulo={p} grupo={grupo.chave} hoje={hoje} {...acoes} />)}
-      </ul>
+      {!recolhido && (
+        <ul className="pg-linhas">
+          {grupo.titulos.map((p) => <Linha key={p.id} titulo={p} grupo={grupo.chave} hoje={hoje} {...acoes} />)}
+        </ul>
+      )}
     </section>
+  );
+}
+
+const MESES = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+
+/** Vencimento como folha de calendário: o dia salta aos olhos; a data completa fica para leitores de tela. */
+function FolhaDeData({ dueDate }: { dueDate?: string | null }) {
+  const chave = dateKey(dueDate);
+  if (!chave) {
+    return <span className="pg-folha pg-folha--vazia" aria-hidden="true"><b>—</b><small>sem data</small></span>;
+  }
+  return (
+    <span className="pg-folha" aria-hidden="true">
+      <b>{Number(chave.slice(8, 10))}</b>
+      <small>{MESES[Number(chave.slice(5, 7)) - 1]}</small>
+    </span>
   );
 }
 
@@ -86,7 +123,10 @@ function Linha({ titulo: p, grupo, hoje, ...acoes }: Acoes & { titulo: Payable; 
   const [aberto, setAberto] = useState(false);
 
   return (
-    <li className={`pg-linha pg-linha--${grupo}`}>
+    <li
+      className={`pg-linha pg-linha--${grupo}`}
+      onClick={(e) => { if (!(e.target as HTMLElement).closest("button, input, a, label, .pg-lote-membros")) acoes.onVer(p); }}
+    >
       <div className="pg-c-sel">
         {acoes.podeSelecionar(p) ? (
           <input
@@ -100,7 +140,8 @@ function Linha({ titulo: p, grupo, hoje, ...acoes }: Acoes & { titulo: Payable; 
       </div>
 
       <div className="pg-c-venc">
-        <span className="pg-data">{p.dueDate ? formatDate(p.dueDate) : "Sem venc."}</span>
+        <FolhaDeData dueDate={p.dueDate} />
+        <span className="pg-data pg-sr">{p.dueDate ? formatDate(p.dueDate) : "Sem venc."}</span>
         <span className="pg-prazo">
           {pago ? `pago em ${formatDate(p.paidDate)}` : estaEmAberto(p) ? rotuloPrazo(dateKey(p.dueDate), hoje) : ""}
         </span>

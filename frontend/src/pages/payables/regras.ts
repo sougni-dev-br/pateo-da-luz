@@ -412,3 +412,46 @@ export function avisoDataDoLote(titulos: Payable[], dataUnica: string, usarVenci
     ? "1 título venceu há mais de uma semana — confira a data real do pagamento."
     : `${n} títulos venceram há mais de uma semana — confira a data real do pagamento.`;
 }
+
+/** Soma `dias` a uma chave YYYY-MM-DD, sem fuso. */
+function somarDiasChave(chave: string, dias: number): string {
+  const [y, m, d] = chave.split("-").map(Number);
+  const data = new Date(Date.UTC(y, m - 1, d + dias));
+  return data.toISOString().slice(0, 10);
+}
+
+export type DiaAgenda = { chave: string; total: number; qtd: number; fora: boolean };
+
+/**
+ * O que vence em cada um dos próximos `dias` dias (hoje incluso), só do que está em aberto e já carregado.
+ * `fora` marca o dia que o período da tela não cobre: ali o zero não quer dizer "nada vence".
+ */
+export function agendaDosProximosDias(rows: Payable[], hoje: string, dias: number, inicioCarregado: string, fimCarregado: string): DiaAgenda[] {
+  return Array.from({ length: dias }, (_, i) => {
+    const chave = somarDiasChave(hoje, i);
+    const doDia = rows.filter((p) => estaEmAberto(p) && dateKey(p.dueDate) === chave);
+    return { chave, total: somarValores(doDia), qtd: doDia.length, fora: chave < inicioCarregado || chave > fimCarregado };
+  });
+}
+
+export type FatiaAPagar = { chave: "vencido" | "ate7" | "ate30" | "depois"; rotulo: string; valor: number; pct: number };
+
+/** Quebra o total a pagar (vencido + em aberto) por urgência, para a barra do resumo. */
+export function composicaoAPagar(t: { overdue: number; open: number; next7: number; next30: number }): { total: number; fatias: FatiaAPagar[] } {
+  const total = Number((t.overdue + t.open).toFixed(2));
+  const ate7 = Math.min(t.next7, t.open);
+  const ate30 = Math.min(Math.max(0, t.next30 - t.next7), t.open - ate7);
+  const depois = Math.max(0, t.open - ate7 - ate30);
+  const base: Array<[FatiaAPagar["chave"], string, number]> = [
+    ["vencido", "Vencido", t.overdue],
+    ["ate7", "Até 7 dias", ate7],
+    ["ate30", "8 a 30 dias", ate30],
+    ["depois", "Depois ou sem data", depois]
+  ];
+  return {
+    total,
+    fatias: base.map(([chave, rotulo, valor]) => ({
+      chave, rotulo, valor: Number(valor.toFixed(2)), pct: total > 0 ? Math.round((valor / total) * 100) : 0
+    }))
+  };
+}

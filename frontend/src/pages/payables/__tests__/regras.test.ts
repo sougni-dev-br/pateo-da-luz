@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Payable } from "../../../api/client";
 import {
-  agruparPorVencimento, basePaymentName, combinaSubtipo, contarFiltrosAtivos, detalhesDoTitulo,
+  agendaDosProximosDias, composicaoAPagar, agruparPorVencimento, basePaymentName, combinaSubtipo, contarFiltrosAtivos, detalhesDoTitulo,
   diasEntre, favorecidoDoTitulo, formatInstallment, grupoDoTitulo, inferTotalInstallments,
   minDateKey, rotuloPeriodo, rotuloPrazo, seloDoTitulo, somarValores, TIPOS_FOLHA, type FiltrosPagar
 } from "../regras";
@@ -182,5 +182,54 @@ describe("rotuloPeriodo", () => {
   it("traduz o preset e cai num rótulo genérico", () => {
     expect(rotuloPeriodo("currentMonth")).toBe("Mês atual");
     expect(rotuloPeriodo("???")).toBe("Período");
+  });
+});
+
+
+describe("agendaDosProximosDias", () => {
+  const rows = [
+    titulo({ id: "a", dueDate: "2026-10-01T00:00:00.000Z", amount: "100" }),
+    titulo({ id: "b", dueDate: "2026-10-01T00:00:00.000Z", amount: "50" }),
+    titulo({ id: "c", dueDate: "2026-10-03T00:00:00.000Z", amount: "200" }),
+    titulo({ id: "pago", dueDate: "2026-10-03T00:00:00.000Z", amount: "999", status: "PAID", paidDate: "2026-10-01T00:00:00.000Z" }),
+    titulo({ id: "longe", dueDate: "2026-10-20T00:00:00.000Z", amount: "70" }),
+    titulo({ id: "vencido", dueDate: "2026-09-20T00:00:00.000Z", amount: "30", status: "OVERDUE" }),
+  ];
+
+  it("devolve um dia por posição, começando em hoje, somando só o que está em aberto", () => {
+    const agenda = agendaDosProximosDias(rows, HOJE, 5, "2026-10-01", "2026-10-31");
+    expect(agenda.map((d) => d.chave)).toEqual(["2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04", "2026-10-05"]);
+    expect(agenda.map((d) => d.total)).toEqual([150, 0, 200, 0, 0]);
+    expect(agenda.map((d) => d.qtd)).toEqual([2, 0, 1, 0, 0]);
+  });
+
+  it("marca como fora o dia que o período carregado não cobre", () => {
+    const agenda = agendaDosProximosDias(rows, HOJE, 5, "2026-10-01", "2026-10-03");
+    expect(agenda.map((d) => d.fora)).toEqual([false, false, false, true, true]);
+  });
+
+  it("atravessa a virada do mês", () => {
+    const agenda = agendaDosProximosDias([], "2026-10-30", 4, "2026-10-01", "2026-11-30");
+    expect(agenda.map((d) => d.chave)).toEqual(["2026-10-30", "2026-10-31", "2026-11-01", "2026-11-02"]);
+  });
+});
+
+describe("composicaoAPagar", () => {
+  it("divide o total em vencido, até 7 dias, até 30 dias e depois, com percentuais", () => {
+    const c = composicaoAPagar({ overdue: 100, open: 900, next7: 200, next30: 500 });
+    expect(c.total).toBe(1000);
+    expect(c.fatias.map((f) => [f.chave, f.valor])).toEqual([["vencido", 100], ["ate7", 200], ["ate30", 300], ["depois", 400]]);
+    expect(c.fatias.map((f) => f.pct)).toEqual([10, 20, 30, 40]);
+  });
+
+  it("não quebra sem nada a pagar", () => {
+    const c = composicaoAPagar({ overdue: 0, open: 0, next7: 0, next30: 0 });
+    expect(c.total).toBe(0);
+    expect(c.fatias.every((f) => f.pct === 0)).toBe(true);
+  });
+
+  it("não deixa fatia negativa quando os totais carregados se contradizem", () => {
+    const c = composicaoAPagar({ overdue: 0, open: 100, next7: 80, next30: 300 });
+    expect(c.fatias.every((f) => f.valor >= 0)).toBe(true);
   });
 });
