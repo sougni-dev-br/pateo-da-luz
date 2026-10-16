@@ -1097,6 +1097,7 @@ model Purchase {
   restoredByUserId              String?
   rawRow                        Json?
   items                         PurchaseItem[]
+  pedidoLinks                   PurchaseOrderItemLink[]
   cardStatementItems            CreditCardStatementItem[]
   installments                  PaymentInstallment[]
   billingCycleItem              SupplierBillingCycleItem?
@@ -1255,6 +1256,8 @@ model PurchaseOrderItem {
   requestedQuantity      Decimal       @db.Decimal(14, 3)
   approvedQuantity       Decimal?      @db.Decimal(14, 3)
   receivedQuantity       Decimal?      @db.Decimal(14, 3)
+  // Parte do recebido registrada à mão (Registrar recebimento), fora das notas. Recebido = manual + soma dos vínculos.
+  receivedManualQuantity Decimal?      @db.Decimal(14, 3)
   lastCountedQuantity    Decimal?      @db.Decimal(14, 3)
   estoqueMinimoSnapshot  Decimal?      @db.Decimal(14, 3)
   estoqueIdealSnapshot   Decimal?      @db.Decimal(14, 3)
@@ -1266,8 +1269,26 @@ model PurchaseOrderItem {
   createdAt              DateTime      @default(now())
   updatedAt              DateTime      @updatedAt
 
+  notaLinks              PurchaseOrderItemLink[]
+
   @@index([purchaseOrderId])
   @@index([productId])
+}
+
+// Quanto de cada item do pedido uma nota (compra) cobriu. O recebido do pedido é a soma destes vínculos,
+// ignorando notas canceladas; uma nota pode atender vários pedidos e um pedido várias notas.
+model PurchaseOrderItemLink {
+  id                  String            @id @default(cuid())
+  purchaseOrderItemId String
+  purchaseOrderItem   PurchaseOrderItem @relation(fields: [purchaseOrderItemId], references: [id], onDelete: Cascade)
+  purchaseId          String
+  purchase            Purchase          @relation(fields: [purchaseId], references: [id])
+  quantity            Decimal           @db.Decimal(14, 3)
+  createdByUserId     String?
+  createdAt           DateTime          @default(now())
+
+  @@unique([purchaseOrderItemId, purchaseId])
+  @@index([purchaseId])
 }
 
 model InventorySnapshot {

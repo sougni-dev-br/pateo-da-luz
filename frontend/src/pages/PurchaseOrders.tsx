@@ -8,7 +8,9 @@ import {
   changePurchaseOrderStatus,
   downloadPurchaseOrderCsv,
   downloadPurchaseOrderPdf,
+  getNotasDoPedido,
   getPurchaseOrder,
+  type NotaDoPedido,
   getPurchaseOrders,
   PurchaseOrder,
   receivePurchaseOrder,
@@ -71,6 +73,7 @@ export function PurchaseOrders({ user }: { user: AppUser }) {
   const [selected, setSelected] = useState<PurchaseOrder | null>(null);
   const [search, setSearch] = useState(() => (searchParams.get("search") ?? "").slice(0, 200));
   const [loading, setLoading] = useState(false);
+  const [notas, setNotas] = useState<NotaDoPedido[]>([]);
   const [detailDraft, setDetailDraft] = useState<{ expectedDeliveryDate: string; notes: string; items: Record<string, { requestedQuantity: string; receivedQuantity: string; notes: string }> }>({
     expectedDeliveryDate: "",
     notes: "",
@@ -95,8 +98,9 @@ export function PurchaseOrders({ user }: { user: AppUser }) {
 
   async function openOrder(id: string) {
     try {
-      const detail = await getPurchaseOrder(id);
+      const [detail, ligadas] = await Promise.all([getPurchaseOrder(id), getNotasDoPedido(id).catch(() => ({ items: [] as NotaDoPedido[] }))]);
       setSelected(detail);
+      setNotas(ligadas.items);
       setDetailDraft({
         expectedDeliveryDate: toInputDate(detail.expectedDeliveryDate),
         notes: detail.notes ?? "",
@@ -372,6 +376,21 @@ export function PurchaseOrders({ user }: { user: AppUser }) {
           </Table>
 
           <EnvioDoPedido order={selected} orderId={selected.id} canApprove={canApprove} canSend={canOperate} acoesDeStatus={false} onAtualizado={(pedido) => { setSelected(pedido); void load(); }} />
+
+          {notas.length > 0 && (
+            <div className="po-notas-ligadas">
+              <PanelEyebrow>Notas que atenderam este pedido</PanelEyebrow>
+              <ul>
+                {notas.map((nota) => (
+                  <li key={`${nota.purchaseId}-${nota.productName}`} className={nota.cancelada ? "po-nota-cancelada" : undefined}>
+                    <strong>{nota.purchaseNumber ?? "Compra"}</strong>
+                    {nota.invoiceNumber ? ` · NF ${nota.invoiceNumber}` : ""} · {formatDate(nota.purchaseDate)} · {nota.productName}: {formatNumber(nota.quantity)} {nota.unit ?? ""}
+                    {nota.cancelada ? " (nota cancelada, não conta)" : ""}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           <div className="action-row end">
             {selected.status === "RASCUNHO" && canOperate && <Button variant="secondary" onClick={saveDraft}>Salvar rascunho</Button>}

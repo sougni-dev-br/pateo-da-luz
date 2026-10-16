@@ -8,6 +8,7 @@ import { buildBuyerSupportReport } from "../inventory/inventory.routes.js";
 import { createPurchaseOrderPdf, type PurchaseOrderItemEntry } from "./purchase-order-pdf.js";
 import { nextPurchaseOrderCode } from "./purchase-order-code.js";
 import { requisicaoPedidoRouter } from "./purchase-order-requisicao.routes.js";
+import { notasDoPedido } from "./vinculo-nota.service.js";
 
 export const purchaseOrderRouter = Router();
 
@@ -127,6 +128,12 @@ purchaseOrderRouter.get("/", async (request, response) => {
 
 // Antes de "/:id": "from-requisition/<id>" não pode ser lido como id de pedido.
 purchaseOrderRouter.use("/from-requisition", requisicaoPedidoRouter);
+
+purchaseOrderRouter.get("/:id/notas", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "VISUALIZACAO"]);
+  if (!user) return;
+  response.json({ items: await notasDoPedido(request.params.id) });
+});
 
 purchaseOrderRouter.get("/:id", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "VISUALIZACAO"]);
@@ -488,7 +495,13 @@ purchaseOrderRouter.post("/:id/receive", async (request, response) => {
       if (!item.id || quantity == null || quantity < 0) continue;
       await tx.$executeRaw`
         UPDATE "PurchaseOrderItem"
-        SET "receivedQuantity" = ${quantity}, "updatedAt" = CURRENT_TIMESTAMP
+        SET "receivedQuantity" = ${quantity},
+            "receivedManualQuantity" = GREATEST(${quantity} - COALESCE((
+              SELECT SUM(l."quantity") FROM "PurchaseOrderItemLink" l
+              JOIN "Purchase" p ON p."id" = l."purchaseId"
+              WHERE l."purchaseOrderItemId" = "PurchaseOrderItem"."id" AND p."workflowStatus" <> 'cancelled'
+            ), 0), 0),
+            "updatedAt" = CURRENT_TIMESTAMP
         WHERE "id" = ${String(item.id)} AND "purchaseOrderId" = ${request.params.id}
       `;
     }
