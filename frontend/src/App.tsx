@@ -1,3 +1,4 @@
+import { contarContagensPendentes } from "./lib/contagensPendentes";
 import {
   BadgeDollarSign,
   BarChart3,
@@ -327,8 +328,8 @@ export function App() {
   );
   // Modulo que o usuario tentou abrir sem permissao — usado para explicar o redirecionamento.
   const [deniedSectionLabel, setDeniedSectionLabel] = useState<string | null>(null);
-  // Contagens CONCLUIDAS ainda nao convertidas em pedido/inventario — usado no badge
-  // do item "Pedidos de compra" no sidebar. Derivado do endpoint que a Inventory ja consome.
+  // Contagens CONCLUIDAS ainda nao convertidas em inventario — usado no badge
+  // do item "Contagem de Estoque" no sidebar. Derivado do endpoint que a Inventory ja consome.
   const [pendingCountSessionCount, setPendingCountSessionCount] = useState(0);
   const contentRef = useRef<HTMLElement | null>(null);
 
@@ -430,8 +431,7 @@ export function App() {
     getStockCountSessions()
       .then((rows) => {
         if (!active) return;
-        const count = rows.filter((s) => s.status === "CONCLUIDA" && !s.generatedInventoryId).length;
-        setPendingCountSessionCount(count);
+        setPendingCountSessionCount(contarContagensPendentes(rows));
       })
       .catch(() => { if (active) setPendingCountSessionCount(0); });
     return () => { active = false; };
@@ -499,7 +499,7 @@ export function App() {
     }))
   }));
   const sidebarBadges: Record<string, number> =
-    pendingCountSessionCount > 0 ? { "purchase-orders": pendingCountSessionCount } : {};
+    pendingCountSessionCount > 0 ? { "inventory-counting": pendingCountSessionCount } : {};
   const mobileDrawerGroups = withFavoritesGroup(sidebarGroups, favorites);
 
   // Topbar: breadcrumb "Pateo da Luz / <grupo atual>". Sem search nem
