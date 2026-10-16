@@ -20,7 +20,7 @@ Status: proposta (nada implementado). Dados citados vêm do banco local (805 pro
    | `DURAVEL` | utensílio, equipamento, uniforme | DESPESAS_GERAIS ou PLANEJAMENTO | não |
    | `SERVICO` | manutenção, software, publicidade | DESPESAS_GERAIS | não |
 
-   Os valores e os padrões acima são ponto de partida; **aguardam resposta do Eli** sobre utensílios (contar ou só gasto), uniformes/equipamentos (despesa ou investimento) e serviços (sair de Produtos?).
+   Os valores e os padrões acima são ponto de partida; **aguardam resposta do dono** sobre utensílios (contar ou só gasto), uniformes/equipamentos (despesa ou investimento) e serviços (sair de Produtos?).
 2. A natureza **sugere** categoria DRE e `controlsStock`, mas não os trava: o usuário pode trocar e o sistema avisa quando a combinação foge do padrão (ex.: `INSUMO` com DRE fora de CMV).
 3. `accountType` deixa de ser exibido; a coluna fica até o fim da fase 3 e depois é removida.
 4. Regras que não podem mudar: CMV continua lendo `dreGroup = 'CMV_COMPRAS'` (ver `cmv-purchase-base.service.ts`); a natureza não altera nenhum cálculo existente.
@@ -45,9 +45,9 @@ Status: proposta (nada implementado). Dados citados vêm do banco local (805 pro
 - Mobile: passos em coluna única, mesmo comportamento da compra.
 - Testes: renderização por natureza, botão Salvar bloqueado, aviso de duplicidade, edição de produto legado sem natureza.
 
-### Fase 3 — Dados existentes (com revisão do Eli, nunca automática)
+### Fase 3 — Dados existentes (com revisão do dono, nunca automática)
 - Relatório CSV de proposta de natureza por produto, derivada de DRE + categoria + `controlsStock`, com os casos ambíguos marcados.
-- Tela de revisão em lote: o Eli confirma por grupo (ex.: "40 itens de UTENSILIOS → Durável").
+- Tela de revisão em lote: o dono confirma por grupo (ex.: "40 itens de UTENSILIOS → Durável").
 - Tratar categoria `DESPESAS` (91 itens, 6 deles CMV), setor "NÃO BATER EST" (119) e itens sem setor (18).
 - Depois de tudo classificado: `nature` obrigatória e remoção de `accountType`.
 
@@ -59,4 +59,4 @@ Status: proposta (nada implementado). Dados citados vêm do banco local (805 pro
 - A árvore atual (`feat/preco-por-fornecedor`) tem alterações de outra sessão em `client.ts`, `Requisitions.tsx` e rotas de estoque; implementar em worktree novo a partir de `origin/main`.
 
 ## Ordem de entrega
-Fase 1 e Fase 2 podem sair em PRs separados (1 depende só de migration aditiva). Fase 3 só depois do Eli validar a tela nova com dados reais.
+Fase 1 e Fase 2 podem sair em PRs separados (1 depende só de migration aditiva). Fase 3 só depois do dono validar a tela nova com dados reais.

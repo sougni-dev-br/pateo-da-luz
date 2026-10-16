@@ -1,6 +1,7 @@
 ﻿import { RefreshCw, X } from "lucide-react";
 import type React from "react";
 import { DRECategoryOptions } from "../components/DRECategoryOptions";
+import { NATURE_LABELS } from "./products/natureza";
 import { useEffect, useRef, useState } from "react";
 import {
   bulkPatchSmallExpenseTypes,
@@ -148,21 +149,33 @@ function SectorsPanel({ notify }: { notify: Notify }) {
   );
 }
 
+const FORM_DE_CATEGORIA_VAZIO = { id: "", name: "", mainGroup: "", nature: "", defaultDreCategoryId: "", notes: "", isActive: true };
+
 function CategoriesPanel({ notify }: { notify: Notify }) {
   const [rows, setRows] = useState<Category[]>([]);
+  const [dreCategories, setDreCategories] = useState<DRECategory[]>([]);
   const [search, setSearch] = useState("");
-  const [form, setForm] = useState({ id: "", name: "", mainGroup: "", notes: "", isActive: true });
+  const [form, setForm] = useState(FORM_DE_CATEGORIA_VAZIO);
 
   async function load() {
     setRows(await getCategories(search));
   }
 
+  useEffect(() => {
+    // Sem permissão de DRE a lista fica vazia e o campo some: a categoria continua editável.
+    getDRECategories().then(setDreCategories).catch(() => setDreCategories([]));
+  }, []);
+
   async function submit() {
     if (!form.name.trim()) return;
     const isUpdate = Boolean(form.id);
     try {
-      await saveCategory(form);
-      setForm({ id: "", name: "", mainGroup: "", notes: "", isActive: true });
+      await saveCategory({
+        ...form,
+        nature: (form.nature || null) as Category["nature"],
+        defaultDreCategoryId: form.defaultDreCategoryId || null
+      });
+      setForm(FORM_DE_CATEGORIA_VAZIO);
       await load();
       notify("success", isUpdate ? "Cadastro atualizado com sucesso." : "Cadastro criado com sucesso.");
     } catch {
@@ -184,21 +197,41 @@ function CategoriesPanel({ notify }: { notify: Notify }) {
         <div className="form-grid">
           <Text label="Nome" value={form.name} onChange={(name) => setForm({ ...form, name })} />
           <Text label="Grupo principal" value={form.mainGroup} onChange={(mainGroup) => setForm({ ...form, mainGroup })} />
+          <label>
+            Natureza dos itens
+            <select value={form.nature} onChange={(event) => setForm({ ...form, nature: event.target.value })}>
+              <option value="">Ainda não definida</option>
+              {(Object.keys(NATURE_LABELS) as Array<keyof typeof NATURE_LABELS>).map((valor) => (
+                <option key={valor} value={valor}>{NATURE_LABELS[valor]}</option>
+              ))}
+            </select>
+          </label>
+          {dreCategories.length > 0 && (
+            <label>
+              Categoria DRE usual
+              <select value={form.defaultDreCategoryId} onChange={(event) => setForm({ ...form, defaultDreCategoryId: event.target.value })}>
+                <option value="">Nenhuma</option>
+                <DRECategoryOptions categories={dreCategories} />
+              </select>
+            </label>
+          )}
           <Text label="Observacoes" value={form.notes} onChange={(notes) => setForm({ ...form, notes })} />
           <Active checked={form.isActive} onChange={(isActive) => setForm({ ...form, isActive })} />
           <button className="primary-button" type="button" onClick={submit}>{form.id ? "Salvar" : "Cadastrar"}</button>
         </div>
       }
       table={
-        <Table headers={["Status", "Nome", "Grupo", "Observacoes", "Acoes"]}>
+        <Table headers={["Status", "Nome", "Natureza", "DRE usual", "Grupo", "Observacoes", "Acoes"]}>
           {rows.map((row) => (
             <DsTable.Row key={row.id}>
               <DsTable.Td>{row.isActive ? "Ativo" : "Inativo"}</DsTable.Td>
               <DsTable.Td>{row.name}</DsTable.Td>
+              <DsTable.Td>{row.nature ? NATURE_LABELS[row.nature] : <span className="cell-pendente">não definida</span>}</DsTable.Td>
+              <DsTable.Td>{dreCategories.find((dre) => dre.id === row.defaultDreCategoryId)?.name ?? "-"}</DsTable.Td>
               <DsTable.Td>{row.mainGroup ?? "-"}</DsTable.Td>
               <DsTable.Td>{row.notes ?? "-"}</DsTable.Td>
               <DsTable.Td actions>
-                <button type="button" onClick={() => setForm({ id: row.id, name: row.name, mainGroup: row.mainGroup ?? "", notes: row.notes ?? "", isActive: row.isActive })}>Editar</button>
+                <button type="button" onClick={() => setForm({ id: row.id, name: row.name, mainGroup: row.mainGroup ?? "", nature: row.nature ?? "", defaultDreCategoryId: row.defaultDreCategoryId ?? "", notes: row.notes ?? "", isActive: row.isActive })}>Editar</button>
                 <button type="button" onClick={async () => { try { await setCategoryStatus(row.id, !row.isActive); await load(); notify("success", row.isActive ? "Cadastro inativado com sucesso." : "Cadastro reativado com sucesso."); } catch { notify("error", "Erro ao salvar."); } }}>{row.isActive ? "Inativar" : "Reativar"}</button>
               </DsTable.Td>
             </DsTable.Row>

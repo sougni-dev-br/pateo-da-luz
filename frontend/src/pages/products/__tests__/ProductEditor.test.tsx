@@ -130,6 +130,28 @@ describe("ProductEditor", () => {
     expect(corpo.categoryName).toBe("INSUMOS");
   });
 
+  test("a categoria DRE usual cadastrada na categoria é a sugerida; categorias da natureza vêm primeiro", async () => {
+    getProductFormOptions.mockResolvedValue({
+      ...opcoes,
+      categories: [
+        { id: "c9", name: "UTENSILIOS FICTICIOS", nature: "DURAVEL", defaultDreCategoryId: "d2", isActive: true },
+        { id: "c1", name: "INSUMOS", nature: "INSUMO", defaultDreCategoryId: null, isActive: true }
+      ]
+    });
+    montar();
+    fireEvent.click(await screen.findByRole("radio", { name: /Utensílio/ }));
+    fireEvent.click(continuar());
+    await screen.findByPlaceholderText("Como a equipe chama o item");
+
+    const grupo = screen.getByRole("group", { name: /Categorias de utensílio/i });
+    expect(grupo.textContent).toContain("UTENSILIOS FICTICIOS");
+    expect(grupo.textContent).not.toContain("INSUMOS");
+
+    fireEvent.change(screen.getByLabelText("Categoria"), { target: { value: "c9" } });
+    fireEvent.click(continuar());
+    expect((await screen.findByLabelText(/Categoria DRE/) as HTMLSelectElement).value).toBe("d2");
+  });
+
   test("avisa quando já existe item de nome parecido", async () => {
     getSimilarProducts.mockResolvedValue({ items: [{ id: "x", name: "FARINHA TRIGO 5KG", externalCode: "381", unit: "UN", score: 2 }] });
     montar();

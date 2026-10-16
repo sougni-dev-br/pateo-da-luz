@@ -391,18 +391,25 @@ model AuditLog {
 }
 
 model Category {
-  id            String        @id @default(cuid())
-  name          String
-  mainGroup     String?
-  isActive      Boolean       @default(true)
-  notes         String?
-  subcategories Subcategory[]
-  products      Product[]
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  id                   String         @id @default(cuid())
+  name                 String
+  mainGroup            String?
+  /// Natureza dos itens desta categoria: a categoria pertence a uma natureza so (nullable ate a limpeza dos dados).
+  nature               ProductNature?
+  /// Categoria DRE usual dos itens da categoria; sugere, nao obriga.
+  defaultDreCategoryId String?
+  defaultDreCategory   DRECategory?   @relation("CategoryDefaultDre", fields: [defaultDreCategoryId], references: [id])
+  isActive             Boolean        @default(true)
+  notes                String?
+  subcategories        Subcategory[]
+  products             Product[]
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
 
   @@unique([name])
   @@index([mainGroup])
+  @@index([nature])
+  @@index([defaultDreCategoryId])
   @@index([isActive])
 }
 
@@ -1979,18 +1986,19 @@ model BuffetMenuCard {
 }
 
 model DRECategory {
-  id                String             @id @default(cuid())
-  name              String             @unique
-  dreGroup          String             @default("DESPESAS_OPERACIONAIS")
-  sortOrder         Int                @default(0)
-  isActive          Boolean            @default(true)
-  notes             String?
-  smallExpenseTypes SmallExpenseType[]
-  products          Product[]
-  taxPayments       TaxPayment[]
-  payrollItems      PayrollItem[]
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
+  id                   String             @id @default(cuid())
+  name                 String             @unique
+  dreGroup             String             @default("DESPESAS_OPERACIONAIS")
+  sortOrder            Int                @default(0)
+  isActive             Boolean            @default(true)
+  notes                String?
+  smallExpenseTypes    SmallExpenseType[]
+  products             Product[]
+  defaultForCategories Category[]         @relation("CategoryDefaultDre")
+  taxPayments          TaxPayment[]
+  payrollItems         PayrollItem[]
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
 
   @@index([dreGroup])
   @@index([sortOrder])
