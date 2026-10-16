@@ -42,13 +42,15 @@ const statusLabels: Record<string, string> = {
   ENVIADO: "Enviado",
   RECEBIDO_PARCIAL: "Recebido parcial",
   RECEBIDO: "Recebido",
-  CANCELADO: "Cancelado"
+  CANCELADO: "Cancelado",
+  ENCERRADO_LEGADO: "Encerrado (legado)"
 };
 
 function statusTone(status: string) {
   if (status === "APROVADO" || status === "RECEBIDO") return "success" as const;
   if (status === "EM_REVISAO" || status === "ENVIADO" || status === "RECEBIDO_PARCIAL") return "info" as const;
   if (status === "CANCELADO") return "danger" as const;
+  if (status === "ENCERRADO_LEGADO") return "neutral" as const;
   return "warning" as const;
 }
 
@@ -204,6 +206,7 @@ export function PurchaseOrders({ user }: { user: AppUser }) {
             <SummaryCard label="Enviados" value={summary.ENVIADO ?? 0} />
             <SummaryCard label="Recebidos" value={(summary.RECEBIDO ?? 0) + (summary.RECEBIDO_PARCIAL ?? 0)} tone="success" />
             <SummaryCard label="Cancelados" value={summary.CANCELADO ?? 0} tone="danger" />
+            <SummaryCard label="Encerrados (legado)" value={summary.ENCERRADO_LEGADO ?? 0} />
           </div>
         </div>
         <div className="kpi-block">
@@ -398,7 +401,7 @@ export function PurchaseOrders({ user }: { user: AppUser }) {
             {selected.status === "EM_REVISAO" && canApprove && <Button leadingIcon={<CheckCircle2 size={16} />} onClick={() => runStatus("APPROVE")}>Aprovar</Button>}
             {selected.status === "APROVADO" && canOperate && <Button leadingIcon={<Send size={16} />} onClick={() => runStatus("MARK_SENT")}>Marcar enviado</Button>}
             {["ENVIADO", "RECEBIDO_PARCIAL"].includes(selected.status) && canOperate && <Button leadingIcon={<PackageCheck size={16} />} onClick={receive}>Registrar recebimento</Button>}
-            {!["RECEBIDO", "CANCELADO"].includes(selected.status) && canOperate && <Button variant="danger" leadingIcon={<XCircle size={16} />} onClick={cancel}>Cancelar</Button>}
+            {!["RECEBIDO", "CANCELADO", "ENCERRADO_LEGADO"].includes(selected.status) && canOperate && <Button variant="danger" leadingIcon={<XCircle size={16} />} onClick={cancel}>Cancelar</Button>}
             <Button variant="secondary" onClick={refreshSelected}>Recarregar</Button>
           </div>
         </section>
