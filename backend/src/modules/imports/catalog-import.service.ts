@@ -22,7 +22,7 @@ import {
 import { readWorkbookSheetNames, readWorksheetRows } from "./excel-reader.service.js";
 import { normalizeInventorySectorInput } from "../master-data/inventory-sector-utils.js";
 import { normalizeProductCode } from "../../shared/utils/product-code.js";
-import { padraoDeProdutoNovo, planilhaPodeReclassificar } from "../products/product-defaults.js";
+import { estruturaDeProdutoNovo, padraoDeProdutoNovo, planilhaPodeReclassificar } from "../products/product-defaults.js";
 import type { ProductNatureValue } from "../products/product-nature.js";
 
 type CatalogKind = "suppliers" | "products";
@@ -1210,9 +1210,15 @@ export async function confirmProductCatalogImport(
         // Produto novo herda natureza, DRE usual e estoque da categoria (quando ela os tem). Produto que
         // já foi organizado não é reclassificado pela planilha: ela ainda traz INSUMOS/DESPESAS e
         // desfaria a reorganização.
-        const padrao = padraoDeProdutoNovo(category);
+        const estrutura = existing
+          ? null
+          : await estruturaDeProdutoNovo(tx, { descricao: row.description, categoryId: category?.id });
+        const padrao = estrutura?.padrao ?? padraoDeProdutoNovo(category);
         const criar = {
           ...data,
+          ...(estrutura?.reclassificada
+            ? { categoryId: estrutura.categoryId ?? undefined, subcategoryId: undefined }
+            : {}),
           nature: padrao.nature,
           dreCategoryId: padrao.dreCategoryId,
           ...(padrao.controlsStock === null ? {} : { controlsStock: padrao.controlsStock })
