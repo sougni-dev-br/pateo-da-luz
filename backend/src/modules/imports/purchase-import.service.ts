@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { recalcularPedidos } from "../purchase-orders/vinculo-nota.service.js";
 import path from "node:path";
 import { Prisma } from "@prisma/client";
 import type { ExpenseType, PaymentRegime } from "@prisma/client";
@@ -1330,6 +1331,13 @@ export async function deleteImportBatch(importBatchId: string, options?: { userI
   });
 
   await prisma.$transaction(async (tx) => {
+    // Nota ligada a pedido de compra: desfaz o vínculo e devolve ao pedido o que ela tinha coberto.
+    const pedidosLigados = await tx.purchaseOrderItemLink.findMany({
+      where: { purchaseId: { in: purchaseIds } },
+      select: { purchaseOrderItem: { select: { purchaseOrderId: true } } }
+    });
+    await tx.purchaseOrderItemLink.deleteMany({ where: { purchaseId: { in: purchaseIds } } });
+    await recalcularPedidos(tx, pedidosLigados.map((l) => l.purchaseOrderItem.purchaseOrderId));
     await tx.paymentInstallment.deleteMany({ where: { purchaseId: { in: purchaseIds } } });
     await tx.purchaseItem.deleteMany({ where: { purchaseId: { in: purchaseIds } } });
     await tx.purchase.deleteMany({ where: { id: { in: purchaseIds } } });

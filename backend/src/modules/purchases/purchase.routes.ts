@@ -26,6 +26,8 @@ import { removeCardStatementItemsForPurchase, syncCardStatementItemForPurchase, 
 import { addPurchaseToCycle, findOrCreateOpenCycle, updatePurchaseInCycle } from "../suppliers/supplier-billing-cycle.service.js";
 import { REIMBURSEMENT_PAYMENT_TYPE, REIMBURSEMENT_SOURCE, ReimbursementError, ehCategoriaFuncionario } from "../reimbursements/reimbursement-rules.js";
 import { fornecedorDoFuncionario, reabrirReembolsoDoAgregador, retirarCompraCancelada, sincronizarCompraNoReembolso, validarQuemPagou } from "../reimbursements/reimbursement.service.js";
+import { vinculoPedidoRouter } from "./purchase-vinculo-pedido.routes.js";
+import { recalcularPedidosDaCompra } from "../purchase-orders/vinculo-nota.service.js";
 import { OFFICIAL_SMALL_EXPENSE_NORMALIZED_TYPES } from "../master-data/small-expense-type-options.js";
 import {
   buildReferenceLabel,
@@ -1455,6 +1457,9 @@ purchaseRouter.get("/duplicate-check", async (request, response) => {
     cancelledPurchase: result.cancelledDuplicate ? duplicatePurchaseResponse(result.cancelledDuplicate) : null
   });
 });
+
+// Antes de "/:id": "pedidos-em-aberto" nao pode ser lido como id de compra.
+purchaseRouter.use(vinculoPedidoRouter);
 
 purchaseRouter.get("/:id", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "VISUALIZACAO"]);
@@ -2992,6 +2997,10 @@ purchaseRouter.patch("/:id/cancel", async (request, response) => {
     ipAddress: requestIp(request),
     userAgent: String(request.headers["user-agent"] ?? "")
   });
+  // A nota cancelada deixa de contar como recebido nos pedidos; falha aqui nao desfaz o cancelamento.
+  await recalcularPedidosDaCompra(request.params.id).catch((error: unknown) => {
+    console.error("[pedido-vinculo] recalculo apos %s falhou", "cancelar", error);
+  });
   response.json({ id: request.params.id, status: "CANCELLED", installmentsCancelled, installmentsPaidKept, paidAmountKept, cyclesReopened, reimbursementsReopened, warning });
 });
 
@@ -3105,6 +3114,10 @@ purchaseRouter.patch("/:id/restore", async (request, response) => {
     newValue: { status: "ACTIVE", installmentsReopened },
     ipAddress: requestIp(request),
     userAgent: String(request.headers["user-agent"] ?? "")
+  });
+  // A nota cancelada deixa de contar como recebido nos pedidos; falha aqui nao desfaz o cancelamento.
+  await recalcularPedidosDaCompra(request.params.id).catch((error: unknown) => {
+    console.error("[pedido-vinculo] recalculo apos %s falhou", "restaurar", error);
   });
   response.json({ id: request.params.id, status: "ACTIVE", installmentsReopened });
 });

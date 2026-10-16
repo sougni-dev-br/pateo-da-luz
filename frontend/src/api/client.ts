@@ -1,3 +1,4 @@
+import type { ItemEmAberto } from "../lib/vinculoPedido";
 export const API_BASE_URL = import.meta.env.VITE_API_URL ?? "/api";
 export const BACKEND_TARGET_URL = import.meta.env.VITE_BACKEND_TARGET_URL ?? "http://127.0.0.1:3334";
 const FALLBACK_BACKEND_URL = BACKEND_TARGET_URL;
@@ -3197,6 +3198,32 @@ export function cancelPurchase(id: string, reason: string) {
 export function restorePurchase(id: string) {
   return request<{ id: string; status: string }>(`/purchases/${id}/restore`, {
     method: "PATCH"
+  });
+}
+
+export type PedidoDaNota = { orderId: string; orderCode: string; orderStatus: string; productName: string; unit: string | null; quantity: number };
+
+export function getPedidosEmAbertoParaNota(filters: { supplierId: string; produtos: Array<{ productId: string; unit: string }>; purchaseId?: string | null }) {
+  // idDoProduto~UN: a unidade em que a nota traz o produto, para o servidor marcar o que não dá para comparar.
+  const query = toQueryString({ supplierId: filters.supplierId, produtos: filters.produtos.map((p) => `${p.productId}~${p.unit}`).join(","), purchaseId: filters.purchaseId ?? undefined });
+  return request<{ items: ItemEmAberto[] }>(`/purchases/pedidos-em-aberto${query}`);
+}
+
+export type NotaDoPedido = { purchaseId: string; purchaseNumber: string | null; invoiceNumber: string | null; purchaseDate: string; cancelada: boolean; productName: string; unit: string | null; quantity: number };
+
+export function getNotasDoPedido(orderId: string) {
+  return request<{ items: NotaDoPedido[] }>(`/purchase-orders/${orderId}/notas`);
+}
+
+export function getPedidosDaCompra(purchaseId: string) {
+  return request<{ items: PedidoDaNota[] }>(`/purchases/${purchaseId}/pedidos`);
+}
+
+export function salvarPedidosDaCompra(purchaseId: string, links: Array<{ purchaseOrderItemId: string; quantity: number }>) {
+  return request<{ items: PedidoDaNota[]; pedidosAtualizados: Array<{ code: string; de: string; para: string; promovidoSemEnvio: boolean }> }>(`/purchases/${purchaseId}/pedidos`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ links })
   });
 }
 
