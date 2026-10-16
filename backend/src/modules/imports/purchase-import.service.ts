@@ -30,6 +30,7 @@ import {
 import { recordPurchaseInventoryEntry } from "../inventory/inventory.routes.js";
 import { auditLog } from "../security/security-utils.js";
 import { addPurchaseToCycle, findOrCreateOpenCycle } from "../suppliers/supplier-billing-cycle.service.js";
+import { padraoDeProdutoNovo } from "../products/product-defaults.js";
 
 const requiredPurchaseFields = [
   "purchaseDate",
@@ -475,6 +476,11 @@ async function findOrCreateProduct(
   }
 
   counters.productsCreated += 1;
+  // Produto novo nasce dentro da estrutura: natureza, DRE usual e estoque vêm da categoria.
+  const categoria = categoryId
+    ? await tx.category.findUnique({ where: { id: categoryId }, select: { nature: true, defaultDreCategoryId: true } })
+    : null;
+  const padrao = padraoDeProdutoNovo(categoria);
   return tx.product.create({
     data: {
       externalCode: row.productCode,
@@ -484,6 +490,9 @@ async function findOrCreateProduct(
       unitMeasureId,
       categoryId,
       subcategoryId,
+      nature: padrao.nature,
+      dreCategoryId: padrao.dreCategoryId,
+      ...(padrao.controlsStock === null ? {} : { controlsStock: padrao.controlsStock }),
       aliases: {
         create: {
           alias: row.productDescription,

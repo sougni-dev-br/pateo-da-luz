@@ -22,6 +22,8 @@ import {
 import { readWorkbookSheetNames, readWorksheetRows } from "./excel-reader.service.js";
 import { normalizeInventorySectorInput } from "../master-data/inventory-sector-utils.js";
 import { normalizeProductCode } from "../../shared/utils/product-code.js";
+import { padraoDeProdutoNovo, planilhaPodeReclassificar } from "../products/product-defaults.js";
+import type { ProductNatureValue } from "../products/product-nature.js";
 
 type CatalogKind = "suppliers" | "products";
 
@@ -69,7 +71,7 @@ type ProductCatalogCaches = {
   productsByName: Map<string, Product>;
   productsById: Map<string, Product>;
   productIdByAlias: Map<string, string>;
-  categoriesByName: Map<string, { id: string; name: string }>;
+  categoriesByName: Map<string, { id: string; name: string; nature: ProductNatureValue | null; defaultDreCategoryId: string | null }>;
   subcategoriesByKey: Map<string, { id: string; name: string; categoryId: string }>;
   unitsByCode: Map<string, { id: string; code: string }>;
   sectorsByName: Map<string, { id: string; name: string; normalizedName: string }>;
@@ -1205,10 +1207,27 @@ export async function confirmProductCatalogImport(
           isActive: true
         };
 
+        // Produto novo herda natureza, DRE usual e estoque da categoria (quando ela os tem). Produto que
+        // já foi organizado não é reclassificado pela planilha: ela ainda traz INSUMOS/DESPESAS e
+        // desfaria a reorganização.
+        const padrao = padraoDeProdutoNovo(category);
+        const criar = {
+          ...data,
+          nature: padrao.nature,
+          dreCategoryId: padrao.dreCategoryId,
+          ...(padrao.controlsStock === null ? {} : { controlsStock: padrao.controlsStock })
+        };
+        const atualizar = planilhaPodeReclassificar(existing)
+          ? data
+          : {
+              externalCode,
+              name: row.description,
+              normalizedName: data.normalizedName
+            };
         const upserted = await tx.product.upsert({
           where: { externalCode },
-          create: data,
-          update: data
+          create: criar,
+          update: atualizar
         });
         await updateProductStorageFields(tx, upserted.id, row);
         await tx.productAlias
