@@ -52,9 +52,9 @@ export type PessoaFerias = {
 
 // Folgas das últimas semanas, para descobrir o dia de repouso de cada pessoa.
 const desde = (hoje: string) => paraData(somarDias(hoje, -7 * SEMANAS_DE_ESCALA_LIDAS));
-const selectPessoa = (hoje: string) => ({
+const selectPessoa = (hoje: string, comEscala = true) => ({
   ...SELECT_PESSOA,
-  scheduleDays: { where: { type: "FOLGA" as const, date: { gte: desde(hoje), lte: paraData(hoje) } }, select: { date: true } },
+  ...(comEscala ? { scheduleDays: { where: { type: "FOLGA" as const, date: { gte: desde(hoje), lte: paraData(hoje) } }, select: { date: true } } } : {}),
 });
 
 const SELECT_PESSOA = {
@@ -101,8 +101,12 @@ export function montarPessoa(e: LinhaPessoa, hoje: string): PessoaFerias {
 
 const PESSOAS_ATIVAS_CLT = { deletedAt: null, isActive: true, terminationDate: null, modality: "CLT" as const };
 
-export async function carregarFerias(hoje = hojeEmSaoPaulo()): Promise<PessoaFerias[]> {
-  const linhas = await prisma.employee.findMany({ where: PESSOAS_ATIVAS_CLT, select: selectPessoa(hoje), orderBy: { firstName: "asc" } });
+/**
+ * `comEscala: false` pula a leitura das folgas (só serve para o dia de repouso): quem só conta alertas,
+ * como o Dashboard, não precisa dela.
+ */
+export async function carregarFerias(hoje = hojeEmSaoPaulo(), { comEscala = true } = {}): Promise<PessoaFerias[]> {
+  const linhas = await prisma.employee.findMany({ where: PESSOAS_ATIVAS_CLT, select: selectPessoa(hoje, comEscala), orderBy: { firstName: "asc" } });
   return linhas.map((e) => montarPessoa(e, hoje));
 }
 

@@ -21,7 +21,7 @@ vi.mock("../extras-comum.js", () => ({ hojeEmSaoPaulo: () => "2026-10-15" }));
 
 import { prisma } from "../../../config/database.js";
 import { auditLog, getSessionUser } from "../../security/security-utils.js";
-import { contarAlertas, feriasRouter, montarPessoa } from "../ferias.routes.js";
+import { carregarFerias, contarAlertas, feriasRouter, montarPessoa } from "../ferias.routes.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = prisma as any;
@@ -313,5 +313,16 @@ describe("repouso lido da escala", () => {
     const r = await request(app).get("/payroll/ferias");
     expect(r.body.pessoas[0]).toMatchObject({ repousoSemanal: [2], repousoPelaEscala: true });
     expect(r.body.pessoas[1]).toMatchObject({ repousoSemanal: [0], repousoPelaEscala: false });
+  });
+});
+
+describe("carregarFerias sem a escala (Dashboard)", () => {
+  test("só lê as folgas quando a escala é pedida", async () => {
+    await carregarFerias("2026-10-15");
+    expect(db.employee.findMany.mock.calls[0][0].select.scheduleDays).toBeDefined();
+    db.employee.findMany.mockClear();
+    const pessoas = await carregarFerias("2026-10-15", { comEscala: false });
+    expect(db.employee.findMany.mock.calls[0][0].select.scheduleDays).toBeUndefined();
+    expect(pessoas[0].repousoSemanal).toEqual([0]); // sem escala, o repouso é o padrão
   });
 });
