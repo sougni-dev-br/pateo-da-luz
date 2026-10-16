@@ -264,3 +264,54 @@ describe("PATCH e DELETE /payroll/ferias/:id", () => {
     expect(auditLog).toHaveBeenCalledWith(expect.objectContaining({ action: "CANCEL_VACATION" }));
   });
 });
+
+describe("dias vedados para começar as férias", () => {
+  const base = { employeeId: "e1", aquisitivoInicio: "2025-03-01", dias: 30 };
+
+  test("recusa início em sábado, domingo, feriado e nos 2 dias antes de feriado", async () => {
+    for (const gozoInicio of ["2026-12-05", "2026-12-06", "2026-11-20", "2026-12-23"]) {
+      const r = await request(app).post("/payroll/ferias").send({ ...base, gozoInicio });
+      expect(r.status, gozoInicio).toBe(400);
+      expect(r.body.message).toMatch(/não podem começar em/);
+    }
+    expect(db.feriasProgramacao.create).not.toHaveBeenCalled();
+  });
+
+  test("aceita segunda-feira comum", async () => {
+    const r = await request(app).post("/payroll/ferias").send({ ...base, gozoInicio: "2026-12-07" });
+    expect(r.status).toBe(201);
+  });
+
+  test("férias já gozadas (histórico) não passam pela regra", async () => {
+    const r = await request(app).post("/payroll/ferias").send({ ...base, gozoInicio: "2026-08-08", dias: 30, status: "GOZADA" });
+    expect(r.status).toBe(201);
+  });
+
+  test("a lista traz os feriados e o setor de cada pessoa", async () => {
+    db.employee.findMany.mockResolvedValue([eliana({ sector: "Cozinha" })]);
+    const r = await request(app).get("/payroll/ferias");
+    expect(r.body.pessoas[0].setor).toBe("Cozinha");
+    expect(r.body.feriados["2026-12-25"]).toBe("Natal");
+  });
+});
+
+describe("repouso lido da escala", () => {
+  const tercas = ["2026-09-01", "2026-09-08", "2026-09-15", "2026-09-22", "2026-09-29"].map(d);
+  const base = { employeeId: "e1", aquisitivoInicio: "2025-03-01", dias: 30 };
+
+  test("quem folga às terças pode começar no sábado, mas não na segunda", async () => {
+    db.employee.findFirst.mockResolvedValue(eliana({ scheduleDays: tercas.map((date) => ({ date })) }));
+    const ok = await request(app).post("/payroll/ferias").send({ ...base, gozoInicio: "2026-12-05" }); // sábado
+    expect(ok.status).toBe(201);
+    const nao = await request(app).post("/payroll/ferias").send({ ...base, gozoInicio: "2026-12-07" }); // segunda: 1 dia antes do repouso
+    expect(nao.status).toBe(400);
+    expect(nao.body.message).toMatch(/repouso semanal/);
+  });
+
+  test("a lista informa o repouso e se veio da escala", async () => {
+    db.employee.findMany.mockResolvedValue([eliana({ scheduleDays: tercas.map((date) => ({ date })) }), eliana({ id: "e3" })]);
+    const r = await request(app).get("/payroll/ferias");
+    expect(r.body.pessoas[0]).toMatchObject({ repousoSemanal: [2], repousoPelaEscala: true });
+    expect(r.body.pessoas[1]).toMatchObject({ repousoSemanal: [0], repousoPelaEscala: false });
+  });
+});

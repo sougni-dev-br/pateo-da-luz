@@ -1,0 +1,216 @@
+/* ═══════════════════════════════════════════════════════════════════
+   RH → Férias → Linha do tempo — prefixo fe-tl-. Só tokens (sem hex soltos).
+   Cada dia tem a mesma largura (--larg / dias): data e posição andam juntas.
+═══════════════════════════════════════════════════════════════════ */
+
+.fe-tl-conjunto { display: grid; gap: 10px; min-width: 0; }
+
+/* ── Ferramentas, legenda e dica ───────────────────────────────────── */
+.fe-tl-barra-ferramentas { display: flex; justify-content: space-between; align-items: center; gap: 10px 16px; flex-wrap: wrap; }
+.fe-tl-controles { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.fe-tl-zoom { display: inline-flex; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); overflow: hidden; }
+.fe-tl-zoom button {
+  padding: 5px 11px; border: 0; background: var(--paper); color: var(--ink); font: inherit; font-size: var(--fs-xs); cursor: pointer;
+  transition: background var(--dur-fast) var(--ease);
+}
+.fe-tl-zoom button + button { border-left: 1px solid var(--line-strong); }
+.fe-tl-zoom button:hover { background: var(--row-hover); }
+.fe-tl-zoom button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+.fe-tl-dica { margin: 0; display: flex; align-items: center; gap: 6px; font-size: var(--fs-xs); color: var(--muted); }
+.fe-tl-dica svg { color: var(--gold-dark); flex: none; }
+
+.fe-tl-legenda { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: var(--fs-xs); color: var(--ink-soft); }
+.fe-tl-legenda li { display: inline-flex; align-items: center; gap: 6px; }
+.fe-tl-amostra { width: 18px; height: 10px; border-radius: 3px; display: inline-block; border: 1px solid transparent; }
+
+/* Cores compartilhadas entre legenda, faixas e barras. */
+.fe-tl-amostra--seguro, .fe-tl-zona--seguro { background: color-mix(in srgb, var(--tint-success-border) 62%, var(--paper)); }
+.fe-tl-amostra--atencao, .fe-tl-zona--atencao { background: color-mix(in srgb, var(--tint-warning-border) 88%, var(--paper)); }
+.fe-tl-amostra--urgente, .fe-tl-zona--urgente { background: color-mix(in srgb, var(--danger) 42%, var(--paper)); }
+.fe-tl-amostra--estouro, .fe-tl-zona--estouro {
+  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--danger) 60%, var(--paper)) 0 3px, color-mix(in srgb, var(--danger) 20%, var(--paper)) 3px 7px);
+}
+.fe-tl-zona--neutro { background: var(--paper-soft); }
+.fe-tl-amostra--programada { background: var(--info); }
+.fe-tl-amostra--gozada { background: var(--success); }
+.fe-tl-amostra--vedado { height: 4px; background: var(--danger); opacity: 0.6; }
+.fe-tl-amostra--sugestao { border: 1.5px dashed var(--gold-dark); background: color-mix(in srgb, var(--gold) 22%, transparent); }
+
+/* ── Quadro rolável ────────────────────────────────────────────────── */
+.fe-tl {
+  --nome: 208px;
+  --altura: 54px;
+  position: relative; overflow: auto; max-height: min(74vh, 780px);
+  border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--paper);
+  overscroll-behavior: contain;
+}
+.fe-tl-quadro { width: calc(var(--nome) + var(--larg)); position: relative; }
+
+.fe-tl-cab, .fe-tl-cob, .fe-tl-linha { display: grid; grid-template-columns: var(--nome) var(--larg); }
+.fe-tl-canto { position: sticky; left: 0; z-index: 6; background: var(--paper); border-right: 1px solid var(--line); }
+
+/* Cabeçalho: meses (fica no topo ao rolar para baixo) */
+.fe-tl-cab { position: sticky; top: 0; z-index: 8; background: var(--paper); border-bottom: 1px solid var(--line-strong); }
+.fe-tl-meses { position: relative; height: 42px; }
+.fe-tl-mes { position: absolute; top: 0; bottom: 0; display: flex; align-items: flex-end; padding: 0 0 6px 6px; border-left: 1px solid var(--line); font-size: var(--fs-xs); color: var(--ink-soft); overflow: hidden; white-space: nowrap; }
+.fe-tl-mes span { display: inline-flex; align-items: baseline; gap: 5px; text-transform: uppercase; letter-spacing: var(--ls-eyebrow); font-size: var(--fs-2xs); font-weight: var(--fw-semibold); }
+.fe-tl-mes b { font-weight: var(--fw-semibold); color: var(--gold-dark); }
+.fe-tl-mes--ano { border-left: 2px solid var(--gold); }
+.fe-tl-hoje-rotulo {
+  position: absolute; top: 4px; transform: translateX(-50%); padding: 1px 7px; border-radius: var(--radius-pill);
+  background: var(--ink); color: var(--paper); font-size: var(--fs-2xs); letter-spacing: var(--ls-eyebrow); text-transform: uppercase;
+}
+
+/* Faixa "Quem está fora" (mapa de calor) */
+.fe-tl-cob { position: sticky; top: 42px; z-index: 7; background: var(--paper-soft); border-bottom: 1px solid var(--line); }
+.fe-tl-canto--cob { display: grid; align-content: center; gap: 1px; padding: 6px 12px; background: var(--paper-soft); font-size: var(--fs-xs); }
+.fe-tl-faixa { position: relative; height: 40px; cursor: crosshair; }
+.fe-tl-calor {
+  position: absolute; top: 8px; bottom: 8px; display: grid; place-items: center; font-style: normal;
+  font-size: var(--fs-2xs); font-weight: var(--fw-semibold); font-variant-numeric: tabular-nums; border-radius: 3px; color: var(--ink);
+}
+.fe-tl-calor--1 { background: color-mix(in srgb, var(--gold) 32%, var(--paper)); }
+.fe-tl-calor--2 { background: color-mix(in srgb, var(--gold) 70%, var(--paper)); }
+.fe-tl-calor--3 { background: var(--gold-dark); color: var(--paper); }
+.fe-tl-calor--4 { background: var(--danger); color: var(--paper); }
+.fe-tl-dica-dia {
+  position: absolute; top: 36px; z-index: 12; display: grid; gap: 1px; min-width: 150px; padding: 8px 10px;
+  border-radius: var(--radius-md); background: var(--ink); color: var(--paper); box-shadow: var(--shadow); pointer-events: none;
+  font-size: var(--fs-xs);
+}
+.fe-tl-dica-dia span { color: var(--gold-soft); }
+.fe-tl-dica-dia em { font-style: normal; }
+
+/* Grade vertical (meses e hoje) por trás das linhas */
+.fe-tl-corpo { position: relative; }
+.fe-tl-grade { position: absolute; top: 0; bottom: 0; left: var(--nome); width: var(--larg); pointer-events: none; z-index: 1; }
+.fe-tl-grade i { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--line); }
+.fe-tl-grade .fe-tl-grade--ano { width: 2px; background: color-mix(in srgb, var(--gold) 45%, var(--paper)); }
+.fe-tl-grade .fe-tl-hoje { width: 2px; background: var(--ink); z-index: 3; opacity: 0.85; }
+
+/* ── Linhas ────────────────────────────────────────────────────────── */
+.fe-tl-lista { list-style: none; margin: 0; padding: 0; position: relative; z-index: 2; }
+.fe-tl-lista > li { border-bottom: 1px solid var(--line); }
+.fe-tl-linha { min-height: var(--altura); }
+.fe-tl-nome {
+  position: sticky; left: 0; z-index: 5; display: grid; align-content: center; justify-items: start; gap: 1px;
+  padding: 6px 10px 6px 12px; background: var(--paper); border-right: 1px solid var(--line); min-width: 0;
+}
+.fe-tl-linha--perigo .fe-tl-nome { box-shadow: inset 4px 0 0 var(--danger); }
+.fe-tl-linha--atencao .fe-tl-nome { box-shadow: inset 4px 0 0 var(--warning); }
+.fe-tl-nome h3 { margin: 0; font-size: var(--fs-sm); font-weight: var(--fw-semibold); line-height: var(--lh-snug); overflow-wrap: anywhere; }
+.fe-tl-nome .fe-sub { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fe-tl-prazo { font-size: var(--fs-xs); font-weight: var(--fw-semibold); color: var(--muted); }
+.fe-tl-prazo--atencao { color: var(--warning); }
+.fe-tl-prazo--perigo { color: var(--danger); }
+.fe-tl-programar {
+  margin-top: 3px; display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill); background: var(--paper); color: var(--gold-dark); font: inherit; font-size: var(--fs-xs); cursor: pointer;
+  transition: background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
+}
+.fe-tl-programar:hover { background: var(--gold-tint); border-color: var(--gold-dark); }
+
+/* Pista: onde ficam as faixas, barras e fantasmas */
+.fe-tl-pista { position: relative; height: var(--altura); touch-action: pan-x pan-y; user-select: none; }
+.fe-tl-pista--ativa { cursor: crosshair; }
+.fe-tl-pista--ativa:hover { background: color-mix(in srgb, var(--gold) 6%, transparent); }
+
+.fe-tl-zona { position: absolute; top: 10px; height: 34px; border-radius: 4px; }
+.fe-tl-zona--seguro { border-top-left-radius: 8px; border-bottom-left-radius: 8px; }
+.fe-tl-limite { position: absolute; top: 5px; transform: translateX(-100%); display: grid; place-items: center; width: 16px; height: 16px; color: var(--danger); pointer-events: none; }
+.fe-tl-limite svg { fill: currentColor; }
+.fe-tl-aquisicao {
+  position: absolute; top: 18px; height: 18px; display: flex; align-items: center; padding: 0 8px; overflow: hidden; white-space: nowrap;
+  border: 1.5px dashed var(--line-strong); border-radius: 9px; font-size: var(--fs-2xs); color: var(--muted);
+  background: repeating-linear-gradient(135deg, transparent 0 5px, color-mix(in srgb, var(--line) 55%, transparent) 5px 6px);
+}
+
+/* Barras de férias */
+.fe-tl-barra {
+  position: absolute; top: 14px; height: 26px; z-index: 2; display: inline-flex; align-items: center; justify-content: center; gap: 3px;
+  padding: 0 4px; border: 0; border-radius: 7px; color: var(--paper); font: inherit; font-size: var(--fs-xs); font-weight: var(--fw-semibold);
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--ink) 25%, transparent); cursor: pointer; overflow: hidden;
+  transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+}
+.fe-tl-barra:hover { transform: translateY(-1px); box-shadow: 0 5px 12px color-mix(in srgb, var(--ink) 30%, transparent); }
+.fe-tl-barra[aria-pressed="true"] { outline: 2px solid var(--ink); outline-offset: 2px; }
+.fe-tl-barra--programada { background: linear-gradient(180deg, color-mix(in srgb, var(--info) 88%, var(--paper)), var(--info)); }
+.fe-tl-barra--gozada { background: linear-gradient(180deg, color-mix(in srgb, var(--success) 88%, var(--paper)), var(--success)); }
+.fe-tl-barra--risco { box-shadow: 0 0 0 2px var(--paper), 0 0 0 4px var(--danger); }
+
+/* Fantasmas: arrasto, prévia do formulário e sugestão */
+.fe-tl-fantasma {
+  position: absolute; top: 12px; height: 30px; z-index: 4; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 0 6px; border-radius: 8px; font: inherit; font-size: var(--fs-xs); font-weight: var(--fw-semibold); white-space: nowrap; overflow: hidden;
+  border: 2px solid var(--gold-dark); color: var(--gold-dark);
+}
+button.fe-tl-fantasma { cursor: pointer; }
+.fe-tl-fantasma span { overflow: hidden; text-overflow: ellipsis; }
+.fe-tl-fantasma em {
+  display: inline-grid; place-items: center; min-width: 17px; height: 17px; padding: 0 4px; border-radius: var(--radius-pill);
+  background: var(--danger); color: var(--paper); font-style: normal; font-size: var(--fs-2xs);
+}
+.fe-tl-fantasma--sugestao { border-style: dashed; background: color-mix(in srgb, var(--gold) 22%, transparent); pointer-events: auto; }
+.fe-tl-fantasma--sugestao:hover { background: color-mix(in srgb, var(--gold) 38%, transparent); }
+.fe-tl-fantasma--arrasto, .fe-tl-fantasma--previa { background: color-mix(in srgb, var(--gold) 55%, var(--paper)); color: var(--ink); pointer-events: none; }
+.fe-tl-fantasma--risco { border-color: var(--danger); }
+
+/* Formulário e detalhes logo abaixo da linha; ficam presos à esquerda para não sumir ao rolar */
+.fe-tl-extra { grid-column: 1 / -1; position: sticky; left: 0; z-index: 6; width: min(var(--visivel), 100%); max-width: 100vw; box-sizing: border-box; padding: 10px 12px 12px; background: var(--gold-tint); border-top: 1px dashed var(--line-strong); }
+.fe-tl-detalhe { display: flex; align-items: center; justify-content: space-between; gap: 8px 14px; flex-wrap: wrap; font-size: var(--fs-sm); }
+.fe-tl-detalhe p { margin: 0; }
+
+.fe-tl :is(button, a):focus-visible { outline: 2px solid var(--gold-dark); outline-offset: 2px; }
+
+/* ── Alternância Linha do tempo / Lista ────────────────────────────── */
+.fe-visao { display: inline-flex; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); overflow: hidden; }
+.fe-visao button {
+  display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border: 0; background: var(--paper); color: var(--ink);
+  font: inherit; font-size: var(--fs-sm); cursor: pointer; transition: background var(--dur-fast) var(--ease);
+}
+.fe-visao button + button { border-left: 1px solid var(--line-strong); }
+.fe-visao button:hover { background: var(--row-hover); }
+.fe-visao button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+
+@container (max-width: 640px) {
+  .fe-tl { --nome: 132px; }
+  .fe-tl-nome { padding: 6px 6px 6px 10px; }
+  .fe-tl-canto--cob .fe-sub { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fe-tl-barra, .fe-tl-programar, .fe-tl-zoom button, .fe-visao button { transition: none; }
+  .fe-tl-barra:hover { transform: none; }
+}
+
+/* Feriados: pontos no cabeçalho (nesses dias, e nos 2 antes, as férias não podem começar) */
+.fe-tl-feriado { position: absolute; bottom: 2px; width: 6px; height: 6px; margin-left: -3px; border-radius: 50%; background: var(--gold-dark); }
+
+/* Separador por empresa */
+.fe-tl-lista > li.fe-tl-grupo { border-bottom: 1px solid var(--line-strong); background: var(--paper-soft); }
+.fe-tl-grupo span {
+  position: sticky; left: 0; display: block; width: min(var(--visivel), 100%); box-sizing: border-box; padding: 5px 12px;
+  font-size: var(--fs-2xs); font-weight: var(--fw-semibold); letter-spacing: var(--ls-eyebrow); text-transform: uppercase; color: var(--ink-soft);
+}
+
+/* Seletor de setor da cobertura */
+.fe-tl-setor { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-xs); color: var(--ink-soft); }
+.fe-tl-setor select { font: inherit; font-size: var(--fs-xs); padding: 4px 8px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--paper); color: var(--ink); }
+.fe-tl-extra .fe-sugerir { margin: 0; font-size: var(--fs-xs); }
+
+.fe-empresa { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-sm); color: var(--ink-soft); justify-self: start; }
+.fe-empresa select { font: inherit; padding: 5px 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--paper); color: var(--ink); max-width: 100%; }
+
+/* Dias em que as férias não podem começar: tracinho no pé da linha */
+.fe-tl-vedado { position: absolute; bottom: 3px; height: 4px; border-radius: 2px; background: var(--danger); opacity: 0.45; pointer-events: none; }
+.fe-tl-barra--movendo { opacity: 0.35; box-shadow: none; }
+.fe-tl-barra--programada { touch-action: pan-y; }
+.fe-tl-fantasma--mover { background: color-mix(in srgb, var(--info) 35%, var(--paper)); border-color: var(--info); color: var(--ink); pointer-events: none; }
+.fe-tl-fantasma--mover.fe-tl-fantasma--risco { border-color: var(--danger); }
+
+/* Dica de uso: mouse arrasta, toque só toca (arrastar rolaria a tela) */
+.fe-tl-dica-toque { display: none; }
+@media (pointer: coarse) {
+  .fe-tl-dica-mouse { display: none; }
+  .fe-tl-dica-toque { display: inline; }
+}

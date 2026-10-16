@@ -2,27 +2,40 @@
 // já foi decidido. O período e o limite vêm calculados da data de registro (o mesmo
 // critério do relatório da contabilidade); a tela só grava a programação. O filtro fica no
 // endereço (?filtro=…): o link do Dashboard e o botão voltar abrem no lugar certo.
-import { Printer, RefreshCw } from "lucide-react";
+import { CalendarRange, List, Maximize2, Minimize2, Printer, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { type ListaFerias, type PedidoFerias, type ProgramacaoFerias, atualizarFerias, cancelarFerias, getFerias, marcarFeriasGozadas, programarFerias } from "../../api/client";
+import { type ListaFerias, type PedidoFerias, type PeriodoFerias, type PessoaFerias, type ProgramacaoFerias, atualizarFerias, cancelarFerias, getFerias, marcarFeriasGozadas, programarFerias } from "../../api/client";
 import { Alert, Button, EmptyState } from "../../design-system";
 import { FormularioFerias } from "./ferias/FormularioFerias";
 import { ImpressaoFerias } from "./ferias/ImpressaoFerias";
+import { LinhaDoTempo } from "./ferias/LinhaDoTempo";
 import { LinhaPeriodo } from "./ferias/LinhaPeriodo";
+import { PlanejamentoFerias } from "./ferias/PlanejamentoFerias";
 import {
-  FILTROS, type FiltroFerias, type LinhaFerias, contarPorFiltro, dataBr, linhasDaLista, pertenceAoFiltro, plural, resumoProgramacao,
+  FILTROS, type FiltroFerias, type LinhaFerias, contarPorFiltro, dataBr, linhasDaLista, pertenceAoFiltro, plural, resumoProgramacao, somaDias,
 } from "./ferias/feriasFormato";
+import { ausenciasDaLista, colegasFora } from "./ferias/eixoDoTempo";
+import { motivoInicioVedado, proximoInicioValido } from "./ferias/regrasFerias";
 import "./ferias/ferias.css";
+import "./ferias/linhaDoTempo.css";
+import "./ferias/planejamento.css";
 
-type Aberto = { chave: string; programacao?: ProgramacaoFerias };
+type Aberto = { chave: string; programacao?: ProgramacaoFerias; sugestao?: { inicio: string; dias: number; ajustadoDe?: string } };
+type Visao = "linha" | "lista";
+type Previa = { inicio: string; dias: number };
 const chaveDe = (l: LinhaFerias) => `${l.pessoa.employeeId}|${l.periodo.aquisitivoInicio}`;
-const FILTRO_PADRAO: FiltroFerias = "PENDENTES";
-const filtroValido = (v: string | null): FiltroFerias => (FILTROS.find((f) => f.id === v)?.id ?? FILTRO_PADRAO);
+// Na linha do tempo quem já está todo programado também precisa aparecer (é ele que pesa na cobertura);
+// na lista o que interessa é o que falta programar.
+const FILTRO_PADRAO: Record<Visao, FiltroFerias> = { linha: "TODAS", lista: "PENDENTES" };
+const visaoValida = (v: string | null): Visao => (v === "lista" ? "lista" : "linha");
+const filtroValido = (v: string | null, visao: Visao): FiltroFerias => (FILTROS.find((f) => f.id === v)?.id ?? FILTRO_PADRAO[visao]);
 
 export function Ferias() {
   const [params, setParams] = useSearchParams();
-  const filtro = filtroValido(params.get("filtro"));
+  const visao = visaoValida(params.get("visao"));
+  const empresa = params.get("empresa") ?? "";
+  const filtro = filtroValido(params.get("filtro"), visao);
   const [lista, setLista] = useState<ListaFerias | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
@@ -33,6 +46,11 @@ export function Ferias() {
   const titulo = useRef<HTMLHeadingElement>(null);
   const gatilho = useRef<HTMLElement | null>(null);
   const [imprimindo, setImprimindo] = useState(false);
+  const [previa, setPrevia] = useState<Previa | null>(null);
+  const [cheia, setCheia] = useState(false);
+  const atualizarPrevia = useCallback((p: Previa | null) => {
+    setPrevia((atual) => (atual?.inicio === p?.inicio && atual?.dias === p?.dias ? atual : p));
+  }, []);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -47,7 +65,26 @@ export function Ferias() {
   }, []);
   useEffect(() => { void carregar(); }, [carregar]);
 
-  const linhas = useMemo(() => (lista ? linhasDaLista(lista) : []), [lista]);
+  // Tela cheia: o fundo não rola e Esc sai, a não ser que um formulário ou a impressão esteja aberto (eles usam o Esc).
+  useEffect(() => {
+    if (!cheia) return;
+    document.body.classList.add("fe-sem-rolagem");
+    return () => document.body.classList.remove("fe-sem-rolagem");
+  }, [cheia]);
+  useEffect(() => {
+    if (!cheia || aberto || imprimindo) return;
+    const sair = (e: KeyboardEvent) => { if (e.key === "Escape") setCheia(false); };
+    window.addEventListener("keydown", sair);
+    return () => window.removeEventListener("keydown", sair);
+  }, [cheia, aberto, imprimindo]);
+
+  const todasAsLinhas = useMemo(() => (lista ? linhasDaLista(lista) : []), [lista]);
+  const empresas = useMemo(() => [...new Set(todasAsLinhas.flatMap((l) => (l.pessoa.empresa ? [l.pessoa.empresa] : [])))].sort((a, b) => a.localeCompare(b, "pt-BR")), [todasAsLinhas]);
+  // Na linha do tempo as empresas ficam agrupadas; dentro de cada uma, os mais urgentes primeiro.
+  const linhas = useMemo(() => {
+    const dasEmpresa = empresa ? todasAsLinhas.filter((l) => l.pessoa.empresa === empresa) : todasAsLinhas;
+    return visao === "linha" ? [...dasEmpresa].sort((a, b) => (a.pessoa.empresa ?? "").localeCompare(b.pessoa.empresa ?? "", "pt-BR")) : dasEmpresa;
+  }, [todasAsLinhas, empresa, visao]);
   const contagem = useMemo(() => contarPorFiltro(linhas), [linhas]);
   const visiveis = linhas.filter((l) => pertenceAoFiltro(l.periodo, filtro));
   const rotuloDoFiltro = FILTROS.find((f) => f.id === filtro)?.rotulo ?? "";
@@ -58,7 +95,17 @@ export function Ferias() {
     const alvo = gatilho.current?.isConnected && gatilho.current.getAttribute("aria-disabled") !== "true" ? gatilho.current : titulo.current;
     alvo?.focus();
   }, 0);
-  const escolherFiltro = (id: FiltroFerias) => setParams(id === FILTRO_PADRAO ? {} : { filtro: id }, { replace: true });
+  // Endereço enxuto: só vai o que foge do padrão da visão.
+  const gravarParams = (v: Visao, f: FiltroFerias, empresaEscolhida = empresa) => {
+    const novo: Record<string, string> = {};
+    if (v !== "linha") novo.visao = v;
+    if (f !== FILTRO_PADRAO[v]) novo.filtro = f;
+    if (empresaEscolhida) novo.empresa = empresaEscolhida;
+    setParams(novo, { replace: true });
+  };
+  const escolherFiltro = (id: FiltroFerias) => gravarParams(visao, id);
+  const escolherEmpresa = (nome: string) => gravarParams(visao, filtro, nome);
+  const escolherVisao = (v: Visao) => gravarParams(v, filtroValido(params.get("filtro"), v));
   const fechar = () => { setAberto(null); setErroForm(null); devolverFoco(); };
   const abrir = (proximo: Aberto) => {
     gatilho.current = document.activeElement as HTMLElement | null;
@@ -112,17 +159,60 @@ export function Ferias() {
     }
   };
 
+  const ausencias = useMemo(() => (lista ? ausenciasDaLista(lista) : []), [lista]);
+  const conflitosDe = (pessoa: PessoaFerias) => (inicio: string, dias: number) =>
+    ({ ...colegasFora(ausencias, inicio, somaDias(inicio, dias - 1), pessoa.employeeId, pessoa.setor), setor: pessoa.setor });
+  const pessoasVisiveis = useMemo(() => {
+    const vistos = new Set<string>();
+    return visiveis.flatMap((l) => (vistos.has(l.pessoa.employeeId) ? [] : (vistos.add(l.pessoa.employeeId), [l.pessoa])));
+  }, [visiveis]);
+
+  const formulario = (l: LinhaFerias, ab: Aberto) => (
+    <FormularioFerias key={`${ab.programacao?.id ?? "nova"}-${ab.sugestao?.inicio ?? ""}`} nome={l.pessoa.nome} periodo={l.periodo} inicial={ab.programacao}
+      sugestao={ab.sugestao} regras={lista ? { hoje: lista.hoje, feriados: lista.feriados, repousos: l.pessoa.repousoSemanal, repousoPelaEscala: l.pessoa.repousoPelaEscala } : undefined} conflitos={conflitosDe(l.pessoa)} onPrevia={atualizarPrevia}
+      salvando={salvando} erro={erroForm} onSalvar={(pedido) => void salvar(l, pedido, ab.programacao)} onCancelar={fechar} />
+  );
+  const formularioDaPessoa = (pessoa: PessoaFerias) => {
+    if (!aberto?.chave.startsWith(`${pessoa.employeeId}|`)) return null;
+    const periodo = pessoa.periodos.find((p) => `${pessoa.employeeId}|${p.aquisitivoInicio}` === aberto.chave);
+    return periodo ? formulario({ pessoa, periodo }, aberto) : null;
+  };
+  // Quem clica ou arrasta num dia vedado (sábado, domingo, feriado, 2 dias antes) cai no próximo dia permitido, e o formulário avisa.
+  const programarPelaLinha = (pessoa: PessoaFerias, periodo: PeriodoFerias, inicio?: string, dias?: number) => {
+    const feriados = lista?.feriados ?? {};
+    const ajustado = inicio && motivoInicioVedado(inicio, feriados, pessoa.repousoSemanal) ? proximoInicioValido(inicio, feriados, pessoa.repousoSemanal) : inicio;
+    abrir({
+      chave: `${pessoa.employeeId}|${periodo.aquisitivoInicio}`,
+      sugestao: ajustado && dias ? { inicio: ajustado, dias, ajustadoDe: ajustado !== inicio ? inicio : undefined } : undefined,
+    });
+  };
+
+  // Soltou a barra em outro dia: abre a edição já nessa data (com os avisos de dia vedado, colegas e prazo) para confirmar.
+  const moverBarra = (pessoa: PessoaFerias, periodo: PeriodoFerias, g: ProgramacaoFerias, inicio: string) => {
+    const feriados = lista?.feriados ?? {};
+    const ajustado = motivoInicioVedado(inicio, feriados, pessoa.repousoSemanal) ? proximoInicioValido(inicio, feriados, pessoa.repousoSemanal) : inicio;
+    abrir({ chave: `${pessoa.employeeId}|${periodo.aquisitivoInicio}`, programacao: g, sugestao: { inicio: ajustado, dias: g.dias, ajustadoDe: ajustado !== inicio ? inicio : undefined } });
+  };
+
   const vencidas = lista?.resumo.vencidas ?? 0;
   const aVencer = lista?.resumo.aVencer ?? 0;
 
   return (
-    <section className="panel fe-tela" aria-labelledby="fe-titulo">
+    <section className={`panel fe-tela${cheia ? " fe-tela--cheia" : ""}`} aria-labelledby="fe-titulo">
       <div className="fe-topo">
         <div>
           <h2 id="fe-titulo" ref={titulo} tabIndex={-1}>Períodos de férias</h2>
           <p>Funcionários CLT ativos, dos últimos 12 meses em diante. “Começar até” é o último dia para as férias começarem sem vencer.</p>
         </div>
         <div className="fe-topo-acoes">
+          <div className="fe-visao" role="group" aria-label="Forma de ver as férias">
+            <button type="button" aria-pressed={visao === "linha"} onClick={() => escolherVisao("linha")}><CalendarRange size={14} aria-hidden="true" /> Linha do tempo</button>
+            <button type="button" aria-pressed={visao === "lista"} onClick={() => escolherVisao("lista")}><List size={14} aria-hidden="true" /> Lista</button>
+          </div>
+          <Button variant="secondary" size="sm" leadingIcon={cheia ? <Minimize2 size={14} /> : <Maximize2 size={14} />} aria-pressed={cheia}
+            onClick={() => { setCheia((v) => !v); }}>
+            {cheia ? "Sair da tela cheia" : "Tela cheia"}
+          </Button>
           <Button variant="secondary" size="sm" leadingIcon={<Printer size={14} />} aria-disabled={!lista || linhas.length === 0}
             onClick={() => { if (lista && linhas.length > 0) { gatilho.current = document.activeElement as HTMLElement | null; setImprimindo(true); } }}>
             Imprimir
@@ -150,6 +240,8 @@ export function Ferias() {
         <Alert tone="info" role={undefined}>Sem data de admissão no cadastro (não entram no cálculo): {lista.semDataDeAdmissao.map((p) => p.nome).join(", ")}.</Alert>
       )}
 
+      {lista && todasAsLinhas.length > 0 && <PlanejamentoFerias lista={lista} />}
+
       {lista && linhas.length > 0 && (
         <div className="fe-filtros" role="group" aria-label="Filtrar por situação">
           {FILTROS.map((f) => (
@@ -158,6 +250,14 @@ export function Ferias() {
             </button>
           ))}
         </div>
+      )}
+      {lista && empresas.length > 1 && (
+        <label className="fe-empresa">Empresa
+          <select value={empresa} onChange={(e) => escolherEmpresa(e.target.value)}>
+            <option value="">Todas</option>
+            {empresas.map((nome) => <option key={nome} value={nome}>{nome}</option>)}
+          </select>
+        </label>
       )}
       <p className="fe-sr" role="status">{lista && linhas.length > 0 ? `${visiveis.length} ${plural(visiveis.length, "período", "períodos")} em “${rotuloDoFiltro}”.` : ""}</p>
 
@@ -169,7 +269,14 @@ export function Ferias() {
         <EmptyState title="Nada neste filtro" description="Troque o filtro acima para ver os outros períodos." />
       )}
 
-      {visiveis.length > 0 && (
+      {visiveis.length > 0 && visao === "linha" && lista && (
+        <LinhaDoTempo lista={lista} pessoas={pessoasVisiveis} ocupado={salvando} abertoDe={aberto ? aberto.chave.split("|")[0] : null} previa={previa}
+          formularioDe={formularioDaPessoa}
+          onProgramar={programarPelaLinha}
+          onEditar={(pessoa, periodo, g) => abrir({ chave: `${pessoa.employeeId}|${periodo.aquisitivoInicio}`, programacao: g })}
+          onCancelar={cancelar} onConfirmar={(l, g) => void confirmarGozo(l, g)} onDesfazer={desfazer} onMover={moverBarra} />
+      )}
+      {visiveis.length > 0 && visao === "lista" && (
         <ul className="fe-lista" role="list" aria-label="Períodos de férias">
           {visiveis.map((l) => {
             const chave = chaveDe(l);
@@ -181,10 +288,7 @@ export function Ferias() {
                 onCancelar={(g) => cancelar(l, g)}
                 onConfirmar={(g) => void confirmarGozo(l, g)}
                 onDesfazer={(g) => desfazer(l, g)}
-                formulario={aberto?.chave === chave && (
-                  <FormularioFerias key={aberto.programacao?.id ?? "nova"} nome={l.pessoa.nome} periodo={l.periodo} inicial={aberto.programacao}
-                    salvando={salvando} erro={erroForm} onSalvar={(pedido) => void salvar(l, pedido, aberto.programacao)} onCancelar={fechar} />
-                )} />
+                formulario={aberto?.chave === chave && formulario(l, aberto)} />
             );
           })}
         </ul>

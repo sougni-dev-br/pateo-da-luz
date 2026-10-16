@@ -18,6 +18,7 @@ import { API_BASE_URL } from "../api/client";
 import { isLocal } from "../utils/env";
 import { mockFichas } from "./mockFichas";
 import { mockAnaliseSalao } from "./mockAnaliseSalao";
+import { mockFerias } from "./mockFerias";
 import { mockPagamentoMeio } from "./mockPagamentoMeio";
 
 export const MOCK_USER: AppUser = {
@@ -231,6 +232,10 @@ function mockResponseFor(url: string, method = "GET", corpo?: BodyInit | null): 
   // Lista do adiantamento / 1ª quinzena (Folha) e o lançamento dos sem registro.
   const pagamentoMeio = mockPagamentoMeio(url, method, corpo);
   if (pagamentoMeio !== undefined) return pagamentoMeio;
+
+  // RH → Férias (períodos, programar, editar, cancelar).
+  const ferias = mockFerias(url, method, corpo);
+  if (ferias !== undefined) return ferias;
 
   if (path.endsWith("/auth/me") || path.endsWith("/me")) return MOCK_USER;
   if (path.endsWith("/health")) return { status: "ok" };

@@ -50,9 +50,11 @@
 .fe-folhas .fe-folha-tabela th.c-dias { letter-spacing: 0; font-size: 7.5pt; padding-left: 1mm; padding-right: 1mm; }
 .fe-folha-tabela .c-combinado { width: 27%; }
 .fe-folha-tabela .c-visto { width: 15%; }
-.fe-folha-tabela--contab .c-nome { width: 24%; }
-.fe-folha-tabela--contab .c-periodo { width: 20%; }
-.fe-folha-tabela--contab .c-obs { width: 20%; }
+.fe-folha-tabela--contab .c-nome { width: 16%; }
+.fe-folha-tabela--contab .c-periodo { width: 15%; }
+.fe-folha-tabela--contab .c-data { width: 9.5%; white-space: nowrap; }
+.fe-folha-tabela--contab .c-dias { width: 5.5%; }
+.fe-folha-tabela--contab .c-obs { width: 11%; }
 .fe-folha-tabela:not(.fe-folha-tabela--contab) tbody td { height: 17mm; }
 .fe-folha-urgente { font-weight: 700; color: #111; text-decoration: underline; }
 

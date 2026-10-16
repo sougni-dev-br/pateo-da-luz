@@ -1,0 +1,33 @@
+/* ── Planejamento: dias fora por mês e prazos de aviso/pagamento ───── */
+.fe-plano { border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--paper); }
+.fe-plano > summary { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; padding: 9px 14px; cursor: pointer; font-size: var(--fs-sm); font-weight: var(--fw-semibold); list-style: none; }
+.fe-plano > summary::-webkit-details-marker { display: none; }
+.fe-plano > summary:focus-visible { outline: 2px solid var(--gold-dark); outline-offset: 2px; }
+.fe-plano > summary svg { color: var(--gold-dark); }
+.fe-plano > summary .fe-sub { font-weight: 400; }
+.fe-plano[open] > summary { border-bottom: 1px solid var(--line); }
+.fe-plano-corpo { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 20px; padding: 14px; }
+.fe-plano h3 { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; font-size: var(--fs-sm); }
+.fe-plano-barras { list-style: none; margin: 0 0 6px; padding: 0; display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 6px; align-items: end; height: 150px; }
+.fe-plano-barras li { display: grid; grid-template-rows: 16px 1fr 16px 14px; justify-items: center; align-items: end; height: 100%; min-width: 0; }
+.fe-plano-barra { display: block; width: 100%; max-width: 30px; border-radius: 4px 4px 0 0; background: color-mix(in srgb, var(--gold) 70%, var(--paper)); transition: height var(--dur) var(--ease); }
+.fe-plano-barra--cheia { background: var(--gold-dark); }
+.fe-plano-valor { font-size: var(--fs-2xs); font-variant-numeric: tabular-nums; color: var(--ink-soft); }
+.fe-plano-mes { font-size: var(--fs-2xs); text-transform: uppercase; letter-spacing: var(--ls-eyebrow); color: var(--muted); }
+.fe-plano-pico { font-size: var(--fs-2xs); color: var(--muted); white-space: nowrap; }
+.fe-plano-rolagem { max-height: 220px; overflow: auto; border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.fe-plano-tabela { width: 100%; border-collapse: collapse; font-size: var(--fs-xs); }
+.fe-plano-tabela th { position: sticky; top: 0; background: var(--paper-soft); text-align: left; padding: 6px 8px; font-weight: var(--fw-semibold); }
+.fe-plano-tabela td { padding: 5px 8px; border-top: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.fe-plano-logo { color: var(--warning); font-weight: var(--fw-semibold); }
+.fe-plano-passou { color: var(--danger); font-weight: var(--fw-semibold); }
+@container (max-width: 760px) { .fe-plano-corpo { grid-template-columns: minmax(0, 1fr); } }
+@media (prefers-reduced-motion: reduce) { .fe-plano-barra { transition: none; } }
+
+/* ── Tela cheia ────────────────────────────────────────────────────── */
+.fe-tela--cheia {
+  position: fixed; inset: 0; z-index: 900; margin: 0; border-radius: 0; overflow: auto; align-content: start;
+  background: var(--paper); padding: 16px clamp(12px, 2vw, 28px);
+}
+.fe-tela--cheia .fe-tl { max-height: calc(100dvh - 250px); min-height: 260px; }
+body.fe-sem-rolagem { overflow: hidden; }

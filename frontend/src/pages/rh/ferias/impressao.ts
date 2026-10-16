@@ -1,5 +1,6 @@
 import type { ListaFerias, PeriodoFerias, PessoaFerias, ProgramacaoFerias } from "../../../api/client";
 import { dataBr, linhasDaLista, pertenceAoFiltro, somaDias, textoPrazo } from "./feriasFormato";
+import { prazoParaAvisar, prazoParaPagar } from "./regrasFerias";
 
 // Dois papéis, um por etapa do combinado com a equipe:
 //   CONVERSA        → o que ainda falta programar, com espaço para escrever a data combinada;
@@ -30,6 +31,9 @@ export type LinhaContabilidade = {
   retorno: string;
   dias: number;
   abono: number;
+  /** Último dia para avisar a pessoa por escrito (30 dias antes) e para pagar (2 dias antes). */
+  avisarAte: string;
+  pagarAte: string;
   observacao: string;
 };
 
@@ -85,7 +89,7 @@ export function folhasParaContabilidade(lista: ListaFerias): Array<FolhaEmpresa<
           linha: {
             chave: g.id, nome: pessoa.nome, periodo: periodoBr(periodo),
             inicio: dataBr(g.gozoInicio), fim: dataBr(fim), retorno: dataBr(somaDias(fim, 1)),
-            dias: g.dias, abono: g.diasAbono,
+            dias: g.dias, abono: g.diasAbono, avisarAte: dataBr(prazoParaAvisar(g.gozoInicio)), pagarAte: dataBr(prazoParaPagar(g.gozoInicio)),
             observacao: periodo.foraDoPrazo ? "Fora do prazo (pagar em dobro)" : g.observacao ?? "",
           },
         });

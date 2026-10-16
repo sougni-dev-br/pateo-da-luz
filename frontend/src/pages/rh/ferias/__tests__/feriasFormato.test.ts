@@ -8,8 +8,8 @@ const periodo = (o: Partial<PeriodoFerias> = {}): PeriodoFerias => ({
   situacao: "DISPONIVEL", nivel: "ok", diasParaLimite: 107, diasParaCompletar: null,
   foraDoPrazo: false, doHistorico: false, programacoes: [], ...o,
 });
-const pessoa = (nome: string, periodos: PeriodoFerias[]): PessoaFerias => ({ employeeId: nome, nome, empresa: null, admissao: "2025-03-01", nivel: "ok", periodos });
-const lista = (pessoas: PessoaFerias[]): ListaFerias => ({ hoje: "2026-10-15", pessoas, semDataDeAdmissao: [], resumo: { vencidas: 0, aVencer: 0 } });
+const pessoa = (nome: string, periodos: PeriodoFerias[]): PessoaFerias => ({ employeeId: nome, nome, empresa: null, setor: null, repousoSemanal: [0], repousoPelaEscala: false, admissao: "2025-03-01", nivel: "ok", periodos });
+const lista = (pessoas: PessoaFerias[]): ListaFerias => ({ hoje: "2026-10-15", pessoas, semDataDeAdmissao: [], resumo: { vencidas: 0, aVencer: 0 }, feriados: {} });
 
 describe("formatação", () => {
   test("dataBr inverte a data e trata vazio", () => {
