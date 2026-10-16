@@ -473,6 +473,16 @@ model ExpenseTypeMaster {
   @@index([isActive])
 }
 
+/// O que o item e (insumo, embalagem, consumo, duravel, servico). Sugere DRE e estoque no cadastro;
+/// nao altera o calculo do CMV, que segue lendo o grupo da categoria DRE.
+enum ProductNature {
+  INSUMO
+  EMBALAGEM
+  CONSUMO
+  DURAVEL
+  SERVICO
+}
+
 model Product {
   pdvBebidas                AgileProdutoInsumo[]
   id                        String                     @id @default(cuid())
@@ -500,6 +510,7 @@ model Product {
   storagePosition           String?
   storageNotes              String?
   accountType               String?
+  nature                    ProductNature?
   controlsStock             Boolean                    @default(true)
   estoqueMinimo             Decimal?                   @db.Decimal(14, 3)
   estoqueIdeal              Decimal?                   @db.Decimal(14, 3)
@@ -528,6 +539,7 @@ model Product {
   @@index([inventorySectorId])
   @@index([controlsStock])
   @@index([accountType])
+  @@index([nature])
   @@index([fornecedorPrincipalId])
   @@index([dreCategoryId])
   @@index([stockUnit])

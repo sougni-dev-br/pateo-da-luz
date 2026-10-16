@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PRODUCT_NATURES } from "./product-nature.js";
 
 /**
  * Id opcional que aceita "" como "nao informado".
@@ -29,6 +30,7 @@ export const productSchema = z.object({
   subcategoryName: z.string().trim().nullable().optional(),
   sectorName: z.string().trim().nullable().optional(),
   accountType: z.string().trim().nullable().optional(),
+  nature: z.enum(PRODUCT_NATURES, { message: "natureza do item invalida" }).nullable().optional(),
   controlsStock: z.boolean().optional(),
   isActive: z.boolean().optional(),
   notes: z.string().trim().nullable().optional(),
