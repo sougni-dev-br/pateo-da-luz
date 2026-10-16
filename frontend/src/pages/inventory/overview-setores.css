@@ -1,0 +1,14 @@
+.inv-setores { margin: 16px 0 4px; }
+.inv-setores h3 { margin: 0 0 8px; font-size: 0.95rem; }
+.inv-setores ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; }
+.inv-setores li {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 16px; align-items: baseline;
+  padding: 8px 4px; border-bottom: 1px solid var(--border, rgba(128, 128, 128, 0.25));
+}
+.inv-setores li span:first-child { font-weight: 600; overflow-wrap: anywhere; }
+.inv-setores small { color: var(--muted, #6b7280); }
+.inv-setores strong { font-variant-numeric: tabular-nums; text-align: right; }
+@media (max-width: 560px) {
+  .inv-setores li { grid-template-columns: minmax(0, 1fr) auto; }
+  .inv-setores li small { grid-column: 1 / -1; }
+}

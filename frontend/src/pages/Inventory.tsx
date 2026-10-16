@@ -369,6 +369,11 @@ export function Inventory({
   const inventarioNaUrl = searchParams.get("inventario");
   const inventarioPedido = useRef<string | null>(null);
   // Aberto pela lista: o "voltar" do cabecalho volta no historico em vez de
+  function abrirPosicao() {
+    setInventoryDeskTab("posicao");
+    irParaVisao("inventory");
+  }
+
   // empilhar outra entrada (senao o voltar do navegador reabria o detalhe).
   const abertoPelaLista = useRef(false);
 
@@ -2564,6 +2569,7 @@ export function Inventory({
         countsByStatus={countsByStatus}
         onStartCounting={() => { irParaVisao("counting"); setMobileCountFormOpen(true); }}
         onOpenInventory={() => irParaVisao("inventory")}
+        onOpenPosicao={canViewOperational ? abrirPosicao : undefined}
       />
 
       {activeView === "counting" && (
