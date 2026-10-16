@@ -100,7 +100,7 @@ Opções (a decidir):
 - **Gravar a categoria DRE na linha da compra** no momento da compra (muda o modelo, protege o passado de qualquer reclassificação futura). É a solução definitiva e a mais trabalhosa.
 
 ### 6.3 Insumos
-Dividir em categorias reais, com prévia por palavra-chave que o Eli revisa: Laticínios e frios · Molhos, temperos e conservas · Secos e grãos · Doces e confeitaria · Congelados. Carnes salgadas (costela, rabo, bacon) vão para Carnes e aves. Bebida alcoólica que está em Insumos (vinho) vai para Bebidas.
+Dividir em categorias reais, com prévia por palavra-chave que o Eli revisa: Laticínios e frios · Molhos, temperos e conservas · Secos e grãos · Doces e confeitaria · Congelados. Carnes salgadas (costela, rabo, bacon) vão para Carnes e aves. O vinho de cozinha (2 itens de 4,6 L), o saquê de cozinha e os vinagres **continuam em Insumos** (são ingrediente, não bebida de venda); ficam juntos numa categoria de líquidos de cozinha, ou em "Molhos, temperos e conservas". Vinho de venda já está em Bebidas (nada a mover). Conferido por nome: nenhuma outra bebida de venda dentro de Insumos.
 
 ### 6.4 Regra geral para a fase D (limpeza dos dados)
 Toda reclassificação de DRE de produto reescreve o histórico. Antes de aplicar qualquer bloco: rodar o DRE de todos os meses antes e depois numa cópia do banco e comparar; só prosseguir se a diferença for zero ou aprovada.
