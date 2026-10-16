@@ -16520,3 +16520,7 @@ td.count-list-divergent {
 .po-notas-ligadas { margin-top: 16px; }
 .po-notas-ligadas ul { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 4px; }
 .po-nota-cancelada { color: var(--muted); text-decoration: line-through; }
+
+.pnova-pedidos-resumo { margin: 0; }
+.pnova-pedidos-block details > summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font-weight: 600; }
+.pnova-pedidos-block details[open] > summary { margin-bottom: 8px; }

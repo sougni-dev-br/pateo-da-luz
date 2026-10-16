@@ -4,6 +4,7 @@ import { Button, StatusBadge } from "../design-system";
 import { formatDate, formatNumber } from "../utils/format";
 import {
   agruparPorPedido,
+  casarNotaComPedidos,
   descartarOrfaos,
   lerQuantidade,
   produtosAcimaDaNota,
@@ -78,6 +79,31 @@ export function PedidosDaNota({ supplierId, purchaseId, itensDaNota, valor, onCh
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [abertos, valor]);
 
+  // Lançamento novo: o sistema procura o pedido que a nota está entregando e já vem marcado quando tem certeza.
+  // Depois que a pessoa mexe em qualquer marcação, a sugestão não volta a sobrescrever o que ela escolheu.
+  const tocou = useRef(false);
+  const aplicouAutomatico = useRef(false);
+  const casamento = useMemo(() => casarNotaComPedidos(itensDaNota, abertos), [itensDaNota, abertos]);
+  const chaveDoCasamento = `${abertos.length}|${JSON.stringify(casamento.vinculos)}|${casamento.automatico}`;
+  useEffect(() => {
+    if (purchaseId || tocou.current || abertos.length === 0) return;
+    if (casamento.automatico) {
+      aplicouAutomatico.current = true;
+      onChange(Object.fromEntries(Object.entries(casamento.vinculos).map(([id, q]) => [id, String(q)])), true);
+    } else if (aplicouAutomatico.current) {
+      aplicouAutomatico.current = false;
+      onChange({}, true);
+    }
+    // onChange vem do pai e muda a cada render; o que decide é o resultado do casamento.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chaveDoCasamento, purchaseId]);
+
+  const mexer = (proximo: Record<string, string>) => {
+    tocou.current = true;
+    aplicouAutomatico.current = false;
+    onChange(proximo, true);
+  };
+  const [listaAberta, setListaAberta] = useState<boolean | null>(null);
   const grupos = useMemo(() => agruparPorPedido(abertos), [abertos]);
   const ligados = useMemo(() => {
     const out: Record<string, number> = {};
@@ -96,13 +122,27 @@ export function PedidosDaNota({ supplierId, purchaseId, itensDaNota, valor, onCh
     const proximo = { ...valor };
     if (proximo[item.purchaseOrderItemId] !== undefined) delete proximo[item.purchaseOrderItemId];
     else proximo[item.purchaseOrderItemId] = item.unidadeCompativel ? String(item.restante > 0 ? item.restante : item.vinculada ?? "") : "";
-    onChange(proximo, true);
+    mexer(proximo);
   }
 
   function sugerir() {
     const sugestao = sugerirParaNota(itensDaNota.map((i) => ({ productId: i.productId, quantity: Number(i.quantity) || 0 })), abertos);
-    onChange(Object.fromEntries(Object.entries(sugestao).map(([id, q]) => [id, String(q)])), true);
+    mexer(Object.fromEntries(Object.entries(sugestao).map(([id, q]) => [id, String(q)])));
   }
+
+  const marcadoAutomatico = aplicouAutomatico.current && casamento.automatico && !tocou.current;
+  const resumoAutomatico = marcadoAutomatico ? (
+    <p className="pnova-pedidos-resumo" role="status">
+      Ligada automaticamente a {casamento.pedidos.map((p) => `${p.orderCode} (${p.itensLigados} de ${p.itensDoPedido} itens)`).join(" e ")}. Confira e salve; se não for esse pedido, desfaça.
+      {" "}<button type="button" className="link-button" onClick={() => mexer({})}>Desfazer</button>
+    </p>
+  ) : casamento.melhor ? (
+    <p className="muted pnova-pedidos-resumo">
+      O pedido mais parecido é {casamento.melhor.orderCode} ({casamento.melhor.itensLigados} de {casamento.melhor.itensDoPedido} itens), mas não deu para ter certeza.
+      {" "}<button type="button" className="link-button" onClick={() => mexer(Object.fromEntries(Object.entries(casamento.vinculosDoMelhor).map(([id, q]) => [id, String(q)])))}>Ligar a {casamento.melhor.orderCode}</button>
+      {" "}ou escolha outro abaixo.
+    </p>
+  ) : null;
 
   return (
     <div className="pnova-pedidos-block">
@@ -113,9 +153,12 @@ export function PedidosDaNota({ supplierId, purchaseId, itensDaNota, valor, onCh
         </div>
         <div className="action-row">
           <Button type="button" variant="secondary" onClick={sugerir}>Sugerir (mais antigo primeiro)</Button>
-          <Button type="button" variant="secondary" onClick={() => onChange({}, true)} disabled={Object.keys(valor).length === 0}>Limpar</Button>
+          <Button type="button" variant="secondary" onClick={() => mexer({})} disabled={Object.keys(valor).length === 0}>Limpar</Button>
         </div>
       </div>
+      {resumoAutomatico}
+      <details open={listaAberta ?? !(aplicouAutomatico.current && casamento.automatico)} onToggle={(e) => setListaAberta((e.currentTarget as HTMLDetailsElement).open)}>
+        <summary>Ver os pedidos em aberto ({grupos.length})</summary>
       {grupos.map((grupo) => (
         <section key={grupo.orderId} className="pnova-pedido-grupo" aria-label={`Pedido ${grupo.orderCode}`}>
           <header>
@@ -143,7 +186,7 @@ export function PedidosDaNota({ supplierId, purchaseId, itensDaNota, valor, onCh
                     aria-label={`Quantidade que a nota entregou do pedido ${grupo.orderCode}, ${item.productName}`}
                     disabled={!marcado}
                     value={valor[item.purchaseOrderItemId] ?? ""}
-                    onChange={(event) => onChange({ ...valor, [item.purchaseOrderItemId]: event.target.value }, true)}
+                    onChange={(event) => mexer({ ...valor, [item.purchaseOrderItemId]: event.target.value })}
                   />
                 </li>
               );
@@ -151,6 +194,7 @@ export function PedidosDaNota({ supplierId, purchaseId, itensDaNota, valor, onCh
           </ul>
         </section>
       ))}
+      </details>
       {acima.length > 0 && <p className="pnova-pedidos-aviso" role="status">Passa do que a nota trouxe: {acima.join(", ")}. Confira as quantidades.</p>}
     </div>
   );

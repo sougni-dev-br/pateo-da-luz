@@ -69,3 +69,83 @@ describe("descartarOrfaos", () => {
     expect(descartarOrfaos({ fica: "2", some: "3" }, abertos)).toEqual({ fica: "2" });
   });
 });
+
+describe("casarNotaComPedidos", () => {
+  const linha = (orderId: string, productId: string, restante: number, over: Partial<ItemEmAberto> = {}) =>
+    item({ purchaseOrderItemId: `${orderId}-${productId}`, orderId, orderCode: orderId.toUpperCase(), productId, productName: productId, restante, pedida: restante, ...over });
+
+  test("nota que bate com os itens e as quantidades do pedido liga sozinha", async () => {
+    const { casarNotaComPedidos } = await import("../vinculoPedido");
+    const abertos = [linha("a", "p1", 5), linha("a", "p2", 3), linha("a", "p3", 2)];
+    const r = casarNotaComPedidos([{ productId: "p1", quantity: 5 }, { productId: "p2", quantity: 3 }, { productId: "p3", quantity: 2 }], abertos);
+    expect(r.automatico).toBe(true);
+    expect(r.vinculos).toEqual({ "a-p1": 5, "a-p2": 3, "a-p3": 2 });
+    expect(r.pedidos.map((p) => p.orderCode)).toEqual(["A"]);
+  });
+
+  test("entre dois pedidos, escolhe o que tem as quantidades exatas", async () => {
+    const { casarNotaComPedidos } = await import("../vinculoPedido");
+    const abertos = [
+      linha("velho", "p1", 9, { orderCreatedAt: "2026-09-01" }), linha("velho", "p2", 9, { orderCreatedAt: "2026-09-01" }),
+      linha("certo", "p1", 4, { orderCreatedAt: "2026-09-10" }), linha("certo", "p2", 2, { orderCreatedAt: "2026-09-10" })
+    ];
+    const r = casarNotaComPedidos([{ productId: "p1", quantity: 4 }, { productId: "p2", quantity: 2 }], abertos);
+    expect(r.automatico).toBe(true);
+    expect(Object.keys(r.vinculos).sort()).toEqual(["certo-p1", "certo-p2"]);
+  });
+
+  test("dois pedidos igualmente bons: não decide sozinho, só aponta o melhor", async () => {
+    const { casarNotaComPedidos } = await import("../vinculoPedido");
+    const abertos = [
+      linha("a", "p1", 4, { orderCreatedAt: "2026-09-01" }), linha("a", "p2", 2, { orderCreatedAt: "2026-09-01" }),
+      linha("b", "p1", 4, { orderCreatedAt: "2026-09-08" }), linha("b", "p2", 2, { orderCreatedAt: "2026-09-08" })
+    ];
+    const r = casarNotaComPedidos([{ productId: "p1", quantity: 4 }, { productId: "p2", quantity: 2 }], abertos);
+    expect(r.automatico).toBe(false);
+    expect(r.vinculos).toEqual({});
+    expect(r.melhor?.orderCode).toBe("A");
+  });
+
+  test("nota maior que um pedido passa o resto para o segundo pedido", async () => {
+    const { casarNotaComPedidos } = await import("../vinculoPedido");
+    const abertos = [
+      linha("a", "p1", 3, { orderCreatedAt: "2026-09-01" }), linha("a", "p2", 1, { orderCreatedAt: "2026-09-01" }),
+      linha("b", "p1", 2, { orderCreatedAt: "2026-09-08" })
+    ];
+    const r = casarNotaComPedidos([{ productId: "p1", quantity: 5 }, { productId: "p2", quantity: 1 }], abertos);
+    expect(r.automatico).toBe(true);
+    expect(r.vinculos).toEqual({ "a-p1": 3, "a-p2": 1, "b-p1": 2 });
+  });
+
+  test("pedido pequeno que coincide com um item de nota grande não liga sozinho", async () => {
+    const { casarNotaComPedidos } = await import("../vinculoPedido");
+    const abertos = [linha("a", "p1", 4)];
+    const itens = ["p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9"].map((productId) => ({ productId, quantity: 4 }));
+    const r = casarNotaComPedidos(itens, abertos);
+    expect(r.automatico).toBe(false);
+    expect(r.melhor?.orderCode).toBe("A");
+    expect(r.vinculosDoMelhor).toEqual({ "a-p1": 4 });
+  });
+
+  test("pouca coincidência (um item de um pedido grande) não liga sozinho", async () => {
+    const { casarNotaComPedidos } = await import("../vinculoPedido");
+    const abertos = Array.from({ length: 12 }, (_, i) => linha("grande", `p${i}`, 10));
+    const r = casarNotaComPedidos([{ productId: "p0", quantity: 1 }, { productId: "outro", quantity: 3 }, { productId: "outro2", quantity: 3 }], abertos);
+    expect(r.automatico).toBe(false);
+    expect(r.vinculos).toEqual({});
+  });
+
+  test("pedido em outra unidade não entra no casamento", async () => {
+    const { casarNotaComPedidos } = await import("../vinculoPedido");
+    const abertos = [linha("a", "p1", 5, { unidadeCompativel: false })];
+    const r = casarNotaComPedidos([{ productId: "p1", quantity: 5 }], abertos);
+    expect(r.automatico).toBe(false);
+    expect(r.vinculos).toEqual({});
+  });
+
+  test("nota sem itens ou sem pedidos em aberto não sugere nada", async () => {
+    const { casarNotaComPedidos } = await import("../vinculoPedido");
+    expect(casarNotaComPedidos([], [linha("a", "p1", 5)]).automatico).toBe(false);
+    expect(casarNotaComPedidos([{ productId: "p1", quantity: 5 }], []).automatico).toBe(false);
+  });
+});

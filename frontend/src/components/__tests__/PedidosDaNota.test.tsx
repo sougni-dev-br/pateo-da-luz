@@ -74,4 +74,27 @@ describe("PedidosDaNota", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Servidor fora do ar");
     expect(onChange).not.toHaveBeenCalled();
   });
+
+  test("lançamento novo: o pedido que bate com a nota já vem marcado, com resumo e a lista recolhida", async () => {
+    getPedidosEmAbertoParaNota.mockResolvedValue({ items: [item({ restante: 7, pedida: 7 })] });
+    const onChange = vi.fn();
+    render(<PedidosDaNota supplierId="f1" purchaseId={null} itensDaNota={[{ productId: "p1", quantity: 7 }]} valor={{}} onChange={onChange} />);
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith({ i1: "7" }, true));
+  });
+
+  test("nota que não bate com nenhum pedido não marca nada sozinho", async () => {
+    getPedidosEmAbertoParaNota.mockResolvedValue({ items: [item({ restante: 7, pedida: 7 }), item({ purchaseOrderItemId: "i2", productId: "p2", restante: 3 }), item({ purchaseOrderItemId: "i3", productId: "p3", restante: 3 })] });
+    const onChange = vi.fn();
+    render(<PedidosDaNota supplierId="f1" purchaseId={null} itensDaNota={[{ productId: "p1", quantity: 1 }, { productId: "x", quantity: 2 }, { productId: "y", quantity: 2 }]} valor={{}} onChange={onChange} />);
+    expect(await screen.findByText(/não deu para ter certeza/)).toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalledWith(expect.objectContaining({ i1: expect.anything() }), true);
+  });
+
+  test("editando uma compra a sugestão automática não mexe nos vínculos que ela já tem", async () => {
+    getPedidosEmAbertoParaNota.mockResolvedValue({ items: [item({ restante: 7, pedida: 7 })] });
+    const onChange = vi.fn();
+    render(<PedidosDaNota supplierId="f1" purchaseId="c1" itensDaNota={[{ productId: "p1", quantity: 7 }]} valor={{}} onChange={onChange} />);
+    await waitFor(() => expect(onChange).toHaveBeenCalledTimes(1));
+    expect(onChange).toHaveBeenCalledWith({}, true);
+  });
 });

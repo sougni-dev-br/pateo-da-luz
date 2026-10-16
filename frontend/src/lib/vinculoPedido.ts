@@ -90,3 +90,108 @@ export function descartarOrfaos(valor: Record<string, string>, abertos: ItemEmAb
   const validos = new Set(abertos.map((a) => a.purchaseOrderItemId));
   return Object.fromEntries(Object.entries(valor).filter(([id]) => validos.has(id)));
 }
+
+/** Abaixo disto o casamento não é confiável o bastante para vir marcado; a pessoa escolhe. */
+export const LIMITE_CASAMENTO = 0.75;
+/** Dois pedidos com notas dentro desta diferença brigam pela mesma nota: não decide sozinho. */
+const EMPATE = 0.05;
+const IGUAL = 0.001;
+
+export type PedidoCasado = { orderId: string; orderCode: string; itensLigados: number; itensDoPedido: number; score: number };
+export type CasamentoDaNota = {
+  /** Verdadeiro quando há um casamento confiável e sem ambiguidade: os vínculos podem vir marcados. */
+  automatico: boolean;
+  vinculos: Record<string, number>;
+  pedidos: PedidoCasado[];
+  /** O pedido que mais se parece com a nota, mesmo quando não é seguro marcar sozinho. */
+  melhor: PedidoCasado | null;
+  /** Quantidades que ligariam a nota ao `melhor`, para um toque só quando o sistema não teve certeza. */
+  vinculosDoMelhor: Record<string, number>;
+};
+
+type Avaliacao = { grupo: GrupoDePedido; score: number; ligar: Record<string, number>; casados: number };
+
+function avaliarPedido(grupo: GrupoDePedido, restanteDaNota: Map<string, number>): Avaliacao | null {
+  const local = new Map(restanteDaNota);
+  const ligar: Record<string, number> = {};
+  let casados = 0;
+  let quantidadeBate = 0;
+  const produtosCasados = new Set<string>();
+  const itensAbertos = grupo.itens.filter((i) => i.unidadeCompativel && i.restante > 0);
+  for (const i of itensAbertos) {
+    const naNota = local.get(i.productId) ?? 0;
+    if (naNota <= 0) continue;
+    const parte = arredondar(Math.min(naNota, i.restante));
+    ligar[i.purchaseOrderItemId] = parte;
+    casados += 1;
+    if (Math.abs(naNota - i.restante) < IGUAL) quantidadeBate += 1;
+    produtosCasados.add(i.productId);
+    local.set(i.productId, arredondar(naNota - parte));
+  }
+  if (casados === 0) return null;
+  const produtosNaNota = [...restanteDaNota.values()].filter((q) => q > 0).length;
+  const coberturaDaNota = produtosCasados.size / Math.max(produtosNaNota, 1);
+  const coberturaDoPedido = casados / Math.max(itensAbertos.length, 1);
+  const score = 0.4 * coberturaDaNota + 0.3 * coberturaDoPedido + 0.3 * (quantidadeBate / casados);
+  return { grupo, score, ligar, casados };
+}
+
+function aplicar(restanteDaNota: Map<string, number>, grupo: GrupoDePedido, ligar: Record<string, number>) {
+  for (const i of grupo.itens) {
+    const q = ligar[i.purchaseOrderItemId];
+    if (q) restanteDaNota.set(i.productId, arredondar((restanteDaNota.get(i.productId) ?? 0) - q));
+  }
+}
+
+function paraPedidoCasado(a: Avaliacao): PedidoCasado {
+  return { orderId: a.grupo.orderId, orderCode: a.grupo.orderCode, itensLigados: a.casados, itensDoPedido: a.grupo.itens.length, score: Math.round(a.score * 100) / 100 };
+}
+
+/**
+ * Procura, entre os pedidos em aberto do fornecedor, o que a nota está entregando: quanto da nota o pedido cobre,
+ * quanto do pedido a nota cobre e se as quantidades batem. Só marca sozinho quando é confiável e não há outro
+ * pedido igualmente bom disputando a mesma nota; uma nota grande pode atender mais de um pedido.
+ */
+export function casarNotaComPedidos(itensDaNota: Array<{ productId: string; quantity: number }>, abertos: ItemEmAberto[]): CasamentoDaNota {
+  const vazio: CasamentoDaNota = { automatico: false, vinculos: {}, pedidos: [], melhor: null, vinculosDoMelhor: {} };
+  const restanteDaNota = new Map<string, number>();
+  for (const i of itensDaNota) {
+    if (i.productId && i.quantity > 0) restanteDaNota.set(i.productId, arredondar((restanteDaNota.get(i.productId) ?? 0) + i.quantity));
+  }
+  if (restanteDaNota.size === 0 || abertos.length === 0) return vazio;
+
+  const grupos = agruparPorPedido(abertos);
+  const vinculos: Record<string, number> = {};
+  const pedidos: PedidoCasado[] = [];
+  let melhor: PedidoCasado | null = null;
+  let vinculosDoMelhor: Record<string, number> = {};
+  const usados = new Set<string>();
+
+  for (let rodada = 0; rodada < 6; rodada += 1) {
+    const avaliacoes = grupos
+      .filter((g) => !usados.has(g.orderId))
+      .map((g) => avaliarPedido(g, restanteDaNota))
+      .filter((a): a is Avaliacao => a !== null)
+      // Mais pontos primeiro; empate de pontos fica com o pedido mais antigo (agruparPorPedido já vem do mais antigo).
+      .sort((x, y) => y.score - x.score);
+    const [primeiro, segundo] = avaliacoes;
+    if (!primeiro) break;
+    if (rodada === 0) {
+      melhor = paraPedidoCasado(primeiro);
+      vinculosDoMelhor = primeiro.ligar;
+    }
+    if (primeiro.score < LIMITE_CASAMENTO) break;
+    if (segundo && segundo.score >= LIMITE_CASAMENTO && primeiro.score - segundo.score <= EMPATE) {
+      // Brigam pela mesma nota? Se o segundo ainda se sustenta depois de o primeiro levar a parte dele, os dois cabem.
+      const sobra = new Map(restanteDaNota);
+      aplicar(sobra, primeiro.grupo, primeiro.ligar);
+      const depois = avaliarPedido(segundo.grupo, sobra);
+      if (!depois || depois.score < LIMITE_CASAMENTO) return { ...vazio, melhor, vinculosDoMelhor };
+    }
+    Object.assign(vinculos, primeiro.ligar);
+    aplicar(restanteDaNota, primeiro.grupo, primeiro.ligar);
+    pedidos.push(paraPedidoCasado(primeiro));
+    usados.add(primeiro.grupo.orderId);
+  }
+  return { automatico: pedidos.length > 0, vinculos, pedidos, melhor, vinculosDoMelhor };
+}
