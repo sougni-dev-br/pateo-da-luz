@@ -51,11 +51,11 @@ Hoje o mapa vive no código (`DRE_POR_CATEGORIA` em `frontend/src/pages/products
 
 ### 3.4 Setor
 - Setor só obrigatório com `controlsStock`.
-- `NÃO BATER EST` vira o campo `fora da conferência de saldo` (booleano) e os 119 itens ganham setor real. **Decisão do Eli:** o que "não bater estoque" significa operacionalmente, para não perder a regra.
+- `NÃO BATER EST` é aposentado: os 119 itens já têm `controlsStock = false`, que é o campo real. Sem marcador novo.
 
 ## 4. Mudanças técnicas
 
-1. **Schema (aditivo):** `Category.nature` (nullable no início), `Category.defaultDreCategoryId`, `Product.excludeFromBalanceCheck` (nome a definir). Nenhuma remoção até a fase E.
+1. **Schema (aditivo):** `Category.nature` (nullable no início) e `Category.defaultDreCategoryId`. Nenhuma remoção até a fase E.
 2. **Cadastros:** tela de categorias passa a pedir natureza e DRE padrão; impede criar categoria sem natureza; mostra uso (quantos produtos) e deixa mesclar duas categorias (move os produtos e apaga a vazia).
 3. **Seletor de DRE do produto:** só mostra categorias dos grupos da natureza (as outras ficam atrás de "mostrar todas").
 4. **Rotinas de limpeza com prévia (dry-run):**
@@ -76,11 +76,31 @@ Hoje o mapa vive no código (`DRE_POR_CATEGORIA` em `frontend/src/pages/products
 
 Regras de segurança para D: nenhuma alteração de `controlsStock` sem confirmação explícita; trava de período financeiro respeitada; backup do banco antes; rodar primeiro numa cópia; relatório de "antes e depois" por grupo.
 
-## 6. Decisões que dependem do Eli
+## 6. Decisões do Eli (15/10/2026) e o que cada uma implica
 
-1. **Utensílios:** contar quantidade (inventário de panelas, taças) ou só registrar o gasto? Define se durável entra na contagem.
-2. **Uniformes e equipamentos:** despesa do mês ou investimento (ativo)? Muda a DRE padrão.
-3. **Serviços (manutenção, publicidade, software):** ficam em Produtos ou vão para o cadastro de "Pequenos gastos"? Antes, verificar como `SmallExpenseType` (22 tipos, com "Utensílios") se relaciona com compras, para não duplicar.
-4. **`LIMPEZA`:** os 39 itens que controlam estoque continuam sendo contados mesmo fora do CMV?
-5. **"Não bater estoque":** o que a equipe faz com esses 119 itens hoje?
-6. Aprovar os nomes e agrupamentos de categoria da seção 3.2.
+| # | Decisão | Consequência verificada no código e nos dados |
+|---|---|---|
+| 1 | **Utensílios são contados** (quantidade) | Hoje contar = `controlsStock = true`. O valor do inventário do CMV soma **todos** os itens contados (`cmv-real.service.ts`, `totalValue`), sem filtro, e o fechamento do mês exige **todo** item com controle de estoque na contagem. Ligar a contagem de utensílios direto distorceria o CMV e travaria o fechamento. Exige isolar o escopo do CMV (ver 6.1). |
+| 2 | **Uniforme = despesa; equipamento = investimento** | O DRE das compras fora do CMV lê o `dreCategoryId` **atual** do produto (`dre.routes.ts`, parte B). Reclassificar os 15 equipamentos move o histórico para "Investimentos", inclusive meses fechados (ver 6.2). |
+| 3 | **Serviços ficam em Produtos** (natureza Serviço) | Já implementado: o cadastro de serviço pede só nome e categoria DRE. |
+| 4 | **Limpeza continua contada** | Sem mudança. Limpeza segue no CMV gerencial (`CATEGORIAS_CMV_GERENCIAL`). |
+| 5 | **"NÃO BATER EST" = o que não precisa ser contado** | Os 119 itens já têm `controlsStock = false`. O setor é redundante: o campo real é `controlsStock`. **Não** haverá marcador novo; o setor é aposentado e os itens ficam sem setor. 87 desses itens têm contagem histórica, preservada. |
+| 6 | **"Mercearia" não serve** | Os ~299 `INSUMOS` são um resto genérico (secos, molhos, doces, laticínios, congelados). Proposta: dividir em categorias reais em vez de nomear o resto (ver 6.3). |
+
+### 6.1 Isolar o escopo do CMV para poder contar utensílios
+- O fechamento e o valor do inventário passam a considerar só itens do escopo CMV (grupo `CMV_COMPRAS` ou as categorias da visão gerencial, a mesma lista que o DRE já usa). Utensílios contados ficam fora do valor e da exigência de cobertura.
+- Utensílios são contados numa sessão própria, com setores reais (Salão, Cozinha, Bar...), sem relação com o fechamento do CMV.
+- Entrega separada (PR próprio), com prova de que nenhum mês já fechado muda de valor, antes e depois.
+- Até lá, `DURAVEL` continua com `controlsStock = false` por padrão, para um utensílio novo não travar o fechamento.
+
+### 6.2 Equipamento como investimento sem reescrever o passado
+Opções (a decidir):
+- **Só daqui para frente:** nova categoria DRE de investimento em equipamento; compras novas usam ela; o histórico fica como despesa.
+- **Reclassificar tudo** com relatório antes/depois por mês e aprovação do Eli para cada mês fechado afetado.
+- **Gravar a categoria DRE na linha da compra** no momento da compra (muda o modelo, protege o passado de qualquer reclassificação futura). É a solução definitiva e a mais trabalhosa.
+
+### 6.3 Insumos
+Dividir em categorias reais, com prévia por palavra-chave que o Eli revisa: Laticínios e frios · Molhos, temperos e conservas · Secos e grãos · Doces e confeitaria · Congelados. Carnes salgadas (costela, rabo, bacon) vão para Carnes e aves. Bebida alcoólica que está em Insumos (vinho) vai para Bebidas.
+
+### 6.4 Regra geral para a fase D (limpeza dos dados)
+Toda reclassificação de DRE de produto reescreve o histórico. Antes de aplicar qualquer bloco: rodar o DRE de todos os meses antes e depois numa cópia do banco e comparar; só prosseguir se a diferença for zero ou aprovada.
