@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { DRECategory, NatureOption } from "../../../api/client";
-import { avisosDaNatureza, dreDaCategoria, dreSugeridas, passosVisiveis, pendenciasDoCadastro } from "../natureza";
+import { avisosDaNatureza, dreDaCategoria, dreSugeridaParaCategoria, dreSugeridas, passosVisiveis, pendenciasDoCadastro } from "../natureza";
 import { aplicarNatureza, emptyProductForm, formToPayload } from "../productForm";
 
 const INSUMO: NatureOption = {
@@ -111,6 +111,24 @@ describe("DRE por natureza", () => {
   test("não sugere DRE de outro grupo", () => {
     expect(dreDaCategoria("UTENSILIOS", INSUMO, DRE)).toBeNull();
     expect(dreDaCategoria("QUALQUER", INSUMO, DRE)).toBeNull();
+  });
+});
+
+describe("dreSugeridaParaCategoria", () => {
+  test("usa a categoria DRE usual cadastrada na categoria, antes do mapa por nome", () => {
+    const categoria = { name: "FLV", defaultDreCategoryId: "d3" };
+    // d3 é do grupo DESPESAS_GERAIS: não combina com insumo, então cai no mapa por nome (FLV -> Custo de Alimentos).
+    expect(dreSugeridaParaCategoria(categoria, INSUMO, DRE)?.id).toBe("d1");
+    expect(dreSugeridaParaCategoria({ name: "QUALQUER", defaultDreCategoryId: "d2" }, INSUMO, DRE)?.id).toBe("d2");
+  });
+
+  test("sem natureza escolhida aceita a usual cadastrada", () => {
+    expect(dreSugeridaParaCategoria({ name: "QUALQUER", defaultDreCategoryId: "d3" }, null, DRE)?.id).toBe("d3");
+  });
+
+  test("categoria sem usual e sem mapa não sugere nada", () => {
+    expect(dreSugeridaParaCategoria({ name: "QUALQUER" }, INSUMO, DRE)).toBeNull();
+    expect(dreSugeridaParaCategoria(null, INSUMO, DRE)).toBeNull();
   });
 });
 

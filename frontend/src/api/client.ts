@@ -996,6 +996,10 @@ export type Category = {
   id: string;
   name: string;
   mainGroup: string | null;
+  /** Natureza dos itens da categoria. Nula até a reorganização dos cadastros. */
+  nature?: ProductNature | null;
+  /** Categoria DRE usual dos itens: sugere no cadastro de produto, não obriga. */
+  defaultDreCategoryId?: string | null;
   isActive: boolean;
   notes: string | null;
 };

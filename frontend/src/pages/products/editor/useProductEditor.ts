@@ -14,7 +14,7 @@ import {
 import {
   avisosDaNatureza,
   cadastroRigido,
-  dreDaCategoria,
+  dreSugeridaParaCategoria,
   passosVisiveis,
   pendenciasDoCadastro,
   type StepId
@@ -139,8 +139,8 @@ export function useProductEditor(productId: string | undefined) {
       // Subcategoria começa vazia: escolher a primeira da lista em silêncio gravaria classificação errada.
       const proximo = { ...atual, categoryId, subcategoryId: "" };
       if (atual.dreCategoryId) return proximo;
-      const nome = opcoes.categories.find((c) => c.id === categoryId)?.name;
-      const sugerida = dreDaCategoria(nome, opcaoDaNatureza, opcoes.dreCategories);
+      const categoria = opcoes.categories.find((c) => c.id === categoryId);
+      const sugerida = dreSugeridaParaCategoria(categoria, opcaoDaNatureza, opcoes.dreCategories);
       return sugerida ? { ...proximo, dreCategoryId: sugerida.id } : proximo;
     });
   }, [opcoes.categories, opcoes.subcategories, opcoes.dreCategories, opcaoDaNatureza]);

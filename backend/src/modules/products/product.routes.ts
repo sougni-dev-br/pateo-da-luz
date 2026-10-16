@@ -441,7 +441,7 @@ productRouter.get("/form-options", async (request, response) => {
 
   const [categories, subcategories, sectors, units, suppliers, dreCategories] = await Promise.all([
     prisma.category.findMany({
-      select: { id: true, name: true, mainGroup: true, isActive: true, notes: true },
+      select: { id: true, name: true, mainGroup: true, nature: true, defaultDreCategoryId: true, isActive: true, notes: true },
       orderBy: { name: "asc" }
     }),
     prisma.subcategory.findMany({

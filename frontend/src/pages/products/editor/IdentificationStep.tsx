@@ -8,6 +8,11 @@ export function IdentificationStep({ editor, canCreateMasterData }: StepProps) {
   const [falhaAoCriar, setFalhaAoCriar] = useState<string | null>(null);
   const fisico = opcaoDaNatureza ? opcaoDaNatureza.fisico : true;
   const subcategorias = opcoes.subcategories.filter((sub) => sub.categoryId === form.categoryId);
+  // Quando as categorias já têm natureza, as da natureza escolhida vêm primeiro; sem natureza cadastrada, lista única.
+  const categoriasDaNatureza = opcaoDaNatureza
+    ? opcoes.categories.filter((categoria) => categoria.nature === opcaoDaNatureza.value)
+    : [];
+  const demaisCategorias = opcoes.categories.filter((categoria) => !categoriasDaNatureza.includes(categoria));
 
   async function criar(acao: () => Promise<void>, limpar: () => void) {
     setFalhaAoCriar(null);
@@ -70,7 +75,14 @@ export function IdentificationStep({ editor, canCreateMasterData }: StepProps) {
               Categoria
               <select value={form.categoryId} onChange={(event) => escolherCategoria(event.target.value)}>
                 <option value="">Selecione</option>
-                {opcoes.categories.map((categoria) => <option key={categoria.id} value={categoria.id}>{categoria.name}</option>)}
+                {categoriasDaNatureza.length > 0 && (
+                  <optgroup label={`Categorias de ${opcaoDaNatureza?.label.toLowerCase()}`}>
+                    {categoriasDaNatureza.map((categoria) => <option key={categoria.id} value={categoria.id}>{categoria.name}</option>)}
+                  </optgroup>
+                )}
+                {(categoriasDaNatureza.length > 0 ? demaisCategorias : opcoes.categories).map((categoria) => (
+                  <option key={categoria.id} value={categoria.id}>{categoria.name}</option>
+                ))}
               </select>
             </label>
             <label>

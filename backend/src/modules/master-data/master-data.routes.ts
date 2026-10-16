@@ -9,6 +9,7 @@ import { normalizeInventorySectorInput } from "./inventory-sector-utils.js";
 import { normalizeUnitCode, unitMatchKey } from "./unit-measure-utils.js";
 import { parseBody } from "../../shared/validate-body.js";
 import { categorySchema, expenseTypeSchema, subcategorySchema } from "./master-data.schemas.js";
+import type { ProductNatureValue } from "../products/product-nature.js";
 
 export const masterDataRouter = Router();
 
@@ -229,12 +230,30 @@ masterDataRouter.get("/categories", async (request, response) => {
   response.json(await prisma.category.findMany({ where, orderBy: { name: "asc" } }));
 });
 
+/** Natureza e DRE padrao so entram no update quando enviados: tela antiga nao pode apaga-los ao salvar. */
+/** Id de categoria DRE enviado por cliente fora da tela chegava ao Prisma como erro de chave estrangeira (500). */
+async function dreInexistente(id: string | null | undefined): Promise<boolean> {
+  if (!id) return false;
+  return (await prisma.dRECategory.count({ where: { id } })) === 0;
+}
+
+function categoriaTaxonomia(data: { nature?: ProductNatureValue | null; defaultDreCategoryId?: string | null }) {
+  return {
+    ...(data.nature === undefined ? {} : { nature: data.nature }),
+    ...(data.defaultDreCategoryId === undefined ? {} : { defaultDreCategoryId: data.defaultDreCategoryId })
+  };
+}
+
 masterDataRouter.post("/categories", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
 
   const data = parseBody(categorySchema, request.body, response);
   if (!data) return;
+  if (await dreInexistente(data.defaultDreCategoryId)) {
+    response.status(400).json({ message: "Categoria DRE usual nao encontrada." });
+    return;
+  }
 
   const item = await prisma.category.upsert({
     where: { name: data.name },
@@ -242,12 +261,14 @@ masterDataRouter.post("/categories", async (request, response) => {
       name: data.name,
       mainGroup: data.mainGroup || null,
       notes: data.notes || null,
-      isActive: data.isActive ?? true
+      isActive: data.isActive ?? true,
+      ...categoriaTaxonomia(data)
     },
     update: {
       mainGroup: data.mainGroup || null,
       notes: data.notes || null,
-      isActive: data.isActive ?? true
+      isActive: data.isActive ?? true,
+      ...categoriaTaxonomia(data)
     }
   });
   response.status(201).json(item);
@@ -259,6 +280,10 @@ masterDataRouter.put("/categories/:id", async (request, response) => {
 
   const data = parseBody(categorySchema, request.body, response);
   if (!data) return;
+  if (await dreInexistente(data.defaultDreCategoryId)) {
+    response.status(400).json({ message: "Categoria DRE usual nao encontrada." });
+    return;
+  }
 
   response.json(
     await prisma.category.update({
@@ -267,7 +292,8 @@ masterDataRouter.put("/categories/:id", async (request, response) => {
         name: data.name,
         mainGroup: data.mainGroup || null,
         notes: data.notes || null,
-        isActive: data.isActive ?? true
+        isActive: data.isActive ?? true,
+        ...categoriaTaxonomia(data)
       }
     })
   );

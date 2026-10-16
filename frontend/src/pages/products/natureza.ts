@@ -2,7 +2,7 @@
 // Os padrões de cada natureza (DRE sugerido, estoque, se é item físico) vêm do servidor em NatureOption;
 // aqui só se decide o que perguntar, o que falta e o que merece aviso.
 
-import type { DRECategory, NatureOption } from "../../api/client";
+import type { DRECategory, NatureOption, ProductNature } from "../../api/client";
 
 export type StepId = "natureza" | "identificacao" | "classificacao" | "estoque" | "conferencia";
 
@@ -12,6 +12,15 @@ export const STEP_LABELS: Record<StepId, string> = {
   classificacao: "Classificação",
   estoque: "Estoque e compra",
   conferencia: "Conferência"
+};
+
+/** Rótulos curtos das naturezas, para telas que não carregam as opções do cadastro de produto. */
+export const NATURE_LABELS: Record<ProductNature, string> = {
+  INSUMO: "Insumo ou mercadoria",
+  EMBALAGEM: "Embalagem ou descartável",
+  CONSUMO: "Material de consumo",
+  DURAVEL: "Utensílio, equipamento ou uniforme",
+  SERVICO: "Serviço ou despesa"
 };
 
 export type CamposDoCadastro = {
@@ -105,6 +114,23 @@ const DRE_POR_CATEGORIA: Record<string, string> = {
   EQUIPAMENTOS: "Equipamentos",
   INVESTIMENTOS: "Investimentos"
 };
+
+/**
+ * Categoria DRE sugerida ao escolher a categoria do produto: primeiro a usual cadastrada na própria
+ * categoria; sem ela, o mapa por nome. Nos dois casos só vale se o grupo combina com a natureza.
+ */
+export function dreSugeridaParaCategoria(
+  categoria: { name: string; defaultDreCategoryId?: string | null } | null | undefined,
+  opcao: NatureOption | null,
+  categorias: DRECategory[]
+): DRECategory | null {
+  if (!categoria) return null;
+  const cadastrada = categoria.defaultDreCategoryId
+    ? categorias.find((item) => item.id === categoria.defaultDreCategoryId) ?? null
+    : null;
+  if (cadastrada && (!opcao || opcao.dreGroups.includes(cadastrada.dreGroup))) return cadastrada;
+  return dreDaCategoria(categoria.name, opcao, categorias);
+}
 
 export function dreDaCategoria(
   nomeDaCategoria: string | null | undefined,

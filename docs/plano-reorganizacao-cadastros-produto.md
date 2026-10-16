@@ -34,7 +34,7 @@ Regras de ouro:
 ### 3.1 Natureza (já implementada nas fases 1 e 2)
 INSUMO · EMBALAGEM · CONSUMO · DURAVEL · SERVICO. Os padrões (DRE sugerido, estoque) vêm do servidor.
 
-### 3.2 Categorias, agrupadas por natureza (proposta inicial, a ajustar com o Eli)
+### 3.2 Categorias, agrupadas por natureza (proposta inicial, a ajustar com o dono)
 
 | Natureza | Categorias | DRE padrão |
 |---|---|---|
@@ -68,15 +68,15 @@ Hoje o mapa vive no código (`DRE_POR_CATEGORIA` em `frontend/src/pages/products
 
 | Fase | Entrega | Risco | Depende de |
 |---|---|---|---|
-| A | Aprovar a taxonomia (seção 3) com o Eli e as decisões abaixo | nenhum | Eli |
+| A | Aprovar a taxonomia (seção 3) com o dono e as decisões abaixo | nenhum | dono |
 | B | Schema aditivo + cadastro de categorias com natureza e DRE padrão | baixo | A |
 | C | Prévia da limpeza (CSV + tela de revisão em lote), sem gravar | nenhum | B |
-| D | Aplicar a limpeza por grupo, com o Eli confirmando cada bloco | médio: mexe em `controlsStock`/DRE de itens reais | C, backup antes |
+| D | Aplicar a limpeza por grupo, com o dono confirmando cada bloco | médio: mexe em `controlsStock`/DRE de itens reais | C, backup antes |
 | E | Natureza obrigatória; seletor de DRE filtrado; remover `accountType` e `mainGroup` | baixo | D completa |
 
 Regras de segurança para D: nenhuma alteração de `controlsStock` sem confirmação explícita; trava de período financeiro respeitada; backup do banco antes; rodar primeiro numa cópia; relatório de "antes e depois" por grupo.
 
-## 6. Decisões do Eli (15/10/2026) e o que cada uma implica
+## 6. Decisões do dono (15/10/2026) e o que cada uma implica
 
 | # | Decisão | Consequência verificada no código e nos dados |
 |---|---|---|
@@ -96,11 +96,30 @@ Regras de segurança para D: nenhuma alteração de `controlsStock` sem confirma
 ### 6.2 Equipamento como investimento sem reescrever o passado
 Opções (a decidir):
 - **Só daqui para frente:** nova categoria DRE de investimento em equipamento; compras novas usam ela; o histórico fica como despesa.
-- **Reclassificar tudo** com relatório antes/depois por mês e aprovação do Eli para cada mês fechado afetado.
+- **Reclassificar tudo** com relatório antes/depois por mês e aprovação do dono para cada mês fechado afetado.
 - **Gravar a categoria DRE na linha da compra** no momento da compra (muda o modelo, protege o passado de qualquer reclassificação futura). É a solução definitiva e a mais trabalhosa.
 
 ### 6.3 Insumos
-Dividir em categorias reais, com prévia por palavra-chave que o Eli revisa: Laticínios e frios · Molhos, temperos e conservas · Secos e grãos · Doces e confeitaria · Congelados. Carnes salgadas (costela, rabo, bacon) vão para Carnes e aves. O vinho de cozinha (2 itens de 4,6 L), o saquê de cozinha e os vinagres **continuam em Insumos** (são ingrediente, não bebida de venda); ficam juntos numa categoria de líquidos de cozinha, ou em "Molhos, temperos e conservas". Vinho de venda já está em Bebidas (nada a mover). Conferido por nome: nenhuma outra bebida de venda dentro de Insumos.
+Dividir em categorias reais, com prévia por palavra-chave que o dono revisa: Laticínios e frios · Molhos, temperos e conservas · Secos e grãos · Doces e confeitaria · Congelados. Carnes salgadas (costela, rabo, bacon) vão para Carnes e aves. O vinho de cozinha (2 itens de 4,6 L), o saquê de cozinha e os vinagres **continuam em Insumos** (são ingrediente, não bebida de venda); ficam juntos numa categoria de líquidos de cozinha, ou em "Molhos, temperos e conservas". Vinho de venda já está em Bebidas (nada a mover). Conferido por nome: nenhuma outra bebida de venda dentro de Insumos.
 
 ### 6.4 Regra geral para a fase D (limpeza dos dados)
 Toda reclassificação de DRE de produto reescreve o histórico. Antes de aplicar qualquer bloco: rodar o DRE de todos os meses antes e depois numa cópia do banco e comparar; só prosseguir se a diferença for zero ou aprovada.
+
+## 7. Andamento
+
+| Fase | Situação |
+|---|---|
+| A (aprovar a taxonomia) | Aprovada pelo dono em 15/10/2026, com as decisões da seção 6; a categoria **Pães e massas** foi acrescentada depois de ver os dados. |
+| B (schema + cadastro de categorias) | Feita neste PR: `Category.nature` e `Category.defaultDreCategoryId` (nulos), painel de Categorias com natureza e DRE usual, e o editor de produto sugere a DRE usual da categoria. Nenhum dado foi alterado. |
+| C (prévia sem gravar) | Feita: `backend/scripts/proposta-taxonomia.ts` gera planilhas **fora do repositório** (têm nomes reais de produto). Resultado no banco local: 95% dos 804 produtos ativos saem com confiança alta; 27 pedem decisão; 16 têm confiança média. |
+| D (aplicar por bloco) | **Não iniciada.** Depende da revisão da planilha pelo dono e da comparação do DRE antes/depois (seção 6.4). |
+| E (obrigatoriedade e limpeza) | Não iniciada. |
+
+Como gerar a prévia (somente leitura):
+
+```bash
+cd backend
+npx tsx --env-file=.env scripts/proposta-taxonomia.ts <pasta-fora-do-repositorio>
+```
+
+Arquivos gerados: `produtos.csv`, `produtos-para-revisar.csv`, `categorias.csv`, `subcategorias.csv` e `resumo.md`.
