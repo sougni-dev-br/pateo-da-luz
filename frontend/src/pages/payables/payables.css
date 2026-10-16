@@ -53,7 +53,7 @@
   gap: 4px;
   align-content: start;
   min-width: 0;
-  padding: 10px 12px 10px 14px;
+  padding: 8px 12px 8px 14px;
   border: 1px solid var(--line);
   border-left: 3px solid var(--kpi-cor);
   border-radius: var(--radius-md);
@@ -76,6 +76,13 @@
 .pg-kpi--warning { --kpi-cor: var(--warning); }
 .pg-kpi--info { --kpi-cor: var(--info); }
 .pg-kpi--success { --kpi-cor: var(--success); }
+.pg-kpi--neutral { --kpi-cor: var(--ink-soft); }
+/* Cartão que está filtrando a lista: fica "apertado", com o contorno na cor dele. */
+.pg-kpi--ativo { border-color: var(--kpi-cor); box-shadow: inset 0 0 0 1px var(--kpi-cor), var(--shadow-soft); background: var(--paper-soft); }
+.pg-kpi--alerta.pg-kpi--ativo { background: var(--tint-danger); }
+.pg-kpi-dica { font-size: var(--fs-2xs); color: var(--muted); line-height: 1.3; }
+/* Pagos formam um segundo bloco, separado do que ainda há a pagar. */
+.pg-kpi:nth-child(5) { margin-left: 10px; }
 .pg-kpi--alerta { background: var(--tint-danger); }
 
 .pg-kpi-rotulo {
@@ -87,7 +94,7 @@
 .pg-kpi--alerta .pg-kpi-rotulo { color: var(--danger); }
 
 .pg-kpi-valor {
-  font-size: 17px;
+  font-size: 15px;
   font-weight: var(--fw-semibold);
   letter-spacing: -0.01em;
   color: var(--kpi-cor);
@@ -312,7 +319,7 @@
 
 /* ── Lista agrupada ──────────────────────────────────────────────── */
 .pg-lista {
-  --pg-colunas: 22px 118px minmax(0, 1fr) 112px 128px 196px;
+  --pg-colunas: 22px 156px minmax(0, 1fr) 112px 128px 196px;
   display: grid;
   gap: 16px;
 }
@@ -380,10 +387,11 @@
   transition: border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
 }
 
+.pg-linha { cursor: pointer; }
 .pg-linha:hover { border-color: var(--line-strong); background: var(--row-hover); }
 .pg-linha:has(.pg-c-sel input:checked) { border-color: var(--gold); background: var(--gold-tint); }
 
-/* Marca à esquerda: vencido e vence hoje saltam aos olhos sem pintar a linha toda. */
+/* A folha de data já carrega a urgência; a marca lateral reforça sem pintar a linha toda. */
 .pg-linha--vencidos::before,
 .pg-linha--hoje::before {
   content: "";
@@ -400,7 +408,49 @@
 
 .pg-c-sel { display: flex; align-items: center; }
 
-.pg-c-venc { display: grid; gap: 1px; min-width: 0; }
+.pg-c-venc {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0 10px;
+  min-width: 0;
+}
+
+/* Folha de calendário: o dia em destaque, o mês miúdo. */
+.pg-folha {
+  grid-row: 1 / span 2;
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  width: 44px;
+  height: 48px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--paper-soft);
+  color: var(--ink);
+  line-height: 1;
+}
+.pg-folha b { font-size: 19px; font-weight: var(--fw-bold); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.pg-folha small { margin-top: 3px; font-size: var(--fs-2xs); font-weight: var(--fw-semibold); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.pg-folha--vazia b { font-size: 16px; color: var(--muted); }
+.pg-folha--vazia small { text-transform: none; letter-spacing: 0; }
+.pg-linha--vencidos .pg-folha { background: var(--tint-danger); border-color: var(--tint-danger-border); color: var(--danger); }
+.pg-linha--vencidos .pg-folha small { color: var(--danger); }
+.pg-linha--hoje .pg-folha { background: var(--tint-warning); border-color: var(--warning); color: var(--warning); }
+.pg-linha--hoje .pg-folha small { color: var(--warning); }
+
+/* Só para leitores de tela (e para quem busca pelo texto da data). */
+.pg-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
 
 .pg-data {
   font-size: var(--fs-sm);
@@ -409,9 +459,8 @@
   font-variant-numeric: tabular-nums;
 }
 
-.pg-prazo { font-size: var(--fs-2xs); color: var(--muted); }
-.pg-linha--vencidos .pg-data,
-.pg-linha--vencidos .pg-prazo { color: var(--danger); }
+.pg-prazo { grid-column: 2; align-self: start; font-size: var(--fs-xs); color: var(--muted); line-height: 1.25; }
+.pg-linha--vencidos .pg-prazo { color: var(--danger); font-weight: var(--fw-semibold); }
 .pg-linha--hoje .pg-prazo { color: var(--warning); font-weight: var(--fw-semibold); }
 
 .pg-c-quem { min-width: 0; display: grid; gap: 3px; }
@@ -816,7 +865,8 @@
 /* ── Telas médias: o status desce para baixo da data (sem coluna própria) ── */
 @media (max-width: 1180px) {
   .pg-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .pg-lista { --pg-colunas: 22px 104px minmax(0, 1fr) 116px 176px; }
+  .pg-kpi:nth-child(5) { margin-left: 0; }
+  .pg-lista { --pg-colunas: 22px 146px minmax(0, 1fr) 116px 176px; }
   .pg-linha { column-gap: 10px; }
   .pg-c-acoes .ds-button { min-width: 0; }
   .pg-cabecalho span:nth-child(4) { display: none; }
@@ -869,7 +919,10 @@
 
   .pg-c-quem { grid-area: quem; }
   .pg-c-valor { grid-area: valor; align-self: start; }
-  .pg-c-venc { grid-area: venc; align-self: center; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
+  .pg-c-venc { grid-area: venc; align-self: center; gap: 0 8px; }
+  .pg-folha { grid-row: auto; width: 38px; height: 40px; }
+  .pg-folha b { font-size: 16px; }
+  .pg-prazo { grid-column: 2; align-self: center; }
   .pg-c-status { grid-area: status; display: block; justify-self: end; }
   .pg-c-sel { grid-area: acoes; justify-self: start; align-self: center; z-index: 1; }
   .pg-c-acoes {
@@ -919,4 +972,246 @@
   .pg-campos { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px 14px; }
   .modal-backdrop.pg-backdrop { padding: 12px 10px; }
   .pg-janela { max-height: calc(100vh - 24px); }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   Panorama: o que há a pagar, quão urgente é e o que vence nos próximos dias
+═══════════════════════════════════════════════════════════════════ */
+.pg-panorama { display: grid; gap: 10px; }
+
+.pg-hero-linha {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: 10px;
+}
+
+.pg-hero,
+.pg-agenda {
+  min-width: 0;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--paper);
+}
+
+.pg-hero {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  background: linear-gradient(135deg, var(--paper) 0%, var(--paper) 55%, var(--gold-tint) 100%);
+}
+
+.pg-hero-rotulo {
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.pg-hero-valor {
+  font-size: clamp(28px, 3.4vw, 38px);
+  font-weight: var(--fw-bold);
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.pg-hero-frase { margin: 0 0 6px; font-size: var(--fs-sm); color: var(--muted); }
+.pg-hero-frase--alerta { color: var(--danger); font-weight: var(--fw-semibold); }
+
+.pg-barra-urgencia {
+  display: flex;
+  gap: 3px;
+  height: 10px;
+}
+
+.pg-fatia { display: block; min-width: 6px; border-radius: var(--radius-pill); transition: flex-grow var(--dur) var(--ease); }
+.pg-fatia--vencido { background: var(--danger); }
+.pg-fatia--ate7 { background: var(--warning); }
+.pg-fatia--ate30 { background: var(--info); }
+.pg-fatia--depois { background: var(--line-strong); }
+
+.pg-legenda {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 18px;
+  font-size: var(--fs-xs);
+  color: var(--ink-soft);
+}
+
+.pg-legenda li { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.pg-legenda li > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pg-legenda b { margin-left: auto; font-weight: var(--fw-semibold); color: var(--ink); }
+.pg-legenda i.pg-fatia { width: 9px; height: 9px; min-width: 9px; flex-shrink: 0; }
+.pg-legenda--zero { opacity: 0.5; }
+
+/* Agenda: uma coluna por dia; a altura é o valor que vence nele. */
+.pg-agenda { display: grid; gap: 10px; align-content: start; }
+.pg-agenda-topo { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.pg-agenda-soma { font-size: var(--fs-sm); font-weight: var(--fw-semibold); color: var(--ink); font-variant-numeric: tabular-nums; }
+
+.pg-agenda-dias {
+  display: grid;
+  grid-template-columns: repeat(14, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.pg-dia {
+  display: grid;
+  gap: 3px;
+  justify-items: center;
+  padding: 4px 0 5px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-soft);
+  font: inherit;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
+}
+
+.pg-dia:disabled { cursor: default; }
+.pg-dia:not(:disabled):hover { background: var(--paper-soft); border-color: var(--line-strong); }
+
+.pg-dia-coluna {
+  display: flex;
+  align-items: flex-end;
+  width: 100%;
+  max-width: 22px;
+  height: 64px;
+  border-radius: 4px;
+  background: var(--paper-soft);
+  overflow: hidden;
+}
+
+.pg-dia-barra {
+  display: block;
+  width: 100%;
+  border-radius: 4px 4px 0 0;
+  background: var(--gold);
+  transition: height var(--dur) var(--ease), background var(--dur-fast) var(--ease);
+}
+
+.pg-dia:not(:disabled):hover .pg-dia-barra { background: var(--gold-dark); }
+.pg-dia-num { font-size: var(--fs-xs); font-weight: var(--fw-semibold); font-variant-numeric: tabular-nums; line-height: 1; }
+.pg-dia-sigla { font-size: 10px; color: var(--muted); line-height: 1; }
+.pg-dia--fds .pg-dia-num,
+.pg-dia--fds .pg-dia-sigla { color: var(--muted); }
+.pg-dia--hoje { border-color: var(--gold); background: var(--gold-tint); }
+.pg-dia--hoje .pg-dia-num { color: var(--gold-dark); }
+.pg-dia--foco { border-color: var(--ink); background: var(--paper); box-shadow: var(--shadow-soft); }
+.pg-dia--foco .pg-dia-barra { background: var(--ink); }
+
+/* Fora do período carregado: o zero não quer dizer "nada vence". */
+.pg-dia--fora .pg-dia-coluna {
+  background: repeating-linear-gradient(135deg, var(--paper-soft) 0 4px, transparent 4px 8px);
+}
+.pg-dia--fora .pg-dia-num,
+.pg-dia--fora .pg-dia-sigla { opacity: 0.45; }
+
+.pg-agenda-nota { margin: 0; font-size: var(--fs-2xs); color: var(--muted); }
+
+/* ── Busca: dica do atalho ───────────────────────────────────────── */
+.pg-atalho-tecla {
+  display: inline-grid;
+  place-items: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid var(--line-strong);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: var(--paper-soft);
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+}
+
+/* ── Filtros ativos ──────────────────────────────────────────────── */
+.pg-pilulas { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+
+.pg-pilula {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 8px 0 11px;
+  border: 1px solid var(--gold);
+  border-radius: var(--radius-pill);
+  background: var(--gold-tint);
+  color: var(--gold-dark);
+  font: inherit;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+
+.pg-pilula b { font-weight: var(--fw-semibold); }
+.pg-pilula:hover { background: var(--paper); }
+
+/* ── Cabeçalho do grupo: recolher e baixar o grupo ───────────────── */
+.pg-grupo-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 0 -4px;
+  padding: 2px 6px 2px 2px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.pg-grupo-toggle:hover { background: var(--paper-soft); }
+
+.pg-grupo-baixar {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  cursor: pointer;
+}
+
+.pg-grupo-baixar:hover { border-color: var(--gold); background: var(--gold-tint); color: var(--gold-dark); }
+.pg-grupo--vencidos .pg-grupo-baixar { border-color: var(--tint-danger-border); color: var(--danger); }
+.pg-grupo--vencidos .pg-grupo-baixar:hover { background: var(--tint-danger); border-color: var(--danger); }
+
+@media (max-width: 1180px) {
+  .pg-hero-linha { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 760px) {
+  .pg-hero, .pg-agenda { padding: 14px; }
+  .pg-legenda { grid-template-columns: 1fr; }
+  .pg-legenda--zero { display: none; }
+  /* Os seis totais viram uma faixa que rola de lado: a lista não desce para o pé da tela. */
+  .pg-kpis { display: flex; overflow-x: auto; scroll-snap-type: x proximity; padding-bottom: 4px; }
+  .pg-kpi { flex: 0 0 150px; scroll-snap-align: start; }
+  .pg-kpi:nth-child(5) { margin-left: 0; }
+  .pg-agenda-dias { gap: 2px; }
+  .pg-dia-coluna { height: 48px; }
+  .pg-dia-sigla { display: none; }
+  .pg-atalho-tecla { display: none; }
+  .pg-grupo-topo { flex-wrap: wrap; }
+  .pg-grupo-baixar { margin-left: auto; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pg-fatia, .pg-dia-barra { transition: none; }
 }

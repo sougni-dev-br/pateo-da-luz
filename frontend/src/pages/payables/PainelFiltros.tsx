@@ -34,7 +34,7 @@ export const OPCOES_SUBTIPO = [
   { value: "EXTRA", label: "Diárias de extras", group: "Extras" },
 ];
 
-const OPCOES_STATUS = [
+export const OPCOES_STATUS = [
   { value: "OPEN", label: "Em aberto" },
   { value: "OVERDUE", label: "Vencido" },
   { value: "PAID", label: "Pago" },
@@ -42,7 +42,7 @@ const OPCOES_STATUS = [
   { value: "CANCELLED", label: "Cancelado" }
 ];
 
-const OPCOES_TIPO = [
+export const OPCOES_TIPO = [
   { value: "all", label: "Todos" },
   { value: "purchases", label: "Compras" },
   { value: "taxes", label: "Impostos" }

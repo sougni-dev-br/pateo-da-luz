@@ -20,9 +20,10 @@ import { ModalBaixa, type FormBaixa } from "./payables/ModalBaixa";
 import { ModalBaixaLote, type ResultadoLote } from "./payables/ModalBaixaLote";
 import { ModalEstorno, ModalHistorico } from "./payables/ModalEstorno";
 import { PainelFiltros } from "./payables/PainelFiltros";
+import { PilulasDeFiltros, type CampoFiltro } from "./payables/PilulasDeFiltros";
 import { ResumoKpis, type CartaoResumo } from "./payables/ResumoKpis";
 import {
-  addDaysKey, agruparPorVencimento, basePaymentName, combinaSubtipo, contarFiltrosAtivos, dataDaBaixaNoLote, dateKey, empresaDaBaixaNoLote, formaDaBaixaNoLote, formaPrevistaDoTitulo, payloadDaForma,
+  addDaysKey, agendaDosProximosDias, agruparPorVencimento, basePaymentName, combinaSubtipo, contarFiltrosAtivos, dataDaBaixaNoLote, dateKey, empresaDaBaixaNoLote, formaDaBaixaNoLote, formaPrevistaDoTitulo, payloadDaForma,
   isExtra, isFolhaLote, isPayroll, isSimpleLedger, membroDoLoteCombina, isTaxPayment, juntarVencidosAnteriores, minDateKey, periodoPuxaVencidosAnteriores, rotuloPeriodo, somarValores, todayKey,
   type FiltrosPagar
 } from "./payables/regras";
@@ -47,6 +48,8 @@ function payPessoal(p: Payable, payload: Parameters<typeof payFolhaLote>[1]) {
 
 // Filtros avançados começam recolhidos; a escolha fica neste navegador.
 const CHAVE_FILTROS_ABERTOS = "contas-a-pagar-filtros-abertos";
+
+const DIAS_AGENDA = 14;
 
 const MODOS_VISTA = [
   { key: "open", label: "Em aberto" },
@@ -110,6 +113,10 @@ export function Payables({ user }: PayablesProps) {
   const [filters, setFilters] = useState<FiltrosPagar>({ filter: "", supplierId: "", paymentMethodId: "", status: "", sourceType: "", origin: "all", noDueDate: filtroInicialSemVencimento });
   const [viewMode, setViewMode] = useState<"open" | "paid" | "all">("open");
   const [activeChip, setActiveChip] = useState<string | null>(null);
+  // Dia escolhido na agenda: filtra a lista que já está na tela, sem nova carga.
+  const [diaFoco, setDiaFoco] = useState<string | null>(null);
+  // Cartão do resumo que está filtrando a lista (só para destacá-lo).
+  const [cartaoAtivo, setCartaoAtivo] = useState<CartaoResumo | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [period, setPeriod] = useState(currentMonthPeriod());
   const [loading, setLoading] = useState(false);
@@ -125,6 +132,9 @@ export function Payables({ user }: PayablesProps) {
   const [filtrosAbertos, setFiltrosAbertos] = useState(() => {
     try { return window.localStorage.getItem(CHAVE_FILTROS_ABERTOS) === "1"; } catch { return false; }
   });
+  const buscaRef = useRef<HTMLInputElement>(null);
+  // "Baixar grupo": a seleção muda primeiro; o lote abre quando ela já chegou ao estado.
+  const [lotePendente, setLotePendente] = useState(false);
   const canManage = hasPermission(user, "payables", "edit");
   // Respostas fora de ordem: só vale a última carga pedida e as contas da empresa escolhida por último.
   const ultimaCarga = useRef(0);
@@ -197,21 +207,37 @@ export function Payables({ user }: PayablesProps) {
     const next7 = addDaysKey(7);
     const next30 = addDaysKey(30);
     const monthPrefix = today.slice(0, 7);
+    const pago = (i: Payable) => ["PAID", "PAID_LATE"].includes(i.status);
+    const emAberto = (i: Payable) => ["OPEN", "OVERDUE"].includes(i.status);
+    const ate = (i: Payable, limite: string) => emAberto(i) && dateKey(i.dueDate) >= today && dateKey(i.dueDate) <= limite;
+    const somaPago = (i: Payable) => Number(i.paidAmount ?? i.amount ?? 0);
+    const somaValor = (i: Payable) => Number(i.amount ?? 0);
+    const grupos: Record<CartaoResumo, { itens: Payable[]; valor: (i: Payable) => number }> = {
+      open: { itens: allPayables.filter((i) => i.status === "OPEN"), valor: somaValor },
+      overdue: { itens: allPayables.filter((i) => i.status === "OVERDUE"), valor: somaValor },
+      paidMonth: { itens: allPayables.filter((i) => pago(i) && dateKey(i.paidDate).startsWith(monthPrefix)), valor: somaPago },
+      paidToday: { itens: allPayables.filter((i) => pago(i) && dateKey(i.paidDate) === today), valor: somaPago },
+      next7: { itens: allPayables.filter((i) => ate(i, next7)), valor: somaValor },
+      next30: { itens: allPayables.filter((i) => ate(i, next30)), valor: somaValor }
+    };
+    const chaves = Object.keys(grupos) as CartaoResumo[];
     return {
-      open: allPayables.filter((i) => i.status === "OPEN").reduce((s, i) => s + Number(i.amount ?? 0), 0),
-      overdue: allPayables.filter((i) => i.status === "OVERDUE").reduce((s, i) => s + Number(i.amount ?? 0), 0),
-      paidMonth: allPayables.filter((i) => ["PAID", "PAID_LATE"].includes(i.status) && dateKey(i.paidDate).startsWith(monthPrefix)).reduce((s, i) => s + Number(i.paidAmount ?? i.amount ?? 0), 0),
-      paidToday: allPayables.filter((i) => ["PAID", "PAID_LATE"].includes(i.status) && dateKey(i.paidDate) === today).reduce((s, i) => s + Number(i.paidAmount ?? i.amount ?? 0), 0),
-      next7: allPayables.filter((i) => ["OPEN", "OVERDUE"].includes(i.status) && dateKey(i.dueDate) >= today && dateKey(i.dueDate) <= next7).reduce((s, i) => s + Number(i.amount ?? 0), 0),
-      next30: allPayables.filter((i) => ["OPEN", "OVERDUE"].includes(i.status) && dateKey(i.dueDate) >= today && dateKey(i.dueDate) <= next30).reduce((s, i) => s + Number(i.amount ?? 0), 0)
+      valores: Object.fromEntries(chaves.map((k) => [k, grupos[k].itens.reduce((s, i) => s + grupos[k].valor(i), 0)])) as Record<CartaoResumo, number>,
+      quantidades: Object.fromEntries(chaves.map((k) => [k, grupos[k].itens.length])) as Record<CartaoResumo, number>
     };
   }, [allPayables]);
+
+  const agenda = useMemo(
+    () => agendaDosProximosDias(allPayables, todayKey(), DIAS_AGENDA, period.startDate, period.endDate),
+    [allPayables, period.startDate, period.endDate]
+  );
 
   const displayedPayables = useMemo(() => {
     let result = payables;
     if (viewMode === "open") result = result.filter((p) => p.status === "OPEN" || p.status === "OVERDUE");
     else if (viewMode === "paid") result = result.filter((p) => p.status === "PAID" || p.status === "PAID_LATE");
     if (activeChip === "noduedate") result = result.filter((p) => !p.dueDate);
+    if (diaFoco) result = result.filter((p) => dateKey(p.dueDate) === diaFoco);
     if (filters.sourceType) result = result.filter((p) => combinaSubtipo(p, filters.sourceType));
     if (!searchQuery.trim()) return result;
     const q = searchQuery.toLowerCase().trim();
@@ -226,7 +252,7 @@ export function Payables({ user }: PayablesProps) {
       (p.taxCnpj ?? "").includes(q) ||
       membroDoLoteCombina(p, q)
     );
-  }, [payables, searchQuery, filters.sourceType, activeChip, viewMode]);
+  }, [payables, searchQuery, filters.sourceType, activeChip, viewMode, diaFoco]);
 
   const hoje = todayKey();
   const grupos = useMemo(() => agruparPorVencimento(displayedPayables, hoje), [displayedPayables, hoje]);
@@ -251,6 +277,8 @@ export function Payables({ user }: PayablesProps) {
     setFilters(cleared);
     setSearchQuery("");
     setActiveChip(null);
+    setDiaFoco(null);
+    setCartaoAtivo(null);
     setViewMode("open");
     setPeriod(currentMonthPeriod());
     void load(cleared, currentMonthPeriod());
@@ -258,6 +286,8 @@ export function Payables({ user }: PayablesProps) {
 
   function handlePeriodChange(preset: string) {
     setActiveChip(null);
+    setDiaFoco(null);
+    setCartaoAtivo(null);
     if (preset === "paidMonth") {
       const p = periodForPreset("currentMonth");
       const newPeriod: PeriodState = { ...p, preset: "paidMonth" as PeriodPreset };
@@ -285,6 +315,7 @@ export function Payables({ user }: PayablesProps) {
   }
 
   function alterarStatus(v: string) {
+    setCartaoAtivo(null);
     const u = { ...filters, status: v };
     if (v === "PAID" || v === "PAID_LATE") setViewMode("paid");
     else if (v === "OPEN" || v === "OVERDUE") setViewMode("open");
@@ -310,6 +341,8 @@ export function Payables({ user }: PayablesProps) {
       return;
     }
     setActiveChip(key);
+    setDiaFoco(null);
+    setCartaoAtivo(null);
     if (key === "overdue") {
       const p = periodForPreset("overdue");
       const u = { ...filters, status: "OVERDUE", paymentMethodId: "", sourceType: "" };
@@ -352,7 +385,14 @@ export function Payables({ user }: PayablesProps) {
   }
 
   function applyCardFilter(type: CartaoResumo) {
+    // Clicar de novo no cartão ativo desfaz o filtro.
+    if (cartaoAtivo === type) {
+      clearFilters();
+      return;
+    }
     setActiveChip(null);
+    setDiaFoco(null);
+    setCartaoAtivo(type);
     // Sincroniza viewMode com o card clicado para não ocultar resultados
     setViewMode(type === "paidMonth" || type === "paidToday" ? "paid" : "open");
     if (type === "open") {
@@ -391,6 +431,25 @@ export function Payables({ user }: PayablesProps) {
       setFilters(u);
       void load(u, p);
     }
+  }
+
+  // Clicar num dia da agenda mostra só o que vence nele.
+  function alternarDia(chave: string) {
+    setActiveChip(null);
+    setViewMode("open");
+    setDiaFoco((atual) => (atual === chave ? null : chave));
+  }
+
+  function removerFiltro(campo: CampoFiltro) {
+    setActiveChip(null);
+    if (campo === "status") alterarStatus("");
+    else if (campo === "origin") alterarTipo("all");
+    else alterarFiltros({ ...filters, [campo]: "" });
+  }
+
+  function baixarGrupo(ids: string[]) {
+    setSelectedIds(new Set(ids));
+    setLotePendente(true);
   }
 
   function selectedPaymentPayload() {
@@ -506,6 +565,28 @@ export function Payables({ user }: PayablesProps) {
       return ficam.length === prev.size ? prev : new Set(ficam);
     });
   }, [idsSelecionaveis, loading]);
+  useEffect(() => {
+    if (!lotePendente || selectedIds.size === 0) return;
+    setLotePendente(false);
+    abrirLote();
+  }, [lotePendente, selectedIds]);
+
+  // "/" vai para a busca; Esc solta a seleção (com janela aberta, o Esc é da janela).
+  useEffect(() => {
+    function aoTeclar(e: KeyboardEvent) {
+      const alvo = e.target as HTMLElement | null;
+      const digitando = Boolean(alvo?.closest("input, textarea, select, [contenteditable='true']"));
+      const janelaAberta = Boolean(document.querySelector("[role='dialog']"));
+      if (e.key === "/" && !digitando && !janelaAberta && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        buscaRef.current?.focus();
+      } else if (e.key === "Escape" && !janelaAberta && !digitando) {
+        setSelectedIds((prev) => (prev.size > 0 ? new Set() : prev));
+      }
+    }
+    window.addEventListener("keydown", aoTeclar);
+    return () => window.removeEventListener("keydown", aoTeclar);
+  }, []);
   const totalSelecionado = selecionados.reduce((s, p) => s + Number(p.amount ?? 0), 0);
 
   function toggleSelecionado(id: string) {
@@ -805,7 +886,7 @@ export function Payables({ user }: PayablesProps) {
     }
   }
 
-  const temFiltroOuBusca = activeFilterCount > 0 || Boolean(searchQuery) || Boolean(activeChip);
+  const temFiltroOuBusca = activeFilterCount > 0 || Boolean(searchQuery) || Boolean(activeChip) || Boolean(diaFoco);
   const descricaoPeriodo = filters.noDueDate
     ? "Sem vencimento"
     : `${rotuloPeriodo(period.preset)} · ${formatDate(period.startDate)} a ${formatDate(period.endDate)}`;
@@ -828,19 +909,21 @@ export function Payables({ user }: PayablesProps) {
       </div>
 
       {/* ── Totais (clicáveis: filtram a lista) ─────────────────── */}
-      <ResumoKpis totais={totals} onCartao={applyCardFilter} />
+      <ResumoKpis totais={totals.valores} quantidades={totals.quantidades} ativo={cartaoAtivo} agenda={filters.noDueDate ? [] : agenda} hoje={hoje} diaFoco={diaFoco} onCartao={applyCardFilter} onDia={alternarDia} />
 
       {/* ── Busca + filtros ─────────────────────────────────────── */}
       <div className="pg-barra">
         <div className="pg-busca">
           <Search size={16} aria-hidden="true" />
           <input
+            ref={buscaRef}
             type="search"
             aria-label="Buscar títulos"
             placeholder="Buscar fornecedor, funcionário, NF, pedido ou valor…"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
+          {!searchQuery && <kbd className="pg-atalho-tecla" aria-hidden="true" title="Atalho: tecla /">/</kbd>}
           {searchQuery && (
             <button type="button" className="pg-busca-limpar" onClick={() => setSearchQuery("")} aria-label="Limpar busca">
               <X size={14} />
@@ -862,6 +945,8 @@ export function Payables({ user }: PayablesProps) {
           <button type="button" className="pg-link" onClick={clearFilters}>Limpar</button>
         )}
       </div>
+
+      <PilulasDeFiltros filtros={filters} fornecedores={suppliers} formas={effectivePaymentOptions} dia={diaFoco} onRemover={removerFiltro} onRemoverDia={() => setDiaFoco(null)} />
 
       {filtrosAbertos && (
         <PainelFiltros
@@ -948,7 +1033,7 @@ export function Payables({ user }: PayablesProps) {
           title={searchQuery
             ? `Nenhum título encontrado para "${searchQuery}".`
             : viewMode === "open"
-              ? "Nada em aberto neste período."
+              ? "Tudo em dia: nada em aberto neste período."
               : "Nenhum título neste período."}
           description={temFiltroOuBusca ? "Ajuste a busca ou limpe os filtros." : "Mude o período em Filtros ou veja os baixados."}
         />
@@ -961,6 +1046,7 @@ export function Payables({ user }: PayablesProps) {
           selecionados={selectedIds}
           onAlternar={toggleSelecionado}
           onAlternarGrupo={alternarGrupo}
+          onBaixarGrupo={canManage ? baixarGrupo : undefined}
           onVer={openTitle}
           onBaixar={startPayment}
           onEstornar={openReverse}
