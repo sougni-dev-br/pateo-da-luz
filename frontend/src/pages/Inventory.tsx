@@ -1,4 +1,4 @@
-﻿import { AlertTriangle, ArrowDown, ArrowLeft, CalendarDays, CheckCircle2, ClipboardCheck, Download, FilterX, Layers, Loader2, MessageSquare, Play, Printer, RefreshCw, Search, Send, ShoppingCart, Save, SlidersHorizontal, Trash2, X } from "lucide-react";
+﻿import { AlertTriangle, Archive, ArrowDown, ArrowLeft, CalendarDays, CheckCircle2, ClipboardCheck, Download, FilterX, Layers, Loader2, MessageSquare, Play, Printer, RefreshCw, Search, Send, ShoppingCart, Save, SlidersHorizontal, Trash2, Undo2, X } from "lucide-react";
 import { Fragment, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useRevealScroll } from "../lib/useRevealScroll";
 import { hasPermission } from "../lib/permissions";
@@ -9,6 +9,7 @@ import {
   AppUser,
   approveOperationalInventory,
   BuyerSupportReport,
+  archiveStockCountSession,
   cancelStockCountSession,
   cancelOperationalInventory,
   closeOperationalInventory,
@@ -31,6 +32,7 @@ import {
   getStockCountSessionPdfBlob,
   getStockCountSessionPlausibility,
   getStockCountSessions,
+  unarchiveStockCountSession,
   getBuyerSupportReport,
   getCategories,
   getProducts,
@@ -1104,6 +1106,33 @@ export function Inventory({
     }
   }
 
+  // Arquivar nao e cancelar: a contagem continua no historico (ciclos, medianas), so some das listas.
+  const canArchiveCountSession = (session: StockCountSession | StockCountSessionDetail) =>
+    canDeleteCountSession
+    && session.status === "CONCLUIDA"
+    && (!session.generatedInventoryId || session.generatedInventoryStatus === "CANCELADO");
+
+  async function archiveCountSessionAction(session: StockCountSession | StockCountSessionDetail) {
+    if (!window.confirm(`Arquivar a contagem ${session.code}? Ela sai das listas, mas continua no historico e pode ser desarquivada em "Exibir cancelados, testes e arquivados".`)) return;
+    try {
+      await archiveStockCountSession(session.id);
+      setNotice({ tone: "success", message: `${session.code} arquivada.` });
+      await refreshCountSessions(countSessionDetail?.id === session.id ? session.id : undefined);
+    } catch (error) {
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Nao foi possivel arquivar a contagem." });
+    }
+  }
+
+  async function unarchiveCountSessionAction(session: StockCountSession | StockCountSessionDetail) {
+    try {
+      await unarchiveStockCountSession(session.id);
+      setNotice({ tone: "success", message: `${session.code} voltou para as contagens concluidas.` });
+      await refreshCountSessions(countSessionDetail?.id === session.id ? session.id : undefined);
+    } catch (error) {
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Nao foi possivel desarquivar a contagem." });
+    }
+  }
+
   async function cancelCountSessionAction(session?: StockCountSession | StockCountSessionDetail) {
     const target = session ?? countSessionDetail;
     if (!target) return;
@@ -1320,6 +1349,12 @@ export function Inventory({
         : []),
       ...(canGenerateInventoryFromCount(session)
         ? [{ label: "Gerar inventário", icon: <ClipboardCheck size={15} />, onClick: async () => { await openCountSession(session.id, false); await generateInventoryFromStockCountSession(session.id); await refreshCountSessions(session.id); await refreshOperational(); setNotice({ tone: "success", message: "Inventário gerado a partir da contagem." }); } }]
+        : []),
+      ...(canArchiveCountSession(session)
+        ? [{ label: "Arquivar contagem", icon: <Archive size={15} />, onClick: () => archiveCountSessionAction(session) }]
+        : []),
+      ...(canDeleteCountSession && session.status === "ARQUIVADA"
+        ? [{ label: "Desarquivar contagem", icon: <Undo2 size={15} />, onClick: () => unarchiveCountSessionAction(session) }]
         : []),
       ...(canCancelCountSession(session)
         ? [{ separator: true as const }, { label: "Cancelar contagem", icon: <Trash2 size={15} />, tone: "danger" as const, onClick: () => cancelCountSessionAction(session) }]
@@ -2602,7 +2637,7 @@ export function Inventory({
             )}
             <label className="checkbox-label compact-check inventory-toggle-label">
               <input type="checkbox" checked={showCanceledStockData} onChange={(event) => setShowCanceledStockData(event.target.checked)} />
-              Exibir cancelados/testes
+              Exibir cancelados, testes e arquivados
             </label>
             <button className="icon-button" type="button" onClick={load} aria-label="Atualizar inventarios">
               {loading ? <Loader2 size={18} /> : <RefreshCw size={18} />}
