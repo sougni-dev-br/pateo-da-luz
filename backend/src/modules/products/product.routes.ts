@@ -1142,6 +1142,22 @@ productRouter.put("/:id", async (request, response) => {
   response.json((await hydrateProductConversionFields([product]))[0]);
 });
 
+/** Um produto, no mesmo formato da listagem: o editor abre por rota e precisa carregar so o que vai editar. */
+productRouter.get("/:id", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
+  if (!user) return;
+
+  const product = await prisma.product.findUnique({
+    where: { id: request.params.id },
+    include: { category: true, subcategory: true, inventorySector: true, aliases: true, dreCategory: true }
+  });
+  if (!product) {
+    response.status(404).json({ message: "Produto nao encontrado." });
+    return;
+  }
+  response.json((await hydrateProductConversionFields([product]))[0]);
+});
+
 productRouter.get("/:id/history", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
   if (!user) return;

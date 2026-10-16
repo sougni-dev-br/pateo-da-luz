@@ -921,8 +921,24 @@ export type SupplierHistory = {
   averagePaymentTermDays: number | null;
 };
 
+export type ProductNature = "INSUMO" | "EMBALAGEM" | "CONSUMO" | "DURAVEL" | "SERVICO";
+
+/** Padrões de cada natureza, vindos do servidor (/products/form-options): a tela não repete a regra. */
+export type NatureOption = {
+  value: ProductNature;
+  label: string;
+  description: string;
+  /** Grupos de DRE sugeridos; o primeiro é o padrão. */
+  dreGroups: string[];
+  controlsStock: boolean;
+  /** Item físico: pede unidade e categoria. Serviço não. */
+  fisico: boolean;
+  entraNoCmv: boolean;
+};
+
 export type Product = {
   id: string;
+  nature?: ProductNature | null;
   externalCode: string | null;
   name: string;
   normalizedName: string;
@@ -2636,8 +2652,9 @@ export type ProductListFilters = {
   controlsStock?: string;
   isActive?: string;
   semDreCategoria?: string;
-  /** "sem-setor" | "sem-categoria" | "sem-subcategoria" | "sem-dre" */
+  /** "sem-setor" | "sem-categoria" | "sem-subcategoria" | "sem-dre" | "sem-natureza" */
   pendencia?: string;
+  nature?: ProductNature;
   /** Sem page/pageSize a resposta vem completa — telas que montam autocomplete dependem disso. */
   page?: number;
   pageSize?: number;
@@ -2691,6 +2708,17 @@ export function getProductHistory(id: string) {
   return request<ProductHistory>(`/products/${id}/history`);
 }
 
+export function getProductById(id: string) {
+  return request<Product>(`/products/${encodeURIComponent(id)}`);
+}
+
+export type SimilarProduct = { id: string; name: string; externalCode: string | null; unit: string | null; score: number };
+
+/** Produtos de nome parecido, para avisar antes de cadastrar em duplicidade. */
+export function getSimilarProducts(name: string) {
+  return request<{ items: SimilarProduct[] }>(`/products/similar${toQueryString({ name })}`);
+}
+
 export function getNextProductCode() {
   return request<{ code: string }>("/products/next-code");
 }
@@ -2702,6 +2730,8 @@ export type ProductFormOptions = {
   units: UnitMeasure[];
   suppliers: Supplier[];
   dreCategories: DRECategory[];
+  /** Ausente em servidor anterior a esta versão. */
+  natures?: NatureOption[];
   nextCode: string;
 };
 

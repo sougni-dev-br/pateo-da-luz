@@ -1,34 +1,28 @@
-﻿import { History, Pencil, PowerOff, RefreshCw, Search, Wand2, X } from "lucide-react";
+﻿import { History, Pencil, Plus, PowerOff, RefreshCw, Search, Wand2, X } from "lucide-react";
+import "./products/editor/product-editor.css";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { EmbalagensDeCompra } from "./products/EmbalagensDeCompra";
 import {
-  addProductAlias,
-  ApiError,
   bulkPatchProductDreCategory,
   Category,
   DRECategory,
-  getNextProductCode,
   getProductFormOptions,
   getProductsSummary,
   getProductHistory,
   getProducts,
   InventorySector,
+  NatureOption,
   Product,
+  ProductNature,
   ProductHistory,
   ProductSummary,
-  saveCategory,
-  saveProduct,
-  saveSubcategory,
   setProductStatus,
-  Supplier,
-  Subcategory,
-  UnitMeasure
+  Subcategory
 } from "../api/client";
-import { DRECategoryOptions, DRE_GROUPS } from "../components/DRECategoryOptions";
-import { Notice, useNotice } from "../components/Notice";
+import { DRECategoryOptions } from "../components/DRECategoryOptions";
+import { Notice, useNotice, type NoticeTone } from "../components/Notice";
 import { useSession } from "../context/SessionContext";
 import { hasPermission } from "../lib/permissions";
-import { useRevealScroll } from "../lib/useRevealScroll";
 import { SimpleBarChart } from "../components/SimpleBarChart";
 import { ConversoesAutomaticas } from "./compras/ConversoesAutomaticas";
 import {
@@ -42,57 +36,6 @@ import {
   Table
 } from "../design-system";
 import { formatDate, formatNumber } from "../utils/format";
-
-const emptyProduct = {
-  id: "",
-  externalCode: "",
-  name: "",
-  unit: "",
-  unitMeasureId: "",
-  stockUnit: "",
-  purchaseUnit: "",
-  baseUnit: "",
-  conversionFactor: "",
-  packageWeight: "",
-  conversionNotes: "",
-  logisticsNotes: "",
-  storageLocation: "",
-  storageCorridor: "",
-  storageShelf: "",
-  storagePosition: "",
-  storageNotes: "",
-  unitConversions: [] as Array<{
-    fromUnit: string;
-    toUnit: string;
-    factor: string;
-    averagePackageWeight: string;
-    notes: string;
-    isActive: boolean;
-  }>,
-  categoryId: "",
-  subcategoryId: "",
-  inventorySectorId: "",
-  dreCategoryId: "",
-  accountType: "",
-  controlsStock: true,
-  estoqueMinimo: "",
-  estoqueIdeal: "",
-  leadTimeCompraDias: "",
-  fornecedorPrincipalId: "",
-  newCategoryName: "",
-  newSubcategoryName: "",
-  notes: "",
-  isActive: true
-};
-
-const emptyConversion = {
-  fromUnit: "",
-  toUnit: "",
-  factor: "",
-  averagePackageWeight: "",
-  notes: "",
-  isActive: true
-};
 
 function countProductsBy(products: Product[], getKey: (product: Product) => string | null | undefined) {
   const totals = new Map<string, number>();
@@ -122,76 +65,8 @@ function sanitizeSectorOptions(sectors: InventorySector[]) {
   return [...unique.values()];
 }
 
-// Ciclo 2: snapshot canônico para dirty-check.
-// Campos transitórios (newCategoryName, newSubcategoryName, id) ficam de fora.
-// null/undefined/"" colapsam para ""; booleanos são coeridos; strings são trim.
-function normalizeForm(f: typeof emptyProduct): string {
-  const s = (v: string | null | undefined) => (v == null ? "" : String(v).trim());
-  const b = (v: boolean | null | undefined) => v === true;
-  return JSON.stringify({
-    externalCode: s(f.externalCode),
-    name: s(f.name),
-    unit: s(f.unit),
-    unitMeasureId: s(f.unitMeasureId),
-    stockUnit: s(f.stockUnit),
-    purchaseUnit: s(f.purchaseUnit),
-    baseUnit: s(f.baseUnit),
-    conversionFactor: s(f.conversionFactor),
-    packageWeight: s(f.packageWeight),
-    conversionNotes: s(f.conversionNotes),
-    logisticsNotes: s(f.logisticsNotes),
-    storageLocation: s(f.storageLocation),
-    storageCorridor: s(f.storageCorridor),
-    storageShelf: s(f.storageShelf),
-    storagePosition: s(f.storagePosition),
-    storageNotes: s(f.storageNotes),
-    unitConversions: (f.unitConversions ?? []).map((c) => ({
-      fromUnit: s(c.fromUnit),
-      toUnit: s(c.toUnit),
-      factor: s(c.factor),
-      averagePackageWeight: s(c.averagePackageWeight),
-      notes: s(c.notes),
-      isActive: b(c.isActive)
-    })),
-    categoryId: s(f.categoryId),
-    subcategoryId: s(f.subcategoryId),
-    inventorySectorId: s(f.inventorySectorId),
-    dreCategoryId: s(f.dreCategoryId),
-    accountType: s(f.accountType),
-    controlsStock: b(f.controlsStock),
-    estoqueMinimo: s(f.estoqueMinimo),
-    estoqueIdeal: s(f.estoqueIdeal),
-    leadTimeCompraDias: s(f.leadTimeCompraDias),
-    fornecedorPrincipalId: s(f.fornecedorPrincipalId),
-    notes: s(f.notes),
-    isActive: b(f.isActive)
-  });
-}
-
-// Ciclo 2: rascunho de conversão de unidade (seção "Conversões futuras")
-// também conta como dirty — usuário não pode perder digitação silenciosamente.
-function normalizeConversion(c: typeof emptyConversion): string {
-  const s = (v: string | null | undefined) => (v == null ? "" : String(v).trim());
-  return JSON.stringify({
-    fromUnit: s(c.fromUnit),
-    toUnit: s(c.toUnit),
-    factor: s(c.factor),
-    averagePackageWeight: s(c.averagePackageWeight),
-    notes: s(c.notes),
-    isActive: c.isActive === true
-  });
-}
-
-const EMPTY_CONVERSION_KEY = normalizeConversion({
-  fromUnit: "",
-  toUnit: "",
-  factor: "",
-  averagePackageWeight: "",
-  notes: "",
-  isActive: true
-});
-
 const PAGE_SIZE = 50;
+const ROTA_DO_EDITOR = "/estoque/produtos";
 
 const FILTROS_VAZIOS = {
   search: "",
@@ -200,38 +75,25 @@ const FILTROS_VAZIOS = {
   sector: "",
   controlsStock: "",
   pendencia: "",
+  nature: "",
   status: "ativos"
 };
 
-const DIRTY_CONFIRM_MESSAGE = "Existem alterações não salvas. Deseja descartá-las?";
-
-const productFormTabs = [
-  { id: "identification", label: "Identificação" },
-  { id: "classification", label: "Classificação" },
-  { id: "units", label: "Unidades" },
-  { id: "purchase", label: "Compra" },
-  // Localizacao tinha 4 campos e Observacoes 5: duas abas para pouco conteudo,
-  // com "Obs. da localizacao" separada dos campos que descreve.
-  { id: "location", label: "Local e notas" }
-] as const;
-
-type ProductFormTab = (typeof productFormTabs)[number]["id"];
-
 export function Products() {
   const { user } = useSession();
+  const navigate = useNavigate();
+  const location = useLocation();
   const canEdit = hasPermission(user, "products", "edit");
   // A aplicacao em lote mexe nas compras: so quem tem cargo de gestao (o backend confere).
   const podeConverterEmLote = canEdit && ["ADMIN", "GESTAO_COMPLETA"].includes(String(user?.role ?? ""));
   const [mostrarConversoes, setMostrarConversoes] = useState(false);
   const canDelete = hasPermission(user, "products", "delete");
-  const canCreateMasterData = hasPermission(user, "master-data", "create");
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [subcategories, setSubcategories] = useState<Subcategory[]>([]);
   const [sectors, setSectors] = useState<InventorySector[]>([]);
-  const [units, setUnits] = useState<UnitMeasure[]>([]);
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [dreCategories, setDreCategories] = useState<DRECategory[]>([]);
+  const [natures, setNatures] = useState<NatureOption[]>([]);
   const [filters, setFilters] = useState(FILTROS_VAZIOS);
   const [showMoreFilters, setShowMoreFilters] = useState(false);
   const [page, setPage] = useState(1);
@@ -251,36 +113,8 @@ export function Products() {
   const [showBulkConfirm, setShowBulkConfirm] = useState(false);
   const [bulkSaving, setBulkSaving] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const flashTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
-  const [form, setForm] = useState(emptyProduct);
-  // O que o formulario carregou. Vai junto ao salvar para o backend apagar so o
-  // que o operador tirou: conversao criada pela ficha tecnica ou pela revisao de
-  // embalagens depois da abertura do formulario nao esta aqui e e preservada.
-  const [conversoesCarregadas, setConversoesCarregadas] = useState<Array<{ fromUnit: string; toUnit: string }>>([]);
   const [history, setHistory] = useState<ProductHistory | null>(null);
-  const [conversionForm, setConversionForm] = useState(emptyConversion);
-  const [activeFormTab, setActiveFormTab] = useState<ProductFormTab>("identification");
-  const [formOpenKey, setFormOpenKey] = useState(0);
-  const [tabRevealKey, setTabRevealKey] = useState(0);
-  const [snapshot, setSnapshot] = useState<string | null>(null);
-  const [aliasSnapshot, setAliasSnapshot] = useState("");
-  const initialSnapshotSet = useRef(false);
-  // Altura estimada da barra sticky superior (.product-form-toolbar).
-  // Usada só para o cálculo de "já está visível" — o posicionamento fino fica com scroll-margin-top.
-  const STICKY_TOP_INSET = 72;
-  const formHeaderRef = useRevealScroll<HTMLElement>({
-    when: formOpenKey,
-    focus: true,
-    focusSelector: "[data-autofocus]",
-    topInset: STICKY_TOP_INSET
-  });
-  const activeTabPanelRef = useRevealScroll<HTMLDivElement>({
-    when: tabRevealKey,
-    focus: false,
-    topInset: STICKY_TOP_INSET
-  });
-  const [alias, setAlias] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { notice, setNotice } = useNotice();
@@ -301,30 +135,6 @@ export function Products() {
       : countProductsBy(products, (product) => product.controlsStock ? "Controla estoque" : "Nao controla"),
     [summary, products]
   );
-  const selectedSector = sectors.find((sector) => sector.id === form.inventorySectorId) ?? null;
-  const classificationPending = !form.inventorySectorId;
-
-  // Ponto na aba avisa onde falta preencher, para nao ter que abrir uma a uma
-  // ate descobrir. So o que o cadastro realmente precisa entra aqui.
-  const pendenciasPorAba: Record<ProductFormTab, string> = {
-    identification: form.name.trim() ? "" : "descrição do produto",
-    classification: [
-      form.categoryId ? "" : "categoria",
-      form.inventorySectorId ? "" : "setor",
-      form.dreCategoryId ? "" : "categoria DRE"
-    ].filter(Boolean).join(", "),
-    units: form.unitMeasureId ? "" : "unidade padrão",
-    purchase: "",
-    location: ""
-  };
-  const totalPendencias = Object.values(pendenciasPorAba).filter(Boolean).length;
-  const isDirty = useMemo(() => {
-    if (snapshot === null) return false;
-    return normalizeForm(form) !== snapshot
-      || alias !== aliasSnapshot
-      || normalizeConversion(conversionForm) !== EMPTY_CONVERSION_KEY;
-  }, [form, alias, snapshot, aliasSnapshot, conversionForm]);
-
   const filtrosAtivos = {
     search: filters.search.trim() || undefined,
     category: filters.category || undefined,
@@ -332,6 +142,7 @@ export function Products() {
     sector: filters.sector || undefined,
     controlsStock: filters.controlsStock || undefined,
     pendencia: filters.pendencia || undefined,
+    nature: (filters.nature || undefined) as ProductNature | undefined,
     // A tela abre nos ativos: inativo e excecao e so atrapalhava a busca.
     isActive: filters.status === "todos" ? undefined : filters.status === "ativos" ? "true" : "false"
   };
@@ -375,15 +186,11 @@ export function Products() {
     // num modulo de permissao diferente, num Promise.all sem catch: o primeiro
     // 403 rejeitava tudo e a tela abria com os seletores vazios e nenhum aviso.
     const options = await getProductFormOptions();
-    const nextCode = { code: options.nextCode ?? "" };
-
     // Guards defensivos: se o endpoint retornar payload parcial (mock, backend
     // com bug, resposta antes de terminar), Array.isArray filtra em silencio.
     const categoryRows = Array.isArray(options.categories) ? options.categories : [];
     const subcategoryRows = Array.isArray(options.subcategories) ? options.subcategories : [];
     const sectorRows = Array.isArray(options.sectors) ? options.sectors : [];
-    const unitRows = Array.isArray(options.units) ? options.units : [];
-    const supplierRows = Array.isArray(options.suppliers) ? options.suppliers : [];
     const dreCategoryRows = Array.isArray(options.dreCategories) ? options.dreCategories : [];
 
     setCategories(categoryRows);
@@ -391,30 +198,8 @@ export function Products() {
     // Setor desativado nao entra no seletor — mesma regra ja aplicada a
     // unidades e fornecedores logo abaixo.
     setSectors(sanitizeSectorOptions(sectorRows.filter((sector) => sector.isActive !== false)));
-    setUnits(unitRows.filter((unit) => unit.isActive));
-    setSuppliers(supplierRows.filter((supplier) => supplier.isActive));
     setDreCategories(dreCategoryRows);
-    // Categoria e unidade comecam vazias, pedindo escolha.
-    // Antes vinha o primeiro item da lista alfabetica: quem nao trocasse
-    // gravava classificacao errada sem perceber — e e a categoria que alimenta
-    // a sugestao de categoria DRE.
-    setForm((current) => ({
-      ...current,
-      externalCode: current.id ? current.externalCode : current.externalCode || nextCode.code,
-      unitMeasureId: current.unitMeasureId || unitRows.find((unit) => unit.code === current.unit)?.id || "",
-      unit: current.unit || ""
-    }));
-    // Ciclo 2: inicializa snapshot uma única vez (mount inicial em novo cadastro).
-    // Rechamadas de loadBaseData (após criar categoria/subcategoria) não alteram o baseline.
-    if (!initialSnapshotSet.current) {
-      const baseline: typeof emptyProduct = {
-        ...emptyProduct,
-        externalCode: nextCode.code || ""
-      };
-      setSnapshot(normalizeForm(baseline));
-      setAliasSnapshot("");
-      initialSnapshotSet.current = true;
-    }
+    setNatures(Array.isArray(options.natures) ? options.natures : []);
   }
 
   // Mapa de sugestão: nome da categoria do produto → nome da categoria DRE
@@ -476,137 +261,6 @@ export function Products() {
     }
   }
 
-  // Ciclo 2: separa "reset de dados" de "intenção de revelar/focar".
-  // withReveal=true incrementa formOpenKey (reveal + autofocus na Descrição).
-  // withReveal=false só reseta os dados — usado por Cancelar.
-  async function loadFreshProduct(withReveal: boolean) {
-    const nextCode = await getNextProductCode().catch(() => ({ code: "" }));
-    // Sem unidade pre-escolhida: o primeiro da lista alfabetica nao tem relacao
-    // nenhuma com o produto que esta sendo cadastrado.
-    const fresh = {
-      ...emptyProduct,
-      externalCode: nextCode.code
-    };
-    setForm(fresh);
-    setConversoesCarregadas([]);
-    setConversionForm(emptyConversion);
-    setAlias("");
-    setActiveFormTab("identification");
-    setSnapshot(normalizeForm(fresh));
-    setAliasSnapshot("");
-    if (withReveal) setFormOpenKey((n) => n + 1);
-  }
-
-  async function handleCancel() {
-    if (isDirty && !window.confirm(DIRTY_CONFIRM_MESSAGE)) return;
-    await loadFreshProduct(false);
-  }
-
-  async function handleNewDuringEdit() {
-    if (isDirty && !window.confirm(DIRTY_CONFIRM_MESSAGE)) return;
-    await loadFreshProduct(true);
-  }
-
-  async function handleSubmit() {
-    if (!form.name.trim()) return;
-    const isUpdate = Boolean(form.id);
-    setError(null);
-    const category = categories.find((item) => item.id === form.categoryId);
-    const subcategory = subcategories.find((item) => item.id === form.subcategoryId);
-
-    try {
-      const payload = {
-        ...form,
-        unitConversionsCarregadas: form.id ? conversoesCarregadas : [],
-        categoryName: category?.name,
-        subcategoryName: subcategory?.name
-      };
-      let saved;
-      try {
-        saved = await saveProduct(payload);
-      } catch (erro) {
-        // Trocar a unidade de contagem de produto com historico nao converte saldo,
-        // custo nem contagens: o backend pede confirmacao explicita.
-        if (!(erro instanceof ApiError && erro.status === 409 && erro.body?.code === "TROCA_DA_UNIDADE_DE_CONTAGEM")) throw erro;
-        if (!window.confirm(erro.message)) return;
-        saved = await saveProduct({ ...payload, confirmarTrocaDaUnidadeDeContagem: true });
-      }
-
-      // O apelido e gravado depois do produto. Se ele conflitar com outro
-      // produto, o cadastro ja foi salvo — dizer "erro ao salvar" mandaria o
-      // usuario refazer um trabalho que deu certo.
-      let aliasError: string | null = null;
-      if (alias.trim()) {
-        try {
-          await addProductAlias(saved.id, alias);
-        } catch (error) {
-          aliasError = error instanceof Error ? error.message : "Nao foi possivel gravar o apelido.";
-        }
-      }
-
-      await loadFreshProduct(true);
-      await loadProducts();
-
-      if (aliasError) {
-        setError(aliasError);
-        setNotice({
-          tone: "warning",
-          message: `${isUpdate ? "Cadastro atualizado" : "Cadastro criado"}, mas o apelido nao foi gravado.`
-        });
-        return;
-      }
-
-      setNotice({
-        tone: "success",
-        message: isUpdate ? "Cadastro atualizado com sucesso." : "Cadastro criado com sucesso."
-      });
-    } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Erro ao salvar produto.");
-      setNotice({ tone: "error", message: "Erro ao salvar." });
-    }
-  }
-
-  async function handleCreateCategory() {
-    const name = form.newCategoryName.trim();
-    if (!name) return;
-    setError(null);
-
-    try {
-      const created = await saveCategory({ name, isActive: true });
-      await loadBaseData();
-      setForm((current) => ({
-        ...current,
-        categoryId: created.id,
-        subcategoryId: "",
-        newCategoryName: ""
-      }));
-      setNotice({ tone: "success", message: "Cadastro criado com sucesso." });
-    } catch (createError) {
-      setError(createError instanceof Error ? createError.message : "Erro ao criar categoria.");
-      setNotice({ tone: "error", message: "Erro ao salvar." });
-    }
-  }
-
-  async function handleCreateSubcategory() {
-    const name = form.newSubcategoryName.trim();
-    if (!name || !form.categoryId) return;
-    setError(null);
-
-    try {
-      const created = await saveSubcategory({ name, categoryId: form.categoryId, isActive: true });
-      await loadBaseData();
-      setForm((current) => ({
-        ...current,
-        subcategoryId: created.id,
-        newSubcategoryName: ""
-      }));
-      setNotice({ tone: "success", message: "Cadastro criado com sucesso." });
-    } catch (createError) {
-      setError(createError instanceof Error ? createError.message : "Erro ao criar subcategoria.");
-      setNotice({ tone: "error", message: "Erro ao salvar." });
-    }
-  }
-
   async function toggleStatus(product: Product) {
     setError(null);
 
@@ -641,7 +295,7 @@ export function Products() {
     buscaDebounce.current = setTimeout(() => loadProducts(1), 350);
     return () => { if (buscaDebounce.current) clearTimeout(buscaDebounce.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.search, filters.category, filters.subcategory, filters.sector, filters.controlsStock, filters.pendencia, filters.status]);
+  }, [filters.search, filters.category, filters.subcategory, filters.sector, filters.controlsStock, filters.pendencia, filters.nature, filters.status]);
 
   async function loadSemDre() {
     try {
@@ -656,6 +310,15 @@ export function Products() {
     if (showSuggestions) loadSemDre();
   }, [showSuggestions]);
 
+  // O editor devolve o resultado do salvamento pelo state da navegação.
+  useEffect(() => {
+    const aviso = (location.state as { notice?: { tone: NoticeTone; message: string } } | null)?.notice;
+    if (!aviso) return;
+    setNotice(aviso);
+    navigate(location.pathname, { replace: true, state: null });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     loadProducts();
     // Sem o catch, uma falha aqui virava promessa rejeitada solta: os seletores
@@ -669,351 +332,10 @@ export function Products() {
     });
   }, []);
 
-  // Guard defensivo: mesmo com o setter garantindo array acima, protege
-  // renders inicial quando o state ainda nao chegou.
-  const filteredSubcategories = (Array.isArray(subcategories) ? subcategories : [])
-    .filter((subcategory) => subcategory.categoryId === form.categoryId);
-
   return (
     <div className="stack">
       <Notice notice={notice} />
 
-      <section className="panel">
-        <div className="section-heading">
-          <div>
-            <p>Cadastro operacional</p>
-            <h2>Indicadores de produtos</h2>
-          </div>
-          {podeConverterEmLote && (
-            <button type="button" className="secondary-button" aria-pressed={mostrarConversoes} onClick={() => setMostrarConversoes((v) => !v)}>
-              <Wand2 size={16} /> Conversões automáticas
-            </button>
-          )}
-        </div>
-        {mostrarConversoes && <ConversoesAutomaticas onFechar={() => setMostrarConversoes(false)} onAplicado={() => void loadProducts()} />}
-        <div className="summary-grid dashboard-summary">
-          <SummaryCard label="Produtos cadastrados" value={totalProdutos} />
-          <SummaryCard label="Ativos" value={totalAtivos} tone="success" />
-          <SummaryCard label="Inativos" value={totalInativos} tone={totalInativos ? "warning" : "success"} />
-          <SummaryCard label="Controlam estoque" value={totalControlamEstoque} />
-        </div>
-        <div className="chart-grid">
-          <SimpleBarChart title="Distribuição por categoria" items={productsByCategory} />
-          <SimpleBarChart title="Produtos por setor" items={productsBySector} />
-          <SimpleBarChart title="Controle de estoque" items={productsByStockControl} />
-        </div>
-      </section>
-
-      <section className="panel scroll-target" ref={formHeaderRef}>
-        <div className="section-heading">
-          <div>
-            <p>Tabela mestre</p>
-            <h2>Produto</h2>
-          </div>
-        </div>
-
-        <div className="product-form-toolbar">
-          <div>
-            <strong>
-              {form.id
-                ? `Editando: ${form.externalCode || "-"} — ${form.name || "Sem descrição"}`
-                : "Novo produto"}
-            </strong>
-            <span>
-              {isDirty
-                ? "Alterações não salvas"
-                : form.id
-                  ? "Edite os campos e salve as alterações."
-                  : "Preencha os blocos abaixo para concluir o cadastro."}
-              {totalPendencias > 0 && (
-                <em className="pendencia-resumo">
-                  {" · "}{totalPendencias} bloco{totalPendencias > 1 ? "s" : ""} com campo pendente
-                </em>
-              )}
-            </span>
-          </div>
-          {form.id && (
-            <div className="actions-cell wrap">
-              <button className="secondary-button" type="button" onClick={handleNewDuringEdit}>Novo produto</button>
-            </div>
-          )}
-        </div>
-
-        <div className="product-form-tabs" role="tablist" aria-label="Blocos do cadastro de produto">
-          {productFormTabs.map((tab) => (
-            <button
-              key={tab.id}
-              className={`${activeFormTab === tab.id ? "active" : ""}${pendenciasPorAba[tab.id] ? " has-pending" : ""}`}
-              type="button"
-              role="tab"
-              aria-selected={activeFormTab === tab.id}
-              title={pendenciasPorAba[tab.id] ? `Falta preencher: ${pendenciasPorAba[tab.id]}` : undefined}
-              onClick={() => { setActiveFormTab(tab.id); setTabRevealKey((n) => n + 1); }}
-            >
-              {tab.label}
-              {pendenciasPorAba[tab.id] && <span className="tab-pending-dot" aria-label="tem campo pendente" />}
-            </button>
-          ))}
-        </div>
-
-        <div className="form-section-grid scroll-target" ref={activeTabPanelRef}>
-          {activeFormTab === "identification" && (
-            <section className="form-section">
-              <div className="form-section-header">
-                <h3>Identificação</h3>
-                <span>Código gerado automaticamente e card de estoque em destaque.</span>
-              </div>
-              <div className="form-grid product-main-grid">
-                <label>
-                  Código do produto
-                  <input className="locked-field" value={form.externalCode || "Gerado ao salvar"} readOnly title="Código automático e não editável" />
-                </label>
-                <label className="span-2">
-                  Descrição do produto
-                  <input data-autofocus value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
-                </label>
-                <article className={`stock-control-card ${form.controlsStock ? "is-enabled" : "is-disabled"}`}>
-                  <div>
-                    <strong>Controla estoque</strong>
-                    <p>{form.controlsStock ? "Participa de contagem e inventario. A entrada no CMV depende da categoria DRE/CMV." : "Fica fora da contagem operacional. A entrada no CMV depende da categoria DRE/CMV."}</p>
-                  </div>
-                  <label className="switch-label">
-                    <input
-                      type="checkbox"
-                      checked={form.controlsStock}
-                      onChange={(event) => setForm({ ...form, controlsStock: event.target.checked })}
-                    />
-                    <span>
-                      <strong>{form.controlsStock ? "Ativo no estoque" : "Fora do estoque"}</strong>
-                      <small>Revise este campo com cuidado para nao esconder itens da contagem.</small>
-                    </span>
-                  </label>
-                </article>
-                {/* "Alias" e o nome do campo no banco, nao um termo do
-                    restaurante. Na tela vale o que a coisa faz: e o nome
-                    alternativo que casa o item da nota com este produto na
-                    importacao de compras. */}
-                <label className="span-2">
-                  Apelido do produto
-                  <input
-                    value={alias}
-                    onChange={(event) => setAlias(event.target.value)}
-                    placeholder="Como o fornecedor chama este produto na nota"
-                  />
-                  <small className="field-hint">
-                    Usado para reconhecer o produto quando a nota vem com outro nome.
-                    Ex.: "BATATA LAVADA" na nota encontra o produto "BATATA".
-                  </small>
-                </label>
-              </div>
-            </section>
-          )}
-
-          {activeFormTab === "classification" && (
-            <section className="form-section">
-              <div className="form-section-header">
-                <h3>Classificacao</h3>
-                <span>Setor, categoria e subcategoria definem contagem, inventario e a leitura contábil do CMV.</span>
-              </div>
-              <div className="alert info">
-                Setor, categoria e subcategoria impactam a contagem setorial, os inventarios oficiais e a leitura do CMV. A categoria DRE define se o item entra em CMV. "Sem setor" deve ser tratado como pendencia.
-              </div>
-              {classificationPending && (
-                <div className="alert warning">
-                  Produto sem setor operacional. Ele fica destacado como pendencia ate ser corrigido.
-                </div>
-              )}
-              <div className="form-grid classification-grid">
-                <label>
-                  Categoria DRE / Classificação Gerencial
-                  <select
-                    value={form.dreCategoryId}
-                    onChange={(event) => setForm({ ...form, dreCategoryId: event.target.value })}
-                  >
-                    <option value="">— Não classificado —</option>
-                    <DRECategoryOptions categories={dreCategories} />
-                  </select>
-                </label>
-                <label>
-                  Setor
-                  <select value={form.inventorySectorId} onChange={(event) => setForm({ ...form, inventorySectorId: event.target.value })}>
-                    <option value="">Sem setor (pendencia)</option>
-                    {sectors.map((sector) => <option key={sector.id} value={sector.id}>{sector.name}</option>)}
-                  </select>
-                </label>
-                <label>
-                  Categoria
-                  <select
-                    value={form.categoryId}
-                    onChange={(event) => {
-                      const categoryId = event.target.value;
-                      const nextSubcategory = subcategories.find((subcategory) => subcategory.categoryId === categoryId);
-                      setForm({ ...form, categoryId, subcategoryId: nextSubcategory?.id ?? "" });
-                    }}
-                  >
-                    <option value="">Selecione</option>
-                    {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
-                  </select>
-                </label>
-                <label>
-                  Subcategoria
-                  <select
-                    value={form.subcategoryId}
-                    onChange={(event) => setForm({ ...form, subcategoryId: event.target.value })}
-                    disabled={!form.categoryId}
-                  >
-                    <option value="">Selecione</option>
-                    {filteredSubcategories.map((subcategory) => <option key={subcategory.id} value={subcategory.id}>{subcategory.name}</option>)}
-                  </select>
-                </label>
-                <article className={`classification-status-card ${classificationPending ? "is-warning" : "is-ok"}`}>
-                  <span>Leitura operacional</span>
-                  <strong>{selectedSector?.name ?? "Sem setor"}</strong>
-                  <small>{classificationPending ? "Corrija antes da proxima contagem." : "Produto pronto para ser agrupado nas rotinas operacionais."}</small>
-                </article>
-                {/* Criar cadastro base e acao de master-data: quem so tem
-                    Produtos le as listas, mas nao cria categoria nova. */}
-                {canCreateMasterData && (
-                <div className="inline-create-field">
-                  <label>
-                    Nova categoria
-                    <input value={form.newCategoryName} onChange={(event) => setForm({ ...form, newCategoryName: event.target.value })} />
-                  </label>
-                  <button className="secondary-button" type="button" onClick={handleCreateCategory}>Criar categoria</button>
-                </div>
-                )}
-                {canCreateMasterData && (
-                <div className="inline-create-field">
-                  <label>
-                    Nova subcategoria
-                    <input value={form.newSubcategoryName} onChange={(event) => setForm({ ...form, newSubcategoryName: event.target.value })} disabled={!form.categoryId} />
-                  </label>
-                  <button className="secondary-button" type="button" onClick={handleCreateSubcategory} disabled={!form.categoryId}>Criar subcategoria</button>
-                </div>
-                )}
-              </div>
-            </section>
-          )}
-
-          {activeFormTab === "units" && (
-            <section className="form-section">
-              <div className="form-section-header">
-                <h3>Unidades e conversao</h3>
-                <span>Unidade padrão, de compra, de estoque e as embalagens em que o fornecedor entrega.</span>
-              </div>
-              <div className="form-grid">
-                <label>
-                  Unidade padrao
-                  <select value={form.unitMeasureId} onChange={(event) => {
-                    const unit = units.find((item) => item.id === event.target.value);
-                    setForm({ ...form, unitMeasureId: event.target.value, unit: unit?.code ?? "" });
-                  }}>
-                    <option value="">Selecione</option>
-                    {units.map((unit) => <option key={unit.id} value={unit.id}>{unit.code} - {unit.name}</option>)}
-                  </select>
-                </label>
-                <label>
-                  Unidade de estoque
-                  <select value={form.stockUnit} onChange={(event) => setForm({ ...form, stockUnit: event.target.value })}>
-                    <option value="">Usar unidade padrao</option>
-                    {units.map((unit) => <option key={unit.id} value={unit.code}>{unit.code} - {unit.name}</option>)}
-                  </select>
-                </label>
-                <label>
-                  Unidade de compra
-                  <select value={form.purchaseUnit} onChange={(event) => setForm({ ...form, purchaseUnit: event.target.value })}>
-                    <option value="">Usar unidade padrao</option>
-                    {units.map((unit) => <option key={unit.id} value={unit.code}>{unit.code} - {unit.name}</option>)}
-                  </select>
-                </label>
-                {/* "Unidade base futura", "Fator de conversao" e "Peso medio" sairam da tela:
-                    eram gravados e nenhum calculo os lia, entao quem preenchia achava que tinha
-                    configurado a conversao. A conversao que vale e a de "Embalagens de compra".
-                    Os valores antigos continuam no cadastro (o formulario os devolve intactos). */}
-              </div>
-              <EmbalagensDeCompra
-                unidades={units}
-                unidadeDeContagem={form.stockUnit || form.unit}
-                conversoes={form.unitConversions}
-                origem={conversionForm.fromUnit}
-                fator={conversionForm.factor}
-                onOrigem={(fromUnit) => setConversionForm({ ...conversionForm, fromUnit })}
-                onFator={(factor) => setConversionForm({ ...conversionForm, factor })}
-                onAdicionar={(conversao) => {
-                  setForm({ ...form, unitConversions: [...form.unitConversions, conversao] });
-                  setConversionForm(emptyConversion);
-                }}
-                onRemover={(indice) =>
-                  setForm({ ...form, unitConversions: form.unitConversions.filter((_, atual) => atual !== indice) })
-                }
-              />
-            </section>
-          )}
-
-          {activeFormTab === "location" && (
-            <>
-              <section className="form-section">
-                <div className="form-section-header">
-                  <h3>Localização no estoque</h3>
-                  <span>Ajuda a ordenar a contagem operacional dentro do setor.</span>
-                </div>
-                <div className="form-grid">
-                  <label>Localização<input value={form.storageLocation} onChange={(event) => setForm({ ...form, storageLocation: event.target.value })} /></label>
-                  <label>Corredor<input value={form.storageCorridor} onChange={(event) => setForm({ ...form, storageCorridor: event.target.value })} /></label>
-                  <label>Prateleira<input value={form.storageShelf} onChange={(event) => setForm({ ...form, storageShelf: event.target.value })} /></label>
-                  <label>Posição<input value={form.storagePosition} onChange={(event) => setForm({ ...form, storagePosition: event.target.value })} /></label>
-                  {/* Vinha da aba de observacoes: descreve a localizacao, entao
-                      fica junto dos campos que complementa. */}
-                  <label className="span-2">Obs. da localização<input value={form.storageNotes} onChange={(event) => setForm({ ...form, storageNotes: event.target.value })} /></label>
-                </div>
-              </section>
-
-              <section className="form-section">
-                <div className="form-section-header">
-                  <h3>Observações</h3>
-                  <span>Notas internas e campos complementares do cadastro.</span>
-                </div>
-                <div className="form-grid">
-                  <label className="span-2">Observações<input value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></label>
-                  <label>Observação logística<input value={form.logisticsNotes} onChange={(event) => setForm({ ...form, logisticsNotes: event.target.value })} /></label>
-                  <label>Obs. de conversão<input value={form.conversionNotes} onChange={(event) => setForm({ ...form, conversionNotes: event.target.value })} /></label>
-                  <label>Tipo de conta<input value={form.accountType} onChange={(event) => setForm({ ...form, accountType: event.target.value })} /></label>
-                  <label className="checkbox-label"><input type="checkbox" checked={form.isActive} onChange={(event) => setForm({ ...form, isActive: event.target.checked })} />Produto ativo</label>
-                </div>
-              </section>
-            </>
-          )}
-
-          {activeFormTab === "purchase" && (
-            <section className="form-section">
-              <div className="form-section-header">
-                <h3>Parametros de compra</h3>
-                <span>Usado no apoio ao comprador e na reposicao.</span>
-              </div>
-              <div className="form-grid">
-                <label>Estoque minimo<input inputMode="decimal" value={form.estoqueMinimo} onChange={(event) => setForm({ ...form, estoqueMinimo: event.target.value })} /></label>
-                <label>Estoque ideal<input inputMode="decimal" value={form.estoqueIdeal} onChange={(event) => setForm({ ...form, estoqueIdeal: event.target.value })} /></label>
-                <label>Lead time compra (dias)<input type="number" min="0" inputMode="numeric" value={form.leadTimeCompraDias} onChange={(event) => setForm({ ...form, leadTimeCompraDias: event.target.value })} /></label>
-                <label>
-                  Fornecedor principal
-                  <select value={form.fornecedorPrincipalId} onChange={(event) => setForm({ ...form, fornecedorPrincipalId: event.target.value })}>
-                    <option value="">Sem fornecedor principal</option>
-                    {suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
-                  </select>
-                </label>
-              </div>
-            </section>
-          )}
-
-        </div>
-
-        <div className="form-actions sticky-form-actions">
-          <button className="secondary-button" type="button" onClick={handleCancel}>Cancelar</button>
-          <button className="primary-button" type="button" disabled={!canEdit} onClick={handleSubmit}>
-            {form.id ? "Salvar alterações" : "Salvar produto"}
-          </button>
-        </div>
-      </section>
 
       <section className="panel">
         <div className="section-heading">
@@ -1021,7 +343,12 @@ export function Products() {
             <PanelEyebrow>Tabela mestre</PanelEyebrow>
             <h2>Produtos</h2>
           </div>
-          <IconButton icon={<RefreshCw size={16} />} label="Atualizar produtos" onClick={() => loadProducts()} />
+          <div className="actions-cell">
+            <IconButton icon={<RefreshCw size={16} />} label="Atualizar produtos" onClick={() => loadProducts()} />
+            <button type="button" className="primary-button" disabled={!canEdit} onClick={() => navigate(`${ROTA_DO_EDITOR}/novo`)}>
+              <Plus size={16} aria-hidden="true" /> Novo produto
+            </button>
+          </div>
         </div>
 
         <div className="filters-row">
@@ -1051,6 +378,13 @@ export function Products() {
               {categories.map((category) => (
                 <option key={category.id} value={category.name}>{category.name}</option>
               ))}
+            </select>
+          </label>
+          <label>
+            Natureza
+            <select value={filters.nature} onChange={(event) => setFilters({ ...filters, nature: event.target.value })}>
+              <option value="">Todas</option>
+              {natures.map((opcao) => <option key={opcao.value} value={opcao.value}>{opcao.label}</option>)}
             </select>
           </label>
           <label>
@@ -1136,6 +470,7 @@ export function Products() {
                 <option value="sem-categoria">Sem categoria</option>
                 <option value="sem-subcategoria">Sem subcategoria</option>
                 <option value="sem-dre">Sem categoria DRE</option>
+                <option value="sem-natureza">Sem natureza</option>
               </select>
             </label>
           </div>
@@ -1288,6 +623,7 @@ export function Products() {
                 </Table.Th>
                 <Table.Th>Código</Table.Th>
                 <Table.Th minWidth={200}>Produto</Table.Th>
+                <Table.Th>Natureza</Table.Th>
                 <Table.Th>Categoria</Table.Th>
                 <Table.Th>Setor</Table.Th>
                 <Table.Th align="center">Estoque</Table.Th>
@@ -1325,6 +661,11 @@ export function Products() {
                       )}
                     </Table.Td>
                     <Table.Td>
+                      {product.nature
+                        ? natures.find((opcao) => opcao.value === product.nature)?.label ?? product.nature
+                        : <span className="cell-pendente">sem natureza</span>}
+                    </Table.Td>
+                    <Table.Td>
                       {product.category?.name ?? <span className="cell-pendente">sem categoria</span>}
                       {product.subcategory && <small>{product.subcategory.name}</small>}
                     </Table.Td>
@@ -1338,57 +679,7 @@ export function Products() {
                         : <span className="cell-pendente">pendente</span>}
                     </Table.Td>
                     <Table.Td actions>
-                      <IconButton icon={<Pencil size={16} />} label="Editar" disabled={!canEdit} onClick={() => {
-                        if (isDirty && !window.confirm(DIRTY_CONFIRM_MESSAGE)) return;
-                        const hydrated: typeof emptyProduct & { id: string } = {
-                          id: product.id,
-                          externalCode: product.externalCode ?? "",
-                          name: product.name,
-                          unit: product.unit ?? "",
-                          unitMeasureId: product.unitMeasureId ?? units.find((unit) => unit.code === product.unit)?.id ?? "",
-                          stockUnit: product.stockUnit ?? product.baseUnit ?? "",
-                          purchaseUnit: product.purchaseUnit ?? product.unit ?? "",
-                          baseUnit: product.baseUnit ?? "",
-                          conversionFactor: product.conversionFactor ?? "",
-                          packageWeight: product.packageWeight ?? "",
-                          conversionNotes: product.conversionNotes ?? "",
-                          logisticsNotes: product.logisticsNotes ?? "",
-                          storageLocation: product.storageLocation ?? "",
-                          storageCorridor: product.storageCorridor ?? "",
-                          storageShelf: product.storageShelf ?? "",
-                          storagePosition: product.storagePosition ?? "",
-                          storageNotes: product.storageNotes ?? "",
-                          unitConversions: (product.unitConversions ?? []).map((conversion) => ({
-                            fromUnit: conversion.fromUnit,
-                            toUnit: conversion.toUnit,
-                            factor: conversion.factor,
-                            averagePackageWeight: conversion.averagePackageWeight ?? "",
-                            notes: conversion.notes ?? "",
-                            isActive: conversion.isActive
-                          })),
-                          categoryId: product.category?.id ?? "",
-                          subcategoryId: product.subcategory?.id ?? "",
-                          inventorySectorId: product.inventorySector?.id ?? "",
-                          dreCategoryId: product.dreCategoryId ?? "",
-                          accountType: product.accountType ?? "",
-                          controlsStock: product.controlsStock ?? true,
-                          estoqueMinimo: product.estoqueMinimo ?? "",
-                          estoqueIdeal: product.estoqueIdeal ?? "",
-                          leadTimeCompraDias: product.leadTimeCompraDias == null ? "" : String(product.leadTimeCompraDias),
-                          fornecedorPrincipalId: product.fornecedorPrincipalId ?? "",
-                          newCategoryName: "",
-                          newSubcategoryName: "",
-                          notes: product.notes ?? "",
-                          isActive: product.isActive
-                        };
-                        setActiveFormTab("identification");
-                        setFormOpenKey((n) => n + 1);
-                        setForm(hydrated);
-                        setConversoesCarregadas(hydrated.unitConversions.map(({ fromUnit, toUnit }) => ({ fromUnit, toUnit })));
-                        setAlias("");
-                        setSnapshot(normalizeForm(hydrated));
-                        setAliasSnapshot("");
-                      }} />
+                      <IconButton icon={<Pencil size={16} />} label="Editar" disabled={!canEdit} onClick={() => navigate(`${ROTA_DO_EDITOR}/${product.id}/editar`)} />
                       <RowMenu
                         label={`Mais ações — ${product.name}`}
                         items={[
@@ -1408,7 +699,7 @@ export function Products() {
                 ))}
                 {products.length === 0 && (
                   <Table.Row>
-                    <Table.Td colSpan={8}>
+                    <Table.Td colSpan={9}>
                       {/* Lista vazia por filtro nao e o mesmo que base vazia:
                           antes as duas diziam "nenhum produto cadastrado". */}
                       {temFiltroAtivo ? (
@@ -1465,6 +756,35 @@ export function Products() {
             )}
           </nav>
         )}
+      </section>
+
+      <section className="panel">
+        <div className="section-heading">
+          <div>
+            <p>Cadastro operacional</p>
+            <h2>Indicadores de produtos</h2>
+          </div>
+          {podeConverterEmLote && (
+            <button type="button" className="secondary-button" aria-pressed={mostrarConversoes} onClick={() => setMostrarConversoes((v) => !v)}>
+              <Wand2 size={16} /> Conversões automáticas
+            </button>
+          )}
+        </div>
+        {mostrarConversoes && <ConversoesAutomaticas onFechar={() => setMostrarConversoes(false)} onAplicado={() => void loadProducts()} />}
+        <div className="summary-grid dashboard-summary">
+          <SummaryCard label="Produtos cadastrados" value={totalProdutos} />
+          <SummaryCard label="Ativos" value={totalAtivos} tone="success" />
+          <SummaryCard label="Inativos" value={totalInativos} tone={totalInativos ? "warning" : "success"} />
+          <SummaryCard label="Controlam estoque" value={totalControlamEstoque} />
+        </div>
+        <details className="produtos-graficos">
+          <summary>Ver gráficos de distribuição</summary>
+        <div className="chart-grid">
+          <SimpleBarChart title="Distribuição por categoria" items={productsByCategory} />
+          <SimpleBarChart title="Produtos por setor" items={productsBySector} />
+          <SimpleBarChart title="Controle de estoque" items={productsByStockControl} />
+        </div>
+        </details>
       </section>
 
       {history && (
