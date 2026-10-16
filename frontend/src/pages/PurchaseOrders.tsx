@@ -8,13 +8,16 @@ import {
   changePurchaseOrderStatus,
   downloadPurchaseOrderCsv,
   downloadPurchaseOrderPdf,
+  getNotasDoPedido,
   getPurchaseOrder,
+  type NotaDoPedido,
   getPurchaseOrders,
   PurchaseOrder,
   receivePurchaseOrder,
   updatePurchaseOrder
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
+import { EnvioDoPedido } from "../components/EnvioDoPedido";
 import {
   Button,
   EmptyState,
@@ -39,13 +42,15 @@ const statusLabels: Record<string, string> = {
   ENVIADO: "Enviado",
   RECEBIDO_PARCIAL: "Recebido parcial",
   RECEBIDO: "Recebido",
-  CANCELADO: "Cancelado"
+  CANCELADO: "Cancelado",
+  ENCERRADO_LEGADO: "Encerrado (legado)"
 };
 
 function statusTone(status: string) {
   if (status === "APROVADO" || status === "RECEBIDO") return "success" as const;
   if (status === "EM_REVISAO" || status === "ENVIADO" || status === "RECEBIDO_PARCIAL") return "info" as const;
   if (status === "CANCELADO") return "danger" as const;
+  if (status === "ENCERRADO_LEGADO") return "neutral" as const;
   return "warning" as const;
 }
 
@@ -58,6 +63,7 @@ function toInputDate(value?: string | null) {
 const sourceLabels: Record<string, string> = {
   PRE_LISTA_COMPRADOR: "Pre-lista",
   PLANEJAMENTO_COMPRA: "Planejamento de compra",
+  REQUISICAO: "Requisição de insumos",
   MANUAL: "Manual"
 };
 
@@ -69,6 +75,7 @@ export function PurchaseOrders({ user }: { user: AppUser }) {
   const [selected, setSelected] = useState<PurchaseOrder | null>(null);
   const [search, setSearch] = useState(() => (searchParams.get("search") ?? "").slice(0, 200));
   const [loading, setLoading] = useState(false);
+  const [notas, setNotas] = useState<NotaDoPedido[]>([]);
   const [detailDraft, setDetailDraft] = useState<{ expectedDeliveryDate: string; notes: string; items: Record<string, { requestedQuantity: string; receivedQuantity: string; notes: string }> }>({
     expectedDeliveryDate: "",
     notes: "",
@@ -93,8 +100,9 @@ export function PurchaseOrders({ user }: { user: AppUser }) {
 
   async function openOrder(id: string) {
     try {
-      const detail = await getPurchaseOrder(id);
+      const [detail, ligadas] = await Promise.all([getPurchaseOrder(id), getNotasDoPedido(id).catch(() => ({ items: [] as NotaDoPedido[] }))]);
       setSelected(detail);
+      setNotas(ligadas.items);
       setDetailDraft({
         expectedDeliveryDate: toInputDate(detail.expectedDeliveryDate),
         notes: detail.notes ?? "",
@@ -198,6 +206,7 @@ export function PurchaseOrders({ user }: { user: AppUser }) {
             <SummaryCard label="Enviados" value={summary.ENVIADO ?? 0} />
             <SummaryCard label="Recebidos" value={(summary.RECEBIDO ?? 0) + (summary.RECEBIDO_PARCIAL ?? 0)} tone="success" />
             <SummaryCard label="Cancelados" value={summary.CANCELADO ?? 0} tone="danger" />
+            <SummaryCard label="Encerrados (legado)" value={summary.ENCERRADO_LEGADO ?? 0} />
           </div>
         </div>
         <div className="kpi-block">
@@ -369,13 +378,30 @@ export function PurchaseOrders({ user }: { user: AppUser }) {
             </Table.Body>
           </Table>
 
+          <EnvioDoPedido order={selected} orderId={selected.id} canApprove={canApprove} canSend={canOperate} acoesDeStatus={false} onAtualizado={(pedido) => { setSelected(pedido); void load(); }} />
+
+          {notas.length > 0 && (
+            <div className="po-notas-ligadas">
+              <PanelEyebrow>Notas que atenderam este pedido</PanelEyebrow>
+              <ul>
+                {notas.map((nota) => (
+                  <li key={`${nota.purchaseId}-${nota.productName}`} className={nota.cancelada ? "po-nota-cancelada" : undefined}>
+                    <strong>{nota.purchaseNumber ?? "Compra"}</strong>
+                    {nota.invoiceNumber ? ` · NF ${nota.invoiceNumber}` : ""} · {formatDate(nota.purchaseDate)} · {nota.productName}: {formatNumber(nota.quantity)} {nota.unit ?? ""}
+                    {nota.cancelada ? " (nota cancelada, não conta)" : ""}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           <div className="action-row end">
             {selected.status === "RASCUNHO" && canOperate && <Button variant="secondary" onClick={saveDraft}>Salvar rascunho</Button>}
             {selected.status === "RASCUNHO" && canOperate && <Button leadingIcon={<Send size={16} />} onClick={() => runStatus("SEND_REVIEW")}>Enviar para revisão</Button>}
             {selected.status === "EM_REVISAO" && canApprove && <Button leadingIcon={<CheckCircle2 size={16} />} onClick={() => runStatus("APPROVE")}>Aprovar</Button>}
             {selected.status === "APROVADO" && canOperate && <Button leadingIcon={<Send size={16} />} onClick={() => runStatus("MARK_SENT")}>Marcar enviado</Button>}
             {["ENVIADO", "RECEBIDO_PARCIAL"].includes(selected.status) && canOperate && <Button leadingIcon={<PackageCheck size={16} />} onClick={receive}>Registrar recebimento</Button>}
-            {!["RECEBIDO", "CANCELADO"].includes(selected.status) && canOperate && <Button variant="danger" leadingIcon={<XCircle size={16} />} onClick={cancel}>Cancelar</Button>}
+            {!["RECEBIDO", "CANCELADO", "ENCERRADO_LEGADO"].includes(selected.status) && canOperate && <Button variant="danger" leadingIcon={<XCircle size={16} />} onClick={cancel}>Cancelar</Button>}
             <Button variant="secondary" onClick={refreshSelected}>Recarregar</Button>
           </div>
         </section>

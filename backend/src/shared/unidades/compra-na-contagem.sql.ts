@@ -22,7 +22,7 @@ function alias(nome: string) {
 }
 
 function literal(texto: string) {
-  if (!/^[A-Z0-9]+$/.test(texto)) throw new Error(`Unidade invalida no mapa de sinonimos: ${texto}`);
+  if (!/^[A-Z0-9Ç]+$/.test(texto)) throw new Error(`Unidade invalida no mapa de sinonimos: ${texto}`);
   return `'${texto}'`;
 }
 

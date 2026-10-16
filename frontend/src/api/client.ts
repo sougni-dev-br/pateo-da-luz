@@ -1,3 +1,4 @@
+import type { ItemEmAberto } from "../lib/vinculoPedido";
 export const API_BASE_URL = import.meta.env.VITE_API_URL ?? "/api";
 export const BACKEND_TARGET_URL = import.meta.env.VITE_BACKEND_TARGET_URL ?? "http://127.0.0.1:3334";
 const FALLBACK_BACKEND_URL = BACKEND_TARGET_URL;
@@ -921,8 +922,24 @@ export type SupplierHistory = {
   averagePaymentTermDays: number | null;
 };
 
+export type ProductNature = "INSUMO" | "EMBALAGEM" | "CONSUMO" | "DURAVEL" | "SERVICO";
+
+/** Padrões de cada natureza, vindos do servidor (/products/form-options): a tela não repete a regra. */
+export type NatureOption = {
+  value: ProductNature;
+  label: string;
+  description: string;
+  /** Grupos de DRE sugeridos; o primeiro é o padrão. */
+  dreGroups: string[];
+  controlsStock: boolean;
+  /** Item físico: pede unidade e categoria. Serviço não. */
+  fisico: boolean;
+  entraNoCmv: boolean;
+};
+
 export type Product = {
   id: string;
+  nature?: ProductNature | null;
   externalCode: string | null;
   name: string;
   normalizedName: string;
@@ -980,6 +997,10 @@ export type Category = {
   id: string;
   name: string;
   mainGroup: string | null;
+  /** Natureza dos itens da categoria. Nula até a reorganização dos cadastros. */
+  nature?: ProductNature | null;
+  /** Categoria DRE usual dos itens: sugere no cadastro de produto, não obriga. */
+  defaultDreCategoryId?: string | null;
   isActive: boolean;
   notes: string | null;
 };
@@ -1477,6 +1498,8 @@ export type InventoryRequisitionItem = {
   stockBefore: string | null;
   stockAfter: string | null;
   currentStock?: string | null;
+  /** Local do produto no estoque (câmara fria, freezer...): a folha impressa agrupa por ele. */
+  storageSectorName?: string | null;
   createdAt: string;
 };
 
@@ -1496,12 +1519,16 @@ export type InventoryRequisition = {
   cancelReason: string | null;
   cancelledAt: string | null;
   itemCount?: number;
+  /** Pedidos de compra já gerados desta requisição (códigos separados por vírgula). */
+  purchaseOrderCodes?: string | null;
   items?: InventoryRequisitionItem[];
   createdAt: string;
 };
 
 export type CreateRequisitionPayload = {
   clientRequestId?: string;
+  /** Rascunho salvo no sistema que esta requisição conclui: o servidor o apaga junto com o registro. */
+  draftId?: string | null;
   date: string;
   shift: string;
   reason: string;
@@ -1511,7 +1538,8 @@ export type CreateRequisitionPayload = {
   items: Array<{ productId: string; quantity: number; unit: string }>;
 };
 
-export type RequisitionProductHit = {
+/** Uma linha da lista de onde se escolhe o que retirar: o produto, o saldo e o que ele sabe converter. */
+export type RequisitionCatalogItem = {
   id: string;
   name: string;
   code: string | null;
@@ -1520,14 +1548,79 @@ export type RequisitionProductHit = {
   /** g, kg, ml, l, embalagem do nome e o que estiver cadastrado: convertem para `unit` no servidor. */
   conversions: DishUnitConversion[];
   embalagemInferida: string | null;
+  /** Local do estoque (câmara fria, freezer, bar...); null quando o produto ainda não tem. */
+  sectorId: string | null;
+  /** Saldo na unidade do estoque; 0 quando não há registro de saldo. */
+  balance: number;
 };
 
-export function searchRequisitionProducts(search: string) {
-  return request<RequisitionProductHit[]>(`/inventory/requisitions/products${toQueryString({ search })}`);
+export function getRequisitionCatalog() {
+  return request<RequisitionCatalogItem[]>("/inventory/requisitions/catalog", undefined, 30_000);
 }
 
-export function getRequisitionProductsByIds(ids: string[]) {
-  return request<RequisitionProductHit[]>(`/inventory/requisitions/products${toQueryString({ ids: ids.join(",") })}`);
+export type PendenciaDeConversao = {
+  unidade: string;
+  /** COMPRA: já se comprou nessa unidade; CADASTRO: é a unidade de compra do produto; NOME_PECA: o nome diz "peça". */
+  origem: "COMPRA" | "CADASTRO" | "NOME_PECA";
+  linhas: number;
+  valor: number;
+  proposta: { factor: number; confianca: "alta" | "baixa"; motivo: string } | null;
+};
+
+export type StatusDaConversao = "PENDENTE" | "PARCIAL" | "CADASTRADO" | "NAO_PRECISA";
+
+export type ProdutoDaRotinaDeConversao = {
+  productId: string;
+  codigo: string | null;
+  nome: string;
+  unidadeDeContagem: string;
+  saldo: number | null;
+  sectorId: string | null;
+  sectorName: string | null;
+  /** PENDENTE: nenhuma conversão cadastrada; PARCIAL: cadastrada, mas falta uma unidade em uso; NAO_PRECISA: conferido. */
+  status: StatusDaConversao;
+  conversoes: Array<{ fromUnit: string; toUnit: string; factor: number }>;
+  pendencias: PendenciaDeConversao[];
+  /** Vezes em que saiu em requisição nos últimos 90 dias. */
+  usosEmRequisicoes: number;
+  conferidoPorNome: string | null;
+  conferidoEm: string | null;
+};
+
+export type RotinaDeConversoes = {
+  produtos: ProdutoDaRotinaDeConversao[];
+  resumo: { total: number; pendentes: number; parciais: number; cadastrados: number; naoPrecisa: number };
+  locais: Array<{ id: string; nome: string }>;
+};
+
+/** A rotina do estoquista: todo produto com a situação da conversão (pendente, parcial, cadastrada, não precisa). */
+export function getRotinaDeConversoes() {
+  return request<RotinaDeConversoes>("/inventory/requisitions/conversions", undefined, 60_000);
+}
+
+/** Marca (ou desmarca) o produto como "não precisa de conversão": sai da fila sem cadastro. */
+export function conferirConversaoDoProduto(productId: string, naoPrecisa: boolean) {
+  return request<{ productId: string; naoPrecisa: boolean }>(`/inventory/requisitions/conversions/${productId}/conferencia`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ naoPrecisa })
+  });
+}
+
+export type ResultadoDaConversaoCadastrada = {
+  criada: boolean;
+  comprasConvertidas: number;
+  comprasEmPeriodoFechado: number;
+  conversao: { fromUnit: string; toUnit: string; factor: number };
+};
+
+/** Cadastra "1 <fromUnit> = <factor> <unidade do estoque>" e refaz as compras sem conversão dessa unidade. */
+export function cadastrarConversao(payload: { productId: string; fromUnit: string; factor: string | number }) {
+  return request<ResultadoDaConversaoCadastrada>("/inventory/requisitions/conversions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  }, 60_000);
 }
 
 export function getRequisitions(filters?: { startDate?: string; endDate?: string; sectorId?: string; shift?: string; clientRequestId?: string }) {
@@ -1544,6 +1637,52 @@ export function createRequisition(payload: CreateRequisitionPayload) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
   }, 45_000);
+}
+
+/** O que o rascunho da requisição guarda: cabeçalho e, por produto, unidade e quantidade digitadas. */
+export type ConteudoDoRascunhoDaRequisicao = {
+  cabecalho: { date: string; shift: string; reason: string; reasonNotes: string; sectorId: string; notes: string };
+  escolhas: Record<string, { unit: string; quantity: string }>;
+};
+
+export type ItemDoRascunhoDaRequisicao = { productId: string; name: string; quantity: string; unit: string };
+
+export type RascunhoDaRequisicaoResumo = {
+  id: string;
+  itens: ItemDoRascunhoDaRequisicao[];
+  itemCount: number;
+  summary: string | null;
+  version: number;
+  date: string | null;
+  shift: string | null;
+  createdByName: string | null;
+  updatedByName: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type RascunhoDaRequisicao = { id: string; conteudo: ConteudoDoRascunhoDaRequisicao; version: number; updatedAt: string; updatedByName: string | null };
+
+
+export function listarRascunhosDaRequisicao() {
+  return request<RascunhoDaRequisicaoResumo[]>("/inventory/requisitions/drafts");
+}
+
+export function getRascunhoDaRequisicao(id: string) {
+  return request<RascunhoDaRequisicao>(`/inventory/requisitions/drafts/${encodeURIComponent(id)}`);
+}
+
+export function criarRascunhoDaRequisicao(corpo: { conteudo: ConteudoDoRascunhoDaRequisicao; summary: string | null }) {
+  return request<{ id: string; version: number }>("/inventory/requisitions/drafts", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(corpo) });
+}
+
+/** 409 = outra pessoa salvou antes (o corpo traz a versão atual); 404 = foi concluído ou descartado. */
+export function salvarRascunhoDaRequisicao(id: string, corpo: { conteudo: ConteudoDoRascunhoDaRequisicao; summary: string | null; version: number }) {
+  return request<{ id: string; version: number }>(`/inventory/requisitions/drafts/${encodeURIComponent(id)}`, { method: "PUT", headers: JSON_HEADERS, body: JSON.stringify(corpo) });
+}
+
+export function apagarRascunhoDaRequisicao(id: string) {
+  return request<{ ok: boolean }>(`/inventory/requisitions/drafts/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 export type InventoryMovement = {
@@ -1580,7 +1719,7 @@ export type StockCount = {
 };
 
 export type StockCountSessionType = "GERAL" | "SETORIAL" | "CATEGORIA" | "SUBCATEGORIA" | "FINAL_MES" | "ALEATORIA" | "TAREFA" | "IMPORTACAO_PLANILHA" | "COMPLEMENTAR_CMV" | "RECONTAGEM";
-export type StockCountSessionStatus = "ABERTA" | "EM_ANDAMENTO" | "CONCLUIDA" | "CANCELADA";
+export type StockCountSessionStatus = "ABERTA" | "EM_ANDAMENTO" | "CONCLUIDA" | "CANCELADA" | "ARQUIVADA";
 export type StockCountSessionItemStatus = "PENDENTE" | "CONTADO" | "ZERO" | "DIVERGENTE";
 
 export type StockCountSessionItem = {
@@ -2043,8 +2182,14 @@ export type PurchaseOrder = {
   code: string;
   supplierId: string;
   supplierNameSnapshot: string;
-  status: "RASCUNHO" | "EM_REVISAO" | "APROVADO" | "ENVIADO" | "RECEBIDO_PARCIAL" | "RECEBIDO" | "CANCELADO";
-  source: "MANUAL" | "PRE_LISTA_COMPRADOR" | "PLANEJAMENTO_COMPRA";
+  status: "RASCUNHO" | "EM_REVISAO" | "APROVADO" | "ENVIADO" | "RECEBIDO_PARCIAL" | "RECEBIDO" | "CANCELADO" | "ENCERRADO_LEGADO";
+  source: "MANUAL" | "PRE_LISTA_COMPRADOR" | "PLANEJAMENTO_COMPRA" | "REQUISICAO";
+  /** Requisição de insumos de onde o pedido foi gerado (source = REQUISICAO). */
+  sourceRequisitionId?: string | null;
+  /** Contato do fornecedor (só no detalhe do pedido): serve para enviar o pedido por WhatsApp ou e-mail. */
+  supplierPhone?: string | null;
+  supplierEmail?: string | null;
+  supplierContactName?: string | null;
   createdByUserId: string | null;
   createdByUserName?: string | null;
   approvedByUserName?: string | null;
@@ -2121,6 +2266,10 @@ export type AuditLog = {
   createdAt: string;
 };
 
+export type DashboardNatureKey = ProductNature | "SEM_NATUREZA";
+export type DashboardRanking = { rows: Array<{ name: string; total: number }>; total: number };
+export type DashboardRankingView = { category: DashboardRanking; supplier: DashboardRanking; product: DashboardRanking };
+
 export type DashboardData = {
   year: number;
   month: number;
@@ -2150,7 +2299,10 @@ export type DashboardData = {
   unitemizedTotal?: number;
   bySupplier: Array<{ name: string; total: number }>;
   byCategory: Array<{ name: string; total: number }>;
-  byProduct: Array<{ name: string; total: number; quantity: number }>;
+  byProduct: Array<{ name: string; total: number }>;
+  // Rankings separados pela natureza do item. Opcionais: backend anterior não manda.
+  byNature?: Array<{ nature: DashboardNatureKey; total: number; items: number }>;
+  rankingViews?: Partial<Record<"TODAS" | DashboardNatureKey, DashboardRankingView>>;
   recentPurchases: Purchase[];
 };
 
@@ -2410,6 +2562,11 @@ export function downloadSupplierPositionPdf(filters?: { supplierId?: string; sta
   return download(`/purchases/reports/supplier-position.pdf${toQueryString(filters)}`, "posicao-fornecedor.pdf");
 }
 
+/** O PDF do pedido como arquivo, para compartilhar pelo celular (WhatsApp, e-mail) sem baixar e anexar à mão. */
+export function getPurchaseOrderPdfBlob(id: string) {
+  return fetchBlob(`/purchase-orders/${id}/pdf`);
+}
+
 export function downloadPurchaseOrderPdf(id: string, code: string) {
   return download(`/purchase-orders/${id}/pdf`, `pedido-${code}.pdf`);
 }
@@ -2507,8 +2664,9 @@ export type ProductListFilters = {
   controlsStock?: string;
   isActive?: string;
   semDreCategoria?: string;
-  /** "sem-setor" | "sem-categoria" | "sem-subcategoria" | "sem-dre" */
+  /** "sem-setor" | "sem-categoria" | "sem-subcategoria" | "sem-dre" | "sem-natureza" */
   pendencia?: string;
+  nature?: ProductNature;
   /** Sem page/pageSize a resposta vem completa — telas que montam autocomplete dependem disso. */
   page?: number;
   pageSize?: number;
@@ -2562,6 +2720,17 @@ export function getProductHistory(id: string) {
   return request<ProductHistory>(`/products/${id}/history`);
 }
 
+export function getProductById(id: string) {
+  return request<Product>(`/products/${encodeURIComponent(id)}`);
+}
+
+export type SimilarProduct = { id: string; name: string; externalCode: string | null; unit: string | null; score: number };
+
+/** Produtos de nome parecido, para avisar antes de cadastrar em duplicidade. */
+export function getSimilarProducts(name: string) {
+  return request<{ items: SimilarProduct[] }>(`/products/similar${toQueryString({ name })}`);
+}
+
 export function getNextProductCode() {
   return request<{ code: string }>("/products/next-code");
 }
@@ -2573,6 +2742,8 @@ export type ProductFormOptions = {
   units: UnitMeasure[];
   suppliers: Supplier[];
   dreCategories: DRECategory[];
+  /** Ausente em servidor anterior a esta versão. */
+  natures?: NatureOption[];
   nextCode: string;
 };
 
@@ -3071,6 +3242,32 @@ export function restorePurchase(id: string) {
   });
 }
 
+export type PedidoDaNota = { orderId: string; orderCode: string; orderStatus: string; productName: string; unit: string | null; quantity: number };
+
+export function getPedidosEmAbertoParaNota(filters: { supplierId: string; produtos: Array<{ productId: string; unit: string }>; purchaseId?: string | null }) {
+  // idDoProduto~UN: a unidade em que a nota traz o produto, para o servidor marcar o que não dá para comparar.
+  const query = toQueryString({ supplierId: filters.supplierId, produtos: filters.produtos.map((p) => `${p.productId}~${p.unit}`).join(","), purchaseId: filters.purchaseId ?? undefined });
+  return request<{ items: ItemEmAberto[] }>(`/purchases/pedidos-em-aberto${query}`);
+}
+
+export type NotaDoPedido = { purchaseId: string; purchaseNumber: string | null; invoiceNumber: string | null; purchaseDate: string; cancelada: boolean; productName: string; unit: string | null; quantity: number };
+
+export function getNotasDoPedido(orderId: string) {
+  return request<{ items: NotaDoPedido[] }>(`/purchase-orders/${orderId}/notas`);
+}
+
+export function getPedidosDaCompra(purchaseId: string) {
+  return request<{ items: PedidoDaNota[] }>(`/purchases/${purchaseId}/pedidos`);
+}
+
+export function salvarPedidosDaCompra(purchaseId: string, links: Array<{ purchaseOrderItemId: string; quantity: number }>) {
+  return request<{ items: PedidoDaNota[]; pedidosAtualizados: Array<{ code: string; de: string; para: string; promovidoSemEnvio: boolean }> }>(`/purchases/${purchaseId}/pedidos`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ links })
+  });
+}
+
 export function createPurchase(payload: ManualPurchasePayload) {
   return request<{ id: string; purchaseNumber: string }>("/purchases", {
     method: "POST",
@@ -3220,6 +3417,18 @@ export function reopenStockCountSession(id: string, reason: string) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ reason })
   });
+}
+
+export function archiveStockCountSession(id: string, reason?: string) {
+  return request<StockCountSession>(`/inventory/count-sessions/${id}/archive`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason })
+  });
+}
+
+export function unarchiveStockCountSession(id: string) {
+  return request<StockCountSession>(`/inventory/count-sessions/${id}/unarchive`, { method: "PATCH" });
 }
 
 export function cancelStockCountSession(id: string, reason: string) {
@@ -3543,7 +3752,7 @@ export type PurchaseOrderFromPlanningResult = {
     totalEstimated: number;
     status: string;
   }>;
-  skippedItems: Array<{ productId: string | null; reason: string }>;
+  skippedItems: Array<{ productId: string | null; reason: string; productName?: string | null }>;
 };
 
 export function createPurchaseOrdersFromPlanning(payload: {
@@ -3557,6 +3766,79 @@ export function createPurchaseOrdersFromPlanning(payload: {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
   });
+}
+
+export type RequisitionPurchaseSupplierOption = {
+  supplierId: string;
+  supplierName: string;
+  /** Menor preço que este fornecedor já praticou (24 meses), por 1 unidade do estoque quando convertido. */
+  bestUnitPrice: number;
+  bestPriceDate: string;
+  lastUnitPrice: number;
+  lastPurchaseDate: string;
+  purchaseCount: number;
+  unit: string | null;
+  /** O preço é da embalagem, não da unidade do estoque: a comparação precisa de revisão. */
+  conversionMissing: boolean;
+};
+
+export type RequisitionPurchaseItem = {
+  productId: string;
+  name: string;
+  code: string | null;
+  unit: string | null;
+  /** O que saiu do estoque nesta requisição. */
+  withdrawn: number;
+  balance: number | null;
+  estoqueMinimo: number | null;
+  estoqueIdeal: number | null;
+  /** Reposição sugerida (= o que saiu); a quantidade confirmada na revisão é a que vale. */
+  suggestedQuantity: number;
+  /** O de menor preço no histórico; sem histórico de preço, o principal do cadastro. */
+  defaultSupplierId: string | null;
+  unitPrice: number | null;
+  preferredSupplierId: string | null;
+  preferredSupplierName: string | null;
+  /** Quem já vendeu o item, do menor preço para o maior. */
+  supplierOptions: RequisitionPurchaseSupplierOption[];
+  bestPriceSupplierId: string | null;
+  bestPriceSupplierName: string | null;
+  bestUnitPrice: number | null;
+  lastUnitPrice: number | null;
+  lastPurchaseSupplierName: string | null;
+  lastPurchaseDate: string | null;
+  /** Existe fornecedor mais barato que a referência (principal ou último), na mesma unidade. */
+  hasCheaperAlternative: boolean;
+  priceComparisonNote: string | null;
+  conversionMissing: boolean;
+};
+
+export type RequisitionPurchaseDraft = {
+  requisition: { id: string; code: string; date: string; shift: string; reason: string; sectorName: string | null; requestedByName: string | null };
+  items: RequisitionPurchaseItem[];
+  suppliers: Array<{ id: string; name: string }>;
+  existingOrders: Array<{ id: string; code: string; supplierName: string; status: string; totalItems: number }>;
+};
+
+export function getRequisitionPurchaseDraft(requisitionId: string) {
+  return request<RequisitionPurchaseDraft>(`/purchase-orders/from-requisition/${requisitionId}`, undefined, 30_000);
+}
+
+export function createPurchaseOrdersFromRequisition(
+  requisitionId: string,
+  payload: {
+    items: Array<{ productId: string; supplierId: string; requestedQuantity: number; unitPriceEstimated?: number | null }>;
+    notes?: string | null;
+    expectedDeliveryDate?: string | null;
+    /** A requisição já gerou pedido: só gera outro com esta confirmação. */
+    confirmarOutroPedido?: boolean;
+  }
+) {
+  return request<PurchaseOrderFromPlanningResult>(`/purchase-orders/from-requisition/${requisitionId}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  }, 45_000);
 }
 
 export function updatePurchaseOrder(id: string, payload: { expectedDeliveryDate?: string | null; notes?: string | null; items?: Array<{ id: string; requestedQuantity: number | string; notes?: string | null }> }) {
@@ -5229,7 +5511,20 @@ export type TaxImportPreview = {
   rows: TaxImportPreviewRow[];
   byCompany: Record<string, { legalName: string | null; tradeName: string | null; count: number; total: number }>;
   byDocumentType: Record<string, { count: number; total: number }>;
+  // Categoria do DRE em que cada tipo vai entrar; null = sem regra (fica sem categoria).
+  categoriasPorTipo?: Record<string, Array<string | null>>;
 };
+
+export type TaxDreCategory = Pick<DRECategory, "id" | "name" | "dreGroup">;
+
+export function getTaxDreCategories() {
+  return request<TaxDreCategory[]>("/tax-payments/categorias-dre");
+}
+
+export function getTaxCategorySuggestion(documentType: string, description: string) {
+  const params = new URLSearchParams({ documentType, description });
+  return request<{ dreCategoryId: string | null; nome: string | null }>(`/tax-payments/categoria-sugerida?${params}`);
+}
 
 export function getTaxPayments(filters: TaxPaymentFilters = {}) {
   const params = new URLSearchParams();

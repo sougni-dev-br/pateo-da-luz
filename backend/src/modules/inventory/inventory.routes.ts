@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { podeArquivarContagem, podeDesarquivarContagem, STATUS_CONTAGEM_ARQUIVADA } from "./contagem-arquivada.js";
 import { Prisma } from "@prisma/client";
 import { Router } from "express";
 import { prisma } from "../../config/database.js";
@@ -12,8 +13,11 @@ import { parseDecimalInput } from "../../shared/utils/parse-decimal.js";
 import { converterItemDeCompra, normalizarUnidade, type UnitConversion } from "../../shared/unidades/conversao.js";
 import { proporConversoes } from "../../shared/unidades/conversao-automatica.js";
 import { sqlCompraNaUnidadeDeContagem } from "../../shared/unidades/compra-na-contagem.sql.js";
-import { SELECT_DE_UNIDADES, conversoesDoInsumo, textoDaEmbalagem, unidadeDoInsumo } from "../../shared/unidades/insumo.js";
+import { SELECT_DE_UNIDADES, conversoesDoInsumo, unidadeDoInsumo } from "../../shared/unidades/insumo.js";
 import { converterQuantidade } from "../waste/waste.js";
+import { carregarInteligenciaDePreco } from "./preco-por-fornecedor.js";
+import { itemDoCatalogo } from "./requisicao-catalogo.js";
+import { requisicaoRascunhoRouter } from "./requisicao-rascunho.routes.js";
 import { cancelamentoDeveCancelarBase, podeReaproveitarBase, reaberturaDeveSoltarBase } from "./base-oficial.js";
 import { mensagemDeTipoMigrado } from "./tipos-de-movimento.js";
 import { classificarItemDaConferencia, ordenarConferencia, resumirConferencia } from "./conferencia.js";
@@ -1855,7 +1859,7 @@ inventoryRouter.get("/count-sessions", async (request, response) => {
     LEFT JOIN "User" u ON u."id" = s."responsibleUserId"
     LEFT JOIN "OperationalInventory" oi ON oi."id" = s."generatedInventoryId"
     LEFT JOIN "StockCountSessionItem" item ON item."stockCountSessionId" = s."id"
-    WHERE (${includeCanceled} = true OR s."status" <> 'CANCELADA')
+    WHERE (${includeCanceled} = true OR s."status" NOT IN ('CANCELADA', 'ARQUIVADA'))
     GROUP BY s."id", u."name", oi."code", oi."status"
     ORDER BY s."referenceDate" DESC, s."createdAt" DESC
     LIMIT 120
@@ -3325,6 +3329,61 @@ inventoryRouter.patch("/count-sessions/:id/reopen", async (request, response) =>
   response.json(await getStockCountSessionSummary(request.params.id));
 });
 
+// Arquivar: a contagem sai das listas do dia a dia, mas continua no historico (ciclos, medianas). Nao e cancelar.
+inventoryRouter.patch("/count-sessions/:id/archive", async (request, response) => {
+  const user = await requireMenuPermission(request, response);
+  if (!user) return;
+  const session = await getStockCountSessionOrThrow(request.params.id);
+  if (!podeArquivarContagem(session)) {
+    response.status(400).json({ message: "So da para arquivar contagem concluida que nao gerou inventario em uso." });
+    return;
+  }
+  if (!(await userHasPermission(user, "inventory-counting", "delete"))) {
+    response.status(403).json({ message: "Perfil sem permissao para arquivar esta contagem." });
+    return;
+  }
+  await prisma.$executeRaw`
+    UPDATE "StockCountSession" SET "status" = ${STATUS_CONTAGEM_ARQUIVADA}, "updatedAt" = CURRENT_TIMESTAMP
+    WHERE "id" = ${request.params.id} AND "status" = 'CONCLUIDA'
+  `;
+  await auditLog({
+    userId: user.id,
+    action: "ARCHIVE_STOCK_COUNT_SESSION",
+    entity: "StockCountSession",
+    entityId: request.params.id,
+    previousValue: { status: session.status },
+    newValue: { status: STATUS_CONTAGEM_ARQUIVADA, reason: asText(request.body?.reason) || null }
+  });
+  response.json(await getStockCountSessionSummary(request.params.id));
+});
+
+inventoryRouter.patch("/count-sessions/:id/unarchive", async (request, response) => {
+  const user = await requireMenuPermission(request, response);
+  if (!user) return;
+  const session = await getStockCountSessionOrThrow(request.params.id);
+  if (!podeDesarquivarContagem(session)) {
+    response.status(400).json({ message: "Esta contagem nao esta arquivada." });
+    return;
+  }
+  if (!(await userHasPermission(user, "inventory-counting", "delete"))) {
+    response.status(403).json({ message: "Perfil sem permissao para desarquivar esta contagem." });
+    return;
+  }
+  await prisma.$executeRaw`
+    UPDATE "StockCountSession" SET "status" = 'CONCLUIDA', "updatedAt" = CURRENT_TIMESTAMP
+    WHERE "id" = ${request.params.id} AND "status" = ${STATUS_CONTAGEM_ARQUIVADA}
+  `;
+  await auditLog({
+    userId: user.id,
+    action: "UNARCHIVE_STOCK_COUNT_SESSION",
+    entity: "StockCountSession",
+    entityId: request.params.id,
+    previousValue: { status: session.status },
+    newValue: { status: "CONCLUIDA" }
+  });
+  response.json(await getStockCountSessionSummary(request.params.id));
+});
+
 inventoryRouter.patch("/count-sessions/:id/cancel", async (request, response) => {
   const user = await requireMenuPermission(request, response);
   if (!user) return;
@@ -3397,6 +3456,10 @@ inventoryRouter.post("/count-sessions/:id/generate-inventory", async (request, r
   const session = await getStockCountSessionOrThrow(request.params.id);
   if (session.status === "CANCELADA") {
     response.status(400).json({ message: "Nao e possivel gerar inventario a partir de uma contagem cancelada." });
+    return;
+  }
+  if (session.status === STATUS_CONTAGEM_ARQUIVADA) {
+    response.status(400).json({ message: "Esta contagem esta arquivada. Desarquive antes de gerar o inventario." });
     return;
   }
   if (session.status !== "CONCLUIDA") {
@@ -3973,144 +4036,10 @@ export async function buildBuyerSupportReport(query: Record<string, unknown>) {
   `;
 
   // ─── Inteligência de preço por fornecedor (histórico de compras) ──────────────
-  // Consulta separada para nao alterar a query principal (regra de negocio preservada).
-  // Regra: usar "convertedUnitPrice" quando existir; caso contrario, "unitPrice" como
-  // preco bruto e marcar conversionMissing = true (unidades podem nao ser comparaveis).
-  type SupplierPriceOption = {
-    supplierId: string;
-    supplierName: string;
-    bestUnitPrice: number;
-    bestPriceDate: Date;
-    lastUnitPrice: number;
-    lastPurchaseDate: Date;
-    purchaseCount: number;
-    unit: string | null;
-    conversionMissing: boolean;
-  };
+  // Consulta separada para nao alterar a query principal (regra de negocio preservada). A regra mora em
+  // preco-por-fornecedor.ts, compartilhada com o pedido gerado a partir da requisição.
   const reportProductIds = rows.map((row) => row.productId);
-  const priceRows = reportProductIds.length === 0
-    ? []
-    : await prisma.$queryRaw<Array<{
-        productId: string;
-        supplierId: string;
-        supplierName: string;
-        priceEff: Prisma.Decimal;
-        convertedUnitPrice: Prisma.Decimal | null;
-        unit: string | null;
-        purchaseDate: Date;
-      }>>`
-      SELECT
-        i."productId",
-        pur."supplierId",
-        s."name" AS "supplierName",
-        COALESCE(i."convertedUnitPrice", i."unitPrice") AS "priceEff",
-        i."convertedUnitPrice",
-        COALESCE(i."convertedUnit", i."unit") AS "unit",
-        pur."purchaseDate"
-      FROM "PurchaseItem" i
-      JOIN "Purchase" pur ON pur."id" = i."purchaseId"
-      JOIN "Supplier" s ON s."id" = pur."supplierId"
-      WHERE i."productId" = ANY(${reportProductIds})
-        AND pur."status" <> 'CANCELLED'
-        AND pur."purchaseDate" >= NOW() - INTERVAL '24 months'
-        AND COALESCE(i."convertedUnitPrice", i."unitPrice") > 0
-      ORDER BY pur."purchaseDate" ASC, pur."createdAt" ASC
-    `;
-
-  const priceByProduct = new Map<string, { bySupplier: Map<string, SupplierPriceOption>; lastRow: { supplierId: string; supplierName: string; price: number; date: Date; unit: string | null } | null }>();
-  for (const pr of priceRows) {
-    const price = Number(pr.priceEff);
-    if (!Number.isFinite(price) || price <= 0) continue;
-    const missing = pr.convertedUnitPrice == null;
-    const entry = priceByProduct.get(pr.productId) ?? { bySupplier: new Map<string, SupplierPriceOption>(), lastRow: null };
-    const opt = entry.bySupplier.get(pr.supplierId);
-    if (!opt) {
-      entry.bySupplier.set(pr.supplierId, {
-        supplierId: pr.supplierId,
-        supplierName: pr.supplierName,
-        bestUnitPrice: price,
-        bestPriceDate: pr.purchaseDate,
-        lastUnitPrice: price,
-        lastPurchaseDate: pr.purchaseDate,
-        purchaseCount: 1,
-        unit: pr.unit,
-        conversionMissing: missing
-      });
-    } else {
-      opt.purchaseCount += 1;
-      if (price < opt.bestUnitPrice) {
-        opt.bestUnitPrice = price;
-        opt.bestPriceDate = pr.purchaseDate;
-      }
-      if (pr.purchaseDate > opt.lastPurchaseDate) {
-        opt.lastUnitPrice = price;
-        opt.lastPurchaseDate = pr.purchaseDate;
-        opt.unit = pr.unit;
-      }
-      if (missing) opt.conversionMissing = true;
-    }
-    if (!entry.lastRow || pr.purchaseDate > entry.lastRow.date) {
-      entry.lastRow = { supplierId: pr.supplierId, supplierName: pr.supplierName, price, date: pr.purchaseDate, unit: pr.unit };
-    }
-    priceByProduct.set(pr.productId, entry);
-  }
-
-  function derivePriceIntel(productId: string, preferredSupplierId: string | null, preferredSupplierName: string | null) {
-    const empty = {
-      supplierPriceOptions: [] as SupplierPriceOption[],
-      bestPriceSupplierId: null as string | null,
-      bestPriceSupplierName: null as string | null,
-      bestUnitPrice: null as number | null,
-      bestPriceDate: null as Date | null,
-      lastPurchaseSupplierId: null as string | null,
-      lastPurchaseSupplierName: null as string | null,
-      lastUnitPrice: null as number | null,
-      lastPurchaseDate: null as Date | null,
-      preferredSupplierId,
-      preferredSupplierName,
-      hasCheaperAlternative: false,
-      priceComparisonNote: null as string | null,
-      conversionMissing: false
-    };
-    const entry = priceByProduct.get(productId);
-    if (!entry || entry.bySupplier.size === 0) return empty;
-    const options = Array.from(entry.bySupplier.values()).sort((a, b) => a.bestUnitPrice - b.bestUnitPrice);
-    const best = options[0];
-    const last = entry.lastRow;
-    const conversionMissing = options.some((option) => option.conversionMissing);
-    const preferredOption = preferredSupplierId ? entry.bySupplier.get(preferredSupplierId) ?? null : null;
-    const referenceSupplierId = preferredSupplierId ?? last?.supplierId ?? null;
-    const referencePrice = preferredOption ? preferredOption.bestUnitPrice : last?.price ?? null;
-    const referenceUnit = preferredOption ? preferredOption.unit : last?.unit ?? null;
-    // So afirmar "mais barato" quando menor preco e referencia estao na MESMA unidade.
-    // Com convertedUnitPrice ausente, precos em unidades diferentes nao sao comparaveis;
-    // nesses casos o payload ainda expoe supplierPriceOptions + conversionMissing para a UI decidir.
-    const normalizeUnit = (unit: string | null) => (unit ? unit.trim().toUpperCase() : null);
-    const sameUnit = normalizeUnit(best.unit) != null && normalizeUnit(best.unit) === normalizeUnit(referenceUnit);
-    const hasCheaperAlternative = Boolean(
-      best && referencePrice != null && referenceSupplierId != null &&
-      best.supplierId !== referenceSupplierId && best.bestUnitPrice < referencePrice && sameUnit
-    );
-    const priceComparisonNote = hasCheaperAlternative
-      ? `Menor preço histórico: ${best.supplierName} — ${formatMoney(best.bestUnitPrice)} em ${brDate(best.bestPriceDate)}`
-      : null;
-    return {
-      supplierPriceOptions: options,
-      bestPriceSupplierId: best.supplierId,
-      bestPriceSupplierName: best.supplierName,
-      bestUnitPrice: best.bestUnitPrice,
-      bestPriceDate: best.bestPriceDate,
-      lastPurchaseSupplierId: last?.supplierId ?? null,
-      lastPurchaseSupplierName: last?.supplierName ?? null,
-      lastUnitPrice: last?.price ?? null,
-      lastPurchaseDate: last?.date ?? null,
-      preferredSupplierId,
-      preferredSupplierName,
-      hasCheaperAlternative,
-      priceComparisonNote,
-      conversionMissing
-    };
-  }
+  const derivePriceIntel = await carregarInteligenciaDePreco(reportProductIds);
 
   const items = rows.map((row) => {
     const quantity = row.lastQuantity == null ? null : Number(row.lastQuantity);
@@ -6073,7 +6002,9 @@ inventoryRouter.get("/requisitions", async (request, response) => {
       r.*,
       u."name" AS "requestedByName",
       sec."name" AS "sectorName",
-      (SELECT COUNT(*) FROM "InventoryRequisitionItem" WHERE "requisitionId" = r."id") AS "itemCount"
+      (SELECT COUNT(*) FROM "InventoryRequisitionItem" WHERE "requisitionId" = r."id") AS "itemCount",
+      (SELECT string_agg(po."code", ', ' ORDER BY po."code") FROM "PurchaseOrder" po
+        WHERE po."sourceRequisitionId" = r."id" AND po."status" <> 'CANCELADO') AS "purchaseOrderCodes"
     FROM "InventoryRequisition" r
     LEFT JOIN "User" u ON u."id" = r."requestedByUserId"
     LEFT JOIN "InventorySector" sec ON sec."id" = r."sectorId"
@@ -6090,43 +6021,27 @@ inventoryRouter.get("/requisitions", async (request, response) => {
   response.json(rows.map((row) => ({ ...row, itemCount: Number(row.itemCount) })));
 });
 
-// Busca de produto da requisicao: devolve a unidade do estoque e as conversoes (g, kg, ml, l, embalagem
-// lida do nome) para a tela oferecer so as unidades que o servidor sabe converter.
-inventoryRouter.get("/requisitions/products", async (request, response) => {
+// Antes de "/requisitions/:id": "drafts" não pode ser lido como id de requisição.
+inventoryRouter.use("/requisitions/drafts", requisicaoRascunhoRouter);
+
+// Lista de onde se escolhe o que retirar: todo insumo que controla estoque, com saldo, local e conversoes.
+// A tela filtra e busca aqui mesmo (sem ida ao servidor a cada letra) e so mostra o que tem saldo por padrao.
+inventoryRouter.get("/requisitions/catalog", async (request, response) => {
   const user = await requireMenuPermission(request, response);
   if (!user) return;
 
-  // `ids` serve a duplicar uma requisicao: traz as unidades dos produtos dela de uma vez.
-  const ids = String(request.query.ids ?? "").split(",").map((id) => id.trim()).filter(Boolean).slice(0, 200);
-  const search = String(request.query.search ?? "").trim().slice(0, 80);
-  if (ids.length === 0 && search.length < 1) {
-    response.json([]);
-    return;
-  }
-
-  const produtos = await prisma.product.findMany({
-    where: ids.length > 0
-      ? { id: { in: ids }, isActive: true }
-      : {
-          isActive: true,
-          controlsStock: { not: false },
-          OR: [{ name: { contains: search, mode: "insensitive" } }, { externalCode: { contains: search, mode: "insensitive" } }]
-        },
-    select: { id: true, externalCode: true, ...SELECT_DE_UNIDADES },
-    orderBy: { name: "asc" },
-    take: ids.length > 0 ? 200 : 30
-  });
-  response.json(produtos.map((p) => {
-    const conversoes = conversoesDoInsumo(p);
-    return {
-      id: p.id,
-      name: p.name,
-      code: p.externalCode,
-      unit: unidadeDoInsumo(p),
-      conversions: conversoes,
-      embalagemInferida: textoDaEmbalagem(p, conversoes)
-    };
-  }));
+  const [produtos, saldos] = await Promise.all([
+    prisma.product.findMany({
+      where: { isActive: true, controlsStock: { not: false } },
+      select: { id: true, externalCode: true, inventorySectorId: true, ...SELECT_DE_UNIDADES },
+      orderBy: { name: "asc" }
+    }),
+    prisma.$queryRaw<Array<{ productId: string; currentQuantity: Prisma.Decimal }>>`
+      SELECT "productId", "currentQuantity" FROM "InventoryStock"
+    `
+  ]);
+  const saldoPorProduto = new Map(saldos.map((s) => [s.productId, Number(s.currentQuantity)]));
+  response.json(produtos.map((p) => itemDoCatalogo(p, saldoPorProduto.get(p.id))));
 });
 
 inventoryRouter.get("/requisitions/:id", async (request, response) => {
@@ -6152,9 +6067,11 @@ inventoryRouter.get("/requisitions/:id", async (request, response) => {
       p."name" AS "productName",
       p."externalCode" AS "productCode",
       COALESCE(p."stockUnit", p."unit") AS "unit",
-      s."currentQuantity" AS "currentStock"
+      s."currentQuantity" AS "currentStock",
+      psec."name" AS "storageSectorName"
     FROM "InventoryRequisitionItem" i
     LEFT JOIN "Product" p ON p."id" = i."productId"
+    LEFT JOIN "InventorySector" psec ON psec."id" = p."inventorySectorId"
     LEFT JOIN "InventoryStock" s ON s."productId" = i."productId"
     WHERE i."requisitionId" = ${row.id}
     ORDER BY i."createdAt"
@@ -6169,6 +6086,8 @@ inventoryRouter.post("/requisitions", async (request, response) => {
   if (!user) return;
 
   const clientRequestId = asText(request.body.clientRequestId);
+  // Rascunho em andamento de onde esta requisição veio: sai da lista na mesma transação que baixa o estoque.
+  const draftId = asText(request.body.draftId);
   const date = parseLocalDate(request.body.date ?? new Date());
   const shift = asText(request.body.shift) ?? "MORNING";
   const reason = asText(request.body.reason) ?? "DAILY_PRODUCTION";
@@ -6364,6 +6283,7 @@ inventoryRouter.post("/requisitions", async (request, response) => {
       )
     `;
   }
+    if (draftId) await tx.inventoryRequisitionDraft.deleteMany({ where: { id: draftId } });
   }, { timeout: 120_000, maxWait: 15_000 });
 
   await auditLog({

@@ -391,18 +391,25 @@ model AuditLog {
 }
 
 model Category {
-  id            String        @id @default(cuid())
-  name          String
-  mainGroup     String?
-  isActive      Boolean       @default(true)
-  notes         String?
-  subcategories Subcategory[]
-  products      Product[]
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  id                   String         @id @default(cuid())
+  name                 String
+  mainGroup            String?
+  /// Natureza dos itens desta categoria: a categoria pertence a uma natureza so (nullable ate a limpeza dos dados).
+  nature               ProductNature?
+  /// Categoria DRE usual dos itens da categoria; sugere, nao obriga.
+  defaultDreCategoryId String?
+  defaultDreCategory   DRECategory?   @relation("CategoryDefaultDre", fields: [defaultDreCategoryId], references: [id])
+  isActive             Boolean        @default(true)
+  notes                String?
+  subcategories        Subcategory[]
+  products             Product[]
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
 
   @@unique([name])
   @@index([mainGroup])
+  @@index([nature])
+  @@index([defaultDreCategoryId])
   @@index([isActive])
 }
 
@@ -473,6 +480,16 @@ model ExpenseTypeMaster {
   @@index([isActive])
 }
 
+/// O que o item e (insumo, embalagem, consumo, duravel, servico). Sugere DRE e estoque no cadastro;
+/// nao altera o calculo do CMV, que segue lendo o grupo da categoria DRE.
+enum ProductNature {
+  INSUMO
+  EMBALAGEM
+  CONSUMO
+  DURAVEL
+  SERVICO
+}
+
 model Product {
   pdvBebidas                AgileProdutoInsumo[]
   id                        String                     @id @default(cuid())
@@ -500,6 +517,7 @@ model Product {
   storagePosition           String?
   storageNotes              String?
   accountType               String?
+  nature                    ProductNature?
   controlsStock             Boolean                    @default(true)
   estoqueMinimo             Decimal?                   @db.Decimal(14, 3)
   estoqueIdeal              Decimal?                   @db.Decimal(14, 3)
@@ -528,6 +546,7 @@ model Product {
   @@index([inventorySectorId])
   @@index([controlsStock])
   @@index([accountType])
+  @@index([nature])
   @@index([fornecedorPrincipalId])
   @@index([dreCategoryId])
   @@index([stockUnit])
@@ -1097,6 +1116,7 @@ model Purchase {
   restoredByUserId              String?
   rawRow                        Json?
   items                         PurchaseItem[]
+  pedidoLinks                   PurchaseOrderItemLink[]
   cardStatementItems            CreditCardStatementItem[]
   installments                  PaymentInstallment[]
   billingCycleItem              SupplierBillingCycleItem?
@@ -1218,6 +1238,8 @@ model PurchaseOrder {
   supplierNameSnapshot String
   status               String              @default("RASCUNHO")
   source               String              @default("MANUAL")
+  /// Requisição de insumos de onde o pedido foi gerado (source = REQUISICAO).
+  sourceRequisitionId  String?
   createdByUserId      String?
   reviewedByUserId     String?
   approvedByUserId     String?
@@ -1236,6 +1258,7 @@ model PurchaseOrder {
   @@index([supplierId])
   @@index([status])
   @@index([source])
+  @@index([sourceRequisitionId])
   @@index([createdAt])
   @@index([expectedDeliveryDate])
 }
@@ -1252,6 +1275,8 @@ model PurchaseOrderItem {
   requestedQuantity      Decimal       @db.Decimal(14, 3)
   approvedQuantity       Decimal?      @db.Decimal(14, 3)
   receivedQuantity       Decimal?      @db.Decimal(14, 3)
+  // Parte do recebido registrada à mão (Registrar recebimento), fora das notas. Recebido = manual + soma dos vínculos.
+  receivedManualQuantity Decimal?      @db.Decimal(14, 3)
   lastCountedQuantity    Decimal?      @db.Decimal(14, 3)
   estoqueMinimoSnapshot  Decimal?      @db.Decimal(14, 3)
   estoqueIdealSnapshot   Decimal?      @db.Decimal(14, 3)
@@ -1263,8 +1288,26 @@ model PurchaseOrderItem {
   createdAt              DateTime      @default(now())
   updatedAt              DateTime      @updatedAt
 
+  notaLinks              PurchaseOrderItemLink[]
+
   @@index([purchaseOrderId])
   @@index([productId])
+}
+
+// Quanto de cada item do pedido uma nota (compra) cobriu. O recebido do pedido é a soma destes vínculos,
+// ignorando notas canceladas; uma nota pode atender vários pedidos e um pedido várias notas.
+model PurchaseOrderItemLink {
+  id                  String            @id @default(cuid())
+  purchaseOrderItemId String
+  purchaseOrderItem   PurchaseOrderItem @relation(fields: [purchaseOrderItemId], references: [id], onDelete: Cascade)
+  purchaseId          String
+  purchase            Purchase          @relation(fields: [purchaseId], references: [id])
+  quantity            Decimal           @db.Decimal(14, 3)
+  createdByUserId     String?
+  createdAt           DateTime          @default(now())
+
+  @@unique([purchaseOrderItemId, purchaseId])
+  @@index([purchaseId])
 }
 
 model InventorySnapshot {
@@ -1943,18 +1986,19 @@ model BuffetMenuCard {
 }
 
 model DRECategory {
-  id                String             @id @default(cuid())
-  name              String             @unique
-  dreGroup          String             @default("DESPESAS_OPERACIONAIS")
-  sortOrder         Int                @default(0)
-  isActive          Boolean            @default(true)
-  notes             String?
-  smallExpenseTypes SmallExpenseType[]
-  products          Product[]
-  taxPayments       TaxPayment[]
-  payrollItems      PayrollItem[]
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
+  id                   String             @id @default(cuid())
+  name                 String             @unique
+  dreGroup             String             @default("DESPESAS_OPERACIONAIS")
+  sortOrder            Int                @default(0)
+  isActive             Boolean            @default(true)
+  notes                String?
+  smallExpenseTypes    SmallExpenseType[]
+  products             Product[]
+  defaultForCategories Category[]         @relation("CategoryDefaultDre")
+  taxPayments          TaxPayment[]
+  payrollItems         PayrollItem[]
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
 
   @@index([dreGroup])
   @@index([sortOrder])
@@ -4065,4 +4109,29 @@ model AgileBuffetCusto {
   updatedAt   DateTime @updatedAt
 
   @@unique([ano, mes], map: "agbuffetcusto_mes_key")
+}
+
+/// Requisição em andamento salva no sistema (qualquer aparelho, qualquer pessoa com acesso a Requisições).
+/// O estoque só baixa ao concluir; até lá é só este rascunho.
+model InventoryRequisitionDraft {
+  id              String   @id
+  payload         Json
+  itemCount       Int      @default(0)
+  summary         String?
+  version         Int      @default(1)
+  createdByUserId String?
+  updatedByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([updatedAt])
+}
+
+/// Produto conferido pelo estoquista como "não precisa de conversão" (sai da fila da rotina de conversões).
+model ProductConversionReview {
+  productId        String   @id
+  status           String   @default("NAO_PRECISA")
+  note             String?
+  reviewedByUserId String?
+  reviewedAt       DateTime @default(now())
 }

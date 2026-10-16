@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { recalcularPedidos } from "../purchase-orders/vinculo-nota.service.js";
 import path from "node:path";
 import { Prisma } from "@prisma/client";
 import type { ExpenseType, PaymentRegime } from "@prisma/client";
@@ -29,6 +30,7 @@ import {
 import { recordPurchaseInventoryEntry } from "../inventory/inventory.routes.js";
 import { auditLog } from "../security/security-utils.js";
 import { addPurchaseToCycle, findOrCreateOpenCycle } from "../suppliers/supplier-billing-cycle.service.js";
+import { estruturaDeProdutoNovo } from "../products/product-defaults.js";
 
 const requiredPurchaseFields = [
   "purchaseDate",
@@ -474,6 +476,9 @@ async function findOrCreateProduct(
   }
 
   counters.productsCreated += 1;
+  // Produto novo nasce dentro da estrutura: natureza, DRE usual e estoque vêm da categoria.
+  const estrutura = await estruturaDeProdutoNovo(tx, { descricao: row.productDescription, categoryId });
+  const padrao = estrutura.padrao;
   return tx.product.create({
     data: {
       externalCode: row.productCode,
@@ -481,8 +486,11 @@ async function findOrCreateProduct(
       normalizedName,
       unit: row.unit,
       unitMeasureId,
-      categoryId,
-      subcategoryId,
+      categoryId: estrutura.categoryId ?? undefined,
+      subcategoryId: estrutura.reclassificada ? undefined : subcategoryId,
+      nature: padrao.nature,
+      dreCategoryId: padrao.dreCategoryId,
+      ...(padrao.controlsStock === null ? {} : { controlsStock: padrao.controlsStock }),
       aliases: {
         create: {
           alias: row.productDescription,
@@ -1330,6 +1338,13 @@ export async function deleteImportBatch(importBatchId: string, options?: { userI
   });
 
   await prisma.$transaction(async (tx) => {
+    // Nota ligada a pedido de compra: desfaz o vínculo e devolve ao pedido o que ela tinha coberto.
+    const pedidosLigados = await tx.purchaseOrderItemLink.findMany({
+      where: { purchaseId: { in: purchaseIds } },
+      select: { purchaseOrderItem: { select: { purchaseOrderId: true } } }
+    });
+    await tx.purchaseOrderItemLink.deleteMany({ where: { purchaseId: { in: purchaseIds } } });
+    await recalcularPedidos(tx, pedidosLigados.map((l) => l.purchaseOrderItem.purchaseOrderId));
     await tx.paymentInstallment.deleteMany({ where: { purchaseId: { in: purchaseIds } } });
     await tx.purchaseItem.deleteMany({ where: { purchaseId: { in: purchaseIds } } });
     await tx.purchase.deleteMany({ where: { id: { in: purchaseIds } } });

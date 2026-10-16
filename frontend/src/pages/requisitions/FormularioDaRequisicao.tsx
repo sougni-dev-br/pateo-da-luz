@@ -1,5 +1,5 @@
-import { RotateCcw, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Printer, Trash2, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import {
   ApiError,
   createRequisition,
@@ -8,110 +8,300 @@ import {
   type CreateRequisitionPayload,
   type InventoryRequisition,
   type InventorySector,
-  type RequisitionProductHit
+  type RequisitionCatalogItem
 } from "../../api/client";
 import { Button } from "../../design-system";
-import { lerNumero, normalizarUnidade } from "../../lib/fichaTecnica";
+import { lerNumero } from "../../lib/fichaTecnica";
 import { hojeLocalIso } from "../../lib/datas";
-import { BuscaDeProduto } from "./BuscaDeProduto";
-import { LinhaDoItem } from "./LinhaDoItem";
-import { resumirLinhas, type LinhaDaRequisicao } from "./linhas";
-import { apagarRascunho, lerRascunho, salvarRascunho, type DadosDoCabecalho, type Rascunho } from "./rascunho";
+import { CabecalhoCompacto, MOTIVOS, TURNOS } from "./CabecalhoCompacto";
+import { useImpressaoDaRequisicao } from "./ImpressaoDaRequisicao";
+import { FiltrosDoCatalogo, type OpcaoDeLocal } from "./FiltrosDoCatalogo";
+import { LinhaDoCatalogo } from "./LinhaDoCatalogo";
+import { SEM_LOCAL, contarPorLocal, escolhaInicial, escolhasComQuantidade, filtrarCatalogo, linhaDe, turnoPelaHora, type Escolha, type Escolhas, type Visao } from "./catalogo";
+import { resumirLinhas, situacaoDaLinha } from "./linhas";
+import { apagarRascunho, lerRascunho, salvarRascunho, type DadosDoCabecalho } from "./rascunho";
+import { useCatalogo } from "./useCatalogo";
+import type { ConversaoNova } from "./UnidadeNaLinha";
+import { useRascunhoNoServidor, type RascunhoNoServidor } from "./useRascunhoNoServidor";
 
-export const TURNOS: Record<string, string> = { MORNING: "Manhã", AFTERNOON: "Tarde", NIGHT: "Noite" };
-export const MOTIVOS: Record<string, string> = { DAILY_PRODUCTION: "Produção do dia", PREP: "Pré-preparo", EVENT: "Evento", OTHER: "Outro" };
+export { MOTIVOS, TURNOS };
 
-export const cabecalhoVazio = (): DadosDoCabecalho => ({ date: hojeLocalIso(), shift: "MORNING", reason: "DAILY_PRODUCTION", reasonNotes: "", sectorId: "", notes: "" });
+export const cabecalhoVazio = (): DadosDoCabecalho => ({ date: hojeLocalIso(), shift: turnoPelaHora(), reason: "DAILY_PRODUCTION", reasonNotes: "", sectorId: "", notes: "" });
 
-export type ModeloInicial = Pick<Rascunho, "cabecalho" | "linhas">;
+/** Requisição duplicada do histórico: o cabeçalho e o que foi retirado, para conferir e ajustar. */
+export type ModeloInicial = { cabecalho: DadosDoCabecalho; escolhas: Escolhas; /** Rascunho aberto de "Em andamento": continua o mesmo no sistema. */ servidor?: RascunhoNoServidor };
 
 type Props = {
   user: AppUser;
   sectors: InventorySector[];
-  /** null enquanto os saldos não carregaram: sem saldo não dá para dizer que falta. */
-  saldos: Map<string, number> | null;
-  /** Requisição duplicada do histórico; sem ela, vale o rascunho guardado no aparelho. */
+  /** Requisição duplicada; sem ela, vale o rascunho guardado no aparelho. */
   modelo: ModeloInicial | null;
   onCriada: (criada: InventoryRequisition) => void;
   onAviso: (tom: "success" | "warning" | "error", mensagem: string) => void;
+  /** Conversão cadastrada na linha (o cadastro já foi salvo no sistema). */
+  onConversaoCadastrada?: (item: RequisitionCatalogItem) => void;
+  /** Id do rascunho no sistema que esta tela está salvando (null enquanto não há). */
+  onRascunho?: (id: string | null) => void;
+  /** A tela de fora chama isto antes de listar os rascunhos: o que acabou de ser digitado já tem que estar no sistema. */
+  salvarAgoraRef?: MutableRefObject<(() => Promise<void>) | null>;
 };
-
-type ErroDoServidor = { mensagem: string };
-
-const linhaDoProduto = (produto: RequisitionProductHit): LinhaDaRequisicao => ({
-  productId: produto.id,
-  productName: produto.name,
-  productCode: produto.code,
-  stockUnit: produto.unit,
-  conversions: produto.conversions,
-  unit: normalizarUnidade(produto.unit) || "UN",
-  quantity: ""
-});
 
 const quando = (instante: number) => new Date(instante).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 
-export function FormularioDaRequisicao({ user, sectors, saldos, modelo, onCriada, onAviso }: Props) {
+function QuadroVazio({ visao, filtrando, onLimpar }: { visao: Visao; filtrando: boolean; onLimpar: () => void }) {
+  if (visao === "ESCOLHIDOS") return <div className="rq-vazio"><strong>Nada escolhido ainda.</strong><p>Volte em Produtos e toque em + ou digite a quantidade.</p></div>;
+  if (visao === "PROBLEMA") return <div className="rq-vazio"><strong>Nenhum problema.</strong><p>Todos os itens escolhidos têm saldo.</p></div>;
+  return (
+    <div className="rq-vazio">
+      <strong>Nenhum produto com saldo encontrado.</strong>
+      <p>Confira a escrita ou procure em outro local do estoque.</p>
+      {filtrando && <Button variant="secondary" onClick={onLimpar}>Limpar filtros</Button>}
+    </div>
+  );
+}
+
+export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAviso, onConversaoCadastrada, onRascunho, salvarAgoraRef }: Props) {
   const guardado = useMemo(() => (modelo ? null : lerRascunho(user.id)), [modelo, user.id]);
+  const catalogo = useCatalogo(user.id);
+  const { imprimir, portal } = useImpressaoDaRequisicao();
+  const [salvo, setSalvo] = useState(false);
   const [cabecalho, setCabecalho] = useState<DadosDoCabecalho>(modelo?.cabecalho ?? guardado?.cabecalho ?? cabecalhoVazio());
-  const [linhas, setLinhas] = useState<LinhaDaRequisicao[]>(modelo?.linhas ?? guardado?.linhas ?? []);
-  const [deFora, setDeFora] = useState<LinhaDaRequisicao[]>(guardado?.deFora ?? []);
+  const [escolhas, setEscolhas] = useState<Escolhas>(modelo?.escolhas ?? guardado?.escolhas ?? {});
   const [recuperadoEm, setRecuperadoEm] = useState<number | null>(guardado ? guardado.salvoEm : null);
+  const [texto, setTexto] = useState("");
+  const [localId, setLocalId] = useState<string | null>(null);
+  const [visao, setVisao] = useState<Visao>("TODOS");
+  const [mostrarSemSaldo, setMostrarSemSaldo] = useState(false);
+  const [congelados, setCongelados] = useState<Set<string>>(new Set());
   const [enviando, setEnviando] = useState(false);
-  const [erro, setErro] = useState<ErroDoServidor | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
   const buscaRef = useRef<HTMLInputElement | null>(null);
+  const listaRef = useRef<HTMLUListElement | null>(null);
   const idDoPedidoRef = useRef<string | null>(null);
+  const guardarAoSairRef = useRef(true);
+
+  const itens = catalogo.itens;
+  const itemPorId = useMemo(() => new Map((itens ?? []).map((i) => [i.id, i])), [itens]);
+
+  // Nome dos primeiros produtos: é o que a aba "Em andamento" mostra para reconhecer a requisição.
+  const resumoDoRascunho = useMemo(() => {
+    const nomes = Object.keys(escolhasComQuantidade(escolhas)).map((id) => itemPorId.get(id)?.name).filter((n): n is string => Boolean(n));
+    return nomes.length > 3 ? `${nomes.slice(0, 3).join(", ")} e mais ${nomes.length - 3}` : nomes.join(", ");
+  }, [escolhas, itemPorId]);
+  const aoSalvarNoServidorRef = useRef<() => void>(() => {});
+  const raizRef = useRef<HTMLDivElement | null>(null);
+  const noServidor = useRascunhoNoServidor({
+    inicial: modelo?.servidor ?? guardado?.servidor ?? null,
+    cabecalho,
+    escolhas,
+    resumo: resumoDoRascunho,
+    pausado: enviando,
+    onAviso,
+    onSalvo: () => aoSalvarNoServidorRef.current?.()
+  });
+
+  // Produto do rascunho que saiu do cadastro não pode ficar invisível dentro da requisição.
+  useEffect(() => {
+    if (!itens) return;
+    const faltando = Object.keys(escolhas).filter((id) => !itemPorId.has(id));
+    if (faltando.length === 0) return;
+    setEscolhas((atuais) => Object.fromEntries(Object.entries(atuais).filter(([id]) => itemPorId.has(id))));
+    onAviso("warning", `${faltando.length} ${faltando.length === 1 ? "produto do rascunho não existe" : "produtos do rascunho não existem"} mais no estoque e ${faltando.length === 1 ? "saiu" : "saíram"} da lista.`);
+    // só roda quando o catálogo chega
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [itens]);
+
+  useEffect(() => {
+    if (!salvarAgoraRef) return;
+    salvarAgoraRef.current = noServidor.sincronizar;
+    return () => { salvarAgoraRef.current = null; };
+  }, [salvarAgoraRef, noServidor.sincronizar]);
+
+  useEffect(() => {
+    onRascunho?.(noServidor.servidorRef.current?.id ?? null);
+  }, [noServidor.estado, noServidor.servidorRef, onRascunho]);
 
   // O rascunho acompanha cada mudança: perder 35 itens digitados por recarregar a página não pode acontecer.
+  const ultimoRef = useRef({ cabecalho, escolhas });
+  ultimoRef.current = { cabecalho, escolhas };
+  const guardarAgora = useCallback(() => {
+    if (!guardarAoSairRef.current) return;
+    const { cabecalho: c, escolhas: e } = ultimoRef.current;
+    salvarRascunho(user.id, { cabecalho: c, escolhas: escolhasComQuantidade(e), servidor: noServidor.servidorRef.current });
+  }, [user.id, noServidor.servidorRef]);
+
+  useEffect(() => {
+    aoSalvarNoServidorRef.current = guardarAgora;
+  }, [guardarAgora]);
+
+  // Busca e barra grudam na borda da área rolável, mas ela tem respiro (padding) que deixava a lista aparecer no vão.
+  useEffect(() => {
+    const raiz = raizRef.current;
+    const area = raiz?.closest<HTMLElement>(".content");
+    if (!raiz || !area) return;
+    const medir = () => {
+      const rola = /(auto|scroll)/.test(getComputedStyle(area).overflowY);
+      const estilo = getComputedStyle(area);
+      raiz.style.setProperty("--rq-pad-topo", rola ? estilo.paddingTop : "0px");
+      raiz.style.setProperty("--rq-pad-base", rola ? estilo.paddingBottom : "0px");
+    };
+    medir();
+    window.addEventListener("resize", medir);
+    return () => window.removeEventListener("resize", medir);
+  }, []);
+
   useEffect(() => {
     if (enviando) return;
-    const espera = setTimeout(() => salvarRascunho(user.id, { cabecalho, linhas, deFora }), 400);
+    setSalvo(false);
+    const espera = setTimeout(() => {
+      guardarAgora();
+      setSalvo(true);
+    }, 400);
     return () => clearTimeout(espera);
-  }, [user.id, cabecalho, linhas, deFora, enviando]);
+  }, [cabecalho, escolhas, enviando, guardarAgora]);
 
+  // Trocar de aba, recarregar ou o celular descartar a aba antes dos 400 ms não pode perder a última digitação.
   useEffect(() => {
-    if (linhas.length === 0) buscaRef.current?.focus();
-  }, [linhas.length]);
+    const aoEsconder = () => {
+      if (document.visibilityState === "hidden") guardarAgora();
+    };
+    document.addEventListener("visibilitychange", aoEsconder);
+    window.addEventListener("pagehide", guardarAgora);
+    return () => {
+      document.removeEventListener("visibilitychange", aoEsconder);
+      window.removeEventListener("pagehide", guardarAgora);
+      guardarAgora();
+    };
+  }, [guardarAgora]);
 
-  const resumo = useMemo(() => resumirLinhas(linhas, saldos ?? new Map(linhas.map((l) => [l.productId, Number.POSITIVE_INFINITY]))), [linhas, saldos]);
-  const saldoDe = (id: string) => (saldos ? saldos.get(id) : null);
-  const pronta = linhas.length > 0 && resumo.comQuantidade === linhas.length && resumo.semSaldo.length === 0 && resumo.semConversao.length === 0;
+  // "/" leva à busca, como nas telas de código: quem lança por teclado não precisa do mouse.
+  useEffect(() => {
+    const aoApertar = (e: KeyboardEvent) => {
+      const alvo = e.target as HTMLElement | null;
+      if (e.key !== "/" || alvo?.closest("input, textarea, select, [contenteditable]")) return;
+      e.preventDefault();
+      buscaRef.current?.focus();
+    };
+    document.addEventListener("keydown", aoApertar);
+    return () => document.removeEventListener("keydown", aoApertar);
+  }, []);
 
-  const mudarLinha = (productId: string, parcial: Partial<LinhaDaRequisicao>) => {
+  // Escolha sem quantidade guarda só a unidade que a pessoa selecionou enquanto redigita: não conta nem é enviada.
+  const linhas = useMemo(
+    () => Object.entries(escolhasComQuantidade(escolhas)).flatMap(([id, escolha]) => {
+      const item = itemPorId.get(id);
+      return item ? [linhaDe(item, escolha)] : [];
+    }),
+    [escolhas, itemPorId]
+  );
+  const saldos = useMemo(() => new Map((itens ?? []).map((i) => [i.id, i.balance])), [itens]);
+  const resumo = useMemo(() => resumirLinhas(linhas, saldos), [linhas, saldos]);
+  const problemas = useMemo(() => {
+    const invalidas = linhas.filter((l) => situacaoDaLinha(l, saldos.get(l.productId)).tipo === "VAZIA");
+    return new Set([...resumo.semSaldo, ...resumo.semConversao, ...invalidas].map((l) => l.productId));
+  }, [linhas, saldos, resumo]);
+  const pronta = linhas.length > 0 && resumo.comQuantidade === linhas.length && problemas.size === 0;
+
+  const filtro = useMemo(() => ({ texto, setorId: localId, visao, mostrarSemSaldo }), [texto, localId, visao, mostrarSemSaldo]);
+  // Na visão "Com problema" a lista fica como estava ao abrir: corrigir uma quantidade não pode tirar a linha dos dedos.
+  const visiveis = useMemo(
+    () => (itens ? filtrarCatalogo(itens, escolhas, visao === "PROBLEMA" ? congelados : problemas, filtro) : []),
+    [itens, escolhas, problemas, congelados, visao, filtro]
+  );
+  const escolherVisao = useCallback((proxima: Visao) => {
+    if (proxima === "PROBLEMA") setCongelados(new Set(problemas));
+    setVisao(proxima);
+  }, [problemas]);
+  const locais: OpcaoDeLocal[] = useMemo(() => {
+    const contagem = contarPorLocal(itens ?? [], mostrarSemSaldo);
+    const dosSetores = sectors.map((s) => ({ id: s.id, nome: s.name, total: contagem.get(s.id) ?? 0 }));
+    const semLocal = { id: SEM_LOCAL, nome: "Sem local", total: contagem.get(SEM_LOCAL) ?? 0 };
+    return [...dosSetores, semLocal].filter((l) => l.total > 0);
+  }, [itens, sectors, mostrarSemSaldo]);
+  const totalDeProdutos = useMemo(() => Array.from(contarPorLocal(itens ?? [], mostrarSemSaldo).values()).reduce((a, b) => a + b, 0), [itens, mostrarSemSaldo]);
+
+  // Funções estáveis: a linha só renderiza de novo quando o próprio produto muda.
+  const mudar = useCallback((item: RequisitionCatalogItem, parcial: Partial<Escolha>) => {
     setErro(null);
-    setLinhas((atuais) => atuais.map((l) => (l.productId === productId ? { ...l, ...parcial } : l)));
-  };
+    setEscolhas((atuais) => {
+      const proxima = { ...(atuais[item.id] ?? escolhaInicial(item, "")), ...parcial };
+      return { ...atuais, [item.id]: proxima };
+    });
+  }, []);
 
-  function adicionar(produto: RequisitionProductHit) {
-    if (linhas.some((l) => l.productId === produto.id)) {
-      onAviso("warning", `${produto.name} já está na lista.`);
-      return;
+  const tirar = useCallback((productId: string) => {
+    setEscolhas((atuais) => {
+      const { [productId]: _tirada, ...resto } = atuais;
+      return resto;
+    });
+  }, []);
+
+  const { comConversao } = catalogo;
+  const aoCadastrarUnidade = useCallback((item: RequisitionCatalogItem, conversao: ConversaoNova) => {
+    comConversao(item.id, conversao);
+    // Já escolhe a unidade nova: a pessoa cadastrou porque é nela que vai pedir.
+    setEscolhas((atuais) => ({ ...atuais, [item.id]: { ...(atuais[item.id] ?? escolhaInicial(item, "")), unit: conversao.fromUnit } }));
+    onAviso("success", `${item.name}: 1 ${conversao.fromUnit} = ${conversao.factor} ${conversao.toUnit} cadastrada.`);
+    onConversaoCadastrada?.(item);
+  }, [comConversao, onAviso, onConversaoCadastrada]);
+
+  const irParaProxima = useCallback((productId: string, direcao: 1 | -1) => {
+    const campos = Array.from(listaRef.current?.querySelectorAll<HTMLInputElement>(".rq-qtd:not(:disabled)") ?? []);
+    const atual = campos.findIndex((c) => c.closest<HTMLElement>(".rq-linha")?.dataset.produto === productId);
+    const destino = campos[atual + direcao];
+    if (destino) {
+      destino.focus();
+      destino.scrollIntoView({ block: "center", behavior: "smooth" });
     }
-    setLinhas((atuais) => [...atuais, linhaDoProduto(produto)]);
-    setDeFora((atuais) => atuais.filter((l) => l.productId !== produto.id));
-    setTimeout(() => document.querySelector<HTMLInputElement>(`[data-produto="${produto.id}"] .req-qty-input`)?.focus(), 60);
+  }, []);
+
+  function imprimirLista() {
+    const localDe = new Map(sectors.map((setor) => [setor.id, setor.name]));
+    imprimir({
+      codigo: null,
+      data: cabecalho.date,
+      turno: TURNOS[cabecalho.shift] ?? cabecalho.shift,
+      setor: sectors.find((setor) => setor.id === cabecalho.sectorId)?.name ?? null,
+      motivo: cabecalho.reason === "OTHER" && cabecalho.reasonNotes ? cabecalho.reasonNotes : MOTIVOS[cabecalho.reason] ?? cabecalho.reason,
+      observacoes: cabecalho.notes || null,
+      responsavel: user.name,
+      itens: linhas.map((linha) => ({
+        codigo: linha.productCode,
+        nome: linha.productName,
+        quantidade: lerNumero(linha.quantity),
+        unidade: linha.unit,
+        local: localDe.get(itemPorId.get(linha.productId)?.sectorId ?? "") ?? null
+      }))
+    });
   }
 
-  function irParaProxima(productId: string) {
-    const campos = Array.from(document.querySelectorAll<HTMLInputElement>(".req-item .req-qty-input"));
-    const atual = campos.findIndex((c) => c.closest<HTMLElement>(".req-item")?.dataset.produto === productId);
-    (campos[atual + 1] ?? buscaRef.current)?.focus();
+  async function trazerDoServidor() {
+    try {
+      const conteudo = await noServidor.usarDoServidor();
+      if (!conteudo) return;
+      setCabecalho(conteudo.cabecalho);
+      setEscolhas(conteudo.escolhas);
+    } catch {
+      onAviso("error", "Não consegui buscar a versão mais recente. Tente de novo.");
+    }
   }
 
-  function tirarSemSaldo() {
-    const ids = new Set(resumo.semSaldo.map((l) => l.productId));
-    setDeFora((atuais) => [...atuais, ...linhas.filter((l) => ids.has(l.productId))]);
-    setLinhas((atuais) => atuais.filter((l) => !ids.has(l.productId)));
-    setErro(null);
+  function limparFiltros() {
+    setTexto("");
+    setLocalId(null);
+    setVisao("TODOS");
   }
 
-  function limpar() {
+  function descartar() {
     if (linhas.length > 0 && !window.confirm(`Descartar a requisição com ${linhas.length} ${linhas.length === 1 ? "item" : "itens"}?`)) return;
+    guardarAoSairRef.current = true;
     apagarRascunho(user.id);
+    void noServidor.descartar();
     setCabecalho(cabecalhoVazio());
-    setLinhas([]);
-    setDeFora([]);
+    setEscolhas({});
     setRecuperadoEm(null);
     setErro(null);
+    limparFiltros();
     idDoPedidoRef.current = null;
   }
 
@@ -133,7 +323,12 @@ export function FormularioDaRequisicao({ user, sectors, saldos, modelo, onCriada
     setEnviando(true);
     setErro(null);
     try {
+      // O rascunho no sistema é concluído junto com o registro: o servidor o apaga na mesma transação.
+      await noServidor.aguardar();
+      payload.draftId = noServidor.servidorRef.current?.id ?? null;
       const criada = await createRequisition(payload);
+      noServidor.encerrar();
+      guardarAoSairRef.current = false;
       apagarRascunho(user.id);
       idDoPedidoRef.current = null;
       onCriada(criada);
@@ -144,6 +339,8 @@ export function FormularioDaRequisicao({ user, sectors, saldos, modelo, onCriada
         try {
           const achadas = await getRequisitions({ clientRequestId });
           if (achadas.length > 0) {
+            noServidor.encerrar();
+            guardarAoSairRef.current = false;
             apagarRascunho(user.id);
             idDoPedidoRef.current = null;
             onCriada(achadas[0]);
@@ -152,17 +349,27 @@ export function FormularioDaRequisicao({ user, sectors, saldos, modelo, onCriada
         } catch {
           // segue para a mensagem abaixo: a lista continua intacta para tentar de novo
         }
-        setErro({ mensagem: "Não recebi a resposta do servidor e a requisição não aparece registrada. Seus itens continuam aqui: toque em Registrar para tentar de novo." });
+        setErro("Não recebi a resposta do servidor e a requisição não aparece registrada. Seus itens continuam aqui: toque em Registrar para tentar de novo.");
       } else {
-        setErro(erroDoServidor(falha));
+        setErro(mensagemDoServidor(falha));
       }
     } finally {
       setEnviando(false);
     }
   }
 
+  const filtrando = texto.trim() !== "" || localId !== null || visao !== "TODOS";
+
   return (
-    <div className="req-form">
+    <div className="rq" ref={raizRef}>
+      {noServidor.conflito && (
+        <div className="req-banner is-aviso" role="alert">
+          <span>{noServidor.conflito.mensagem}</span>
+          <Button variant="secondary" onClick={() => void trazerDoServidor()}>Ver a mais recente</Button>
+          <Button variant="secondary" onClick={noServidor.manterMinha}>Manter a minha</Button>
+        </div>
+      )}
+
       {recuperadoEm != null && (
         <div className="req-banner is-info" role="status">
           <span>Rascunho recuperado{recuperadoEm ? ` (salvo em ${quando(recuperadoEm)})` : ""}. Nada se perde se você sair desta tela.</span>
@@ -170,130 +377,93 @@ export function FormularioDaRequisicao({ user, sectors, saldos, modelo, onCriada
         </div>
       )}
 
-      <section className="req-bloco" aria-labelledby="req-dados">
-        <h3 id="req-dados" className="req-section-title">Dados da requisição</h3>
-        <div className="req-meta-fields">
-          <label className="req-field"><span>Data</span>
-            <input type="date" value={cabecalho.date} max={hojeLocalIso()} onChange={(e) => setCabecalho({ ...cabecalho, date: e.target.value })} />
-          </label>
-          <label className="req-field"><span>Turno</span>
-            <select value={cabecalho.shift} onChange={(e) => setCabecalho({ ...cabecalho, shift: e.target.value })}>
-              {Object.entries(TURNOS).map(([valor, rotulo]) => <option key={valor} value={valor}>{rotulo}</option>)}
-            </select>
-          </label>
-          <label className="req-field"><span>Setor</span>
-            <select value={cabecalho.sectorId} onChange={(e) => setCabecalho({ ...cabecalho, sectorId: e.target.value })}>
-              <option value="">Todos os setores</option>
-              {sectors.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
-          </label>
-          <label className="req-field"><span>Motivo</span>
-            <select value={cabecalho.reason} onChange={(e) => setCabecalho({ ...cabecalho, reason: e.target.value })}>
-              {Object.entries(MOTIVOS).map(([valor, rotulo]) => <option key={valor} value={valor}>{rotulo}</option>)}
-            </select>
-          </label>
-          {cabecalho.reason === "OTHER" && (
-            <label className="req-field req-field-wide"><span>Especificar motivo</span>
-              <input value={cabecalho.reasonNotes} placeholder="Descreva o motivo" onChange={(e) => setCabecalho({ ...cabecalho, reasonNotes: e.target.value })} />
-            </label>
-          )}
-          <label className="req-field req-field-wide"><span>Observações</span>
-            <input value={cabecalho.notes} placeholder="Opcional" onChange={(e) => setCabecalho({ ...cabecalho, notes: e.target.value })} />
-          </label>
-        </div>
-      </section>
+      <CabecalhoCompacto valor={cabecalho} setores={sectors} onMudar={setCabecalho} />
 
-      <section className="req-bloco" aria-labelledby="req-itens">
-        <h3 id="req-itens" className="req-section-title">
-          Itens retirados
-          {linhas.length > 0 && <span className="req-item-count">{linhas.length}</span>}
-        </h3>
+      <section className="rq-bloco" aria-label="Produtos">
+        <FiltrosDoCatalogo
+          ref={buscaRef}
+          texto={texto}
+          onTexto={setTexto}
+          locais={locais}
+          localId={localId}
+          onLocal={setLocalId}
+          visao={visao}
+          onVisao={escolherVisao}
+          totalDeProdutos={totalDeProdutos}
+          escolhidos={linhas.length}
+          comProblema={problemas.size}
+          mostrarSemSaldo={mostrarSemSaldo}
+          onMostrarSemSaldo={setMostrarSemSaldo}
+        />
 
-        <BuscaDeProduto ref={buscaRef} jaNaLista={new Set(linhas.map((l) => l.productId))} saldos={saldos} onEscolher={adicionar} />
-
-        {saldos == null && (
-          <div className="req-banner is-aviso" role="status">Os saldos ainda não carregaram. Você pode montar a lista; a conferência de saldo é feita ao registrar.</div>
-        )}
-
-        {linhas.length > 0 ? (
-          <ul className="req-itens">
-            {linhas.map((linha) => (
-              <LinhaDoItem
-                key={linha.productId}
-                linha={linha}
-                saldo={saldoDe(linha.productId)}
-                onQuantidade={(id, quantity) => mudarLinha(id, { quantity })}
-                onUnidade={(id, unit) => mudarLinha(id, { unit })}
-                onRemover={(id) => setLinhas((atuais) => atuais.filter((l) => l.productId !== id))}
-                onEnter={irParaProxima}
-              />
-            ))}
-          </ul>
-        ) : (
-          <div className="req-items-empty">
-            <p><strong>Nenhum item ainda.</strong></p>
-            <p>Busque um produto acima. A unidade pode ser trocada em cada linha (g, kg, ml, l ou a embalagem).</p>
+        {catalogo.desatualizadaDesde != null && (
+          <div className="req-banner is-aviso" role="status">
+            <span>Sem conexão com o servidor: usando a lista guardada às {quando(catalogo.desatualizadaDesde)}. Os saldos podem estar desatualizados; o servidor confere de novo ao registrar.</span>
+            <Button variant="secondary" onClick={catalogo.recarregar}>Atualizar</Button>
           </div>
         )}
 
-        {resumo.semSaldo.length > 0 && (
+        {visao === "ESCOLHIDOS" && linhas.length > 0 && (
+          <div className="rq-ferramentas">
+            <span>{linhas.length} {linhas.length === 1 ? "produto escolhido" : "produtos escolhidos"}</span>
+            <Button variant="secondary" leadingIcon={<Printer size={14} />} onClick={imprimirLista}>Imprimir lista</Button>
+          </div>
+        )}
+
+        {catalogo.falhou && (
           <div className="req-banner is-erro" role="alert">
-            <span>
-              <strong>{resumo.semSaldo.length} {resumo.semSaldo.length === 1 ? "item não tem" : "itens não têm"} saldo</strong> para a quantidade pedida:{" "}
-              {resumo.semSaldo.map((l) => l.productName).join(", ")}. O servidor recusa a requisição inteira se um deles ficar.
-            </span>
-            <Button variant="secondary" onClick={tirarSemSaldo}>Tirar da requisição</Button>
+            <span>Não consegui carregar os produtos do estoque.</span>
+            <Button variant="secondary" onClick={catalogo.recarregar}>Tentar de novo</Button>
           </div>
         )}
 
-        {deFora.length > 0 && (
-          <details className="req-de-fora">
-            <summary>{deFora.length} {deFora.length === 1 ? "item ficou" : "itens ficaram"} de fora por falta de saldo</summary>
-            <ul>
-              {deFora.map((l) => (
-                <li key={l.productId}>
-                  <span>{l.productName} — {l.quantity} {l.unit}</span>
-                  <button type="button" onClick={() => { setLinhas((a) => [...a, l]); setDeFora((a) => a.filter((x) => x.productId !== l.productId)); }}>
-                    <RotateCcw size={13} /> voltar
-                  </button>
-                </li>
+        {itens == null && !catalogo.falhou && (
+          <ul className="rq-lista rq-esqueleto" aria-busy="true" aria-label="Carregando produtos">
+            {Array.from({ length: 7 }, (_, i) => <li key={i} className="rq-linha" />)}
+          </ul>
+        )}
+
+        {itens != null && (
+          visiveis.length > 0 ? (
+            <ul className="rq-lista" ref={listaRef}>
+              {visiveis.map((item) => (
+                <LinhaDoCatalogo key={item.id} item={item} escolha={escolhas[item.id]} onMudar={mudar} onTirar={tirar} onProxima={irParaProxima} onUnidadeCadastrada={aoCadastrarUnidade} />
               ))}
             </ul>
-          </details>
-        )}
-
-        {erro && (
-          <div className="req-banner is-erro" role="alert">
-            <span>{erro.mensagem}</span>
-          </div>
+          ) : (
+            <QuadroVazio visao={visao} filtrando={filtrando} onLimpar={limparFiltros} />
+          )
         )}
       </section>
 
-      <div className="req-action-bar">
-        <p className="req-action-resumo" aria-live="polite">
-          {linhas.length === 0
-            ? "Adicione itens para registrar."
-            : pronta
-              ? `${linhas.length} ${linhas.length === 1 ? "item pronto" : "itens prontos"} para registrar`
-              : [
-                  resumo.semQuantidade > 0 && `${resumo.semQuantidade} sem quantidade`,
-                  resumo.semSaldo.length > 0 && `${resumo.semSaldo.length} sem saldo`,
-                  resumo.semConversao.length > 0 && `${resumo.semConversao.length} com unidade que não converte`
-                ].filter(Boolean).join(" · ")}
-        </p>
-        <Button variant="secondary" leadingIcon={<X size={14} />} onClick={limpar} disabled={enviando || (linhas.length === 0 && deFora.length === 0)}>Limpar</Button>
-        <Button variant="primary" onClick={registrar} disabled={!pronta || enviando}>{enviando ? "Registrando…" : "Registrar requisição"}</Button>
+      {erro && <div className="req-banner is-erro" role="alert"><span>{erro}</span></div>}
+
+      <div className="rq-barra">
+        <div className="rq-barra-resumo" aria-live="polite">
+          <strong>{linhas.length} {linhas.length === 1 ? "produto" : "produtos"}</strong>
+          {linhas.length === 0 ? (
+            <span>Toque em + para escolher.</span>
+          ) : problemas.size > 0 ? (
+            <button type="button" className="rq-barra-problema" onClick={() => escolherVisao("PROBLEMA")}>{problemas.size} com problema — ver</button>
+          ) : (
+            <span>pronto para registrar{salvo ? ` · ${textoDoSalvamento(noServidor.estado)}` : ""}</span>
+          )}
+        </div>
+        <Button variant="secondary" leadingIcon={<Trash2 size={16} />} aria-label="Limpar requisição" onClick={descartar} disabled={enviando || linhas.length === 0}><span className="rq-limpar-texto">Limpar</span></Button>
+        <Button variant="primary" onClick={registrar} disabled={!pronta || enviando}>{enviando ? "Registrando…" : "Registrar"}</Button>
       </div>
+      {portal}
     </div>
   );
 }
 
+const textoDoSalvamento = (estado: string) =>
+  estado === "salvo" ? "salvo no sistema" : estado === "salvando" ? "salvando…" : estado === "falhou" ? "salvo só neste aparelho" : estado === "conflito" ? "conflito com outro aparelho" : "rascunho salvo";
+
 /** Mensagem do servidor com o que importa: quais produtos faltam e quanto. */
-function erroDoServidor(falha: unknown): ErroDoServidor {
-  if (!(falha instanceof ApiError)) {
-    return { mensagem: falha instanceof Error ? falha.message : "Erro ao registrar a requisição." };
-  }
+function mensagemDoServidor(falha: unknown): string {
+  if (!(falha instanceof ApiError)) return falha instanceof Error ? falha.message : "Erro ao registrar a requisição.";
   const produtos = Array.isArray(falha.body?.products) ? (falha.body.products as Array<{ productName: string; requested: number; available: number; unit: string | null }>) : [];
   const detalhes = produtos.map((p) => `${p.productName}: pediu ${p.requested} ${p.unit ?? ""}, saldo ${p.available}`.trim());
-  return { mensagem: detalhes.length > 0 ? `${falha.message} ${detalhes.join("; ")}.` : falha.message };
+  return detalhes.length > 0 ? `${falha.message} ${detalhes.join("; ")}.` : falha.message;
 }

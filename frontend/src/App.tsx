@@ -1,3 +1,4 @@
+import { contarContagensPendentes } from "./lib/contagensPendentes";
 import {
   BadgeDollarSign,
   BarChart3,
@@ -7,6 +8,7 @@ import {
   ChefHat,
   Tags,
   ClipboardCheck,
+  Scale,
   ClipboardList,
   Coins,
   CreditCard,
@@ -82,6 +84,7 @@ const MonthlyClosurePanel = lazy(() => import("./pages/MonthlyClosurePanel").the
 const Payables = lazy(() => import("./pages/Payables").then((module) => ({ default: module.Payables })));
 const PaymentMethods = lazy(() => import("./pages/PaymentMethods").then((module) => ({ default: module.PaymentMethods })));
 const Products = lazy(() => import("./pages/Products").then((module) => ({ default: module.Products })));
+const ProductEditor = lazy(() => import("./pages/products/editor/ProductEditor").then((module) => ({ default: module.ProductEditor })));
 const PurchaseOrders = lazy(() => import("./pages/PurchaseOrders").then((module) => ({ default: module.PurchaseOrders })));
 const PurchasePlanning = lazy(() => import("./pages/PurchasePlanning").then((module) => ({ default: module.PurchasePlanning })));
 const Purchases = lazy(() => import("./pages/Purchases").then((module) => ({ default: module.Purchases })));
@@ -106,6 +109,7 @@ const Rescisoes = lazy(() => import("./pages/rh/Rescisoes").then((module) => ({ 
 const Extras = lazy(() => import("./pages/Extras").then((module) => ({ default: module.Extras })));
 const FichasCadastrais = lazy(() => import("./pages/rh/fichas/FichasCadastrais").then((module) => ({ default: module.FichasCadastrais })));
 const Requisitions = lazy(() => import("./pages/Requisitions").then((module) => ({ default: module.Requisitions })));
+const ConversoesDeUnidade = lazy(() => import("./pages/ConversoesDeUnidade").then((module) => ({ default: module.ConversoesDeUnidade })));
 const Users = lazy(() => import("./pages/Users").then((module) => ({ default: module.Users })));
 const FichasTecnicas = lazy(() => import("./pages/cardapio/fichas/FichasTecnicas").then((module) => ({ default: module.FichasTecnicas })));
 const PainelEventos = lazy(() => import("./pages/operacao/eventos/PainelEventos").then((module) => ({ default: module.PainelEventos })));
@@ -174,7 +178,7 @@ const sections = [
   // presa no mes corrente.
   { id: "monthly-closing", label: "Fechamento mensal", icon: FileCog, showInSidebar: true, group: "CMV", path: "/cmv/fechamento-mensal", matchers: ["/cmv/fechamento-mensal", "/cmv/fechamento-mensal/:yearMonth"] },
   { id: "inventory", label: "Visão Geral", icon: Warehouse, showInSidebar: true, group: "Estoque", path: "/estoque/visao-geral", matchers: ["/estoque/visao-geral"] },
-  { id: "products", label: "Produtos", icon: Package, showInSidebar: true, group: "Estoque", path: "/estoque/produtos", matchers: ["/estoque/produtos"] },
+  { id: "products", label: "Produtos", icon: Package, showInSidebar: true, group: "Estoque", path: "/estoque/produtos", matchers: ["/estoque/produtos", "/estoque/produtos/novo", "/estoque/produtos/:id/editar"] },
   { id: "inventory-movements", label: "Movimentações", icon: Truck, showInSidebar: true, group: "Estoque", path: "/estoque/movimentacoes", matchers: ["/estoque/movimentacoes"] },
   { id: "inventory-waste", label: "Desperdício", icon: Trash2, showInSidebar: true, group: "Estoque", path: "/estoque/desperdicio", matchers: ["/estoque/desperdicio"], description: "Perdas de insumo por motivo, setor e produto" },
   { id: "inventory-counting", label: "Contagem de Estoque", icon: ClipboardList, showInSidebar: true, group: "Estoque", path: "/estoque/contagens", matchers: ["/estoque/contagens", "/estoque/contagens/:sessionId/lancar"] },
@@ -184,6 +188,9 @@ const sections = [
   { id: "purchase-planning", label: "Planejamento de compra", icon: ShoppingCart, showInSidebar: false, group: "Operação", path: "/estoque/planejamento-compra", matchers: ["/estoque/planejamento-compra"], permissionId: "purchase-orders", hidePageHeader: true },
   { id: "inventory-reports", label: "Relatórios", icon: BarChart3, showInSidebar: true, group: "Estoque", path: "/estoque/relatorios", matchers: ["/estoque/relatorios"] },
   { id: "requisitions", label: "Requisições", icon: ClipboardCheck, showInSidebar: true, group: "Estoque", path: "/estoque/requisicoes", matchers: ["/estoque/requisicoes"] },
+  // Rotina do estoquista: produtos sem conversão de unidade cadastrada. A permissão é a de Requisições: quem requisita
+  // e quem acerta a unidade são as mesmas pessoas, e o servidor mapeia /inventory/requisitions/conversions para ela.
+  { id: "inventory-conversions", label: "Conversões", icon: Scale, showInSidebar: true, group: "Estoque", path: "/estoque/conversoes", matchers: ["/estoque/conversoes"], permissionId: "requisitions", description: "Produtos que ainda não têm a conversão de unidade cadastrada: quanto pesa 1 peça, quantas unidades tem 1 caixa" },
   { id: "dishes", label: "Fichas Técnicas", icon: ChefHat, showInSidebar: true, group: "Cardápio", path: "/cardapio/fichas-tecnicas", matchers: ["/cardapio/fichas-tecnicas"] },
   { id: "buffet-plates", label: "Plaquinhas do buffet", icon: Tags, showInSidebar: true, group: "Cardápio", path: "/cardapio/plaquinhas", matchers: ["/cardapio/plaquinhas"], description: "Monte a lista do buffet ou do coffee break e imprima as plaquinhas em português e inglês" },
   { id: "dre", label: "DRE Gerencial", icon: BarChart3, showInSidebar: true, group: "Financeiro", path: "/financeiro/dre", matchers: ["/financeiro/dre"] },
@@ -322,8 +329,8 @@ export function App() {
   );
   // Modulo que o usuario tentou abrir sem permissao — usado para explicar o redirecionamento.
   const [deniedSectionLabel, setDeniedSectionLabel] = useState<string | null>(null);
-  // Contagens CONCLUIDAS ainda nao convertidas em pedido/inventario — usado no badge
-  // do item "Pedidos de compra" no sidebar. Derivado do endpoint que a Inventory ja consome.
+  // Contagens CONCLUIDAS ainda nao convertidas em inventario — usado no badge
+  // do item "Contagem de Estoque" no sidebar. Derivado do endpoint que a Inventory ja consome.
   const [pendingCountSessionCount, setPendingCountSessionCount] = useState(0);
   const contentRef = useRef<HTMLElement | null>(null);
 
@@ -425,8 +432,7 @@ export function App() {
     getStockCountSessions()
       .then((rows) => {
         if (!active) return;
-        const count = rows.filter((s) => s.status === "CONCLUIDA" && !s.generatedInventoryId).length;
-        setPendingCountSessionCount(count);
+        setPendingCountSessionCount(contarContagensPendentes(rows));
       })
       .catch(() => { if (active) setPendingCountSessionCount(0); });
     return () => { active = false; };
@@ -494,7 +500,7 @@ export function App() {
     }))
   }));
   const sidebarBadges: Record<string, number> =
-    pendingCountSessionCount > 0 ? { "purchase-orders": pendingCountSessionCount } : {};
+    pendingCountSessionCount > 0 ? { "inventory-counting": pendingCountSessionCount } : {};
   const mobileDrawerGroups = withFavoritesGroup(sidebarGroups, favorites);
 
   // Topbar: breadcrumb "Pateo da Luz / <grupo atual>". Sem search nem
@@ -764,6 +770,7 @@ export function App() {
               <Route path="/estoque/planejamento-compra" element={<PurchasePlanning />} />
               <Route path="/inventory/counts/:agendaId" element={<Navigate to="/estoque/contagens" replace />} />
               <Route path="/estoque/requisicoes" element={<Requisitions user={user} />} />
+              <Route path="/estoque/conversoes" element={<ConversoesDeUnidade />} />
               <Route path="/estoque/desperdicio" element={<Desperdicio />} />
               <Route path="/cardapio/fichas-tecnicas" element={<FichasTecnicas />} />
               <Route path="/cardapio/plaquinhas" element={<Plaquinhas />} />
@@ -773,6 +780,8 @@ export function App() {
               <Route path="/financeiro/ciclos-fornecedor" element={<SupplierCycles />} />
               <Route path="/financeiro/reembolsos" element={<Reimbursements />} />
               <Route path="/estoque/produtos" element={<Products />} />
+              <Route path="/estoque/produtos/novo" element={<ProductEditor />} />
+              <Route path="/estoque/produtos/:id/editar" element={<ProductEditor />} />
               <Route path="/cadastros/fornecedores" element={<Suppliers onOpenPurchases={() => handleNavigate("purchases")} />} />
               <Route path="/cadastros/empresas" element={<Companies />} />
               <Route path={ROTAS_RH.funcionarios} element={<Funcionarios />} />

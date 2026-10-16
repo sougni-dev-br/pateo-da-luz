@@ -4,6 +4,7 @@ import { type ItemDaPosicao, getPosicaoDoEstoque } from "../../../api/client";
 import { EmptyState, Money } from "../../../design-system";
 import { formatDate, formatNumber } from "../../../utils/format";
 import "./inventario.css";
+import { resumirPosicao } from "./posicao-resumo";
 
 // Substitui o "Estoque atual", que listava o saldo do sistema — e esse saldo
 // so soma compras, nunca baixa (o Salton Brut aparecia com 41 unidades e o
@@ -52,15 +53,11 @@ export function PosicaoEstoque() {
 
   const resumo = useMemo(() => {
     const lista = itens ?? [];
-    const contados = lista.filter((i) => i.quantidade != null);
     return {
-      valor: contados.reduce((s, i) => s + (i.valor ?? 0), 0),
-      contados: contados.length,
+      ...resumirPosicao(lista),
       semCusto: lista.filter((i) => noRecorte(i, "sem-custo")).length,
       nunca: lista.filter((i) => i.quantidade == null).length,
-      comCompras: lista.filter((i) => i.comprasDesde > 0).length,
-      valorCompras: lista.reduce((s, i) => s + i.valorComprasDesde, 0),
-      maisRecente: contados.reduce<string | null>((m, i) => (i.contadoEm && (!m || i.contadoEm > m) ? i.contadoEm : m), null)
+      comCompras: lista.filter((i) => i.comprasDesde > 0).length
     };
   }, [itens]);
 
@@ -221,11 +218,6 @@ function LinhaDaPosicao({ item }: { item: ItemDaPosicao }) {
         {item.comprasDesde > 0
           ? <><strong>+ {qtd(item.comprasDesde, u)}</strong><small>comprado depois</small></>
           : <small>sem compra depois</small>}
-        {(item.comprasForaDaConta ?? 0) > 0 && (
-              <small className="cell-pendente" title="Compra lançada em outra unidade (caixa, pacote...) sem conversão cadastrada para a unidade de contagem. Cadastre a embalagem no produto ou na revisão de embalagens.">
-                {item.comprasForaDaConta} {item.comprasForaDaConta === 1 ? "compra sem conversão ficou" : "compras sem conversão ficaram"} fora
-              </small>
-            )}
       </span>
     </li>
   );

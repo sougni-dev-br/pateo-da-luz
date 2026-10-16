@@ -9,7 +9,7 @@ import crypto from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 import { normalizarUnidade, type UnitConversion } from "../../shared/unidades/conversao.js";
-import { proporConversoes, type PropostaDeConversao, type UnidadeDaNota } from "../../shared/unidades/conversao-automatica.js";
+import { proporConversoes, type ProdutoParaConversao, type PropostaDeConversao, type UnidadeDaNota } from "../../shared/unidades/conversao-automatica.js";
 import { sqlCompraNaUnidadeDeContagem, sqlUnidadeCanonica } from "../../shared/unidades/compra-na-contagem.sql.js";
 import { gravarConversaoDoItemDeCompra } from "../inventory/inventory.routes.js";
 import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
@@ -26,8 +26,17 @@ export type ProdutoComPropostas = {
 
 const canonica = (expr: Prisma.Sql) => sqlUnidadeCanonica(expr);
 
-/** Propostas de todos os produtos ativos, ou so dos informados. */
-export async function listarPropostasDeConversao(productIds?: string[]): Promise<ProdutoComPropostas[]> {
+/** Um produto com tudo que se sabe dele para propor conversoes: nome, contagem, o que ja converte e o que as notas dizem. */
+export type ProdutoCarregadoParaConversao = {
+  productId: string;
+  codigo: string | null;
+  nome: string;
+  contagem: string | null;
+  entrada: ProdutoParaConversao;
+};
+
+/** Carrega, de uma vez, os produtos ativos (ou so os informados) com conversoes cadastradas e compras sem conversao. */
+export async function carregarProdutosParaConversao(productIds?: string[]): Promise<ProdutoCarregadoParaConversao[]> {
   const filtro = productIds?.length ? Prisma.sql`AND pr."id" IN (${Prisma.join(productIds)})` : Prisma.empty;
 
   const produtos = await prisma.$queryRaw<Array<{ id: string; codigo: string | null; nome: string; contagem: string | null; compra: string | null }>>`
@@ -78,8 +87,7 @@ export async function listarPropostasDeConversao(productIds?: string[]): Promise
   const notasPorProduto = agrupar(notas);
   const precoPorProduto = new Map(precos.map((p) => [p.productId, p.preco == null ? null : Number(p.preco)]));
 
-  const resultado: ProdutoComPropostas[] = [];
-  for (const p of produtos) {
+  return produtos.map((p) => {
     const unidadesDaNota: UnidadeDaNota[] = (notasPorProduto.get(p.id) ?? []).map((n) => {
       const valor = Number(n.valor ?? 0);
       const quantidade = Number(n.quantidade ?? 0);
@@ -90,15 +98,24 @@ export async function listarPropostasDeConversao(productIds?: string[]): Promise
       unidadesDaNota.push({ unidade: p.compra, linhas: 0, valor: 0, precoPorUnidade: null });
     }
     const cadastradas: UnitConversion[] = (conversoesPorProduto.get(p.id) ?? []).map((c) => ({ fromUnit: c.fromUnit, toUnit: c.toUnit, factor: Number(c.factor) }));
-    const propostas = proporConversoes({
+    return {
+      productId: p.id,
+      codigo: p.codigo,
       nome: p.nome,
-      unidadeDeContagem: p.contagem,
-      cadastradas,
-      unidadesDaNota,
-      precoNaContagem: precoPorProduto.get(p.id) ?? null
-    });
+      contagem: p.contagem,
+      entrada: { nome: p.nome, unidadeDeContagem: p.contagem, cadastradas, unidadesDaNota, precoNaContagem: precoPorProduto.get(p.id) ?? null }
+    };
+  });
+}
+
+/** Propostas de todos os produtos ativos, ou so dos informados. */
+export async function listarPropostasDeConversao(productIds?: string[]): Promise<ProdutoComPropostas[]> {
+  const carregados = await carregarProdutosParaConversao(productIds);
+  const resultado: ProdutoComPropostas[] = [];
+  for (const p of carregados) {
+    const propostas = proporConversoes(p.entrada);
     if (propostas.length) {
-      resultado.push({ productId: p.id, codigo: p.codigo, nome: p.nome, unidadeDeContagem: normalizarUnidade(p.contagem), propostas });
+      resultado.push({ productId: p.productId, codigo: p.codigo, nome: p.nome, unidadeDeContagem: normalizarUnidade(p.contagem), propostas });
     }
   }
   return resultado.sort((a, b) => sum(b.propostas) - sum(a.propostas) || a.nome.localeCompare(b.nome));
@@ -117,6 +134,76 @@ export type ResultadoDaAplicacao = {
   comprasEmPeriodoFechado: number;
   produtos: Array<{ productId: string; nome: string; fromUnit: string; toUnit: string; factor: number; comprasConvertidas: number; comprasEmPeriodoFechado: number }>;
 };
+
+export type ConversaoParaAplicar = {
+  productId: string;
+  nome: string;
+  fromUnit: string;
+  toUnit: string;
+  factor: number;
+  /** Texto gravado nas observacoes da conversao e na auditoria. */
+  motivo: string;
+  origem: "AUTOMATICA" | "MANUAL";
+  userId: string;
+};
+
+/**
+ * Cadastra UMA conversao e refaz as compras sem conversao dela (as de periodo fechado ficam como estao).
+ * Conversao ja cadastrada para o par nao e substituida. Nao mexe em saldo nem em custo medio do estoque.
+ */
+export async function aplicarUmaConversao(entrada: ConversaoParaAplicar, periodoFechado = new Map<string, boolean>()) {
+  const criadas = await prisma.$executeRaw`
+    INSERT INTO "ProductUnitConversion" ("id", "productId", "fromUnit", "toUnit", "factor", "isActive", "notes", "updatedAt")
+    VALUES (${crypto.randomUUID()}, ${entrada.productId}, ${entrada.fromUnit}, ${entrada.toUnit}, ${entrada.factor}, true, ${entrada.motivo}, CURRENT_TIMESTAMP)
+    ON CONFLICT ("productId", "fromUnit", "toUnit") DO NOTHING
+  `;
+
+  const itens = await prisma.$queryRaw<Array<{ id: string; quantity: Prisma.Decimal; unit: string | null; totalPrice: Prisma.Decimal; data: Date }>>`
+    SELECT pi."id", pi."quantity", pi."unit", pi."totalPrice", COALESCE(p."receivedAt", p."purchaseDate") AS data
+    FROM "PurchaseItem" pi
+    JOIN "Purchase" p ON p."id" = pi."purchaseId"
+    JOIN "Product" pr ON pr."id" = pi."productId"
+    WHERE pi."productId" = ${entrada.productId} AND p."status" = 'ACTIVE'
+      AND ${canonica(Prisma.sql`pi."unit"`)} = ${entrada.fromUnit}
+      AND NOT ${sqlCompraNaUnidadeDeContagem()}
+  `;
+
+  let convertidas = 0;
+  let fechadas = 0;
+  for (const item of itens) {
+    const dia = item.data.toISOString().slice(0, 10);
+    if (!periodoFechado.has(dia)) {
+      try {
+        await assertPeriodWritableForDate(item.data, "Conversao de unidade");
+        periodoFechado.set(dia, false);
+      } catch (error) {
+        if (!(error instanceof PeriodLockedError)) throw error;
+        periodoFechado.set(dia, true);
+      }
+    }
+    if (periodoFechado.get(dia)) {
+      fechadas++;
+      continue;
+    }
+    const gravado = await gravarConversaoDoItemDeCompra({
+      productId: entrada.productId,
+      purchaseItemId: item.id,
+      quantity: Number(item.quantity),
+      unit: item.unit,
+      totalCost: Number(item.totalPrice)
+    });
+    if (gravado && !gravado.conversao.conversionMissing) convertidas++;
+  }
+
+  await auditLog({
+    userId: entrada.userId,
+    action: entrada.origem === "MANUAL" ? "MANUAL_PRODUCT_UNIT_CONVERSION" : "AUTO_PRODUCT_UNIT_CONVERSION",
+    entity: "Product",
+    entityId: entrada.productId,
+    newValue: { fromUnit: entrada.fromUnit, toUnit: entrada.toUnit, factor: entrada.factor, motivo: entrada.motivo, comprasConvertidas: convertidas, comprasEmPeriodoFechado: fechadas, criada: Number(criadas) > 0 }
+  });
+  return { criada: Number(criadas) > 0, comprasConvertidas: convertidas, comprasEmPeriodoFechado: fechadas };
+}
 
 /**
  * Cadastra as conversoes escolhidas e refaz as compras sem conversao delas.
@@ -139,69 +226,28 @@ export async function aplicarConversoes(input: { escolhas?: EscolhaDeConversao[]
   const periodoFechado = new Map<string, boolean>();
 
   for (const { produto, proposta } of aAplicar) {
-    const criadas = await prisma.$executeRaw`
-      INSERT INTO "ProductUnitConversion" ("id", "productId", "fromUnit", "toUnit", "factor", "isActive", "notes", "updatedAt")
-      VALUES (${crypto.randomUUID()}, ${produto.productId}, ${proposta.fromUnit}, ${proposta.toUnit}, ${proposta.factor}, true,
-              ${`Automática (${proposta.confianca === "alta" ? "aplicada pelo sistema" : "confirmada pelo operador"}): ${proposta.motivo}`},
-              CURRENT_TIMESTAMP)
-      ON CONFLICT ("productId", "fromUnit", "toUnit") DO NOTHING
-    `;
-    resultado.conversoesCriadas += Number(criadas);
+    const aplicada = await aplicarUmaConversao({
+      productId: produto.productId,
+      nome: produto.nome,
+      fromUnit: proposta.fromUnit,
+      toUnit: proposta.toUnit,
+      factor: proposta.factor,
+      motivo: `Automática (${proposta.confianca === "alta" ? "aplicada pelo sistema" : "confirmada pelo operador"}): ${proposta.motivo}`,
+      origem: "AUTOMATICA",
+      userId: input.userId
+    }, periodoFechado);
 
-    const itens = await prisma.$queryRaw<Array<{ id: string; quantity: Prisma.Decimal; unit: string | null; totalPrice: Prisma.Decimal; data: Date }>>`
-      SELECT pi."id", pi."quantity", pi."unit", pi."totalPrice", COALESCE(p."receivedAt", p."purchaseDate") AS data
-      FROM "PurchaseItem" pi
-      JOIN "Purchase" p ON p."id" = pi."purchaseId"
-      JOIN "Product" pr ON pr."id" = pi."productId"
-      WHERE pi."productId" = ${produto.productId} AND p."status" = 'ACTIVE'
-        AND ${canonica(Prisma.sql`pi."unit"`)} = ${proposta.fromUnit}
-        AND NOT ${sqlCompraNaUnidadeDeContagem()}
-    `;
-
-    let convertidas = 0;
-    let fechadas = 0;
-    for (const item of itens) {
-      const dia = item.data.toISOString().slice(0, 10);
-      if (!periodoFechado.has(dia)) {
-        try {
-          await assertPeriodWritableForDate(item.data, "Conversao automatica");
-          periodoFechado.set(dia, false);
-        } catch (error) {
-          if (!(error instanceof PeriodLockedError)) throw error;
-          periodoFechado.set(dia, true);
-        }
-      }
-      if (periodoFechado.get(dia)) {
-        fechadas++;
-        continue;
-      }
-      const gravado = await gravarConversaoDoItemDeCompra({
-        productId: produto.productId,
-        purchaseItemId: item.id,
-        quantity: Number(item.quantity),
-        unit: item.unit,
-        totalCost: Number(item.totalPrice)
-      });
-      if (gravado && !gravado.conversao.conversionMissing) convertidas++;
-    }
-
-    resultado.comprasConvertidas += convertidas;
-    resultado.comprasEmPeriodoFechado += fechadas;
+    resultado.conversoesCriadas += aplicada.criada ? 1 : 0;
+    resultado.comprasConvertidas += aplicada.comprasConvertidas;
+    resultado.comprasEmPeriodoFechado += aplicada.comprasEmPeriodoFechado;
     resultado.produtos.push({
       productId: produto.productId,
       nome: produto.nome,
       fromUnit: proposta.fromUnit,
       toUnit: proposta.toUnit,
       factor: proposta.factor,
-      comprasConvertidas: convertidas,
-      comprasEmPeriodoFechado: fechadas
-    });
-    await auditLog({
-      userId: input.userId,
-      action: "AUTO_PRODUCT_UNIT_CONVERSION",
-      entity: "Product",
-      entityId: produto.productId,
-      newValue: { ...proposta, comprasConvertidas: convertidas, comprasEmPeriodoFechado: fechadas, criada: Number(criadas) > 0 }
+      comprasConvertidas: aplicada.comprasConvertidas,
+      comprasEmPeriodoFechado: aplicada.comprasEmPeriodoFechado
     });
   }
 

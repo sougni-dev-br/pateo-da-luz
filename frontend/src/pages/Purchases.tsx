@@ -37,6 +37,7 @@ import {
   Supplier,
   SupplierCycle,
   UnitMeasure,
+  salvarPedidosDaCompra,
   updatePurchase,
   Company,
   getCompanies,
@@ -77,7 +78,14 @@ import { PeriodFilter } from "../components/PeriodFilter";
 import { hasPermission } from "../lib/permissions";
 import { formatDate, formatNumber } from "../utils/format";
 import { currentMonthPeriod } from "../utils/period";
+import { PedidosDaNota } from "../components/PedidosDaNota";
+import { lerQuantidade } from "../lib/vinculoPedido";
 import { hojeLocalIso } from "../lib/datas";
+
+const ROTULO_STATUS_PEDIDO: Record<string, string> = { RASCUNHO: "Rascunho", ENVIADO: "Enviado", RECEBIDO_PARCIAL: "Recebido parcial", RECEBIDO: "Recebido" };
+function statusDoPedidoRotulo(status: string) {
+  return ROTULO_STATUS_PEDIDO[status] ?? status;
+}
 
 type PurchaseItemForm = {
   productCode: string;
@@ -328,6 +336,9 @@ export function Purchases({ user }: { user: AppUser }) {
   const [baselineSnapshot, setBaselineSnapshot] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  // Pedidos de compra que esta nota atendeu (item do pedido -> quantidade). Só é regravado depois de lido do servidor.
+  const [vinculosPedido, setVinculosPedido] = useState<Record<string, string>>({});
+  const [vinculosCarregados, setVinculosCarregados] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const modalTopRef = useRef<HTMLDivElement | null>(null);
   const supplierFilterRef = useRef<HTMLDivElement | null>(null);
@@ -1063,6 +1074,8 @@ export function Purchases({ user }: { user: AppUser }) {
   }
 
   function resetForm() {
+    setVinculosPedido({});
+    setVinculosCarregados(false);
     setForm({
       supplierCode: "",
       supplierId: "",
@@ -1529,8 +1542,11 @@ export function Purchases({ user }: { user: AppUser }) {
           };
         })
       };
-      await (editingId ? updatePurchase(editingId, payload) : createPurchase(payload));
-      setNotice({ tone: "success", message: editingId ? "Compra atualizada com sucesso." : "Compra inserida com sucesso." });
+      const salva = await (editingId ? updatePurchase(editingId, payload) : createPurchase(payload));
+      const avisoVinculo = await gravarVinculosDosPedidos(salva.id);
+      setNotice(avisoVinculo
+        ? { tone: "warning", message: avisoVinculo }
+        : { tone: "success", message: editingId ? "Compra atualizada com sucesso." : "Compra inserida com sucesso." });
       if (!editingId && installments.length > 0) {
         setNotice({ tone: "success", message: "Parcelas enviadas para contas a pagar." });
       }
@@ -1547,6 +1563,23 @@ export function Purchases({ user }: { user: AppUser }) {
       setNotice({ tone: "error", message });
     } finally {
       setSaving(false);
+    }
+  }
+
+  /** Liga a nota salva aos pedidos marcados. Falha aqui não desfaz a compra: avisa para refazer pela edição. */
+  async function gravarVinculosDosPedidos(purchaseId: string): Promise<string | null> {
+    const links = Object.entries(vinculosPedido).flatMap(([purchaseOrderItemId, texto]) => {
+      const quantity = lerQuantidade(texto);
+      return quantity == null ? [] : [{ purchaseOrderItemId, quantity }];
+    });
+    if (!vinculosCarregados || (!editingId && links.length === 0)) return null;
+    try {
+      const { pedidosAtualizados } = await salvarPedidosDaCompra(purchaseId, links);
+      if (pedidosAtualizados.length === 0) return null;
+      return `${editingId ? "Compra atualizada" : "Compra inserida"}. Pedidos: ${pedidosAtualizados.map((p) => `${p.code} → ${statusDoPedidoRotulo(p.para)}`).join(", ")}.`;
+    } catch (linkError) {
+      const detalhe = linkError instanceof Error ? linkError.message : "erro desconhecido";
+      return `A compra foi salva, mas não foi possível ligá-la aos pedidos (${detalhe}). Abra a compra em edição e confira a seção Pedidos de compra.`;
     }
   }
 
@@ -2717,6 +2750,14 @@ export function Purchases({ user }: { user: AppUser }) {
                   </div>
                 )}
               </div>
+
+              <PedidosDaNota
+                supplierId={form.supplierId}
+                purchaseId={editingId}
+                itensDaNota={items.map((item) => ({ productId: item.productId, quantity: Number(item.quantity) || 0, unit: item.unit }))}
+                valor={vinculosPedido}
+                onChange={(valor, carregado) => { setVinculosPedido(valor); setVinculosCarregados(carregado); }}
+              />
 
               {/* ─── 4. FAIXA DE RESUMO + PENDÊNCIAS ─── */}
               <div className="pnova-summary-strip">

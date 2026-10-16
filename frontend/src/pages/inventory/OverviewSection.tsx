@@ -1,8 +1,12 @@
 import { Loader2, RefreshCw } from "lucide-react";
+import { useEffect, useState } from "react";
+import { getPosicaoDoEstoque } from "../../api/client";
 import type { BuyerSupportItem, OperationalInventory, ProductSummary, StockCountSession } from "../../api/client";
 import { SimpleBarChart } from "../../components/SimpleBarChart";
-import { Button, IconButton, SummaryCard } from "../../design-system";
+import { Button, IconButton, Money, SummaryCard } from "../../design-system";
 import { formatDate } from "../../utils/format";
+import { type ResumoDaPosicao, type ResumoDoSetor, resumirPorSetor, resumirPosicao } from "./inventario/posicao-resumo";
+import "./overview-setores.css";
 import { countBy } from "./shared";
 
 type ChartItems = { label: string; value: number }[];
@@ -22,6 +26,8 @@ export type OverviewSectionProps = {
   countsByStatus: ChartItems;
   onStartCounting: () => void;
   onOpenInventory: () => void;
+  /** Abre a Posição do estoque. Sem ele (sem permissão no Inventário) o card de valor não aparece. */
+  onOpenPosicao?: () => void;
 };
 
 /**
@@ -43,8 +49,20 @@ export function OverviewSection({
   movementsByType,
   countsByStatus,
   onStartCounting,
-  onOpenInventory
+  onOpenInventory,
+  onOpenPosicao
 }: OverviewSectionProps) {
+  const [posicao, setPosicao] = useState<ResumoDaPosicao | null>(null);
+  const [setores, setSetores] = useState<ResumoDoSetor[]>([]);
+  const [posicaoFalhou, setPosicaoFalhou] = useState(false);
+  useEffect(() => {
+    if (!onOpenPosicao || loading) return;
+    let ativo = true;
+    getPosicaoDoEstoque()
+      .then((r) => { if (ativo) { setPosicao(resumirPosicao(r.itens)); setSetores(resumirPorSetor(r.itens)); setPosicaoFalhou(false); } })
+      .catch(() => { if (ativo) setPosicaoFalhou(true); });
+    return () => { ativo = false; };
+  }, [onOpenPosicao != null, loading]);
   const carregando = productSummary == null;
   return (
     <section className={className}>
@@ -69,6 +87,20 @@ export function OverviewSection({
           value={carregando ? "..." : productSummary.ativos}
           detail={carregando ? undefined : productSummary.inativos > 0 ? `${productSummary.inativos} inativo(s) fora da conta` : "todos ativos"}
         />
+        {onOpenPosicao && (
+          <SummaryCard
+            label="Estoque na última contagem"
+            moneyValue={posicao?.valor}
+            value={posicao ? undefined : posicaoFalhou ? "indisponível" : "..."}
+            detail={posicao
+              ? <>{posicao.contados} produtos contados · até <Money value={posicao.teto} /> com as compras depois</>
+              : undefined}
+            role="button"
+            tabIndex={0}
+            onClick={onOpenPosicao}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpenPosicao(); } }}
+          />
+        )}
         <SummaryCard
           label="Estoque baixo"
           value={lowStockItems.length}
@@ -79,6 +111,22 @@ export function OverviewSection({
         <SummaryCard label="Último inventário fechado" value={latestClosedInventory?.code ?? "-"} detail={latestClosedInventory ? formatDate(latestClosedInventory.date) : "Nenhum fechamento"} />
         <SummaryCard label="Progresso em aberto" value={`${activeCountProgress}%`} detail={`${openCountsCount} contagem(ns) abertas`} tone={activeCountProgress >= 80 ? "success" : openCountsCount ? "warning" : "info"} />
       </div>
+      {onOpenPosicao && setores.some((s) => s.contados > 0) && (
+        <div className="inv-setores">
+          <h3>Valor de estoque por setor</h3>
+          <ul>
+            {setores.filter((s) => s.contados > 0).map((s) => (
+              <li key={s.setor}>
+                <span>{s.setor}</span>
+                <small>
+                  {s.contados} de {s.total} contados{s.maisRecente ? ` · contagem de ${formatDate(s.maisRecente)}` : ""}
+                </small>
+                <strong><Money value={s.valor} /></strong>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <div className="chart-grid">
         <SimpleBarChart title="Produtos por categoria" items={productSummary?.porCategoria ?? []} />
         <SimpleBarChart title="Produtos por setor" items={productSummary?.porSetor ?? []} />

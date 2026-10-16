@@ -1,17 +1,20 @@
-import type { LinhaDaRequisicao } from "./linhas";
+import type { Escolhas } from "./catalogo";
 
 // O rascunho da requisição fica no aparelho. Uma requisição de 35 itens leva minutos para montar e
 // se perdia ao recarregar a página, trocar de aba ou o navegador do celular descartar a aba.
 
 export type DadosDoCabecalho = { date: string; shift: string; reason: string; reasonNotes: string; sectorId: string; notes: string };
 
-export type Rascunho = { cabecalho: DadosDoCabecalho; linhas: LinhaDaRequisicao[]; deFora: LinhaDaRequisicao[]; salvoEm: number };
+/** Id e versão do rascunho espelhado no sistema: recarregar a página continua o mesmo rascunho em vez de criar outro. */
+export type VinculoComServidor = { id: string; version: number };
 
-const chave = (userId: string) => `pateo:requisicao-rascunho:v1:${userId}`;
+export type Rascunho = { cabecalho: DadosDoCabecalho; escolhas: Escolhas; salvoEm: number; servidor?: VinculoComServidor | null };
+
+const chave = (userId: string) => `pateo:requisicao-rascunho:v2:${userId}`;
 
 export function salvarRascunho(userId: string, dados: Omit<Rascunho, "salvoEm">, agora = Date.now()): void {
   try {
-    if (dados.linhas.length === 0 && dados.deFora.length === 0) {
+    if (Object.keys(dados.escolhas).length === 0) {
       localStorage.removeItem(chave(userId));
       return;
     }
@@ -21,9 +24,9 @@ export function salvarRascunho(userId: string, dados: Omit<Rascunho, "salvoEm">,
   }
 }
 
-const ehLinha = (valor: unknown): valor is LinhaDaRequisicao => {
-  const l = valor as Partial<LinhaDaRequisicao> | null;
-  return !!l && typeof l.productId === "string" && typeof l.productName === "string" && typeof l.unit === "string" && typeof l.quantity === "string" && Array.isArray(l.conversions);
+const ehEscolha = (valor: unknown): boolean => {
+  const e = valor as { unit?: unknown; quantity?: unknown } | null;
+  return !!e && typeof e.unit === "string" && typeof e.quantity === "string" && e.quantity.trim() !== "";
 };
 
 export function lerRascunho(userId: string): Rascunho | null {
@@ -31,11 +34,13 @@ export function lerRascunho(userId: string): Rascunho | null {
     const bruto = localStorage.getItem(chave(userId));
     if (!bruto) return null;
     const dados = JSON.parse(bruto) as Partial<Rascunho>;
-    const linhas = (Array.isArray(dados.linhas) ? dados.linhas : []).filter(ehLinha);
-    const deFora = (Array.isArray(dados.deFora) ? dados.deFora : []).filter(ehLinha);
-    if (linhas.length === 0 && deFora.length === 0) return null;
-    if (!dados.cabecalho || typeof dados.cabecalho !== "object") return null;
-    return { cabecalho: dados.cabecalho, linhas, deFora, salvoEm: Number(dados.salvoEm) || 0 };
+    if (!dados.cabecalho || typeof dados.cabecalho !== "object" || !dados.escolhas || typeof dados.escolhas !== "object") return null;
+    const escolhas: Escolhas = {};
+    for (const [id, valor] of Object.entries(dados.escolhas)) if (ehEscolha(valor)) escolhas[id] = valor;
+    if (Object.keys(escolhas).length === 0) return null;
+    const s = dados.servidor;
+    const servidor = s && typeof s.id === "string" && Number.isFinite(Number(s.version)) ? { id: s.id, version: Number(s.version) } : null;
+    return { cabecalho: dados.cabecalho, escolhas, salvoEm: Number(dados.salvoEm) || 0, servidor };
   } catch {
     return null;
   }

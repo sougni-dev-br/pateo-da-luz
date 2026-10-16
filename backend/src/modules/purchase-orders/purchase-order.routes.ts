@@ -6,11 +6,14 @@ import { auditLog, requestIp, requireRole } from "../security/security-utils.js"
 import { userHasPermission } from "../security/menu-permissions.js";
 import { buildBuyerSupportReport } from "../inventory/inventory.routes.js";
 import { createPurchaseOrderPdf, type PurchaseOrderItemEntry } from "./purchase-order-pdf.js";
+import { nextPurchaseOrderCode } from "./purchase-order-code.js";
+import { requisicaoPedidoRouter } from "./purchase-order-requisicao.routes.js";
+import { notasDoPedido } from "./vinculo-nota.service.js";
 
 export const purchaseOrderRouter = Router();
 
 const editableStatuses = new Set(["RASCUNHO"]);
-const terminalStatuses = new Set(["RECEBIDO", "CANCELADO"]);
+const terminalStatuses = new Set(["RECEBIDO", "CANCELADO", "ENCERRADO_LEGADO"]);
 
 type PurchaseOrderRecord = Record<string, unknown> & {
   id: string;
@@ -46,28 +49,15 @@ function csvEscape(value: unknown) {
   return `"${text.replace(/"/g, '""')}"`;
 }
 
-async function nextPurchaseOrderCode(tx: Prisma.TransactionClient, year: number) {
-  await tx.$executeRaw`
-    INSERT INTO "PurchaseOrderSequence" ("year", "currentValue", "updatedAt")
-    VALUES (${year}, 0, CURRENT_TIMESTAMP)
-    ON CONFLICT ("year") DO NOTHING
-  `;
-  const [row] = await tx.$queryRaw<Array<{ currentValue: number }>>`
-    UPDATE "PurchaseOrderSequence"
-    SET "currentValue" = "currentValue" + 1, "updatedAt" = CURRENT_TIMESTAMP
-    WHERE "year" = ${year}
-    RETURNING "currentValue"
-  `;
-  return `PC-${year}-${String(row.currentValue).padStart(4, "0")}`;
-}
-
 async function getOrder(id: string, opts: { includeAudits?: boolean } = {}): Promise<PurchaseOrderRecord | null> {
   const includeAudits = opts.includeAudits ?? true;
   const [order] = await prisma.$queryRaw<Array<Record<string, unknown>>>`
-    SELECT po.*, u."name" AS "createdByUserName", au."name" AS "approvedByUserName"
+    SELECT po.*, u."name" AS "createdByUserName", au."name" AS "approvedByUserName",
+           sup."phone" AS "supplierPhone", sup."email" AS "supplierEmail", sup."contactName" AS "supplierContactName"
     FROM "PurchaseOrder" po
     LEFT JOIN "User" u ON u."id" = po."createdByUserId"
     LEFT JOIN "User" au ON au."id" = po."approvedByUserId"
+    LEFT JOIN "Supplier" sup ON sup."id" = po."supplierId"
     WHERE po."id" = ${id}
   `;
   if (!order) return null;
@@ -134,6 +124,15 @@ purchaseOrderRouter.get("/", async (request, response) => {
     return acc;
   }, {});
   response.json({ summary, orders });
+});
+
+// Antes de "/:id": "from-requisition/<id>" não pode ser lido como id de pedido.
+purchaseOrderRouter.use("/from-requisition", requisicaoPedidoRouter);
+
+purchaseOrderRouter.get("/:id/notas", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "VISUALIZACAO"]);
+  if (!user) return;
+  response.json({ items: await notasDoPedido(request.params.id) });
 });
 
 purchaseOrderRouter.get("/:id", async (request, response) => {
@@ -496,7 +495,13 @@ purchaseOrderRouter.post("/:id/receive", async (request, response) => {
       if (!item.id || quantity == null || quantity < 0) continue;
       await tx.$executeRaw`
         UPDATE "PurchaseOrderItem"
-        SET "receivedQuantity" = ${quantity}, "updatedAt" = CURRENT_TIMESTAMP
+        SET "receivedQuantity" = ${quantity},
+            "receivedManualQuantity" = GREATEST(${quantity} - COALESCE((
+              SELECT SUM(l."quantity") FROM "PurchaseOrderItemLink" l
+              JOIN "Purchase" p ON p."id" = l."purchaseId"
+              WHERE l."purchaseOrderItemId" = "PurchaseOrderItem"."id" AND p."workflowStatus" <> 'cancelled'
+            ), 0), 0),
+            "updatedAt" = CURRENT_TIMESTAMP
         WHERE "id" = ${String(item.id)} AND "purchaseOrderId" = ${request.params.id}
       `;
     }
