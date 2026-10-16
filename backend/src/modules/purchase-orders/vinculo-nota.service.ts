@@ -3,6 +3,7 @@ import { prisma } from "../../config/database.js";
 import {
   calcularStatusDoPedido,
   montarMapaDeUnidades,
+  STATUS_ENCERRADO_LEGADO,
   somarRecebido,
   unidadeCompativel,
   validarVinculos,
@@ -152,7 +153,7 @@ export async function pedidosEmAbertoParaNota(supplierId: string, unidadesPorPro
   const itens = await prisma.purchaseOrderItem.findMany({
     where: {
       productId: { in: [...unidadesPorProduto.keys()] },
-      purchaseOrder: { supplierId, status: { not: "CANCELADO" } }
+      purchaseOrder: { supplierId, status: { notIn: ["CANCELADO", STATUS_ENCERRADO_LEGADO] } }
     },
     include: {
       purchaseOrder: { select: { id: true, code: true, status: true, createdAt: true } },

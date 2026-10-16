@@ -2162,7 +2162,7 @@ export type PurchaseOrder = {
   code: string;
   supplierId: string;
   supplierNameSnapshot: string;
-  status: "RASCUNHO" | "EM_REVISAO" | "APROVADO" | "ENVIADO" | "RECEBIDO_PARCIAL" | "RECEBIDO" | "CANCELADO";
+  status: "RASCUNHO" | "EM_REVISAO" | "APROVADO" | "ENVIADO" | "RECEBIDO_PARCIAL" | "RECEBIDO" | "CANCELADO" | "ENCERRADO_LEGADO";
   source: "MANUAL" | "PRE_LISTA_COMPRADOR" | "PLANEJAMENTO_COMPRA" | "REQUISICAO";
   /** Requisição de insumos de onde o pedido foi gerado (source = REQUISICAO). */
   sourceRequisitionId?: string | null;

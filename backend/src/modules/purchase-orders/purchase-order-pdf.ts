@@ -22,7 +22,8 @@ const STATUS_POR_EXTENSO: Record<string, string> = {
   ENVIADO: "Enviado",
   RECEBIDO_PARCIAL: "Recebido parcialmente",
   RECEBIDO: "Recebido",
-  CANCELADO: "Cancelado"
+  CANCELADO: "Cancelado",
+  ENCERRADO_LEGADO: "Encerrado (legado)"
 };
 
 export type PurchaseOrderPdfData = {

@@ -23,7 +23,7 @@ type Props = {
   onAtualizado?: (pedido: PurchaseOrder) => void;
 };
 
-const STATUS: Record<string, string> = { RASCUNHO: "Rascunho", EM_REVISAO: "Em revisão", APROVADO: "Aprovado", ENVIADO: "Enviado", RECEBIDO_PARCIAL: "Recebido parcial", RECEBIDO: "Recebido", CANCELADO: "Cancelado" };
+const STATUS: Record<string, string> = { RASCUNHO: "Rascunho", EM_REVISAO: "Em revisão", APROVADO: "Aprovado", ENVIADO: "Enviado", RECEBIDO_PARCIAL: "Recebido parcial", RECEBIDO: "Recebido", CANCELADO: "Cancelado", ENCERRADO_LEGADO: "Encerrado (legado)" };
 
 /**
  * Do pedido gerado ao fornecedor: aprovar, gerar o PDF, mandar por WhatsApp ou e-mail e marcar como enviado.

@@ -13,7 +13,7 @@ import { notasDoPedido } from "./vinculo-nota.service.js";
 export const purchaseOrderRouter = Router();
 
 const editableStatuses = new Set(["RASCUNHO"]);
-const terminalStatuses = new Set(["RECEBIDO", "CANCELADO"]);
+const terminalStatuses = new Set(["RECEBIDO", "CANCELADO", "ENCERRADO_LEGADO"]);
 
 type PurchaseOrderRecord = Record<string, unknown> & {
   id: string;

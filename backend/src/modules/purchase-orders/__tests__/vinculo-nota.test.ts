@@ -56,6 +56,10 @@ describe("calcularStatusDoPedido", () => {
     expect(calcularStatusDoPedido("APROVADO", itens([5, 1])).promovidoSemEnvio).toBe(true);
   });
 
+  test("pedido encerrado como legado nunca muda, nem com nota", () => {
+    expect(calcularStatusDoPedido("ENCERRADO_LEGADO", itens([5, 5]))).toEqual({ status: "ENCERRADO_LEGADO", mudou: false, promovidoSemEnvio: false });
+  });
+
   test("pedido cancelado nunca muda", () => {
     expect(calcularStatusDoPedido("CANCELADO", itens([5, 5]))).toEqual({ status: "CANCELADO", mudou: false, promovidoSemEnvio: false });
   });
@@ -95,6 +99,12 @@ describe("validarVinculos", () => {
   test("recusa pedido cancelado", () => {
     const r = validarVinculos([{ purchaseOrderItemId: "i3", quantity: 1 }], pedidos, compra);
     expect(r.ok).toBe(false);
+  });
+
+  test("recusa pedido encerrado como legado", () => {
+    const comLegado = new Map(pedidos);
+    comLegado.set("i5", { orderId: "p5", orderStatus: "ENCERRADO_LEGADO", supplierId: "f1", productId: "prod1" });
+    expect(validarVinculos([{ purchaseOrderItemId: "i5", quantity: 1 }], comLegado, compra).ok).toBe(false);
   });
 
   test("recusa item de pedido de outro fornecedor", () => {

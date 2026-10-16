@@ -5,6 +5,11 @@
 
 import { normalizeText } from "../../shared/utils/normalize-text.js";
 
+/** Pedido antigo, anterior ao vínculo com a nota: fica no histórico, fora dos abertos, e não recebe nota. */
+export const STATUS_ENCERRADO_LEGADO = "ENCERRADO_LEGADO";
+/** Status em que o pedido não muda mais por causa de notas. */
+const STATUS_FECHADOS = new Set(["CANCELADO", STATUS_ENCERRADO_LEGADO]);
+
 export const QUANTIDADE_MAXIMA_VINCULO = 100_000;
 
 export type VinculoGravado = { purchaseOrderItemId: string; quantity: number; purchaseCancelada: boolean };
@@ -32,7 +37,7 @@ export type ResultadoStatus = { status: string; mudou: boolean; promovidoSemEnvi
  * Sem nenhum recebimento, quem estava recebido volta para ENVIADO; quem não tinha sido enviado fica como está.
  */
 export function calcularStatusDoPedido(statusAtual: string, itens: Array<{ meta: number; recebido: number }>): ResultadoStatus {
-  if (statusAtual === "CANCELADO") return { status: statusAtual, mudou: false, promovidoSemEnvio: false };
+  if (STATUS_FECHADOS.has(statusAtual)) return { status: statusAtual, mudou: false, promovidoSemEnvio: false };
   const algumRecebido = itens.some((i) => i.recebido > 0);
   const tudoRecebido = itens.length > 0 && itens.every((i) => i.recebido >= i.meta);
   const novo = tudoRecebido ? "RECEBIDO"
@@ -65,6 +70,7 @@ export function validarVinculos(
     const item = itensDePedido.get(v.purchaseOrderItemId);
     if (!item) return { ok: false, message: "Item de pedido de compra nao encontrado." };
     if (item.orderStatus === "CANCELADO") return { ok: false, message: "Pedido cancelado nao pode receber nota." };
+    if (item.orderStatus === STATUS_ENCERRADO_LEGADO) return { ok: false, message: "Pedido encerrado (legado) nao pode receber nota." };
     if (item.supplierId !== compra.supplierId) return { ok: false, message: "O pedido e de outro fornecedor." };
     if (!compra.productIds.has(item.productId)) return { ok: false, message: "O produto do pedido nao esta nesta nota." };
   }
