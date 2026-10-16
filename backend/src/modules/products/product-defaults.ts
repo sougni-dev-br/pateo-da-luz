@@ -1,4 +1,7 @@
+import type { Prisma } from "@prisma/client";
+import { normalizeText } from "../../shared/utils/normalize-text.js";
 import { NATURE_DEFAULTS, type ProductNatureValue } from "./product-nature.js";
+import { proposeCategory } from "./taxonomy-proposal.js";
 
 export type CategoriaParaPadrao = {
   nature: ProductNatureValue | null;
@@ -32,4 +35,62 @@ export function padraoDeProdutoNovo(categoria: CategoriaParaPadrao): PadraoDePro
  */
 export function planilhaPodeReclassificar(existente: { nature: ProductNatureValue | null } | null): boolean {
   return !existente?.nature;
+}
+
+/**
+ * A planilha ainda traz a categoria antiga (INSUMOS, DESPESAS). Só quando o nome do item casa com uma
+ * regra de alta confiança o produto novo vai direto para a categoria da estrutura nova; o resto fica
+ * onde a planilha disse e entra sem natureza, para o dono classificar.
+ */
+// Embalagem e descartável perdem para palavras de alimento nas regras de insumo ("sacola para pão"),
+// e aqui o efeito é automático e vai para o CMV: com qualquer sinal de embalagem, não decide sozinho.
+const SINAL_DE_EMBALAGEM = /(?<![a-z0-9])(embalagem|embalagens|sacola|sacolas|saco|sacos|caixa|caixas|bobina|descart[a-z]*|copo|copos|pote|potes|tampa|tampas|filme|pvc|marmitex|papel|guardanapo|canudo|talher|talheres)(?![a-z0-9])/;
+
+export function categoriaDaEstruturaParaItemNovo(descricao: string, categoriaDaPlanilha: string): string | null {
+  if (SINAL_DE_EMBALAGEM.test(normalizeText(descricao))) return null;
+  const proposta = proposeCategory({
+    name: descricao,
+    categoryName: categoriaDaPlanilha,
+    subcategoryName: null,
+    sectorName: null,
+    dreName: null,
+    dreGroup: null,
+    controlsStock: true
+  });
+  return proposta.confidence === "alta" ? proposta.category : null;
+}
+
+export type EstruturaDeProdutoNovo = {
+  categoryId: string | null | undefined;
+  /** A categoria mudou em relação à da planilha: a subcategoria da planilha não vale mais. */
+  reclassificada: boolean;
+  padrao: PadraoDeProdutoNovo;
+};
+
+const CATEGORIA_SELECT = { id: true, name: true, nature: true, defaultDreCategoryId: true } as const;
+
+type CategoriaCarregada = { id: string; name: string; nature: ProductNatureValue | null; defaultDreCategoryId: string | null };
+
+/** Onde um produto criado por importação deve nascer: categoria final e o que ela define. */
+export async function estruturaDeProdutoNovo(
+  db: Pick<Prisma.TransactionClient, "category">,
+  entrada: { descricao: string; categoryId: string | null | undefined; categoria?: CategoriaCarregada | null }
+): Promise<EstruturaDeProdutoNovo> {
+  const categoria =
+    entrada.categoria ??
+    (entrada.categoryId ? await db.category.findUnique({ where: { id: entrada.categoryId }, select: CATEGORIA_SELECT }) : null);
+  if (categoria && !categoria.nature) {
+    const nomeDestino = categoriaDaEstruturaParaItemNovo(entrada.descricao, categoria.name);
+    const destino = nomeDestino
+      ? await db.category.findFirst({
+          where: { name: { equals: nomeDestino, mode: "insensitive" }, isActive: true },
+          orderBy: { name: "asc" },
+          select: CATEGORIA_SELECT
+        })
+      : null;
+    if (destino?.nature) {
+      return { categoryId: destino.id, reclassificada: true, padrao: padraoDeProdutoNovo(destino) };
+    }
+  }
+  return { categoryId: entrada.categoryId, reclassificada: false, padrao: padraoDeProdutoNovo(categoria) };
 }
