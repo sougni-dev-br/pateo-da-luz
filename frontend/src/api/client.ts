@@ -2782,6 +2782,70 @@ export function bulkPatchProductDreCategory(ids: string[], dreCategoryId: string
   });
 }
 
+export type MudancasDoLote = {
+  categoryId?: string;
+  subcategoryId?: string | null;
+  inventorySectorId?: string | null;
+  nature?: ProductNature;
+  controlsStock?: boolean;
+  isActive?: boolean;
+};
+
+/** Quem entra no lote: os ids marcados na tela ou todo o filtro (o servidor refaz a busca). */
+export type AlvoDoLote = { ids: string[] } | { filtro: Record<string, string | undefined> };
+
+export type ResumoDoLote = {
+  aplicado: boolean;
+  loteId?: string | null;
+  total: number;
+  alterar: number;
+  semMudanca: number;
+  recusados: number;
+  recusadosPorMotivo: Array<{ motivo: string; count: number; exemplos: string[] }>;
+  contagens: { categoria: number; subcategoria: number; setor: number; natureza: number; estoque: number; situacao: number };
+  avisos: string[];
+  /** Os primeiros produtos que mudam, com cada mudança escrita "campo: antes → depois". */
+  amostra: Array<{ nome: string; linhas: string[] }>;
+};
+
+export type ItemDoPanorama = { rotulo: string; count: number };
+
+/** Como os produtos escolhidos estão hoje em cada campo. */
+export type PanoramaDoLote = {
+  total: number;
+  categoria: ItemDoPanorama[];
+  subcategoria: ItemDoPanorama[];
+  setor: ItemDoPanorama[];
+  natureza: ItemDoPanorama[];
+  estoque: ItemDoPanorama[];
+  situacao: ItemDoPanorama[];
+};
+
+export function obterPanoramaDoLote(alvo: AlvoDoLote) {
+  return request<PanoramaDoLote>("/products/bulk-update/panorama", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(alvo)
+  });
+}
+
+/** `esperado` é a quantidade que o resumo mostrou: o servidor recusa aplicar se o plano mudou desde então. */
+export function organizarProdutosEmLote(alvo: AlvoDoLote, mudancas: MudancasDoLote, aplicar: boolean, esperado?: number) {
+  return request<ResumoDoLote>("/products/bulk-update", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...alvo, mudancas, aplicar, ...(aplicar ? { esperado } : {}) })
+  });
+}
+
+export function desfazerLoteDeProdutos(loteId: string) {
+  return request<{ desfeitos: number; ignorados: number }>(`/products/bulk-update/${encodeURIComponent(loteId)}/desfazer`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}"
+  });
+}
+
 export function setProductStatus(id: string, isActive: boolean) {
   return request<Product>(`/products/${id}/status`, {
     method: "PATCH",

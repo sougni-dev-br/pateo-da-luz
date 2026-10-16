@@ -19,6 +19,12 @@ describe("resolvePermissionContext — caminho normalizado", () => {
     expect(await ctx("PATCH", "/purchases/payables/abc/reverse/")).toEqual({ menuId: "payables", action: "delete" });
   });
 
+  it("organizar produtos em lote e desfazer pedem editar, não criar", async () => {
+    expect(await ctx("POST", "/products/bulk-update")).toEqual({ menuId: "products", action: "edit" });
+    expect(await ctx("POST", "/products/bulk-update/abc/desfazer")).toEqual({ menuId: "products", action: "edit" });
+    expect(await ctx("POST", "/products")).toEqual({ menuId: "products", action: "create" });
+  });
+
   it("caminho normal continua igual", async () => {
     expect(await ctx("GET", "/employees")).toEqual({ menuId: "employees", action: "view" });
     expect(await ctx("POST", "/employees")).toEqual({ menuId: "employees", action: "create" });
