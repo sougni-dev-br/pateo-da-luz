@@ -4,13 +4,10 @@ import { prisma } from "../../config/database.js";
 import { requireRole } from "../security/security-utils.js";
 import { getMonthlyCmv } from "../monthly/monthly.service.js";
 import { excludeAggregatorsSql } from "../purchases/purchase-aggregators.js";
+import { montarRankings } from "./dashboard-rankings.js";
 import { carregarFerias, contarAlertas } from "../payroll/ferias.routes.js";
 
 export const dashboardRouter = Router();
-
-/** Linha sintetica que segura o que a nota cobra mas nenhum item explica. */
-const UNITEMIZED_CATEGORY_LABEL = "Sem itemização";
-const UNITEMIZED_MIN_AMOUNT = 1;
 
 function dateKey(value: Date) {
   return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
@@ -121,54 +118,24 @@ dashboardRouter.get("/purchases", async (request, response) => {
     (sum, purchase) => sum + Number(purchase.totalAmount),
     0
   );
-  const byCategory = new Map<string, number>();
-  const bySupplier = new Map<string, number>();
-  const byProduct = new Map<string, { total: number; quantity: number }>();
-
-  // Fornecedor soma a NOTA; categoria e produto somam os ITENS. Quando uma nota
-  // entra sem itemizacao as duas visoes se separam em silencio — foi assim que o
-  // FLV apareceu com R$ [valor] na categoria e R$ [valor] nos fornecedores de
-  // hortifruti. O residuo passa a ser uma linha propria em vez de sumir.
-  let unitemizedTotal = 0;
-
-  for (const purchase of purchases) {
-    bySupplier.set(
-      purchase.supplier.name,
-      (bySupplier.get(purchase.supplier.name) ?? 0) + Number(purchase.totalAmount)
-    );
-
-    const itemsTotal = purchase.items.reduce((sum, item) => sum + Number(item.totalPrice), 0);
-    unitemizedTotal += Number(purchase.totalAmount) - itemsTotal;
-
-    for (const item of purchase.items) {
-      const category = item.rawCategory ?? item.product.category?.name ?? "Sem categoria";
-      byCategory.set(category, (byCategory.get(category) ?? 0) + Number(item.totalPrice));
-
-      const product = item.product.name;
-      const current = byProduct.get(product) ?? { total: 0, quantity: 0 };
-      current.total += Number(item.totalPrice);
-      current.quantity += Number(item.quantity);
-      byProduct.set(product, current);
-    }
-  }
-
-  // Centavos de arredondamento dos itens nao viram linha — jun/2026 fecha com
-  // -R$ 0,03 e nao ha nada para o Eli fazer com isso. Diferenca de verdade, sim.
-  if (Math.abs(unitemizedTotal) >= UNITEMIZED_MIN_AMOUNT) {
-    byCategory.set(
-      UNITEMIZED_CATEGORY_LABEL,
-      (byCategory.get(UNITEMIZED_CATEGORY_LABEL) ?? 0) + unitemizedTotal
-    );
-  }
-
-  const sortTotal = <T extends { total: number }>(items: T[]) =>
-    items.sort((a, b) => b.total - a.total);
-
-  const sum = (values: Iterable<number>) => {
-    let acc = 0;
-    for (const value of values) acc += value;
-    return acc;
-  };
+  // Rankings separados pela natureza do item (insumo, embalagem, consumo, durável,
+  // serviço): misturados, um serviço de manutenção aparecia entre o salmão e a
+  // alcatra. A categoria é a do CADASTRO; a escrita na nota só vale sem cadastro.
+  const rankings = montarRankings(
+    purchases.map((purchase) => ({
+      supplierName: purchase.supplier.name,
+      totalAmount: Number(purchase.totalAmount),
+      items: purchase.items.map((item) => ({
+        totalPrice: Number(item.totalPrice),
+        productName: item.product.name,
+        categoryName: item.product.category?.name ?? null,
+        rawCategory: item.rawCategory ?? null,
+        nature: item.product.nature ?? null,
+        categoryNature: item.product.category?.nature ?? null,
+      })),
+    }))
+  );
+  const todas = rankings.views.TODAS!;
 
   response.json({
     year,
@@ -200,21 +167,16 @@ dashboardRouter.get("/purchases", async (request, response) => {
       }))
     },
     // Os totais vao junto porque o painel corta cada lista no top 10: sem eles o
-    // frontend calcularia o percentual sobre as 10 linhas exibidas, e um
-    // fornecedor de 20,7% do periodo aparecia como 22,0% do top 10.
-    bySupplierTotal: sum(bySupplier.values()),
-    byCategoryTotal: sum(byCategory.values()),
-    byProductTotal: sum([...byProduct.values()].map((v) => v.total)),
-    unitemizedTotal,
-    bySupplier: sortTotal(
-      [...bySupplier.entries()].map(([name, total]) => ({ name, total }))
-    ).slice(0, 10),
-    byCategory: sortTotal(
-      [...byCategory.entries()].map(([name, total]) => ({ name, total }))
-    ).slice(0, 10),
-    byProduct: sortTotal(
-      [...byProduct.entries()].map(([name, values]) => ({ name, ...values }))
-    ).slice(0, 10),
+    // frontend calcularia o percentual sobre as 10 linhas exibidas.
+    bySupplierTotal: todas.supplier.total,
+    byCategoryTotal: todas.category.total,
+    byProductTotal: todas.product.total,
+    unitemizedTotal: rankings.unitemizedTotal,
+    bySupplier: todas.supplier.rows,
+    byCategory: todas.category.rows,
+    byProduct: todas.product.rows,
+    byNature: rankings.byNature,
+    rankingViews: rankings.views,
     recentPurchases: purchases.slice(0, 20)
   });
 });

@@ -346,6 +346,11 @@ function DashboardContent({ loaded, info, navigate, pathAllowed, canAccessSectio
               supplier: { rows: data.bySupplier, total: data.bySupplierTotal },
               product: { rows: data.byProduct, total: data.byProductTotal },
             }}
+            naturezas={
+              data.byNature && data.rankingViews
+                ? { byNature: data.byNature, unitemizedTotal: data.unitemizedTotal ?? 0, views: data.rankingViews }
+                : undefined
+            }
             emptyAction={canCreatePurchases ? { label: "Registrar compra", onClick: () => navigate("/compras") } : undefined}
           />
           {canViewPurchases && data.recentPurchases.length > 0 && (
