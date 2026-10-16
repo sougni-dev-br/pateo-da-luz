@@ -2775,6 +2775,47 @@ export function bulkPatchProductDreCategory(ids: string[], dreCategoryId: string
   });
 }
 
+export type MudancasDoLote = {
+  categoryId?: string;
+  subcategoryId?: string | null;
+  inventorySectorId?: string | null;
+  nature?: ProductNature;
+  controlsStock?: boolean;
+  isActive?: boolean;
+};
+
+/** Quem entra no lote: os ids marcados na tela ou todo o filtro (o servidor refaz a busca). */
+export type AlvoDoLote = { ids: string[] } | { filtro: Record<string, string | undefined> };
+
+export type ResumoDoLote = {
+  aplicado: boolean;
+  loteId?: string | null;
+  total: number;
+  alterar: number;
+  semMudanca: number;
+  recusados: number;
+  recusadosPorMotivo: Array<{ motivo: string; count: number; exemplos: string[] }>;
+  contagens: { categoria: number; subcategoria: number; setor: number; natureza: number; estoque: number; situacao: number };
+  avisos: string[];
+  amostra: string[];
+};
+
+export function organizarProdutosEmLote(alvo: AlvoDoLote, mudancas: MudancasDoLote, aplicar: boolean) {
+  return request<ResumoDoLote>("/products/bulk-update", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...alvo, mudancas, aplicar })
+  });
+}
+
+export function desfazerLoteDeProdutos(loteId: string) {
+  return request<{ desfeitos: number; ignorados: number }>(`/products/bulk-update/${encodeURIComponent(loteId)}/desfazer`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}"
+  });
+}
+
 export function setProductStatus(id: string, isActive: boolean) {
   return request<Product>(`/products/${id}/status`, {
     method: "PATCH",

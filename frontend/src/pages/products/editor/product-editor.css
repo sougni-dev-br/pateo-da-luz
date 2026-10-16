@@ -145,3 +145,62 @@ fieldset.natureza-grid { border: 0; padding: 0; margin: 0; min-width: 0; }
   .produto-editor .form-grid { grid-template-columns: minmax(0, 1fr); }
   .produto-editor .form-grid .span-2 { grid-column: auto; }
 }
+
+/* ── Organizar produtos em lote ─────────────────────────────────────────── */
+.lote-barra {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.65rem 1rem;
+  margin-bottom: 0.5rem;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--gold, #b8893a);
+  border-radius: 8px;
+  background: var(--gold-tint, #fbf3e2);
+}
+.lote-barra .primary-button { margin-left: auto; }
+
+.lote-painel {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+  margin-bottom: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper, #fff);
+}
+.lote-cabecalho { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
+.lote-cabecalho h3 { margin: 0; font-size: 1.05rem; }
+.lote-dica { margin: 0; color: var(--muted); font-size: 0.85rem; }
+.lote-campos {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 0.75rem 1rem;
+}
+.lote-campos label { display: grid; gap: 0.3rem; font-size: 0.85rem; font-weight: 600; }
+.lote-campos select:disabled { opacity: 0.55; }
+.lote-acoes { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+.lote-resumo { display: grid; gap: 0.6rem; padding-top: 0.75rem; border-top: 1px dashed var(--line); }
+.lote-resumo p { margin: 0; }
+.lote-mudancas { margin: 0; padding-left: 1.1rem; font-weight: 600; }
+.lote-amostra { color: var(--muted); font-size: 0.85rem; }
+.lote-recusas { margin: 0; padding-left: 1.1rem; color: var(--danger, #9a2b2b); font-size: 0.9rem; }
+.lote-avisos {
+  margin: 0;
+  padding: 0.6rem 0.9rem 0.6rem 1.9rem;
+  border-radius: 8px;
+  background: var(--gold-tint, #fbf3e2);
+  font-size: 0.88rem;
+}
+.lote-desfazer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 1rem;
+  margin-bottom: 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper-soft, #f6f3ec);
+}

@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   bulkPatchProductDreCategory,
   Category,
+  desfazerLoteDeProdutos,
   DRECategory,
   getProductFormOptions,
   getProductsSummary,
@@ -25,6 +26,7 @@ import { useSession } from "../context/SessionContext";
 import { hasPermission } from "../lib/permissions";
 import { SimpleBarChart } from "../components/SimpleBarChart";
 import { ConversoesAutomaticas } from "./compras/ConversoesAutomaticas";
+import { LoteDeProdutos } from "./products/LoteDeProdutos";
 import {
   EmptyState,
   IconButton,
@@ -66,6 +68,8 @@ function sanitizeSectorOptions(sectors: InventorySector[]) {
 }
 
 const PAGE_SIZE = 50;
+/** Mesmo teto do servidor: acima disso o filtro é amplo demais para conferir o resumo. */
+const LIMITE_DO_LOTE = 2000;
 const ROTA_DO_EDITOR = "/estoque/produtos";
 
 const FILTROS_VAZIOS = {
@@ -113,6 +117,11 @@ export function Products() {
   const [showBulkConfirm, setShowBulkConfirm] = useState(false);
   const [bulkSaving, setBulkSaving] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  // Lote de organização: marcar a página ou todo o filtro, e poder desfazer o último.
+  const [selecionarFiltro, setSelecionarFiltro] = useState(false);
+  const [mostrarLote, setMostrarLote] = useState(false);
+  const [ultimoLote, setUltimoLote] = useState<{ id: string; alterados: number } | null>(null);
+  const [desfazendo, setDesfazendo] = useState(false);
 
   const [history, setHistory] = useState<ProductHistory | null>(null);
   const [loading, setLoading] = useState(true);
@@ -261,6 +270,26 @@ export function Products() {
     }
   }
 
+  async function desfazerUltimoLote() {
+    if (!ultimoLote) return;
+    setDesfazendo(true);
+    try {
+      const resultado = await desfazerLoteDeProdutos(ultimoLote.id);
+      setUltimoLote(null);
+      await loadProducts();
+      setNotice({
+        tone: resultado.ignorados > 0 ? "warning" : "success",
+        message: resultado.ignorados > 0
+          ? `${resultado.desfeitos} produto(s) voltaram ao que eram. ${resultado.ignorados} foram editados depois do lote e ficaram como estão.`
+          : `${resultado.desfeitos} produto(s) voltaram ao que eram.`
+      });
+    } catch (falha) {
+      setNotice({ tone: "error", message: falha instanceof Error ? falha.message : "Não foi possível desfazer o lote." });
+    } finally {
+      setDesfazendo(false);
+    }
+  }
+
   async function toggleStatus(product: Product) {
     setError(null);
 
@@ -292,6 +321,8 @@ export function Products() {
   useEffect(() => {
     if (primeiraCarga.current) { primeiraCarga.current = false; return; }
     if (buscaDebounce.current) clearTimeout(buscaDebounce.current);
+    // "Todo o filtro" vale para o filtro em que foi marcado: mudou o filtro, desmarca.
+    setSelecionarFiltro(false);
     buscaDebounce.current = setTimeout(() => loadProducts(1), 350);
     return () => { if (buscaDebounce.current) clearTimeout(buscaDebounce.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -577,10 +608,72 @@ export function Products() {
           </div>
         )}
 
+        {selected.size > 0 && (
+          <div className="lote-barra" role="group" aria-label="Seleção para organizar em lote">
+            {selecionarFiltro ? (
+              <span><strong>{totalFiltrado}</strong> produtos do filtro selecionados.</span>
+            ) : (
+              <span><strong>{selected.size}</strong> selecionado{selected.size === 1 ? "" : "s"}.</span>
+            )}
+            {!selecionarFiltro && products.length > 0 && products.every((p) => selected.has(p.id)) && totalFiltrado > products.length && (
+              <button
+                type="button"
+                className="link-button"
+                disabled={totalFiltrado > LIMITE_DO_LOTE}
+                title={totalFiltrado > LIMITE_DO_LOTE ? `O lote aceita até ${LIMITE_DO_LOTE} produtos: refine o filtro.` : undefined}
+                onClick={() => setSelecionarFiltro(true)}
+              >
+                Selecionar os {totalFiltrado} do filtro
+              </button>
+            )}
+            {selecionarFiltro && (
+              <button type="button" className="link-button" onClick={() => setSelecionarFiltro(false)}>Voltar para a página</button>
+            )}
+            <button type="button" className="primary-button" disabled={!canEdit} onClick={() => setMostrarLote((v) => !v)} aria-expanded={mostrarLote}>
+              Organizar…
+            </button>
+          </div>
+        )}
+
+        {mostrarLote && selected.size > 0 && (
+          <LoteDeProdutos
+            alvo={selecionarFiltro ? { filtro: filtrosAtivos } : { ids: [...selected] }}
+            quantidade={selecionarFiltro ? totalFiltrado : selected.size}
+            categoriaDoFiltroId={categories.find((c) => c.name === filters.category)?.id}
+            categories={categories}
+            subcategories={subcategories}
+            sectors={sectors}
+            natures={natures}
+            onFechar={() => setMostrarLote(false)}
+            onAplicado={(resumo) => {
+              setMostrarLote(false);
+              setSelected(new Set());
+              setSelecionarFiltro(false);
+              void loadProducts();
+              if (resumo.loteId) {
+                setUltimoLote({ id: resumo.loteId, alterados: resumo.alterar });
+                setNotice({ tone: "success", message: `${resumo.alterar} produto(s) organizados.${resumo.recusados > 0 ? ` ${resumo.recusados} não puderam mudar.` : ""}` });
+              } else {
+                setNotice({ tone: "info", message: "Nada a alterar: os produtos já estavam assim." });
+              }
+            }}
+          />
+        )}
+
+        {ultimoLote && (
+          <div className="lote-desfazer" role="status">
+            <span>Lote aplicado em <strong>{ultimoLote.alterados}</strong> produto(s).</span>
+            <button type="button" className="secondary-button" disabled={desfazendo} onClick={() => void desfazerUltimoLote()}>
+              {desfazendo ? "Desfazendo..." : "Desfazer"}
+            </button>
+            <button type="button" className="link-button" disabled={desfazendo} onClick={() => setUltimoLote(null)}>Dispensar</button>
+          </div>
+        )}
+
         {/* Barra de ação em lote */}
         {selected.size > 0 && (
           <div style={{ position: "sticky", top: 0, zIndex: 10, background: "var(--paper-soft)", border: "1px solid var(--line)", borderRadius: "8px", padding: "0.75rem 1rem", display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap" }}>
-            <strong style={{ whiteSpace: "nowrap" }}>{selected.size} selecionado(s)</strong>
+            <strong style={{ whiteSpace: "nowrap" }}>Categoria DRE (muda o histórico):</strong>
             <select
               value={bulkDreCategoryId}
               onChange={(e) => setBulkDreCategoryId(e.target.value)}
