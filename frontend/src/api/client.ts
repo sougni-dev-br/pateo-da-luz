@@ -2266,6 +2266,10 @@ export type AuditLog = {
   createdAt: string;
 };
 
+export type DashboardNatureKey = ProductNature | "SEM_NATUREZA";
+export type DashboardRanking = { rows: Array<{ name: string; total: number }>; total: number };
+export type DashboardRankingView = { category: DashboardRanking; supplier: DashboardRanking; product: DashboardRanking };
+
 export type DashboardData = {
   year: number;
   month: number;
@@ -2295,7 +2299,10 @@ export type DashboardData = {
   unitemizedTotal?: number;
   bySupplier: Array<{ name: string; total: number }>;
   byCategory: Array<{ name: string; total: number }>;
-  byProduct: Array<{ name: string; total: number; quantity: number }>;
+  byProduct: Array<{ name: string; total: number }>;
+  // Rankings separados pela natureza do item. Opcionais: backend anterior não manda.
+  byNature?: Array<{ nature: DashboardNatureKey; total: number; items: number }>;
+  rankingViews?: Partial<Record<"TODAS" | DashboardNatureKey, DashboardRankingView>>;
   recentPurchases: Purchase[];
 };
 

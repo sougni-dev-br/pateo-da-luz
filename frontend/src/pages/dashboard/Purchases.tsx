@@ -1,12 +1,28 @@
 import { ArrowRight } from "lucide-react";
 import { useState } from "react";
-import type { Purchase } from "../../api/client";
-import { Money, Tabs } from "../../design-system";
+import type { DashboardNatureKey, DashboardRankingView, Purchase } from "../../api/client";
+import { Money, Tabs, useFormatCurrency } from "../../design-system";
 import { formatDate, formatNumber, formatPercent } from "../../utils/format";
 import { DeltaChip } from "./Panels";
 import { withRemainder, type Delta, type RankingRow } from "./logic";
+import {
+  COR_NATUREZA,
+  composicao,
+  DICA_NATUREZA,
+  ROTULO_NATUREZA,
+  visaoInicial,
+  type VisaoCompras,
+} from "./naturezas";
+import "./naturezas.css";
 
 type Dimension = "category" | "supplier" | "product";
+type RankingSimples = { rows: RankingRow[]; total?: number };
+
+export type NaturezasDasCompras = {
+  byNature: Array<{ nature: DashboardNatureKey; total: number; items: number }>;
+  unitemizedTotal: number;
+  views: Partial<Record<VisaoCompras, DashboardRankingView>>;
+};
 
 type Props = {
   total: number;
@@ -14,7 +30,10 @@ type Props = {
   count: number | null;
   delta: Delta | null;
   reference?: string;
-  rankings: Record<Dimension, { rows: RankingRow[]; total?: number }>;
+  /** Rankings sem separação (backend anterior à natureza). */
+  rankings: Record<Dimension, RankingSimples>;
+  /** Separação por natureza; quando vem, manda nos rankings. */
+  naturezas?: NaturezasDasCompras;
   emptyAction?: { label: string; onClick: () => void };
 };
 
@@ -24,12 +43,25 @@ const TABS: Array<{ value: Dimension; label: string }> = [
   { value: "product", label: "Produto" },
 ];
 
-export function PurchasesPanel({ total, count, delta, reference, rankings, emptyAction }: Props) {
+function nomeDaVisao(visao: VisaoCompras): string {
+  return visao === "TODAS" ? "Todas as compras" : ROTULO_NATUREZA[visao];
+}
+
+export function PurchasesPanel({ total, count, delta, reference, rankings, naturezas, emptyAction }: Props) {
   const [dimension, setDimension] = useState<Dimension>("category");
-  const current = rankings[dimension];
+  // Até a pessoa escolher, a visão acompanha os dados (abre em Insumos quando o mês tem insumo);
+  // depois de escolher, a escolha vale também para os outros meses.
+  const [escolha, setVisao] = useState<VisaoCompras | null>(null);
+  const visao: VisaoCompras = escolha ?? (naturezas ? visaoInicial(naturezas.byNature) : "TODAS");
+
+  const view = naturezas?.views[visao];
+  // A escolha da natureza sobrevive à troca de mês; mês sem aquela natureza mostra lista vazia.
+  const current: RankingSimples = naturezas ? (view ? view[dimension] : { rows: [], total: 0 }) : rankings[dimension];
   const rows = withRemainder(current.rows, current.total);
   const base = current.total ?? rows.reduce((s, r) => s + r.total, 0);
   const max = rows.reduce((m, r) => Math.max(m, r.total), 0);
+  const corDaBarra = visao === "TODAS" ? COR_NATUREZA.INSUMO : COR_NATUREZA[visao];
+  const legendaNotas = count === null ? "" : count > 0 ? `${formatNumber(count)} nota${count !== 1 ? "s" : ""}` : "Nenhuma compra lançada";
 
   return (
     <section className="dash-card dash-purchases" aria-labelledby="dash-purchases-title">
@@ -38,17 +70,24 @@ export function PurchasesPanel({ total, count, delta, reference, rankings, empty
           <h2 id="dash-purchases-title" className="dash-eyebrow">Compras do mês</h2>
           <p className="dash-stat-value dash-stat-value--lg">{total > 0 ? <Money value={total} /> : "—"}</p>
           <p className="dash-stat-label">
-            {count === null ? "" : count > 0 ? `${formatNumber(count)} nota${count !== 1 ? "s" : ""}` : "Nenhuma compra lançada"}
-            {reference && <> · {reference}</>}
+            {[legendaNotas, reference].filter(Boolean).join(" · ")}
           </p>
         </div>
         <DeltaChip delta={delta} />
       </div>
 
+      {naturezas && naturezas.byNature.length > 0 && (
+        <ComposicaoPorNatureza naturezas={naturezas} visao={visao} onChange={setVisao} />
+      )}
+
       {rows.length === 0 ? (
         <div className="dash-empty">
-          <p>Nenhuma compra registrada neste mês.</p>
-          {emptyAction && (
+          <p>
+            {visao === "TODAS"
+              ? "Nenhuma compra registrada neste mês."
+              : `Nenhuma compra de ${ROTULO_NATUREZA[visao].toLowerCase()} neste mês.`}
+          </p>
+          {emptyAction && visao === "TODAS" && (
             <button type="button" className="dash-link-btn" onClick={emptyAction.onClick}>
               {emptyAction.label} <ArrowRight size={14} />
             </button>
@@ -63,28 +102,98 @@ export function PurchasesPanel({ total, count, delta, reference, rankings, empty
             onChange={(v) => setDimension(v as Dimension)}
             aria-label="Distribuir compras por"
           />
-          <div role="tabpanel" aria-label={`Compras por ${TABS.find((t) => t.value === dimension)?.label.toLowerCase()}`}>
-          <ol className="dash-bars">
-            {rows.map((row, i) => {
-              const share = base > 0 ? (row.total / base) * 100 : 0;
-              const width = max > 0 ? Math.max((row.total / max) * 100, 1.5) : 0;
-              return (
-                <li key={`${dimension}-${row.name}`} className={`dash-bar-row${row.isRemainder ? " is-remainder" : ""}`}>
-                  <span className="dash-bar-rank" aria-hidden>{row.isRemainder ? "" : i + 1}</span>
-                  <span className="dash-bar-name" title={row.name}>{row.name}</span>
-                  <span className="dash-bar-value"><Money value={row.total} /></span>
-                  <span className="dash-bar-share">{formatPercent(share)}</span>
-                  <span className="dash-bar-track" aria-hidden>
-                    <span className="dash-bar-fill" style={{ width: `${width}%` }} />
-                  </span>
-                </li>
-              );
-            })}
-          </ol>
+          <div
+            role="tabpanel"
+            aria-label={`${nomeDaVisao(visao)} por ${TABS.find((t) => t.value === dimension)?.label.toLowerCase()}`}
+          >
+            <ol className="dash-bars">
+              {rows.map((row, i) => {
+                const share = base > 0 ? (row.total / base) * 100 : 0;
+                const width = max > 0 ? Math.max((row.total / max) * 100, 1.5) : 0;
+                const estilo = row.isRemainder ? { width: `${width}%` } : { width: `${width}%`, background: corDaBarra };
+                return (
+                  <li
+                    key={`${visao}-${dimension}-${row.name}`}
+                    className={`dash-bar-row${row.isRemainder ? " is-remainder" : ""}`}
+                  >
+                    <span className="dash-bar-rank" aria-hidden>{row.isRemainder ? "" : i + 1}</span>
+                    <span className="dash-bar-name" title={row.name}>{row.name}</span>
+                    <span className="dash-bar-value"><Money value={row.total} /></span>
+                    <span className="dash-bar-share">{formatPercent(share)}</span>
+                    <span className="dash-bar-track" aria-hidden>
+                      <span className="dash-bar-fill" style={estilo} />
+                    </span>
+                  </li>
+                );
+              })}
+            </ol>
+            {visao !== "TODAS" && dimension === "supplier" && (
+              <p className="dash-footnote">Cada fornecedor soma só os itens desta natureza, não a nota inteira.</p>
+            )}
           </div>
         </>
       )}
     </section>
+  );
+}
+
+/**
+ * Barra com a composição das compras por natureza. A legenda abaixo é também o
+ * filtro: escolher uma natureza recorta os rankings. Cor nunca sozinha: cada
+ * pílula tem nome e percentual.
+ */
+function ComposicaoPorNatureza({
+  naturezas,
+  visao,
+  onChange,
+}: {
+  naturezas: NaturezasDasCompras;
+  visao: VisaoCompras;
+  onChange: (v: VisaoCompras) => void;
+}) {
+  const fmt = useFormatCurrency();
+  const segmentos = composicao(naturezas.byNature, naturezas.unitemizedTotal);
+  const corDe = (chave: string) =>
+    chave in COR_NATUREZA && chave !== "SEM_NATUREZA" ? { background: COR_NATUREZA[chave as DashboardNatureKey] } : undefined;
+
+  return (
+    <div className="dash-nature">
+      <div className="dash-nature-bar" aria-hidden>
+        {segmentos.map((s) => (
+          <span
+            key={s.chave}
+            className={`dash-nature-seg dash-nature-seg--${s.chave.toLowerCase()}${visao !== "TODAS" && s.chave !== visao ? " is-dim" : ""}`}
+            style={{ flexGrow: s.total, ...corDe(s.chave) }}
+            title={`${s.rotulo}: ${fmt(s.total)} (${formatPercent(s.pct)})`}
+          />
+        ))}
+      </div>
+      <div className="dash-nature-chips" role="group" aria-label="Filtrar compras por natureza">
+        <button type="button" className="dash-nature-chip" aria-pressed={visao === "TODAS"} onClick={() => onChange("TODAS")}>
+          Todas
+        </button>
+        {segmentos.map((s) =>
+          s.chave === "SEM_ITENS" ? (
+            <span key={s.chave} className="dash-nature-chip is-static" title="Valor das notas que não está em nenhum item (nota sem itemização, frete, acréscimos)">
+              <span className="dash-nature-key dash-nature-key--sem_itens" aria-hidden />
+              {s.rotulo} <small>{formatPercent(s.pct)}</small>
+            </span>
+          ) : (
+            <button
+              key={s.chave}
+              type="button"
+              className="dash-nature-chip"
+              aria-pressed={visao === s.chave}
+              title={DICA_NATUREZA[s.chave]}
+              onClick={() => onChange(s.chave as DashboardNatureKey)}
+            >
+              <span className={`dash-nature-key dash-nature-key--${s.chave.toLowerCase()}`} style={corDe(s.chave)} aria-hidden />
+              {s.rotulo} <small>{formatPercent(s.pct)}</small>
+            </button>
+          ),
+        )}
+      </div>
+    </div>
   );
 }
 
