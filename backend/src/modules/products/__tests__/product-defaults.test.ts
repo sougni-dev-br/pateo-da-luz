@@ -54,6 +54,12 @@ describe("categoriaDaEstruturaParaItemNovo", () => {
     expect(categoriaDaEstruturaParaItemNovo("Produto misterioso", "INSUMOS")).toBeNull();
   });
 
+  test("sinal de embalagem no nome impede o roteamento automático", () => {
+    expect(categoriaDaEstruturaParaItemNovo("Sacola de papel para pao", "INSUMOS")).toBeNull();
+    expect(categoriaDaEstruturaParaItemNovo("Embalagem para molho", "INSUMOS")).toBeNull();
+    expect(categoriaDaEstruturaParaItemNovo("Caixa para frango", "INSUMOS")).toBeNull();
+  });
+
   test("regra de média confiança não decide sozinha", () => {
     expect(categoriaDaEstruturaParaItemNovo("Agua sanitaria 5L", "INSUMOS")).toBeNull();
   });
@@ -69,8 +75,12 @@ describe("estruturaDeProdutoNovo", () => {
   const banco = (categorias: Array<Record<string, unknown>>) =>
     ({
       category: {
-        findUnique: async ({ where }: { where: { id?: string; name?: string } }) =>
-          categorias.find((c) => (where.id ? c.id === where.id : c.name === where.name)) ?? null
+        findUnique: async ({ where }: { where: { id: string } }) => categorias.find((c) => c.id === where.id) ?? null,
+        findFirst: async ({ where }: { where: { name: { equals: string }; isActive?: boolean } }) =>
+          categorias.find(
+            (c) =>
+              String(c.name).toLowerCase() === where.name.equals.toLowerCase() && (where.isActive === undefined || c.isActive !== false)
+          ) ?? null
       }
     }) as never;
 
@@ -93,6 +103,26 @@ describe("estruturaDeProdutoNovo", () => {
     const r = await estruturaDeProdutoNovo(banco([insumos]), { descricao: "Queijo", categoryId: "c-ins" });
     expect(r.categoryId).toBe("c-ins");
     expect(r.reclassificada).toBe(false);
+  });
+
+  test("destino com outra grafia no banco ainda é achado", async () => {
+    const r = await estruturaDeProdutoNovo(banco([insumos, { ...laticinios, name: "Laticinios e Frios" }]), { descricao: "Queijo", categoryId: "c-ins" });
+    expect(r.categoryId).toBe("c-lat");
+  });
+
+  test("destino desativado não recebe produto novo", async () => {
+    const r = await estruturaDeProdutoNovo(banco([insumos, { ...laticinios, isActive: false }]), { descricao: "Queijo", categoryId: "c-ins" });
+    expect(r.categoryId).toBe("c-ins");
+  });
+
+  test("destino sem natureza cai no fallback", async () => {
+    const r = await estruturaDeProdutoNovo(banco([insumos, { ...laticinios, nature: null }]), { descricao: "Queijo", categoryId: "c-ins" });
+    expect(r).toMatchObject({ categoryId: "c-ins", reclassificada: false });
+  });
+
+  test("categoria já carregada pelo chamador evita nova consulta", async () => {
+    const r = await estruturaDeProdutoNovo(banco([laticinios]), { descricao: "Queijo", categoryId: "c-ins", categoria: insumos as never });
+    expect(r.categoryId).toBe("c-lat");
   });
 
   test("sem categoria na planilha, nada a decidir", async () => {

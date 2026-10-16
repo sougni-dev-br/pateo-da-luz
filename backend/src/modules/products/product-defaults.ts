@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import { normalizeText } from "../../shared/utils/normalize-text.js";
 import { NATURE_DEFAULTS, type ProductNatureValue } from "./product-nature.js";
 import { proposeCategory } from "./taxonomy-proposal.js";
 
@@ -41,7 +42,12 @@ export function planilhaPodeReclassificar(existente: { nature: ProductNatureValu
  * regra de alta confiança o produto novo vai direto para a categoria da estrutura nova; o resto fica
  * onde a planilha disse e entra sem natureza, para o dono classificar.
  */
+// Embalagem e descartável perdem para palavras de alimento nas regras de insumo ("sacola para pão"),
+// e aqui o efeito é automático e vai para o CMV: com qualquer sinal de embalagem, não decide sozinho.
+const SINAL_DE_EMBALAGEM = /(?<![a-z0-9])(embalagem|embalagens|sacola|sacolas|saco|sacos|caixa|caixas|bobina|descart[a-z]*|copo|copos|pote|potes|tampa|tampas|filme|pvc|marmitex|papel|guardanapo|canudo|talher|talheres)(?![a-z0-9])/;
+
 export function categoriaDaEstruturaParaItemNovo(descricao: string, categoriaDaPlanilha: string): string | null {
+  if (SINAL_DE_EMBALAGEM.test(normalizeText(descricao))) return null;
   const proposta = proposeCategory({
     name: descricao,
     categoryName: categoriaDaPlanilha,
@@ -63,18 +69,24 @@ export type EstruturaDeProdutoNovo = {
 
 const CATEGORIA_SELECT = { id: true, name: true, nature: true, defaultDreCategoryId: true } as const;
 
+type CategoriaCarregada = { id: string; name: string; nature: ProductNatureValue | null; defaultDreCategoryId: string | null };
+
 /** Onde um produto criado por importação deve nascer: categoria final e o que ela define. */
 export async function estruturaDeProdutoNovo(
   db: Pick<Prisma.TransactionClient, "category">,
-  entrada: { descricao: string; categoryId: string | null | undefined }
+  entrada: { descricao: string; categoryId: string | null | undefined; categoria?: CategoriaCarregada | null }
 ): Promise<EstruturaDeProdutoNovo> {
-  const categoria = entrada.categoryId
-    ? await db.category.findUnique({ where: { id: entrada.categoryId }, select: CATEGORIA_SELECT })
-    : null;
+  const categoria =
+    entrada.categoria ??
+    (entrada.categoryId ? await db.category.findUnique({ where: { id: entrada.categoryId }, select: CATEGORIA_SELECT }) : null);
   if (categoria && !categoria.nature) {
     const nomeDestino = categoriaDaEstruturaParaItemNovo(entrada.descricao, categoria.name);
     const destino = nomeDestino
-      ? await db.category.findUnique({ where: { name: nomeDestino }, select: CATEGORIA_SELECT })
+      ? await db.category.findFirst({
+          where: { name: { equals: nomeDestino, mode: "insensitive" }, isActive: true },
+          orderBy: { name: "asc" },
+          select: CATEGORIA_SELECT
+        })
       : null;
     if (destino?.nature) {
       return { categoryId: destino.id, reclassificada: true, padrao: padraoDeProdutoNovo(destino) };

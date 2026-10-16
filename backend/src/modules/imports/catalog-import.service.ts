@@ -1212,7 +1212,7 @@ export async function confirmProductCatalogImport(
         // desfaria a reorganização.
         const estrutura = existing
           ? null
-          : await estruturaDeProdutoNovo(tx, { descricao: row.description, categoryId: category?.id });
+          : await estruturaDeProdutoNovo(tx, { descricao: row.description, categoryId: category?.id, categoria: category });
         const padrao = estrutura?.padrao ?? padraoDeProdutoNovo(category);
         const criar = {
           ...data,
