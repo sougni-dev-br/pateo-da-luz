@@ -278,26 +278,65 @@ async function checkProductNameConflict(normalizedName: string, productId: strin
   });
 }
 
-async function findOrCreateCategory(name?: string | null) {
-  const cleanName = String(name ?? "").trim();
-  if (!cleanName) return null;
+type ClassificacaoResolvida =
+  | { erro: string }
+  | { categoryId: string | null | undefined; subcategoryId: string | null | undefined };
 
-  return prisma.category.upsert({
-    where: { name: cleanName },
-    create: { name: cleanName },
-    update: {}
-  });
-}
+/**
+ * Categoria e subcategoria do corpo, no sentido do prisma: undefined não mexe, null limpa.
+ *
+ * O id vale mais que o nome; null limpa. Trocar de categoria sem dizer a subcategoria limpa a
+ * subcategoria, porque ela pertencia à categoria antiga. A subcategoria precisa ser da categoria final.
+ * Nada é criado aqui: criar categoria é do Cadastros base. A rota antes criava por nome, com a permissão
+ * de Produtos e sem natureza, e gerava "Limpeza" ao lado de "LIMPEZA".
+ */
+async function resolverClassificacao(
+  body: { categoryId?: string | null; categoryName?: string | null; subcategoryId?: string | null; subcategoryName?: string | null },
+  categoriaAnterior: string | null
+): Promise<ClassificacaoResolvida> {
+  const nomeDaCategoria = String(body.categoryName ?? "").trim();
+  const nomeDaSubcategoria = String(body.subcategoryName ?? "").trim();
 
-async function findOrCreateSubcategory(name?: string | null, categoryId?: string) {
-  const cleanName = String(name ?? "").trim();
-  if (!cleanName || !categoryId) return null;
+  let categoryId: string | null | undefined;
+  if (typeof body.categoryId === "string" && body.categoryId) {
+    const categoria = await prisma.category.findUnique({ where: { id: body.categoryId }, select: { id: true } });
+    if (!categoria) return { erro: "Categoria não encontrada." };
+    categoryId = categoria.id;
+  } else if (nomeDaCategoria) {
+    const categoria = await prisma.category.findFirst({
+      where: { name: { equals: nomeDaCategoria, mode: "insensitive" } },
+      // Se sobrar "Limpeza" ao lado de "LIMPEZA", vale a que já tem natureza.
+      orderBy: [{ nature: { sort: "asc", nulls: "last" } }, { name: "asc" }],
+      select: { id: true }
+    });
+    if (!categoria) return { erro: `Categoria "${nomeDaCategoria}" não encontrada. Cadastre em Cadastros base antes.` };
+    categoryId = categoria.id;
+  }
+  // categoryId nulo (o schema converte "" em null) não limpa a categoria: o produto sempre fica em uma.
+  const categoriaFinal = categoryId === undefined ? categoriaAnterior : categoryId;
 
-  return prisma.subcategory.upsert({
-    where: { categoryId_name: { categoryId, name: cleanName } },
-    create: { categoryId, name: cleanName },
-    update: {}
-  });
+  let subcategoryId: string | null | undefined;
+  if (typeof body.subcategoryId === "string" && body.subcategoryId) {
+    const sub = await prisma.subcategory.findUnique({ where: { id: body.subcategoryId }, select: { id: true, categoryId: true } });
+    if (!sub) return { erro: "Subcategoria não encontrada." };
+    if (sub.categoryId !== categoriaFinal) return { erro: "A subcategoria não pertence à categoria escolhida." };
+    subcategoryId = sub.id;
+  } else if (nomeDaSubcategoria) {
+    if (!categoriaFinal) return { erro: "Escolha a categoria antes da subcategoria." };
+    const sub = await prisma.subcategory.findFirst({
+      where: { categoryId: categoriaFinal, name: { equals: nomeDaSubcategoria, mode: "insensitive" } },
+      orderBy: { name: "asc" },
+      select: { id: true }
+    });
+    if (!sub) return { erro: `Subcategoria "${nomeDaSubcategoria}" não encontrada nessa categoria.` };
+    subcategoryId = sub.id;
+  } else if (body.subcategoryId === null) {
+    subcategoryId = null;
+  } else if (categoryId !== undefined && categoryId !== categoriaAnterior) {
+    subcategoryId = null;
+  }
+
+  return { categoryId, subcategoryId };
 }
 
 async function findOrCreateSector(name?: string | null) {
@@ -890,6 +929,13 @@ productRouter.post("/", async (request, response) => {
     return;
   }
 
+  // Antes de reservar o código: erro de classificação não pode gastar número da sequência.
+  const classificacao = await resolverClassificacao(body, null);
+  if ("erro" in classificacao) {
+    response.status(400).json({ message: classificacao.erro });
+    return;
+  }
+
   const conflict = await checkProductNameConflict(normalizeText(name), null);
   if (!conflict.ok) {
     response.status(409).json({ message: conflict.message });
@@ -898,8 +944,6 @@ productRouter.post("/", async (request, response) => {
 
   const externalCode = await ensureUniqueProductCode();
   const unitMeasure = await unitCodeFromId(body.unitMeasureId);
-  const category = await findOrCreateCategory(body.categoryName);
-  const subcategory = await findOrCreateSubcategory(body.subcategoryName, category?.id);
   const sector = body.inventorySectorId ? null : await findOrCreateSector(body.sectorName);
 
   const product = await prisma.product.create({
@@ -915,8 +959,8 @@ productRouter.post("/", async (request, response) => {
       dreCategoryId: body.dreCategoryId || null,
       notes: body.notes || null,
       isActive: body.isActive ?? true,
-      categoryId: category?.id,
-      subcategoryId: subcategory?.id,
+      categoryId: classificacao.categoryId ?? undefined,
+      subcategoryId: classificacao.subcategoryId ?? undefined,
       inventorySectorId: body.inventorySectorId || sector?.id,
       aliases: {
         create: {
@@ -966,14 +1010,10 @@ productRouter.put("/:id", async (request, response) => {
     return;
   }
 
-  const category = await findOrCreateCategory(body.categoryName);
-  const subcategory = await findOrCreateSubcategory(body.subcategoryName, category?.id);
-  const sector = body.inventorySectorId ? null : await findOrCreateSector(body.sectorName);
-
   const [previous] = await prisma.$queryRaw<Array<Record<string, unknown>>>`
     SELECT
       "id", "inventorySectorId", "categoryId", "subcategoryId", "unit", "stockUnit", "accountType", "controlsStock",
-      "externalCode", "estoqueMinimo", "estoqueIdeal", "leadTimeCompraDias", "fornecedorPrincipalId",
+      "isActive", "nature", "dreCategoryId", "externalCode", "estoqueMinimo", "estoqueIdeal", "leadTimeCompraDias", "fornecedorPrincipalId",
       "storageLocation", "storageCorridor", "storageShelf", "storagePosition", "storageNotes"
     FROM "Product"
     WHERE "id" = ${request.params.id}
@@ -982,6 +1022,12 @@ productRouter.put("/:id", async (request, response) => {
     response.status(404).json({ message: "Produto nao encontrado." });
     return;
   }
+  const classificacao = await resolverClassificacao(body, typeof previous.categoryId === "string" ? previous.categoryId : null);
+  if ("erro" in classificacao) {
+    response.status(400).json({ message: classificacao.erro });
+    return;
+  }
+  const sector = body.inventorySectorId ? null : await findOrCreateSector(body.sectorName);
   // Compara na forma canonica: uma tela aberta antes da renumeracao devolve
   // "001196" para um produto que agora e "1196" — mesmo codigo, nao uma
   // tentativa de troca.
@@ -1038,16 +1084,19 @@ productRouter.put("/:id", async (request, response) => {
       normalizedName: normalizeText(name),
       unit: unitMeasure?.code ?? null,
       unitMeasureId: unitMeasure?.id ?? null,
-      accountType: body.accountType || null,
+      // Campo ausente não apaga: cliente que não conhece o campo não pode zerar o que a tela nova gravou.
+      ...(body.accountType === undefined ? {} : { accountType: body.accountType || null }),
       // Cliente que nao conhece a natureza nao manda o campo: sem isso, salvar
       // pela tela antiga apagaria o que a tela nova gravou.
       ...(body.nature === undefined ? {} : { nature: body.nature }),
-      controlsStock: body.controlsStock ?? true,
-      dreCategoryId: body.dreCategoryId || null,
+      // Campo ausente mantém o que o produto já tem: cliente que não manda estoque nem situação
+      // ligava o controle de estoque de quem não conta e reativava produto inativo.
+      controlsStock: body.controlsStock ?? (typeof previous.controlsStock === "boolean" ? previous.controlsStock : true),
+      ...(body.dreCategoryId === undefined ? {} : { dreCategoryId: body.dreCategoryId || null }),
       notes: body.notes || null,
-      isActive: body.isActive ?? true,
-      categoryId: category?.id,
-      subcategoryId: subcategory?.id,
+      isActive: body.isActive ?? (typeof previous.isActive === "boolean" ? previous.isActive : true),
+      categoryId: classificacao.categoryId,
+      subcategoryId: classificacao.subcategoryId,
       inventorySectorId: body.inventorySectorId || sector?.id || null
     },
     include: { category: true, subcategory: true, inventorySector: true, aliases: true, dreCategory: true }
@@ -1063,6 +1112,9 @@ productRouter.put("/:id", async (request, response) => {
     previous?.inventorySectorId !== product.inventorySectorId ||
     previous?.categoryId !== product.categoryId ||
     previous?.subcategoryId !== product.subcategoryId ||
+    previous?.nature !== product.nature ||
+    previous?.dreCategoryId !== product.dreCategoryId ||
+    previous?.controlsStock !== product.controlsStock ||
     locationChanged;
 
   if (classificationChanged) {
@@ -1075,6 +1127,9 @@ productRouter.put("/:id", async (request, response) => {
           inventorySectorId: product.inventorySectorId,
           categoryId: product.categoryId,
           subcategoryId: product.subcategoryId,
+          nature: product.nature,
+          dreCategoryId: product.dreCategoryId,
+          controlsStock: product.controlsStock,
           storageLocation: asText(body.storageLocation),
           storageCorridor: asText(body.storageCorridor),
           storageShelf: asText(body.storageShelf),
