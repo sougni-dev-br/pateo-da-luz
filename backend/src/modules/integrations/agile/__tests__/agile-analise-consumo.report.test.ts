@@ -159,6 +159,55 @@ describe("montarConsumoTeorico", () => {
     });
   });
 
+  describe("ficha incompleta nao conta como coberta", () => {
+    it("prato com ingrediente sem conversao fica fora da cobertura, mas o consumo que deu para calcular continua", () => {
+      const r = montar({
+        fichas: [{ ...FILE, itens: [...FILE.itens, { insumoId: "p-molho", insumo: "Molho", quantidade: 2, unidade: "CX", perda: 0, unidadeEstoque: "KG", conversoes: [] }] }],
+        vendas: [venda({ codigo: "P1", nome: "FILE", quantidade: 10, valor: 700 })],
+        vinculosPrato: [{ codigo: "P1", pratoId: "d1" }]
+      });
+      expect(r.cobertura).toMatchObject({ receitaTotal: 700, receitaCoberta: 0, pct: 0 });
+      expect(r.semVinculo[0]).toMatchObject({ codigo: "P1", motivo: "FICHA_INCOMPLETA", receita: 700 });
+      // piso: o que deu para calcular continua somado
+      expect(r.insumos.find((i) => i.insumoId === "p-file")?.consumo).toBe(2.2);
+    });
+
+    it("prato com todos os itens descartados nao conta como coberto", () => {
+      const r = montar({
+        fichas: [{ ...FILE, itens: [{ insumoId: "p-molho", insumo: "Molho", quantidade: 2, unidade: "CX", perda: 0, unidadeEstoque: "KG", conversoes: [] }] }],
+        vendas: [venda({ codigo: "P1", nome: "FILE", valor: 300 })],
+        vinculosPrato: [{ codigo: "P1", pratoId: "d1" }]
+      });
+      expect(r.cobertura.receitaCoberta).toBe(0);
+      expect(r.semVinculo[0]).toMatchObject({ motivo: "FICHA_INCOMPLETA" });
+    });
+
+    it("ficha de producao que falta na hora de expandir deixa o prato incompleto", () => {
+      const r = montar({
+        fichas: [{ ...FILE, itens: [{ componenteId: "sumiu", quantidade: 1, unidade: "KG", perda: 0 }] }],
+        vendas: [venda({ codigo: "P1", nome: "FILE", valor: 300 })],
+        vinculosPrato: [{ codigo: "P1", pratoId: "d1" }]
+      });
+      expect(r.cobertura.receitaCoberta).toBe(0);
+      expect(r.semVinculo[0]).toMatchObject({ motivo: "FICHA_INCOMPLETA" });
+    });
+
+    it("ciclo em ficha de producao deixa o prato incompleto", () => {
+      const A: FichaDoPrato = { id: "a", nome: "A", rendimento: 1, unidadeRendimento: "KG", rendimentoEmPorcao: false, itens: [{ componenteId: "a", quantidade: 1, unidade: "KG", perda: 0 }] };
+      const prato: FichaDoPrato = { ...FILE, itens: [{ componenteId: "a", quantidade: 1, unidade: "KG", perda: 0 }] };
+      const r = montar({ fichas: [prato, A], vendas: [venda({ codigo: "P1", nome: "FILE", valor: 300 })], vinculosPrato: [{ codigo: "P1", pratoId: "d1" }] });
+      expect(r.cobertura.receitaCoberta).toBe(0);
+    });
+
+    it("ficha-filha incompleta tambem deixa o prato incompleto", () => {
+      const MASSA: FichaDoPrato = { id: "massa", nome: "Massa", rendimento: 10, unidadeRendimento: "KG", rendimentoEmPorcao: false, itens: [{ insumoId: "p-x", insumo: "X", quantidade: 1, unidade: "CX", perda: 0, unidadeEstoque: "KG", conversoes: [] }] };
+      const prato: FichaDoPrato = { ...FILE, itens: [{ componenteId: "massa", quantidade: 1, unidade: "KG", perda: 0 }] };
+      const r = montar({ fichas: [prato, MASSA], vendas: [venda({ codigo: "P1", nome: "FILE", valor: 300 })], vinculosPrato: [{ codigo: "P1", pratoId: "d1" }] });
+      expect(r.cobertura.receitaCoberta).toBe(0);
+      expect(r.semVinculo[0]).toMatchObject({ motivo: "FICHA_INCOMPLETA" });
+    });
+  });
+
   describe("cobertura", () => {
     it("mede a receita coberta sobre a receita vendida, fora o buffet", () => {
       const r = montar({

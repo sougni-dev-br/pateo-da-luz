@@ -60,7 +60,7 @@ export type VinculoDeInsumo = {
   conversoes: UnitConversion[];
 };
 
-export type MotivoSemCobertura = "SEM_VINCULO" | "PRATO_INDISPONIVEL" | "FICHA_SEM_ITENS" | "RENDIMENTO_NAO_E_PORCAO" | "SEM_CONVERSAO";
+export type MotivoSemCobertura = "SEM_VINCULO" | "PRATO_INDISPONIVEL" | "FICHA_SEM_ITENS" | "FICHA_INCOMPLETA" | "RENDIMENTO_NAO_E_PORCAO" | "SEM_CONVERSAO";
 
 export type ProblemaDeConsumo = {
   tipo: "SEM_CONVERSAO" | "RENDIMENTO_NAO_E_PORCAO" | "PRATO_INDISPONIVEL" | "FICHA_DE_PRODUCAO_INDISPONIVEL" | "FICHA_EM_CICLO";
@@ -118,18 +118,23 @@ export function montarConsumoTeorico({ periodo, vendas, fichas, vinculosPrato, v
   };
 
   // Gasta `unidades` do rendimento da ficha: cada item sai na proporção quantidade / rendimento. Item que é outra
-  // ficha vira unidades do rendimento dela e desce mais um nível, até os produtos.
-  const expandir = (ficha: FichaDoPrato, unidades: number, origem: string, caminho: string[], nivel: number): void => {
+  // ficha vira unidades do rendimento dela e desce mais um nível, até os produtos. Devolve false quando algum item
+  // ficou de fora (sem conversão, ficha que falta, ciclo): o consumo que deu para somar vale como piso, e o prato
+  // não pode contar como coberto, senão a cobertura passa de "boa" com um ingrediente importante faltando.
+  const expandir = (ficha: FichaDoPrato, unidades: number, origem: string, caminho: string[], nivel: number): boolean => {
+    let completa = true;
     const rendimento = Number.isFinite(ficha.rendimento) && ficha.rendimento > 0 ? ficha.rendimento : 1;
     for (const item of ficha.itens) {
       if ("componenteId" in item) {
         const componente = fichaPorId.get(item.componenteId);
         if (!componente) {
-          registrar({ tipo: "FICHA_DE_PRODUCAO_INDISPONIVEL", origem, detalhe: "Uma ficha de produção usada como ingrediente não foi encontrada (apagada ou inativa)." });
+          registrar({ tipo: "FICHA_DE_PRODUCAO_INDISPONIVEL", origem, detalhe: "Uma ficha de produção usada como ingrediente não foi encontrada." });
+          completa = false;
           continue;
         }
         if (caminho.includes(componente.id) || nivel + 1 > MAX_NIVEIS_DE_FICHA) {
           registrar({ tipo: "FICHA_EM_CICLO", origem, insumo: componente.nome, detalhe: `Ficha que usa a si mesma ou com fichas dentro de fichas além de ${MAX_NIVEIS_DE_FICHA} níveis.` });
+          completa = false;
           continue;
         }
         const fator = resolveUnitFactor(item.unidade, componente.unidadeRendimento, []);
@@ -140,10 +145,11 @@ export function montarConsumoTeorico({ periodo, vendas, fichas, vinculosPrato, v
             insumo: componente.nome,
             detalhe: `Sem conversão de ${normalizarUnidade(item.unidade) || "(vazio)"} para ${normalizarUnidade(componente.unidadeRendimento) || "(vazio)"}.`
           });
+          completa = false;
           continue;
         }
         const unidadesDoComponente = unidades * (item.quantidade / rendimento) * fator * (1 + item.perda);
-        expandir(componente, unidadesDoComponente, origem, [...caminho, componente.id], nivel + 1);
+        if (!expandir(componente, unidadesDoComponente, origem, [...caminho, componente.id], nivel + 1)) completa = false;
         continue;
       }
       const fator = resolveUnitFactor(item.unidade, item.unidadeEstoque, item.conversoes);
@@ -154,10 +160,12 @@ export function montarConsumoTeorico({ periodo, vendas, fichas, vinculosPrato, v
           insumo: item.insumo,
           detalhe: `Sem conversão de ${normalizarUnidade(item.unidade) || "(vazio)"} para ${normalizarUnidade(item.unidadeEstoque) || "(vazio)"}.`
         });
+        completa = false;
         continue;
       }
       somar(item.insumoId, item.insumo, item.unidadeEstoque ?? item.unidade, unidades * (item.quantidade / rendimento) * fator * (1 + item.perda), "fichas");
     }
+    return completa;
   };
 
   let receitaTotal = 0;
@@ -193,7 +201,10 @@ export function montarConsumoTeorico({ periodo, vendas, fichas, vinculosPrato, v
         naoCoberto("FICHA_SEM_ITENS");
         continue;
       }
-      expandir(ficha, venda.quantidade, ficha.nome, [ficha.id], 0);
+      if (!expandir(ficha, venda.quantidade, ficha.nome, [ficha.id], 0)) {
+        naoCoberto("FICHA_INCOMPLETA");
+        continue;
+      }
       if (comReceita) receitaCoberta += venda.valor;
       continue;
     }
