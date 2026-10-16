@@ -184,3 +184,72 @@ export function planejarLote(produtos: ProdutoDoLote[], mudancas: MudancasDoLote
     avisos: montarAvisos(alterar, contexto)
   };
 }
+
+const ROTULO_SEM = { categoria: "sem categoria", subcategoria: "sem subcategoria", setor: "sem setor", natureza: "sem natureza" } as const;
+
+function nomeDe<T extends { name: string }>(mapa: Map<string, T>, id: string | null, vazio: string): string {
+  return id ? (mapa.get(id)?.name ?? "(não encontrado)") : vazio;
+}
+
+function rotuloDaNatureza(natureza: ProductNatureValue | null): string {
+  return natureza ? NATURE_DEFAULTS[natureza].label : ROTULO_SEM.natureza;
+}
+
+/** Uma frase por campo que muda, no formato "campo: antes → depois", com os nomes e não os ids. */
+export function descreverAlteracao(item: Pick<ItemAlterado, "antes" | "depois" | "patch">, contexto: ContextoDoLote): string[] {
+  const { antes, depois, patch } = item;
+  const linhas: string[] = [];
+  if (patch.categoryId !== undefined) {
+    linhas.push(`Categoria: ${nomeDe(contexto.categorias, antes.categoryId, ROTULO_SEM.categoria)} → ${nomeDe(contexto.categorias, depois.categoryId, ROTULO_SEM.categoria)}`);
+  }
+  if (patch.subcategoryId !== undefined) {
+    linhas.push(`Subcategoria: ${nomeDe(contexto.subcategorias, antes.subcategoryId, ROTULO_SEM.subcategoria)} → ${nomeDe(contexto.subcategorias, depois.subcategoryId, ROTULO_SEM.subcategoria)}`);
+  }
+  if (patch.inventorySectorId !== undefined) {
+    linhas.push(`Setor: ${nomeDe(contexto.setores, antes.inventorySectorId, ROTULO_SEM.setor)} → ${nomeDe(contexto.setores, depois.inventorySectorId, ROTULO_SEM.setor)}`);
+  }
+  if (patch.nature !== undefined) linhas.push(`Natureza: ${rotuloDaNatureza(antes.nature)} → ${rotuloDaNatureza(depois.nature)}`);
+  if (patch.controlsStock !== undefined) {
+    linhas.push(`Entra na contagem de estoque: ${antes.controlsStock ? "sim" : "não"} → ${depois.controlsStock ? "sim" : "não"}`);
+  }
+  if (patch.isActive !== undefined) linhas.push(`Situação: ${antes.isActive ? "ativo" : "inativo"} → ${depois.isActive ? "ativo" : "inativo"}`);
+  return linhas;
+}
+
+export type ItemDoPanorama = { rotulo: string; count: number };
+export type PanoramaDoAlvo = {
+  total: number;
+  categoria: ItemDoPanorama[];
+  subcategoria: ItemDoPanorama[];
+  setor: ItemDoPanorama[];
+  natureza: ItemDoPanorama[];
+  estoque: ItemDoPanorama[];
+  situacao: ItemDoPanorama[];
+};
+
+const MAXIMO_DO_PANORAMA = 5;
+
+function contar(produtos: ProdutoDoLote[], rotulo: (produto: ProdutoDoLote) => string): ItemDoPanorama[] {
+  const totais = new Map<string, number>();
+  for (const produto of produtos) {
+    const chave = rotulo(produto);
+    totais.set(chave, (totais.get(chave) ?? 0) + 1);
+  }
+  const ordenado = [...totais.entries()].map(([r, count]) => ({ rotulo: r, count })).sort((a, b) => b.count - a.count);
+  if (ordenado.length <= MAXIMO_DO_PANORAMA) return ordenado;
+  const resto = ordenado.slice(MAXIMO_DO_PANORAMA - 1).reduce((soma, item) => soma + item.count, 0);
+  return [...ordenado.slice(0, MAXIMO_DO_PANORAMA - 1), { rotulo: "outros", count: resto }];
+}
+
+/** Como os produtos escolhidos estão HOJE em cada campo: é o que o painel mostra antes de pedir qualquer mudança. */
+export function panoramaDoAlvo(produtos: ProdutoDoLote[], contexto: ContextoDoLote): PanoramaDoAlvo {
+  return {
+    total: produtos.length,
+    categoria: contar(produtos, (p) => nomeDe(contexto.categorias, p.categoryId, ROTULO_SEM.categoria)),
+    subcategoria: contar(produtos, (p) => nomeDe(contexto.subcategorias, p.subcategoryId, ROTULO_SEM.subcategoria)),
+    setor: contar(produtos, (p) => nomeDe(contexto.setores, p.inventorySectorId, ROTULO_SEM.setor)),
+    natureza: contar(produtos, (p) => rotuloDaNatureza(p.nature)),
+    estoque: contar(produtos, (p) => (p.controlsStock ? "entra na contagem" : "não entra na contagem")),
+    situacao: contar(produtos, (p) => (p.isActive ? "ativo" : "inativo"))
+  };
+}

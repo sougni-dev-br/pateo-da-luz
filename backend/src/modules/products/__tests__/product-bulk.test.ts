@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { aplicarMudancasAoEstado, desfazerEhSeguro, planejarLote, type ContextoDoLote, type ProdutoDoLote } from "../product-bulk.js";
+import { aplicarMudancasAoEstado, descreverAlteracao, desfazerEhSeguro, panoramaDoAlvo, planejarLote, type ContextoDoLote, type ProdutoDoLote } from "../product-bulk.js";
 
 const contexto: ContextoDoLote = {
   categorias: new Map([
@@ -172,5 +172,48 @@ describe("planejarLote: mudar só a natureza também confere a contagem", () => 
     const plano = planejarLote([produto({ nature: "SERVICO", controlsStock: true, inventorySectorId: null })], { nature: "INSUMO" }, contexto);
     expect(plano.alterar).toHaveLength(0);
     expect(plano.recusados[0].motivo).toMatch(/setor/i);
+  });
+});
+
+describe("descreverAlteracao", () => {
+  test("escreve antes → depois com nomes, não ids", () => {
+    const antes = produto({ subcategoryId: "s-arroz", controlsStock: false, inventorySectorId: null });
+    const plano = planejarLote([antes], { categoryId: "c-doc", inventorySectorId: "set-est", controlsStock: true }, contexto);
+    expect(descreverAlteracao(plano.alterar[0], contexto)).toEqual([
+      "Categoria: SECOS E GRAOS → DOCES E CONFEITARIA",
+      "Subcategoria: ARROZ → sem subcategoria",
+      "Setor: sem setor → ESTOQUE",
+      "Entra na contagem de estoque: não → sim"
+    ]);
+  });
+
+  test("natureza e situação", () => {
+    const plano = planejarLote([produto()], { nature: "CONSUMO", isActive: false }, contexto);
+    expect(descreverAlteracao(plano.alterar[0], contexto)).toEqual([
+      "Natureza: Insumo ou mercadoria → Material de consumo",
+      "Situação: ativo → inativo"
+    ]);
+  });
+});
+
+describe("panoramaDoAlvo", () => {
+  test("conta como os produtos estão hoje, do maior grupo para o menor", () => {
+    const panorama = panoramaDoAlvo(
+      [produto({ id: "a" }), produto({ id: "b" }), produto({ id: "c", categoryId: "c-doc", inventorySectorId: null, controlsStock: false })],
+      contexto
+    );
+    expect(panorama.total).toBe(3);
+    expect(panorama.categoria).toEqual([{ rotulo: "SECOS E GRAOS", count: 2 }, { rotulo: "DOCES E CONFEITARIA", count: 1 }]);
+    expect(panorama.setor).toEqual([{ rotulo: "ESTOQUE", count: 2 }, { rotulo: "sem setor", count: 1 }]);
+    expect(panorama.estoque).toEqual([{ rotulo: "entra na contagem", count: 2 }, { rotulo: "não entra na contagem", count: 1 }]);
+    expect(panorama.subcategoria).toEqual([{ rotulo: "sem subcategoria", count: 3 }]);
+  });
+
+  test("agrupa o excedente em 'outros'", () => {
+    const ids = ["c1", "c2", "c3", "c4", "c5", "c6", "c7"];
+    const ctx: ContextoDoLote = { ...contexto, categorias: new Map(ids.map((id) => [id, { id, name: id.toUpperCase(), nature: "INSUMO" as const }])) };
+    const panorama = panoramaDoAlvo(ids.map((categoryId, i) => produto({ id: String(i), categoryId })), ctx);
+    expect(panorama.categoria).toHaveLength(5);
+    expect(panorama.categoria[4]).toEqual({ rotulo: "outros", count: 3 });
   });
 });

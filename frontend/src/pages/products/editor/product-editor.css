@@ -204,3 +204,36 @@ fieldset.natureza-grid { border: 0; padding: 0; margin: 0; min-width: 0; }
   border-radius: 8px;
   background: var(--paper-soft, #f6f3ec);
 }
+
+/* ── Lote: clareza (passos, "hoje", antes → depois) ─────────────────────── */
+.lote-barra { justify-content: space-between; }
+.lote-barra-texto, .lote-barra-acoes { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.9rem; }
+.lote-barra-pergunta { font-weight: 600; }
+.lote-barra .primary-button { margin-left: 0; }
+
+.lote-passos { display: flex; flex-wrap: wrap; gap: 0.35rem 1.1rem; list-style: none; margin: 0.35rem 0 0; padding: 0; font-size: 0.82rem; color: var(--muted); }
+.lote-passo-atual { color: var(--ink, #1b1b1b); font-weight: 700; }
+.lote-passo-atual::before { content: "● "; color: var(--gold, #b8893a); }
+
+.lote-campo { position: relative; display: grid; gap: 0.25rem; align-content: start; padding: 0.75rem; border: 1px solid var(--line); border-radius: 8px; background: var(--paper, #fff); }
+.lote-campo label { font-weight: 700; font-size: 0.92rem; }
+.lote-campo-ajuda { margin: 0; font-size: 0.8rem; color: var(--muted); line-height: 1.35; }
+.lote-hoje { margin: 0; font-size: 0.82rem; padding: 0.2rem 0.5rem; border-radius: 6px; background: var(--paper-soft, #f6f3ec); }
+.lote-campo-mudou { border-color: var(--gold, #b8893a); box-shadow: 0 0 0 2px var(--gold-tint, #fbf3e2); }
+.lote-vai-mudar { position: absolute; top: 0.55rem; right: 0.6rem; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--gold, #8a5a14); }
+.lote-campos { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+
+.lote-escolhas { padding: 0.6rem 0.9rem; border-radius: 8px; background: var(--gold-tint, #fbf3e2); }
+.lote-escolhas ul { margin: 0.3rem 0 0; padding-left: 1.1rem; }
+
+.lote-resumo-titulo { margin: 0; font-size: 1.15rem; outline: none; }
+.lote-resumo-linha { color: var(--muted); }
+.lote-amostra-bloco { display: grid; gap: 0.35rem; }
+.lote-amostra-lista { margin: 0; padding: 0; list-style: none; display: grid; gap: 0.4rem; max-height: 17rem; overflow: auto; }
+.lote-amostra-lista > li { padding: 0.45rem 0.7rem; border: 1px solid var(--line); border-radius: 6px; }
+.lote-amostra-nome { font-weight: 700; font-size: 0.88rem; }
+.lote-amostra-lista ul { margin: 0.15rem 0 0; padding-left: 1.1rem; font-size: 0.85rem; }
+.lote-recusas { padding: 0.6rem 0.9rem; border-radius: 8px; border: 1px solid var(--danger, #9a2b2b); }
+.lote-recusas ul { margin: 0.3rem 0 0; padding-left: 1.1rem; }
+.lote-avisos ul { margin: 0.3rem 0 0; padding-left: 1.1rem; }
+.lote-aviso-forte { margin: 0; padding: 0.6rem 0.9rem; border-radius: 8px; border: 1px solid var(--danger, #9a2b2b); background: #fdf2f2; }

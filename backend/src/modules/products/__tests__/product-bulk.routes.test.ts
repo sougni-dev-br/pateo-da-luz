@@ -222,3 +222,27 @@ describe("POST /bulk/:loteId/desfazer", () => {
     expect(prisma.product.updateMany).not.toHaveBeenCalled();
   });
 });
+
+describe("POST /bulk/panorama", () => {
+  test("mostra como os produtos escolhidos estão hoje, com nomes", async () => {
+    prisma.product.findMany.mockResolvedValue([estado(), estado({ id: "p2", inventorySectorId: null, controlsStock: false })]);
+    const r = await request(app).post("/bulk/panorama").send({ ids: ["p1", "p2"] });
+    expect(r.status).toBe(200);
+    expect(r.body.total).toBe(2);
+    expect(r.body.categoria).toEqual([{ rotulo: "SECOS", count: 2 }]);
+    expect(r.body.setor).toEqual(expect.arrayContaining([{ rotulo: "ESTOQUE", count: 1 }, { rotulo: "sem setor", count: 1 }]));
+    expect(prisma.product.updateMany).not.toHaveBeenCalled();
+  });
+
+  test("usa o mesmo filtro e as mesmas recusas do lote", async () => {
+    expect((await request(app).post("/bulk/panorama").send({ filtro: { categoria: "x" } })).status).toBe(400);
+    expect((await request(app).post("/bulk/panorama").send({})).status).toBe(400);
+  });
+});
+
+describe("POST /bulk (amostra)", () => {
+  test("a amostra do resumo diz antes → depois de cada produto", async () => {
+    const r = await request(app).post("/bulk").send({ ids: ["p1", "p2"], mudancas: { categoryId: "c-doc" } });
+    expect(r.body.amostra[0]).toEqual({ nome: "ARROZ", linhas: ["Categoria: SECOS → DOCES"] });
+  });
+});

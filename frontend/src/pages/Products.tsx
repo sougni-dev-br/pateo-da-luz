@@ -120,6 +120,7 @@ export function Products() {
   // Lote de organização: marcar a página ou todo o filtro, e poder desfazer o último.
   const [selecionarFiltro, setSelecionarFiltro] = useState(false);
   const [mostrarLote, setMostrarLote] = useState(false);
+  const [mostrarDre, setMostrarDre] = useState(false);
   const [ultimoLote, setUltimoLote] = useState<{ id: string; alterados: number } | null>(null);
   const [desfazendo, setDesfazendo] = useState(false);
 
@@ -262,6 +263,7 @@ export function Products() {
       const res = await bulkPatchProductDreCategory(ids, dreCategoryId);
       setSelected(new Set());
       setBulkDreCategoryId("");
+      setMostrarDre(false);
       setShowBulkConfirm(false);
       setPendingSuggestion(null);
       await loadProducts();
@@ -331,6 +333,7 @@ export function Products() {
     setSelecionarFiltro(false);
     setSelected(new Set());
     setMostrarLote(false);
+    setMostrarDre(false);
     buscaDebounce.current = setTimeout(() => loadProducts(1), 350);
     return () => { if (buscaDebounce.current) clearTimeout(buscaDebounce.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -555,6 +558,8 @@ export function Products() {
                         onClick={() => {
                           setSelected(new Set(g.ids));
                           setBulkDreCategoryId(g.dreCatId ?? "");
+                          setMostrarDre(true);
+                          setMostrarLote(false);
                           setShowSuggestions(false);
                         }}
                       >
@@ -617,29 +622,53 @@ export function Products() {
         )}
 
         {selected.size > 0 && (
-          <div className="lote-barra" role="group" aria-label="Seleção para organizar em lote">
-            {selecionarFiltro ? (
-              <span><strong>{totalFiltrado}</strong> produtos do filtro selecionados.</span>
-            ) : (
-              <span><strong>{selected.size}</strong> selecionado{selected.size === 1 ? "" : "s"}.</span>
-            )}
-            {!selecionarFiltro && products.length > 0 && products.every((p) => selected.has(p.id)) && totalFiltrado > products.length && (
+          <div className="lote-barra" role="group" aria-label="Produtos marcados">
+            <div className="lote-barra-texto">
+              {selecionarFiltro ? (
+                <span>Todos os <strong>{totalFiltrado}</strong> produtos do filtro estão marcados.</span>
+              ) : (
+                <span>
+                  <strong>{selected.size}</strong> {selected.size === 1 ? "produto marcado" : "produtos marcados"}
+                  {products.length > 0 && products.every((p) => selected.has(p.id)) && totalFiltrado > products.length ? " nesta página" : ""}.
+                </span>
+              )}
+              {!selecionarFiltro && products.length > 0 && products.every((p) => selected.has(p.id)) && totalFiltrado > products.length && (
+                totalFiltrado > LIMITE_DO_LOTE ? (
+                  <span className="lote-dica">O filtro tem {totalFiltrado} produtos; o lote aceita até {LIMITE_DO_LOTE}. Refine o filtro para marcar todos.</span>
+                ) : (
+                  <button type="button" className="link-button" onClick={() => setSelecionarFiltro(true)}>
+                    Marcar todos os {totalFiltrado} do filtro
+                  </button>
+                )
+              )}
+              {selecionarFiltro && (
+                <button type="button" className="link-button" onClick={() => setSelecionarFiltro(false)}>Marcar só os desta página</button>
+              )}
+              <button type="button" className="link-button" onClick={() => { marcar(new Set()); setMostrarLote(false); setMostrarDre(false); }}>Desmarcar tudo</button>
+            </div>
+            <div className="lote-barra-acoes">
+              <span className="lote-barra-pergunta">O que fazer com {selected.size === 1 && !selecionarFiltro ? "ele" : "eles"}?</span>
               <button
                 type="button"
-                className="link-button"
-                disabled={totalFiltrado > LIMITE_DO_LOTE}
-                title={totalFiltrado > LIMITE_DO_LOTE ? `O lote aceita até ${LIMITE_DO_LOTE} produtos: refine o filtro.` : undefined}
-                onClick={() => setSelecionarFiltro(true)}
+                className="primary-button"
+                disabled={!canEdit}
+                aria-expanded={mostrarLote}
+                title="Mudar categoria, subcategoria, setor, natureza, contagem de estoque ou situação"
+                onClick={() => { setMostrarLote((v) => !v); setMostrarDre(false); }}
               >
-                Selecionar os {totalFiltrado} do filtro
+                Organizar cadastro
               </button>
-            )}
-            {selecionarFiltro && (
-              <button type="button" className="link-button" onClick={() => setSelecionarFiltro(false)}>Voltar para a página</button>
-            )}
-            <button type="button" className="primary-button" disabled={!canEdit} onClick={() => setMostrarLote((v) => !v)} aria-expanded={mostrarLote}>
-              Organizar…
-            </button>
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={!canEdit || selecionarFiltro}
+                aria-expanded={mostrarDre}
+                title={selecionarFiltro ? "A categoria DRE em lote vale só para os produtos marcados na página." : "Muda o DRE dos meses já lançados"}
+                onClick={() => { setMostrarDre((v) => !v); setMostrarLote(false); }}
+              >
+                Mudar categoria DRE
+              </button>
+            </div>
           </div>
         )}
 
@@ -660,7 +689,7 @@ export function Products() {
               void loadProducts();
               if (resumo.loteId) {
                 setUltimoLote({ id: resumo.loteId, alterados: resumo.alterar });
-                setNotice({ tone: "success", message: `${resumo.alterar} produto(s) organizados.${resumo.recusados > 0 ? ` ${resumo.recusados} não puderam mudar.` : ""}` });
+                setNotice({ tone: "success", message: `Pronto: ${resumo.alterar} produto(s) organizados.${resumo.recusados > 0 ? ` ${resumo.recusados} não puderam mudar e ficaram como estavam.` : ""}` });
               } else {
                 setNotice({ tone: "info", message: "Nada a alterar: os produtos já estavam assim." });
               }
@@ -668,39 +697,40 @@ export function Products() {
           />
         )}
 
-        {ultimoLote && (
-          <div className="lote-desfazer" role="status">
-            <span>Lote aplicado em <strong>{ultimoLote.alterados}</strong> produto(s).</span>
-            <button type="button" className="secondary-button" disabled={desfazendo} onClick={() => void desfazerUltimoLote()}>
-              {desfazendo ? "Desfazendo..." : "Desfazer"}
-            </button>
-            <button type="button" className="link-button" disabled={desfazendo} onClick={() => setUltimoLote(null)}>Dispensar</button>
-          </div>
+        {mostrarDre && selected.size > 0 && !selecionarFiltro && (
+          <section className="lote-painel" aria-label="Mudar a categoria DRE dos produtos marcados">
+            <div className="lote-cabecalho">
+              <h3>Mudar a categoria DRE de {selected.size} {selected.size === 1 ? "produto" : "produtos"}</h3>
+              <button type="button" className="secondary-button" onClick={() => { setMostrarDre(false); setBulkDreCategoryId(""); }}>Fechar sem mudar nada</button>
+            </div>
+            <p className="lote-aviso-forte">
+              <strong>Atenção:</strong> a categoria DRE vale para todos os meses. Mudar aqui muda o DRE do histórico, inclusive de meses já fechados.
+            </p>
+            <div className="lote-campos">
+              <div className="lote-campo">
+                <label htmlFor="lote-dre">Nova categoria DRE</label>
+                <p className="lote-campo-ajuda">Onde as compras desses produtos aparecem no DRE.</p>
+                <select id="lote-dre" value={bulkDreCategoryId} onChange={(e) => setBulkDreCategoryId(e.target.value)}>
+                  <option value="">Escolha a categoria</option>
+                  <DRECategoryOptions categories={dreCategories} />
+                </select>
+              </div>
+            </div>
+            <div className="lote-acoes">
+              <button className="primary-button" type="button" disabled={!bulkDreCategoryId} onClick={() => setShowBulkConfirm(true)}>
+                Conferir e aplicar…
+              </button>
+            </div>
+          </section>
         )}
 
-        {/* Barra de ação em lote */}
-        {selected.size > 0 && (
-          <div style={{ position: "sticky", top: 0, zIndex: 10, background: "var(--paper-soft)", border: "1px solid var(--line)", borderRadius: "8px", padding: "0.75rem 1rem", display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap" }}>
-            <strong style={{ whiteSpace: "nowrap" }}>Categoria DRE (muda o histórico):</strong>
-            <select
-              value={bulkDreCategoryId}
-              onChange={(e) => setBulkDreCategoryId(e.target.value)}
-              style={{ minWidth: "220px" }}
-            >
-              <option value="">— Categoria DRE —</option>
-              <DRECategoryOptions categories={dreCategories} />
-            </select>
-            <button
-              className="primary-button"
-              type="button"
-              disabled={!bulkDreCategoryId}
-              onClick={() => setShowBulkConfirm(true)}
-            >
-              Aplicar em lote
+        {ultimoLote && (
+          <div className="lote-desfazer" role="status">
+            <span>Pronto: <strong>{ultimoLote.alterados}</strong> {ultimoLote.alterados === 1 ? "produto foi organizado" : "produtos foram organizados"}. Se algo ficou errado:</span>
+            <button type="button" className="secondary-button" disabled={desfazendo} onClick={() => void desfazerUltimoLote()}>
+              {desfazendo ? "Desfazendo..." : "Desfazer tudo"}
             </button>
-            <button type="button" style={{ marginLeft: "auto" }} onClick={() => { setSelected(new Set()); setBulkDreCategoryId(""); }} title="Cancelar seleção">
-              <X size={16} />
-            </button>
+            <button type="button" className="link-button" disabled={desfazendo} onClick={() => setUltimoLote(null)}>Está certo, dispensar</button>
           </div>
         )}
 
@@ -727,7 +757,7 @@ export function Products() {
                 <Table.Th>Natureza</Table.Th>
                 <Table.Th>Categoria</Table.Th>
                 <Table.Th>Setor</Table.Th>
-                <Table.Th align="center">Estoque</Table.Th>
+                <Table.Th align="center" title="Entra na contagem de estoque?">Conta estoque?</Table.Th>
                 <Table.Th>Categoria DRE</Table.Th>
                 <Table.Th actions>Ações</Table.Th>
               </Table.Row>
@@ -771,7 +801,7 @@ export function Products() {
                       {product.subcategory && <small>{product.subcategory.name}</small>}
                     </Table.Td>
                     <Table.Td>
-                      {product.inventorySector?.name ?? <span className="cell-pendente">sem setor</span>}
+                      {product.inventorySector?.name ?? (product.controlsStock === false ? <span title="Não entra na contagem, então não precisa de setor">—</span> : <span className="cell-pendente">sem setor</span>)}
                     </Table.Td>
                     <Table.Td align="center">{product.controlsStock === false ? "Não" : "Sim"}</Table.Td>
                     <Table.Td truncate style={{ maxWidth: 180 }}>

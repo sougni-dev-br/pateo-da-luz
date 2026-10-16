@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { Router } from "express";
+import { Router, type Response } from "express";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../../config/database.js";
@@ -9,7 +9,9 @@ import { PRODUCT_NATURES, type ProductNatureValue } from "./product-nature.js";
 import { productListWhere } from "./product-list-filter.js";
 import {
   aplicarMudancasAoEstado,
+  descreverAlteracao,
   desfazerEhSeguro,
+  panoramaDoAlvo,
   planejarLote,
   type ContextoDoLote,
   type EstadoDoLote,
@@ -55,6 +57,15 @@ const filtroSchema = z
   .strict()
   .refine((filtro) => Object.values(filtro).some((valor) => valor !== undefined && valor !== ""), {
     message: "Informe ao menos um critério no filtro."
+  });
+
+const alvoSchema = z
+  .object({
+    ids: z.array(idNaoVazio).min(1).max(LIMITE_DO_LOTE).optional(),
+    filtro: filtroSchema.optional()
+  })
+  .refine((corpo) => (corpo.ids === undefined) !== (corpo.filtro === undefined), {
+    message: "Informe os produtos escolhidos (ids) ou o filtro, não os dois."
   });
 
 const loteSchema = z
@@ -162,30 +173,51 @@ function agruparPorPatch<T extends { id: string }>(itens: T[], chave: (item: T) 
   return [...grupos.values()];
 }
 
+type AlvoDoCorpo = { ids?: string[]; filtro?: Record<string, unknown> };
+
+/** Produtos do lote: os marcados (ids) ou todo o filtro. Responde o erro e devolve null quando não dá. */
+async function carregarAlvo(corpo: AlvoDoCorpo, response: Response): Promise<ProdutoDoLote[] | null> {
+  let produtos: ProdutoDoLote[];
+  if (corpo.ids) {
+    produtos = await prisma.product.findMany({ where: { id: { in: corpo.ids } }, select: SELECT_DO_LOTE });
+  } else {
+    const where = productListWhere(corpo.filtro ?? {});
+    const total = await prisma.product.count({ where });
+    if (total > LIMITE_DO_LOTE) {
+      response.status(400).json({ message: `O filtro pega ${total} produtos; o limite do lote é ${LIMITE_DO_LOTE}. Refine o filtro.` });
+      return null;
+    }
+    produtos = await prisma.product.findMany({ where, select: SELECT_DO_LOTE, orderBy: { name: "asc" } });
+  }
+  if (produtos.length === 0) {
+    response.status(400).json({ message: "Nenhum produto encontrado para o lote." });
+    return null;
+  }
+  return produtos;
+}
+
+/** Como os produtos escolhidos estão hoje, campo a campo: o painel mostra isto antes de pedir qualquer mudança. */
+productBulkRouter.post("/panorama", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  if (!user) return;
+  const corpo = parseBody(alvoSchema, request.body, response);
+  if (!corpo) return;
+  const produtos = await carregarAlvo(corpo, response);
+  if (!produtos) return;
+  response.json(panoramaDoAlvo(produtos, await carregarContexto()));
+});
+
 productBulkRouter.post("/", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
   const corpo = parseBody(loteSchema, request.body, response);
   if (!corpo) return;
 
-  let produtos: ProdutoDoLote[];
-  if (corpo.ids) {
-    produtos = await prisma.product.findMany({ where: { id: { in: corpo.ids } }, select: SELECT_DO_LOTE });
-  } else {
-    const where = productListWhere((corpo.filtro ?? {}) as Record<string, unknown>);
-    const total = await prisma.product.count({ where });
-    if (total > LIMITE_DO_LOTE) {
-      response.status(400).json({ message: `O filtro pega ${total} produtos; o limite do lote é ${LIMITE_DO_LOTE}. Refine o filtro.` });
-      return;
-    }
-    produtos = await prisma.product.findMany({ where, select: SELECT_DO_LOTE, orderBy: { name: "asc" } });
-  }
-  if (produtos.length === 0) {
-    response.status(400).json({ message: "Nenhum produto encontrado para o lote." });
-    return;
-  }
+  const produtos = await carregarAlvo(corpo, response);
+  if (!produtos) return;
 
-  const plano = planejarLote(produtos, corpo.mudancas, await carregarContexto());
+  const contexto = await carregarContexto();
+  const plano = planejarLote(produtos, corpo.mudancas, contexto);
   const resumo = {
     total: produtos.length,
     alterar: plano.alterar.length,
@@ -194,7 +226,7 @@ productBulkRouter.post("/", async (request, response) => {
     recusadosPorMotivo: plano.recusadosPorMotivo,
     contagens: plano.contagens,
     avisos: plano.avisos,
-    amostra: plano.alterar.slice(0, AMOSTRA_DO_RESUMO).map((item) => item.name)
+    amostra: plano.alterar.slice(0, AMOSTRA_DO_RESUMO).map((item) => ({ nome: item.name, linhas: descreverAlteracao(item, contexto) }))
   };
 
   if (!corpo.aplicar) {

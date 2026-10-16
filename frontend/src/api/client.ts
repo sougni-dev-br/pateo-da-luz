@@ -2797,8 +2797,30 @@ export type ResumoDoLote = {
   recusadosPorMotivo: Array<{ motivo: string; count: number; exemplos: string[] }>;
   contagens: { categoria: number; subcategoria: number; setor: number; natureza: number; estoque: number; situacao: number };
   avisos: string[];
-  amostra: string[];
+  /** Os primeiros produtos que mudam, com cada mudança escrita "campo: antes → depois". */
+  amostra: Array<{ nome: string; linhas: string[] }>;
 };
+
+export type ItemDoPanorama = { rotulo: string; count: number };
+
+/** Como os produtos escolhidos estão hoje em cada campo. */
+export type PanoramaDoLote = {
+  total: number;
+  categoria: ItemDoPanorama[];
+  subcategoria: ItemDoPanorama[];
+  setor: ItemDoPanorama[];
+  natureza: ItemDoPanorama[];
+  estoque: ItemDoPanorama[];
+  situacao: ItemDoPanorama[];
+};
+
+export function obterPanoramaDoLote(alvo: AlvoDoLote) {
+  return request<PanoramaDoLote>("/products/bulk-update/panorama", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(alvo)
+  });
+}
 
 /** `esperado` é a quantidade que o resumo mostrou: o servidor recusa aplicar se o plano mudou desde então. */
 export function organizarProdutosEmLote(alvo: AlvoDoLote, mudancas: MudancasDoLote, aplicar: boolean, esperado?: number) {
