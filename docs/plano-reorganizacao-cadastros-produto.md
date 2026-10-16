@@ -112,7 +112,7 @@ Toda reclassificação de DRE de produto reescreve o histórico. Antes de aplica
 | A (aprovar a taxonomia) | Aprovada pelo dono em 15/10/2026, com as decisões da seção 6; a categoria **Pães e massas** foi acrescentada depois de ver os dados. |
 | B (schema + cadastro de categorias) | Feita neste PR: `Category.nature` e `Category.defaultDreCategoryId` (nulos), painel de Categorias com natureza e DRE usual, e o editor de produto sugere a DRE usual da categoria. Nenhum dado foi alterado. |
 | C (prévia sem gravar) | Feita: `backend/scripts/proposta-taxonomia.ts` gera planilhas **fora do repositório** (têm nomes reais de produto). Resultado no banco local: 95% dos 804 produtos ativos saem com confiança alta; 27 pedem decisão; 16 têm confiança média. |
-| D (aplicar) | **Validada numa cópia do banco**: 800 de 805 produtos reclassificados, 15 categorias novas, 21 subcategorias removidas, `DESPESAS` desativada; 71 de 71 relatórios financeiros idênticos antes e depois. **Produção: não aplicada**, depende de autorização. Roteiro em `docs/runbook-reorganizacao-cadastros.md`. |
+| D (aplicar) | **Ensaiada numa cópia da produção** (backup do mesmo dia): 851 de 857 produtos reclassificados; 70 de 70 relatórios financeiros idênticos antes e depois; reversão devolve o estado original. **Produção: não aplicada**, depende de autorização. Roteiro e resultado em `docs/runbook-reorganizacao-cadastros.md`. |
 | E (obrigatoriedade e limpeza) | Não iniciada. |
 
 Como gerar a prévia (somente leitura):

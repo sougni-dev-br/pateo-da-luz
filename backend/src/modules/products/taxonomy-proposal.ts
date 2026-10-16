@@ -20,7 +20,8 @@ export type ProductRow = {
 
 export type Confidence = "alta" | "media" | "revisar";
 
-export type CategoryDefinition = { nature: ProductNatureValue; dreName: string };
+/** dreName nulo: a categoria reúne itens de várias categorias DRE (ex.: aluguel e energia), então não sugere uma só. */
+export type CategoryDefinition = { nature: ProductNatureValue; dreName: string | null };
 
 /** Categorias da estrutura nova. Nomes no padrão das existentes (maiúsculas, sem acento). */
 export const PROPOSED_CATEGORIES: Record<string, CategoryDefinition> = {
@@ -48,8 +49,13 @@ export const PROPOSED_CATEGORIES: Record<string, CategoryDefinition> = {
   SOFTWARE: { nature: "SERVICO", dreName: "Sistema / Software" },
   TRANSPORTE: { nature: "SERVICO", dreName: "Transporte / Mobilidade" },
   "SERVICOS DE TERCEIROS": { nature: "SERVICO", dreName: "Serviços de Terceiros" },
+  "ALUGUEL E TARIFAS": { nature: "SERVICO", dreName: null },
+  "IMPOSTOS E RETENCOES": { nature: "SERVICO", dreName: null },
   "OUTRAS DESPESAS": { nature: "SERVICO", dreName: "Outras Despesas Gerais" }
 };
+
+// Itens de ocupação do shopping e de tarifas públicas, e itens de imposto, cadastrados como produto.
+const GRUPOS_DE_ALUGUEL_E_TARIFAS = new Set(["LOCACAO", "TARIFAS_PUBLICAS", "TARIFAS_BANCARIAS"]);
 
 const norm = (valor: string | null | undefined) => normalizeText(valor);
 
@@ -97,7 +103,10 @@ export function proposeNature(row: ProductRow): { nature: ProductNatureValue | n
 
   if (dre === "investimentos") return { nature: "DURAVEL", confidence: "revisar", reason: "DRE de investimento" };
   if (dre === "descartaveis") return { nature: "EMBALAGEM", confidence: "revisar", reason: "DRE descartáveis fora do CMV" };
-  if (["IMPOSTOS", "PESSOAL", "VALE_TRANSPORTE"].includes(row.dreGroup)) {
+  if (GRUPOS_DE_ALUGUEL_E_TARIFAS.has(row.dreGroup) || row.dreGroup === "IMPOSTOS") {
+    return { nature: "SERVICO", confidence: "alta", reason: `despesa de ${row.dreGroup} cadastrada como item` };
+  }
+  if (["PESSOAL", "VALE_TRANSPORTE"].includes(row.dreGroup)) {
     return { nature: "SERVICO", confidence: "revisar", reason: `item de ${row.dreGroup} cadastrado como produto` };
   }
   return { nature: null, confidence: "revisar", reason: `DRE ${row.dreName} não indica a natureza` };
@@ -132,7 +141,7 @@ const REGRAS_DE_INSUMO: RegraDeInsumo[] = [
   {
     category: "SECOS E GRAOS",
     pattern: palavraInteira(
-      "leite em po|leite de coco|biscoito|arroz|feijao|lentilha|farinha|fuba|macarrao|fermento|acucar|cafe|cha|gergelim|aveia|graos?|polvilho|trigo|adocante|sache|amido|maizena|maisena|granola|mel|coco|castanha|nozes|pistache|uva passa|frutas secas|damasco|flocao|cappuccino|mistura|taco shell|batata palha"
+      "leite em po|leite de coco|achocolatado|biscoito|arroz|feijao|lentilha|farinha|fuba|macarrao|fermento|acucar|cafe|cha|gergelim|aveia|graos?|polvilho|trigo|adocante|sache|amido|maizena|maisena|granola|mel|coco|castanha|nozes|pistache|uva passa|frutas secas|damasco|flocao|cappuccino|mistura|taco shell|batata palha"
     )
   },
   {
@@ -189,6 +198,10 @@ export function proposeCategory(row: ProductRow): { category: string | null; con
     }
     const dividida = CATEGORIA_POR_DRE_DE_DESPESA[norm(row.dreName)];
     if (dividida) return { category: dividida, confidence: "alta", reason: `DRE ${row.dreName}` };
+    if (row.dreGroup && GRUPOS_DE_ALUGUEL_E_TARIFAS.has(row.dreGroup)) {
+      return { category: "ALUGUEL E TARIFAS", confidence: "alta", reason: `DRE ${row.dreName ?? row.dreGroup}` };
+    }
+    if (row.dreGroup === "IMPOSTOS") return { category: "IMPOSTOS E RETENCOES", confidence: "alta", reason: `DRE ${row.dreName ?? "de imposto"}` };
     return { category: "OUTRAS DESPESAS", confidence: "revisar", reason: `DRE ${row.dreName ?? "ausente"} sem categoria própria` };
   }
 

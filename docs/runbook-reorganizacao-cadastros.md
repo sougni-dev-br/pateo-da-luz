@@ -77,3 +77,25 @@ Decisão pendente do dono: equipamento como **investimento** só daqui para fren
 - **Importação de catálogo e de compras** criam categoria pelo nome da planilha. Se a planilha ainda trouxer `INSUMOS` ou `DESPESAS`, a categoria antiga é recriada. Atualizar a planilha-modelo (ou o mapeamento) antes da próxima importação.
 - **Contagem de utensílios** continua sendo entrega separada: ligar o controle de estoque nos duráveis hoje entraria no valor do inventário do CMV e na exigência de cobertura do fechamento. Os duráveis seguem com `controlsStock = false` por padrão.
 - As planilhas de prévia e de decisões têm nomes reais de produtos e **nunca** vão para o repositório (é público).
+
+## Resultado do ensaio numa cópia da produção (16/10/2026)
+
+Backup diário automático de produção (gerado às 09:20 do mesmo dia) restaurado num Postgres 18 isolado em Docker, **sem nenhuma conexão com a produção**. Nada foi aplicado em produção.
+
+| Verificação | Resultado |
+|---|---|
+| Restauração do backup | limpa, sem avisos: 857 produtos, 5.760 itens de compra |
+| Migrations pendentes (`natureza_do_produto`, `categoria_natureza_e_dre_padrao`) | aplicadas sem erro sobre dados reais |
+| Estabilidade da régua (duas capturas sem mudança) | 70 de 70 relatórios idênticos |
+| Aplicação: 851 de 857 produtos, 17 categorias novas, 19 subcategorias removidas | campos protegidos inalterados; segunda execução sem nada a fazer |
+| Relatórios financeiros depois de aplicar | **70 de 70 idênticos** (DRE de cada mês, pendências, fechamento mensal, CMV) |
+| Controle negativo (mudar a DRE de um produto com 112 itens de compra) | **12 de 70 relatórios divergiram**: a régua enxerga mudança |
+| Reversão | estado de produtos, categorias e subcategorias **idêntico ao original**; relatórios 70 de 70 idênticos ao "antes" |
+| Referências soltas (agenda de contagem, sessões) às categorias afetadas | zero |
+
+O que o ensaio mostrou de novo em relação à base local:
+- 52 produtos só existem em produção. Vinte e um deles são despesas do shopping (aluguel, condomínio, IPTU, fundos, energia, gás) e retenções de imposto cadastradas como produto; ganharam as categorias **ALUGUEL E TARIFAS** e **IMPOSTOS E RETENCOES** em vez de cair no balaio "Outras despesas".
+- Três itens ficam sem natureza de propósito, por serem cadastros genéricos ou não identificáveis pelo nome, e a categoria `INSUMOS` continua ativa por causa deles.
+- A última migration aplicada em produção é `vinculo_pedido_nota`, que ainda não está nestas branches: o Prisma avisa que existe no banco e falta localmente, o que é esperado e inofensivo para `migrate deploy`.
+
+Para subir a API sobre uma cópia que tem dados reais use `scripts/api-sem-efeitos.ts`, **nunca** o `server.ts`: o `server.ts` inicia o WhatsApp (que usaria a sessão salva no banco) e os crons do 99 Food. O script ainda recusa subir se o banco não for local.

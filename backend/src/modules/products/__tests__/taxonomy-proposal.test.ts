@@ -47,10 +47,12 @@ describe("proposeNature", () => {
     }
   });
 
-  it("DRE de imposto, pessoal ou vale-transporte vira serviço, mas pede revisão", () => {
-    const resultado = proposeNature(linha({ dreGroup: "IMPOSTOS", dreName: "GARE / ICMS", controlsStock: false }));
-    expect(resultado.nature).toBe("SERVICO");
-    expect(resultado.confidence).toBe("revisar");
+  it("DRE de pessoal ou vale-transporte vira serviço, mas pede revisão", () => {
+    for (const dreGroup of ["PESSOAL", "VALE_TRANSPORTE"]) {
+      const resultado = proposeNature(linha({ dreGroup, dreName: "Qualquer", controlsStock: false }));
+      expect(resultado.nature).toBe("SERVICO");
+      expect(resultado.confidence).toBe("revisar");
+    }
   });
 
   it("sem DRE não propõe natureza", () => {
@@ -183,11 +185,23 @@ describe("proposeCategory: demais categorias", () => {
     expect(resultado.confidence).toBe("revisar");
   });
 
-  it("toda categoria proposta tem natureza e DRE padrão", () => {
-    for (const [nome, definicao] of Object.entries(PROPOSED_CATEGORIES)) {
-      expect(definicao.nature, nome).toBeTruthy();
-      expect(definicao.dreName, nome).toBeTruthy();
-    }
+  it("toda categoria proposta tem natureza; só as que reúnem várias DRE ficam sem DRE padrão", () => {
+    const semDre = Object.entries(PROPOSED_CATEGORIES).filter(([, definicao]) => definicao.dreName === null).map(([nome]) => nome);
+    for (const [nome, definicao] of Object.entries(PROPOSED_CATEGORIES)) expect(definicao.nature, nome).toBeTruthy();
+    expect(semDre.sort()).toEqual(["ALUGUEL E TARIFAS", "IMPOSTOS E RETENCOES"]);
+  });
+
+  it("despesa de aluguel, condomínio e tarifas vai para ALUGUEL E TARIFAS; imposto para IMPOSTOS E RETENCOES", () => {
+    const base = { categoryName: "DESPESAS", controlsStock: false };
+    const aluguel = proposeCategory(linha({ ...base, dreGroup: "LOCACAO", dreName: "Condomínio" }));
+    expect(aluguel).toMatchObject({ category: "ALUGUEL E TARIFAS", confidence: "alta" });
+    expect(proposeCategory(linha({ ...base, dreGroup: "TARIFAS_PUBLICAS", dreName: "Energia Elétrica" })).category).toBe("ALUGUEL E TARIFAS");
+    expect(proposeCategory(linha({ ...base, dreGroup: "IMPOSTOS", dreName: "IRRF / DARF" })).category).toBe("IMPOSTOS E RETENCOES");
+    expect(proposeNature(linha({ ...base, dreGroup: "LOCACAO", dreName: "Aluguel" }))).toMatchObject({ nature: "SERVICO", confidence: "alta" });
+  });
+
+  it("achocolatado em pó é seco, não doce", () => {
+    expect(proposeCategory(linha({ name: "ACHOCOLATADO FICTICIO EM PO 2KG" })).category).toBe("SECOS E GRAOS");
   });
 });
 

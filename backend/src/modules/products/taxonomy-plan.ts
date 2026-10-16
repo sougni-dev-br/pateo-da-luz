@@ -92,8 +92,8 @@ export function planTaxonomy(input: {
       warnings.push(`Categoria "${nome}" não faz parte da estrutura proposta; os produtos dela ficam como estão.`);
       continue;
     }
-    const dre = drePorNome.get(norm(definicao[1].dreName));
-    if (!dre) warnings.push(`Categoria DRE "${definicao[1].dreName}" não existe; a categoria "${nome}" fica sem DRE usual.`);
+    const dre = definicao[1].dreName ? drePorNome.get(norm(definicao[1].dreName)) : undefined;
+    if (definicao[1].dreName && !dre) warnings.push(`Categoria DRE "${definicao[1].dreName}" não existe; a categoria "${nome}" fica sem DRE usual.`);
     const existente = categoriaPorNome.get(norm(nome));
     if (!existente) {
       categoriesToCreate.push({ name: definicao[0], nature: definicao[1].nature, defaultDreCategoryId: dre?.id ?? null });
