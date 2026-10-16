@@ -1699,7 +1699,7 @@ export type StockCount = {
 };
 
 export type StockCountSessionType = "GERAL" | "SETORIAL" | "CATEGORIA" | "SUBCATEGORIA" | "FINAL_MES" | "ALEATORIA" | "TAREFA" | "IMPORTACAO_PLANILHA" | "COMPLEMENTAR_CMV" | "RECONTAGEM";
-export type StockCountSessionStatus = "ABERTA" | "EM_ANDAMENTO" | "CONCLUIDA" | "CANCELADA";
+export type StockCountSessionStatus = "ABERTA" | "EM_ANDAMENTO" | "CONCLUIDA" | "CANCELADA" | "ARQUIVADA";
 export type StockCountSessionItemStatus = "PENDENTE" | "CONTADO" | "ZERO" | "DIVERGENTE";
 
 export type StockCountSessionItem = {
@@ -3376,6 +3376,18 @@ export function reopenStockCountSession(id: string, reason: string) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ reason })
   });
+}
+
+export function archiveStockCountSession(id: string, reason?: string) {
+  return request<StockCountSession>(`/inventory/count-sessions/${id}/archive`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason })
+  });
+}
+
+export function unarchiveStockCountSession(id: string) {
+  return request<StockCountSession>(`/inventory/count-sessions/${id}/unarchive`, { method: "PATCH" });
 }
 
 export function cancelStockCountSession(id: string, reason: string) {

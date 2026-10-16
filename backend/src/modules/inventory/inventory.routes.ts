@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { podeArquivarContagem, podeDesarquivarContagem, STATUS_CONTAGEM_ARQUIVADA } from "./contagem-arquivada.js";
 import { Prisma } from "@prisma/client";
 import { Router } from "express";
 import { prisma } from "../../config/database.js";
@@ -1858,7 +1859,7 @@ inventoryRouter.get("/count-sessions", async (request, response) => {
     LEFT JOIN "User" u ON u."id" = s."responsibleUserId"
     LEFT JOIN "OperationalInventory" oi ON oi."id" = s."generatedInventoryId"
     LEFT JOIN "StockCountSessionItem" item ON item."stockCountSessionId" = s."id"
-    WHERE (${includeCanceled} = true OR s."status" <> 'CANCELADA')
+    WHERE (${includeCanceled} = true OR s."status" NOT IN ('CANCELADA', 'ARQUIVADA'))
     GROUP BY s."id", u."name", oi."code", oi."status"
     ORDER BY s."referenceDate" DESC, s."createdAt" DESC
     LIMIT 120
@@ -3328,6 +3329,61 @@ inventoryRouter.patch("/count-sessions/:id/reopen", async (request, response) =>
   response.json(await getStockCountSessionSummary(request.params.id));
 });
 
+// Arquivar: a contagem sai das listas do dia a dia, mas continua no historico (ciclos, medianas). Nao e cancelar.
+inventoryRouter.patch("/count-sessions/:id/archive", async (request, response) => {
+  const user = await requireMenuPermission(request, response);
+  if (!user) return;
+  const session = await getStockCountSessionOrThrow(request.params.id);
+  if (!podeArquivarContagem(session)) {
+    response.status(400).json({ message: "So da para arquivar contagem concluida que nao gerou inventario em uso." });
+    return;
+  }
+  if (!(await userHasPermission(user, "inventory-counting", "delete"))) {
+    response.status(403).json({ message: "Perfil sem permissao para arquivar esta contagem." });
+    return;
+  }
+  await prisma.$executeRaw`
+    UPDATE "StockCountSession" SET "status" = ${STATUS_CONTAGEM_ARQUIVADA}, "updatedAt" = CURRENT_TIMESTAMP
+    WHERE "id" = ${request.params.id} AND "status" = 'CONCLUIDA'
+  `;
+  await auditLog({
+    userId: user.id,
+    action: "ARCHIVE_STOCK_COUNT_SESSION",
+    entity: "StockCountSession",
+    entityId: request.params.id,
+    previousValue: { status: session.status },
+    newValue: { status: STATUS_CONTAGEM_ARQUIVADA, reason: asText(request.body?.reason) || null }
+  });
+  response.json(await getStockCountSessionSummary(request.params.id));
+});
+
+inventoryRouter.patch("/count-sessions/:id/unarchive", async (request, response) => {
+  const user = await requireMenuPermission(request, response);
+  if (!user) return;
+  const session = await getStockCountSessionOrThrow(request.params.id);
+  if (!podeDesarquivarContagem(session)) {
+    response.status(400).json({ message: "Esta contagem nao esta arquivada." });
+    return;
+  }
+  if (!(await userHasPermission(user, "inventory-counting", "delete"))) {
+    response.status(403).json({ message: "Perfil sem permissao para desarquivar esta contagem." });
+    return;
+  }
+  await prisma.$executeRaw`
+    UPDATE "StockCountSession" SET "status" = 'CONCLUIDA', "updatedAt" = CURRENT_TIMESTAMP
+    WHERE "id" = ${request.params.id} AND "status" = ${STATUS_CONTAGEM_ARQUIVADA}
+  `;
+  await auditLog({
+    userId: user.id,
+    action: "UNARCHIVE_STOCK_COUNT_SESSION",
+    entity: "StockCountSession",
+    entityId: request.params.id,
+    previousValue: { status: session.status },
+    newValue: { status: "CONCLUIDA" }
+  });
+  response.json(await getStockCountSessionSummary(request.params.id));
+});
+
 inventoryRouter.patch("/count-sessions/:id/cancel", async (request, response) => {
   const user = await requireMenuPermission(request, response);
   if (!user) return;
@@ -3400,6 +3456,10 @@ inventoryRouter.post("/count-sessions/:id/generate-inventory", async (request, r
   const session = await getStockCountSessionOrThrow(request.params.id);
   if (session.status === "CANCELADA") {
     response.status(400).json({ message: "Nao e possivel gerar inventario a partir de uma contagem cancelada." });
+    return;
+  }
+  if (session.status === STATUS_CONTAGEM_ARQUIVADA) {
+    response.status(400).json({ message: "Esta contagem esta arquivada. Desarquive antes de gerar o inventario." });
     return;
   }
   if (session.status !== "CONCLUIDA") {

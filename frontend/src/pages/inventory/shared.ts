@@ -57,7 +57,8 @@ export const countSessionStatusLabels: Record<string, string> = {
   ABERTA: "aberta",
   EM_ANDAMENTO: "em andamento",
   CONCLUIDA: "concluida",
-  CANCELADA: "cancelada"
+  CANCELADA: "cancelada",
+  ARQUIVADA: "arquivada"
 };
 
 export const countSessionTypeLabels: Record<string, string> = {
@@ -290,6 +291,7 @@ export function countSessionTone(status: string) {
   if (status === "CONCLUIDA") return "success" as const;
   if (status === "EM_ANDAMENTO") return "info" as const;
   if (status === "CANCELADA") return "danger" as const;
+  if (status === "ARQUIVADA") return "neutral" as const;
   return "warning" as const;
 }
 
