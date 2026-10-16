@@ -84,6 +84,7 @@ const MonthlyClosurePanel = lazy(() => import("./pages/MonthlyClosurePanel").the
 const Payables = lazy(() => import("./pages/Payables").then((module) => ({ default: module.Payables })));
 const PaymentMethods = lazy(() => import("./pages/PaymentMethods").then((module) => ({ default: module.PaymentMethods })));
 const Products = lazy(() => import("./pages/Products").then((module) => ({ default: module.Products })));
+const ProductEditor = lazy(() => import("./pages/products/editor/ProductEditor").then((module) => ({ default: module.ProductEditor })));
 const PurchaseOrders = lazy(() => import("./pages/PurchaseOrders").then((module) => ({ default: module.PurchaseOrders })));
 const PurchasePlanning = lazy(() => import("./pages/PurchasePlanning").then((module) => ({ default: module.PurchasePlanning })));
 const Purchases = lazy(() => import("./pages/Purchases").then((module) => ({ default: module.Purchases })));
@@ -177,7 +178,7 @@ const sections = [
   // presa no mes corrente.
   { id: "monthly-closing", label: "Fechamento mensal", icon: FileCog, showInSidebar: true, group: "CMV", path: "/cmv/fechamento-mensal", matchers: ["/cmv/fechamento-mensal", "/cmv/fechamento-mensal/:yearMonth"] },
   { id: "inventory", label: "Visão Geral", icon: Warehouse, showInSidebar: true, group: "Estoque", path: "/estoque/visao-geral", matchers: ["/estoque/visao-geral"] },
-  { id: "products", label: "Produtos", icon: Package, showInSidebar: true, group: "Estoque", path: "/estoque/produtos", matchers: ["/estoque/produtos"] },
+  { id: "products", label: "Produtos", icon: Package, showInSidebar: true, group: "Estoque", path: "/estoque/produtos", matchers: ["/estoque/produtos", "/estoque/produtos/novo", "/estoque/produtos/:id/editar"] },
   { id: "inventory-movements", label: "Movimentações", icon: Truck, showInSidebar: true, group: "Estoque", path: "/estoque/movimentacoes", matchers: ["/estoque/movimentacoes"] },
   { id: "inventory-waste", label: "Desperdício", icon: Trash2, showInSidebar: true, group: "Estoque", path: "/estoque/desperdicio", matchers: ["/estoque/desperdicio"], description: "Perdas de insumo por motivo, setor e produto" },
   { id: "inventory-counting", label: "Contagem de Estoque", icon: ClipboardList, showInSidebar: true, group: "Estoque", path: "/estoque/contagens", matchers: ["/estoque/contagens", "/estoque/contagens/:sessionId/lancar"] },
@@ -779,6 +780,8 @@ export function App() {
               <Route path="/financeiro/ciclos-fornecedor" element={<SupplierCycles />} />
               <Route path="/financeiro/reembolsos" element={<Reimbursements />} />
               <Route path="/estoque/produtos" element={<Products />} />
+              <Route path="/estoque/produtos/novo" element={<ProductEditor />} />
+              <Route path="/estoque/produtos/:id/editar" element={<ProductEditor />} />
               <Route path="/cadastros/fornecedores" element={<Suppliers onOpenPurchases={() => handleNavigate("purchases")} />} />
               <Route path="/cadastros/empresas" element={<Companies />} />
               <Route path={ROTAS_RH.funcionarios} element={<Funcionarios />} />

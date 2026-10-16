@@ -6,6 +6,7 @@ import { normalizeText } from "../../shared/utils/normalize-text.js";
 import { parseDecimalInput } from "../../shared/utils/parse-decimal.js";
 import { formatProductCode, normalizeProductCode } from "../../shared/utils/product-code.js";
 import { resolveProductNameConflict } from "./product-name-conflict.js";
+import { NATURE_DEFAULTS, PRODUCT_NATURES, camposObrigatoriosFaltando, palavrasDoNome, rankSimilarNames } from "./product-nature.js";
 import { parseBody } from "../../shared/validate-body.js";
 import { resolvePagination } from "../../shared/pagination.js";
 import { productSchema, productStatusSchema } from "./product.schemas.js";
@@ -399,6 +400,32 @@ productRouter.get("/next-code", async (request, response) => {
 });
 
 /**
+ * Produtos de nome parecido, para avisar antes de cadastrar em duplicidade.
+ * O bloqueio de nome IGUAL continua no POST; aqui entra o quase igual
+ * ("Farinha de trigo" x "Farinha trigo tipo 1"), que o POST deixa passar.
+ */
+productRouter.get("/similar", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
+  if (!user) return;
+
+  const nome = normalizeText(String(request.query.name ?? ""));
+  // Mesmo filtro do ranking: palavra sem peso ("tipo") casaria centenas de itens e empurraria o duplicado real para fora do corte.
+  const palavras = palavrasDoNome(nome).slice(0, 6);
+  if (palavras.length === 0) {
+    response.json({ items: [] });
+    return;
+  }
+
+  const candidatos = await prisma.product.findMany({
+    where: { isActive: true, OR: palavras.map((palavra) => ({ normalizedName: { contains: palavra } })) },
+    select: { id: true, name: true, normalizedName: true, externalCode: true, unit: true },
+    take: 200
+  });
+  const items = rankSimilarNames(nome, candidatos).map(({ normalizedName: _normalizedName, ...resto }) => resto);
+  response.json({ items });
+});
+
+/**
  * Dados de apoio do formulario de produto numa unica chamada.
  *
  * A tela montava isso com cinco requisicoes que atravessavam quatro modulos de
@@ -449,6 +476,7 @@ productRouter.get("/form-options", async (request, response) => {
     units,
     suppliers,
     dreCategories,
+    natures: PRODUCT_NATURES.map((value) => ({ value, ...NATURE_DEFAULTS[value] })),
     nextCode: await nextProductCode()
   });
 });
@@ -464,6 +492,7 @@ function productListWhere(query: Record<string, unknown>): Prisma.ProductWhereIn
   const semDreCategoria = query.semDreCategoria === "true";
 
   const subcategory = query.subcategory ? String(query.subcategory) : undefined;
+  const nature = PRODUCT_NATURES.find((valor) => valor === query.nature);
   // Lista de trabalho: mostra o que falta preencher, em vez de caçar produto
   // a produto. "sem-apelido" ficou de fora de proposito — 816 dos 831 produtos
   // se encaixariam, entao nao ajuda a priorizar nada.
@@ -472,7 +501,8 @@ function productListWhere(query: Record<string, unknown>): Prisma.ProductWhereIn
     "sem-setor": { inventorySectorId: null },
     "sem-categoria": { categoryId: null },
     "sem-subcategoria": { subcategoryId: null },
-    "sem-dre": { dreCategoryId: null }
+    "sem-dre": { dreCategoryId: null },
+    "sem-natureza": { nature: null }
   };
 
   return {
@@ -491,6 +521,7 @@ function productListWhere(query: Record<string, unknown>): Prisma.ProductWhereIn
     ...(category ? { category: { name: category } } : {}),
     ...(subcategory ? { subcategory: { name: subcategory } } : {}),
     ...(sector ? { inventorySector: { name: sector } } : {}),
+    ...(nature ? { nature } : {}),
     ...(controlsStock === undefined ? {} : { controlsStock }),
     ...(isActive === undefined ? {} : { isActive }),
     ...(semDreCategoria ? { dreCategoryId: null } : {}),
@@ -853,6 +884,12 @@ productRouter.post("/", async (request, response) => {
   const conversoes = conversoesDoCorpo(body, response);
   if (!conversoes) return;
 
+  const faltando = camposObrigatoriosFaltando(body);
+  if (faltando.length > 0) {
+    response.status(400).json({ message: `Preencha antes de salvar: ${faltando.join(", ")}.` });
+    return;
+  }
+
   const conflict = await checkProductNameConflict(normalizeText(name), null);
   if (!conflict.ok) {
     response.status(409).json({ message: conflict.message });
@@ -873,7 +910,8 @@ productRouter.post("/", async (request, response) => {
       unit: unitMeasure?.code ?? null,
       unitMeasureId: unitMeasure?.id ?? null,
       accountType: body.accountType || null,
-      controlsStock: body.controlsStock ?? true,
+      nature: body.nature ?? null,
+      controlsStock: body.controlsStock ?? (body.nature ? NATURE_DEFAULTS[body.nature].controlsStock : true),
       dreCategoryId: body.dreCategoryId || null,
       notes: body.notes || null,
       isActive: body.isActive ?? true,
@@ -914,6 +952,13 @@ productRouter.put("/:id", async (request, response) => {
   const name = body.name;
   const conversoes = conversoesDoCorpo(body, response);
   if (!conversoes) return;
+
+  // Tela nova manda a natureza junto do formulario inteiro; cliente antigo nao manda e segue sem checagem.
+  const faltando = camposObrigatoriosFaltando(body);
+  if (faltando.length > 0) {
+    response.status(400).json({ message: `Preencha antes de salvar: ${faltando.join(", ")}.` });
+    return;
+  }
 
   const conflict = await checkProductNameConflict(normalizeText(name), request.params.id);
   if (!conflict.ok) {
@@ -994,6 +1039,9 @@ productRouter.put("/:id", async (request, response) => {
       unit: unitMeasure?.code ?? null,
       unitMeasureId: unitMeasure?.id ?? null,
       accountType: body.accountType || null,
+      // Cliente que nao conhece a natureza nao manda o campo: sem isso, salvar
+      // pela tela antiga apagaria o que a tela nova gravou.
+      ...(body.nature === undefined ? {} : { nature: body.nature }),
       controlsStock: body.controlsStock ?? true,
       dreCategoryId: body.dreCategoryId || null,
       notes: body.notes || null,
@@ -1091,6 +1139,22 @@ productRouter.put("/:id", async (request, response) => {
     userAgent: String(request.headers["user-agent"] ?? "")
   });
 
+  response.json((await hydrateProductConversionFields([product]))[0]);
+});
+
+/** Um produto, no mesmo formato da listagem: o editor abre por rota e precisa carregar so o que vai editar. */
+productRouter.get("/:id", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
+  if (!user) return;
+
+  const product = await prisma.product.findUnique({
+    where: { id: request.params.id },
+    include: { category: true, subcategory: true, inventorySector: true, aliases: true, dreCategory: true }
+  });
+  if (!product) {
+    response.status(404).json({ message: "Produto nao encontrado." });
+    return;
+  }
   response.json((await hydrateProductConversionFields([product]))[0]);
 });
 

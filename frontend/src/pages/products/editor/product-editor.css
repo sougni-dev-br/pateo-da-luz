@@ -1,0 +1,147 @@
+/* Editor de produto em passos. Reaproveita form-grid, alert e botões do sistema; aqui só o que é próprio. */
+
+.produto-editor-header { align-items: flex-start; }
+
+.produto-editor-contexto {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.produto-editor-contexto .contexto-ok { color: var(--success); font-weight: 600; }
+.produto-editor-contexto .contexto-pendente { color: var(--warning, #9a6700); font-weight: 600; }
+
+.produto-passos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 18px;
+}
+
+.produto-passo {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 6px 14px 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--muted);
+  cursor: pointer;
+}
+.produto-passo-numero {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--line);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+.produto-passo.active { border-color: var(--gold); background: #fff6df; color: var(--ink); font-weight: 600; }
+.produto-passo.active .produto-passo-numero { background: var(--gold); color: #fff; }
+.produto-passo.has-pending::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--warning, #c98a00);
+}
+.produto-passo:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+.natureza-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.natureza-card {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  min-height: 132px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+.natureza-card strong { font-size: 15px; }
+.natureza-card span { color: var(--muted); font-size: 13px; }
+.natureza-card small { margin-top: auto; color: var(--muted); font-size: 12px; }
+.natureza-card { position: relative; }
+.natureza-card input { position: absolute; opacity: 0; inset: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+.natureza-card:hover { border-color: var(--gold); transform: translateY(-1px); }
+.natureza-card:focus-within { outline: 2px solid var(--gold); outline-offset: 2px; }
+fieldset.natureza-grid { border: 0; padding: 0; margin: 0; min-width: 0; }
+.produto-editor .sr-only {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden;
+  clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+.natureza-card.is-selected {
+  border-color: var(--gold);
+  background: #fff6df;
+  box-shadow: 0 0 0 2px rgba(185, 154, 88, 0.35);
+}
+
+.similares-lista { margin: 6px 0; padding-left: 18px; }
+
+.conferencia-lista { display: grid; gap: 0; margin: 12px 0 18px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.conferencia-linha { display: flex; justify-content: space-between; gap: 16px; padding: 10px 14px; border-bottom: 1px solid var(--line); background: #fff; }
+.conferencia-linha:last-child { border-bottom: 0; }
+.conferencia-linha dt { color: var(--muted); }
+.conferencia-linha dd { margin: 0; font-weight: 600; text-align: right; }
+
+.span-3 { grid-column: 1 / -1; }
+
+@media (max-width: 640px) {
+  .produto-passos { gap: 6px; }
+  .produto-passo { padding-right: 10px; font-size: 13px; }
+  .conferencia-linha { flex-direction: column; gap: 2px; }
+  .conferencia-linha dd { text-align: left; }
+  .natureza-card { min-height: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .natureza-card { transition: none; }
+  .natureza-card:hover { transform: none; }
+}
+
+/* Gráficos de distribuição da lista: recolhidos para a lista aparecer primeiro. */
+.produtos-graficos { margin-top: 12px; }
+.produtos-graficos > summary { cursor: pointer; color: var(--muted); padding: 6px 0; }
+.produtos-graficos > summary:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+.alert .alert-corpo { display: block; min-width: 0; }
+.criar-cadastro { display: grid; gap: 8px; }
+.criar-linha { display: flex; gap: 8px; align-items: center; }
+.criar-linha input { flex: 1; min-width: 0; }
+@media (max-width: 640px) {
+  .criar-linha { flex-direction: column; align-items: stretch; }
+}
+
+/* Grade própria do editor: 3 colunas no desktop, 1 no celular. span-2 e span-3 valem dentro dela. */
+.produto-editor .form-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px 16px;
+  align-items: end;
+}
+.produto-editor .form-grid .span-2 { grid-column: span 2; }
+.produto-editor .form-grid .span-3 { grid-column: 1 / -1; }
+.produto-editor .stock-control-card { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; }
+.produto-editor .stock-control-card p { margin: 2px 0 0; font-size: 13px; }
+.produto-editor .stock-control-card .switch-label { display: flex; align-items: center; gap: 12px; }
+.produto-editor .stock-control-card .switch-label input { width: 22px; height: 22px; flex: none; }
+.produto-editor .stock-control-card .switch-label small { display: block; color: var(--muted); }
+@media (max-width: 760px) {
+  .produto-editor .form-grid { grid-template-columns: minmax(0, 1fr); }
+  .produto-editor .form-grid .span-2 { grid-column: auto; }
+}
