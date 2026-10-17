@@ -5845,6 +5845,23 @@ export function getAnaliseMargemBebidas(periodo: AnalisePeriodo, signal?: AbortS
   return request<AnaliseMargemBebidas>(`/integrations/agile/analise/margem-bebidas?${queryPeriodo(periodo)}`, { signal });
 }
 
+// Consumo teórico de insumos pelas vendas do PDV: referência do que deveria ter saído do estoque. Não baixa estoque.
+export type AnaliseConsumoMotivo = "SEM_VINCULO" | "PRATO_INDISPONIVEL" | "FICHA_SEM_ITENS" | "FICHA_INCOMPLETA" | "RENDIMENTO_NAO_E_PORCAO" | "SEM_CONVERSAO";
+export type AnaliseConsumoProblemaTipo = "SEM_CONVERSAO" | "RENDIMENTO_NAO_E_PORCAO" | "PRATO_INDISPONIVEL" | "FICHA_DE_PRODUCAO_INDISPONIVEL" | "FICHA_EM_CICLO";
+
+export type AnaliseConsumo = {
+  periodo: AnalisePeriodo;
+  hojeFicouDeFora: boolean;
+  insumos: Array<{ insumoId: string; insumo: string; unidade: string; consumo: number; consumoFichas: number; consumoRevenda: number }>;
+  cobertura: { receitaTotal: number; receitaCoberta: number; pct: number; receitaBuffet: number; semVinculoTotal: number };
+  semVinculo: Array<{ codigo: string | null; nome: string; categoria: string | null; receita: number; quantidade: number; motivo: AnaliseConsumoMotivo }>;
+  problemas: Array<{ tipo: AnaliseConsumoProblemaTipo; origem: string; insumo?: string; detalhe: string }>;
+};
+
+export function getAnaliseConsumo(periodo: AnalisePeriodo, signal?: AbortSignal) {
+  return request<AnaliseConsumo>(`/integrations/agile/analise/consumo?${queryPeriodo(periodo)}`, { signal });
+}
+
 // insumoId null desfaz o vínculo da bebida. quantidade/unidade: quanto UMA venda consome do insumo.
 export function vincularBebidaAnaliseMargem(corpo: { codigo: string; nome: string; insumoId: string | null; quantidade?: number; unidade?: AnaliseUnidadeDeConsumo }) {
   return request<{ ok: boolean }>("/integrations/agile/analise/margem-bebidas/vinculo", {

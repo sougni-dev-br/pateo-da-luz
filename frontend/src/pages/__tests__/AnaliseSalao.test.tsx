@@ -10,6 +10,7 @@ vi.mock("../../api/client", () => ({
   getAnaliseDemanda: vi.fn(),
   getAnaliseCardapio: vi.fn(),
   getAnaliseMargem: vi.fn(),
+  getAnaliseConsumo: vi.fn(),
   getAnaliseMargemBebidas: vi.fn(),
   getAnaliseMargemBuffet: vi.fn(),
   salvarCustoBuffetAnalise: vi.fn(),
@@ -91,9 +92,9 @@ describe("Análise do Salão — estrutura", () => {
     expect(getAnaliseVendasPorPessoa).not.toHaveBeenCalled();
   });
 
-  test("tem as sete secoes, nesta ordem", () => {
+  test("tem as oito secoes, nesta ordem", () => {
     renderizar();
-    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Resumo", "Quando vendemos", "Cardápio", "Margem", "Perdas", "Equipe", "Metas"]);
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Resumo", "Quando vendemos", "Cardápio", "Margem", "Consumo", "Perdas", "Equipe", "Metas"]);
   });
 
   test("metas: so busca ao abrir, esconde o filtro de periodo (e por mes) e nao chama os relatorios por periodo", async () => {
@@ -178,7 +179,8 @@ describe("Análise do Salão — estrutura", () => {
       </MemoryRouter>
     );
     await screen.findByText("Faturamento por dia");
-    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Resumo", "Quando vendemos", "Cardápio", "Perdas", "Equipe", "Metas"]);
+    // Consumo fica: traz so quantidades de insumo, nenhum valor de custo.
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Resumo", "Quando vendemos", "Cardápio", "Consumo", "Perdas", "Equipe", "Metas"]);
     expect(getAnaliseMargem).not.toHaveBeenCalled();
     expect(getAnaliseMargemBebidas).not.toHaveBeenCalled();
     expect(getAnaliseMargemBuffet).not.toHaveBeenCalled();
