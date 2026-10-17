@@ -133,6 +133,21 @@ describe("Férias — linha do tempo", () => {
     expect(within(form).getByText("Data inválida.")).toBeInTheDocument();
   });
 
+  test("Imprimir tela abre a janela da visão que está na tela, e Folhas por empresa continua à parte", async () => {
+    vi.mocked(getFerias).mockResolvedValue(lista([pessoa("e1", "Ana Souza", [periodo()])]));
+    render(<Ferias />);
+    fireEvent.click(await screen.findByRole("button", { name: "Imprimir tela" }));
+    expect(screen.getByRole("dialog", { name: "Imprimir a tela" })).toHaveTextContent("A linha do tempo como está na tela");
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Lista" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Imprimir tela" }));
+    expect(screen.getByRole("dialog", { name: "Imprimir a tela" })).toHaveTextContent("A lista como está na tela");
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Folhas por empresa" }));
+    expect(screen.getByRole("dialog", { name: "Imprimir férias por empresa" })).toBeInTheDocument();
+  });
+
   test("clicar na barra mostra as opções e cancelar a programação chama o servidor", async () => {
     vi.mocked(getFerias).mockResolvedValue(lista([bruno]));
     render(<Ferias />);

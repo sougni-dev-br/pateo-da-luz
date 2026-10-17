@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import type { PeriodoFerias, PessoaFerias } from "../../../../api/client";
 import { motivoInicioVedado } from "../regrasFerias";
 import {
-  type Ausencia, type ContextoSugestao, colegasFora, trechosVedados, ZOOMS, coberturaPorDia, criarEixo, diaDoX, mesesDoEixo, periodoAlvo, quemEstaFora, retangulo, sugerirInicio, trechosDeCobertura, xDoDia, zonasDaJanela,
+  type Ausencia, type ContextoSugestao, ZOOMS, pxPorDiaDaEscala, rotulosDosMeses, segundasDoEixo, colegasFora, trechosVedados, coberturaPorDia, criarEixo, diaDoX, mesesDoEixo, periodoAlvo, quemEstaFora, retangulo, sugerirInicio, trechosDeCobertura, xDoDia, zonasDaJanela,
 } from "../eixoDoTempo";
 
 const periodo = (o: Partial<PeriodoFerias> = {}): PeriodoFerias => ({
@@ -14,7 +14,7 @@ const periodo = (o: Partial<PeriodoFerias> = {}): PeriodoFerias => ({
 const pessoa = (periodos: PeriodoFerias[]): PessoaFerias => ({ employeeId: "e1", nome: "Ana", empresa: null, setor: null, repousoSemanal: [0], repousoPelaEscala: false, admissao: "2025-03-01", nivel: "ok", periodos });
 const HOJE = "2026-10-15";
 const FERIADOS = { "2026-11-20": "Consciência Negra", "2026-12-25": "Natal", "2027-01-01": "Confraternização Universal" };
-const px = ZOOMS[0].pxPorDia;
+const px = 2.4;
 
 describe("eixo", () => {
   test("começa dois meses antes de hoje e termina no fim de um mês", () => {
@@ -166,5 +166,52 @@ describe("trechos vedados", () => {
     expect(primeiro).toEqual({ de: 0, ate: 1 });
     expect(trechosVedados(eixo, FERIADOS, [0])).toBe(trechos); // mesma lista, sem refazer a conta
     expect(trechosVedados(eixo, FERIADOS, [2])).not.toBe(trechos);
+  });
+});
+
+describe("escalas da linha do tempo", () => {
+  const [ano, semestre, trimestre] = ZOOMS;
+  test("cada escala mostra exatamente 12, 6 e 3 meses na largura das pistas", () => {
+    const pistas = 900;
+    for (const e of [ano, semestre, trimestre]) {
+      const px = pxPorDiaDaEscala(e, pistas);
+      expect(Math.round(px * 30.44 * e.meses)).toBeGreaterThanOrEqual(pistas - 15);
+      expect(px * 30.44 * e.meses).toBeLessThanOrEqual(pistas + 15);
+    }
+    expect(trimestre.meses).toBe(3);
+    expect(pxPorDiaDaEscala(trimestre, pistas)).toBeCloseTo(pxPorDiaDaEscala(ano, pistas) * 4, 0);
+  });
+
+  test("em tela muito estreita a escala não encolhe além do mínimo", () => {
+    expect(pxPorDiaDaEscala(ano, 100)).toBe(2.4);
+  });
+});
+
+describe("segundas-feiras do eixo", () => {
+  test("uma por semana, com o dia do mês, na posição certa", () => {
+    const eixo = criarEixo(HOJE, [], px);
+    const segundas = segundasDoEixo(eixo);
+    expect(segundas[0]).toEqual({ x: 2 * px, dia: 3 }); // 01/08/2026 é sábado: a primeira segunda é 03/08 (dia 2 do eixo)
+    expect(segundas[1].dia).toBe(10);
+    expect(segundas.length).toBe(Math.floor((eixo.totalDias + 4) / 7));
+  });
+});
+
+describe("rótulos dos meses", () => {
+  const meses = (px: number) => mesesDoEixo({ ...criarEixo(HOJE, [], px), totalDias: 150 });
+
+  test("com espaço, todos os meses levam o ano (e não só o primeiro e janeiro)", () => {
+    const r = rotulosDosMeses(meses(9)); // ~270 px por mês
+    expect(r.map((x) => `${x.nome} ${x.ano}`)).toEqual(["ago 2026", "set 2026", "out 2026", "nov 2026", "dez 2026"]);
+  });
+
+  test("com pouco espaço o ano encurta para todos; com muito pouco, some de todos", () => {
+    expect(rotulosDosMeses(meses(1.3)).every((x) => x.ano === "26")).toBe(true); // ~40 px por mês
+    expect(rotulosDosMeses(meses(0.8)).every((x) => x.ano === "")).toBe(true); // ~24 px por mês
+  });
+
+  test("a virada do ano não muda o critério: dez 2026 e jan 2027 saem iguais", () => {
+    const virada = mesesDoEixo({ inicio: "2026-11-01", totalDias: 120, pxPorDia: 5, largura: 600 });
+    expect(rotulosDosMeses(virada).map((x) => `${x.nome} ${x.ano}`)).toEqual(["nov 2026", "dez 2026", "jan 2027", "fev 2027"]);
   });
 });

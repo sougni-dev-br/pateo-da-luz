@@ -1,0 +1,74 @@
+/* ═══════════════════════════════════════════════════════════════════
+   RH → Férias → Imprimir a tela (linha do tempo ou lista). Prefixo fe-ti- (folha) e fe-it- (janela).
+   A folha usa cores fixas de papel, com padrões que também se distinguem em preto e branco.
+═══════════════════════════════════════════════════════════════════ */
+
+/* ── Folha ─────────────────────────────────────────────────────────── */
+.fe-ti { color: #111; background: #fff; font-family: Arial, Helvetica, sans-serif; font-size: 9pt; line-height: 1.25; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.fe-ti-topo { display: flex; align-items: baseline; justify-content: space-between; gap: 6mm; padding-bottom: 2mm; border-bottom: 0.5mm solid #111; margin-bottom: 2mm; }
+.fe-ti-topo h2 { margin: 0; font-size: 14pt; font-weight: 700; }
+.fe-ti-topo p { margin: 0; font-size: 8.5pt; color: #333; }
+.fe-ti-legenda { list-style: none; margin: 0 0 2mm; padding: 0; display: flex; flex-wrap: wrap; gap: 1mm 4mm; font-size: 7.5pt; }
+.fe-ti-legenda li { display: inline-flex; align-items: center; gap: 1.5mm; }
+.fe-ti-amostra { display: inline-block; width: 8mm; height: 3mm; border: 0.2mm solid #888; }
+.fe-ti-rodape { margin-top: 2mm; font-size: 7.5pt; color: #444; }
+
+.fe-ti-tabela { border-collapse: collapse; table-layout: fixed; }
+.fe-ti-tabela thead { display: table-header-group; }
+.fe-ti-tabela tr { break-inside: avoid; page-break-inside: avoid; }
+.fe-ti .fe-ti-tabela th { padding: 1mm 2mm; text-align: left; font-size: 7.5pt; font-weight: 700; color: #111; text-transform: uppercase; letter-spacing: 0.03em; background: #e6e6e6; border: 0.25mm solid #111; }
+.fe-ti-tabela .fe-ti-trilha { padding: 0; }
+.fe-ti .fe-ti-tabela th.fe-ti-trilha { padding: 0; }
+.fe-ti-nome { padding: 0.8mm 2mm; border: 0.2mm solid #888; overflow: hidden; }
+.fe-ti-nome strong { display: block; font-size: 8.5pt; }
+.fe-ti-nome small, .fe-ti-tabela--lista small { display: block; font-size: 7pt; color: #444; }
+.fe-ti-linha td { border-bottom: 0.2mm solid #999; vertical-align: middle; }
+.fe-ti-grupo td { padding: 0.8mm 2mm; font-size: 7.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; background: #f0f0f0; border: 0.2mm solid #888; }
+
+/* Pista: tudo posicionado em px; a largura já foi calculada para caber no papel. */
+.fe-ti-meses { position: relative; height: 5mm; }
+.fe-ti-meses span { position: absolute; top: 0; bottom: 0; padding: 1mm 0 0 1mm; border-left: 0.2mm solid #888; overflow: hidden; white-space: nowrap; font-size: 7pt; font-weight: 700; text-transform: uppercase; box-sizing: border-box; }
+.fe-ti-pista { position: relative; height: 22px; overflow: hidden; }
+.fe-ti-grade { position: absolute; top: 0; bottom: 0; width: 0; border-left: 0.2mm solid #ccc; }
+.fe-ti-grade--ano { border-left: 0.35mm solid #888; }
+.fe-ti-hoje { position: absolute; top: 0; bottom: 0; width: 0; border-left: 0.5mm solid #111; z-index: 3; }
+.fe-ti-zona { position: absolute; top: 4px; height: 14px; }
+.fe-ti-aquisicao { position: absolute; top: 7px; height: 8px; border: 0.2mm dashed #888; background: repeating-linear-gradient(135deg, transparent 0 3px, #ddd 3px 4px); }
+.fe-ti-barra { position: absolute; top: 3px; height: 16px; z-index: 2; box-sizing: border-box; overflow: hidden; white-space: nowrap; text-align: center; line-height: 16px; font-size: 7pt; font-weight: 700; color: #fff; border-radius: 2px; }
+.fe-ti-barra--programada { background: #2f5f98; }
+.fe-ti-barra--gozada { background: #276749; }
+.fe-ti-calor { position: absolute; top: 3px; height: 16px; text-align: center; line-height: 16px; font-size: 7pt; font-weight: 700; color: #111; }
+.fe-ti-calor--1 { background: #ead9b0; }
+.fe-ti-calor--2 { background: #cfae63; }
+.fe-ti-calor--3 { background: #6f5523; color: #fff; }
+.fe-ti-calor--4 { background: #9f2d2d; color: #fff; }
+
+.fe-ti-amostra--seguro, .fe-ti-zona--seguro { background: #cfe6d8; }
+.fe-ti-amostra--atencao, .fe-ti-zona--atencao { background: #f2dc8e; }
+.fe-ti-amostra--urgente, .fe-ti-zona--urgente { background: #e8aaaa; }
+.fe-ti-amostra--estouro, .fe-ti-zona--estouro { background: repeating-linear-gradient(135deg, #cc6666 0 2px, #f3c9c9 2px 5px); }
+.fe-ti-zona--neutro { background: #e9ecef; }
+.fe-ti-amostra--programada { background: #2f5f98; }
+.fe-ti-amostra--gozada { background: #276749; }
+.fe-ti-amostra--hoje { height: 3mm; width: 0; border: 0; border-left: 0.5mm solid #111; margin: 0 3mm; }
+
+/* Lista */
+.fe-ti-tabela--lista td { padding: 1.2mm 2mm; vertical-align: top; border: 0.2mm solid #888; }
+.fe-ti-tabela--lista { font-size: 8.5pt; }
+.fe-ti-prog { display: block; }
+
+/* ── Janela de opções ──────────────────────────────────────────────── */
+.fe-it-grupo-linha { display: flex; flex-wrap: wrap; gap: 8px; }
+.fe-it-grupo-linha .fe-imp-opcao { flex: 1 1 120px; }
+.fe-it-papel { zoom: var(--fe-it-zoom, 0.6); background: #fff; box-shadow: var(--shadow-soft); }
+.fe-it-base-esq { margin-right: auto; }
+
+@media print {
+  body.imprimindo-ferias .fe-ti { width: auto !important; }
+  body.imprimindo-ferias .fe-ti-tabela { width: 100% !important; }
+}
+
+/* Trimestre: marcas por semana (segundas-feiras) na grade e o dia do mês embaixo do nome do mês */
+.fe-ti-semana { position: absolute; top: 0; bottom: 0; width: 0; border-left: 0.15mm dotted #aaa; }
+.fe-ti-meses--semanas { height: 8mm; }
+.fe-ti-seg { position: absolute; bottom: 0.4mm; padding-left: 0.6mm; font-style: normal; font-size: 6pt; color: #444; }

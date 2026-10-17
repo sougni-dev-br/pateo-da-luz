@@ -9,6 +9,7 @@ import { type ListaFerias, type PedidoFerias, type PeriodoFerias, type PessoaFer
 import { Alert, Button, EmptyState } from "../../design-system";
 import { FormularioFerias } from "./ferias/FormularioFerias";
 import { ImpressaoFerias } from "./ferias/ImpressaoFerias";
+import { ImpressaoTela } from "./ferias/ImpressaoTela";
 import { LinhaDoTempo } from "./ferias/LinhaDoTempo";
 import { LinhaPeriodo } from "./ferias/LinhaPeriodo";
 import { PlanejamentoFerias } from "./ferias/PlanejamentoFerias";
@@ -46,6 +47,7 @@ export function Ferias() {
   const titulo = useRef<HTMLHeadingElement>(null);
   const gatilho = useRef<HTMLElement | null>(null);
   const [imprimindo, setImprimindo] = useState(false);
+  const [imprimindoTela, setImprimindoTela] = useState(false);
   const [previa, setPrevia] = useState<Previa | null>(null);
   const [cheia, setCheia] = useState(false);
   const atualizarPrevia = useCallback((p: Previa | null) => {
@@ -72,11 +74,11 @@ export function Ferias() {
     return () => document.body.classList.remove("fe-sem-rolagem");
   }, [cheia]);
   useEffect(() => {
-    if (!cheia || aberto || imprimindo) return;
+    if (!cheia || aberto || imprimindo || imprimindoTela) return;
     const sair = (e: KeyboardEvent) => { if (e.key === "Escape") setCheia(false); };
     window.addEventListener("keydown", sair);
     return () => window.removeEventListener("keydown", sair);
-  }, [cheia, aberto, imprimindo]);
+  }, [cheia, aberto, imprimindo, imprimindoTela]);
 
   const todasAsLinhas = useMemo(() => (lista ? linhasDaLista(lista) : []), [lista]);
   const empresas = useMemo(() => [...new Set(todasAsLinhas.flatMap((l) => (l.pessoa.empresa ? [l.pessoa.empresa] : [])))].sort((a, b) => a.localeCompare(b, "pt-BR")), [todasAsLinhas]);
@@ -222,9 +224,13 @@ export function Ferias() {
             onClick={() => { setCheia((v) => !v); }}>
             {cheia ? "Sair da tela cheia" : "Tela cheia"}
           </Button>
+          <Button variant="secondary" size="sm" leadingIcon={<Printer size={14} />} aria-disabled={!lista || visiveis.length === 0}
+            onClick={() => { if (lista && visiveis.length > 0) { gatilho.current = document.activeElement as HTMLElement | null; setImprimindoTela(true); } }}>
+            Imprimir tela
+          </Button>
           <Button variant="secondary" size="sm" leadingIcon={<Printer size={14} />} aria-disabled={!lista || linhas.length === 0}
             onClick={() => { if (lista && linhas.length > 0) { gatilho.current = document.activeElement as HTMLElement | null; setImprimindo(true); } }}>
-            Imprimir
+            Folhas por empresa
           </Button>
           <Button variant="secondary" size="sm" leadingIcon={<RefreshCw size={14} />} aria-disabled={carregando} onClick={() => { if (!carregando) void carregar(); }}>
             {carregando && lista ? "Atualizando…" : "Atualizar"}
@@ -340,6 +346,10 @@ export function Ferias() {
             );
           })}
         </ul>
+      )}
+      {imprimindoTela && lista && (
+        <ImpressaoTela lista={lista} visao={visao} pessoas={pessoasVisiveis} linhas={visiveis} filtroRotulo={rotuloDoFiltro} empresaDaTela={empresa} ausencias={ausencias}
+          onClose={() => { setImprimindoTela(false); devolverFoco(); }} />
       )}
       {imprimindo && lista && (
         <ImpressaoFerias lista={lista} onClose={() => { setImprimindo(false); devolverFoco(); }} />

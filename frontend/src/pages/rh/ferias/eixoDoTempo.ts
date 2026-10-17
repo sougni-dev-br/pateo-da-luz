@@ -20,12 +20,20 @@ const DIAS_URGENTE = 30;
 /** Quanto do futuro a tela mostra, no mínimo, mesmo que ninguém tenha prazo tão longe. */
 const HORIZONTE_MINIMO_DIAS = 400;
 
-export type Zoom = { id: "ano" | "semestre" | "trimestre"; rotulo: string; pxPorDia: number };
+/** Cada escala mostra exatamente `meses` meses na largura disponível (Ano = 12, Semestre = 6, Trimestre = 3). */
+export type Zoom = { id: "ano" | "semestre" | "trimestre"; rotulo: string; meses: 12 | 6 | 3 };
 export const ZOOMS: Zoom[] = [
-  { id: "ano", rotulo: "Ano", pxPorDia: 2.4 },
-  { id: "semestre", rotulo: "Semestre", pxPorDia: 4.5 },
-  { id: "trimestre", rotulo: "Trimestre", pxPorDia: 9 },
+  { id: "ano", rotulo: "Ano", meses: 12 },
+  { id: "semestre", rotulo: "Semestre", meses: 6 },
+  { id: "trimestre", rotulo: "Trimestre", meses: 3 },
 ];
+export const DIAS_NO_MES = 30.44;
+/** Em telas muito estreitas a escala não encolhe além disto; a linha do tempo passa a rolar. */
+const PX_MINIMO_POR_DIA = 2.4;
+
+/** Px por dia para os meses da escala caberem na área das pistas (largura visível menos a coluna do nome). */
+export const pxPorDiaDaEscala = (zoom: Zoom, larguraDasPistas: number): number =>
+  Math.round(Math.max(PX_MINIMO_POR_DIA, larguraDasPistas / (zoom.meses * DIAS_NO_MES)) * 100) / 100;
 
 export type Eixo = { inicio: string; totalDias: number; pxPorDia: number; largura: number };
 
@@ -42,6 +50,12 @@ export function criarEixo(hoje: string, pessoas: PessoaFerias[], pxPorDia: numbe
   const fim = somaDias(primeiroDoMes(ultimo, 1), -1);
   const totalDias = Math.min(MAX_DIAS_EIXO, diasEntre(inicio, fim) + 1);
   return { inicio, totalDias, pxPorDia, largura: Math.round(totalDias * pxPorDia) };
+}
+
+/** Eixo entre duas datas (inclusive), espremido numa largura em px: serve à folha impressa. */
+export function criarEixoEntre(inicio: string, fim: string, largura: number): Eixo {
+  const totalDias = diasEntre(inicio, fim) + 1;
+  return { inicio, totalDias, pxPorDia: largura / totalDias, largura };
 }
 
 export const fimDoEixo = (eixo: Eixo) => somaDias(eixo.inicio, eixo.totalDias - 1);
@@ -67,6 +81,21 @@ export function mesesDoEixo(eixo: Eixo): MesDoEixo[] {
     meses.push({ iso: mes, x: de * eixo.pxPorDia, largura: (ate - de) * eixo.pxPorDia, nome: MESES_CURTOS[numero - 1], ano, viraAno: numero === 1 });
   }
   return meses;
+}
+
+/** Largura (px) a partir da qual o mês cabe com o ano inteiro ("OUT 2026") e com o ano curto ("OUT 26"). */
+const LARGURA_ANO_COMPLETO = 46;
+const LARGURA_ANO_CURTO = 34;
+
+/**
+ * Textos do cabeçalho de meses. O ano aparece em todos os meses ou em nenhum (nunca só em alguns):
+ * completo quando o mês mais estreito comporta, curto quando só comporta isso, senão só o nome do mês.
+ * O último mês, que pode ser parcial, não entra na medida.
+ */
+export function rotulosDosMeses(meses: MesDoEixo[]): Array<{ nome: string; ano: string }> {
+  const medida = meses.length > 1 ? Math.min(...meses.slice(0, -1).map((m) => m.largura)) : (meses[0]?.largura ?? 0);
+  const ano = (m: MesDoEixo) => (medida >= LARGURA_ANO_COMPLETO ? String(m.ano) : medida >= LARGURA_ANO_CURTO ? String(m.ano).slice(2) : "");
+  return meses.map((m) => ({ nome: m.nome, ano: ano(m) }));
 }
 
 /** Retângulo (em px) de um intervalo fechado de dias, cortado nas pontas do eixo; null se cair fora. */
@@ -267,4 +296,14 @@ export function trechosVedados(eixo: Eixo, feriados: Feriados, repousos: number[
   }
   doEixo.set(chave, trechos);
   return trechos;
+}
+
+/** Segundas-feiras do eixo (x em px e dia do mês): as marcas semanais da folha de 3 meses. */
+export function segundasDoEixo(eixo: Eixo): Array<{ x: number; dia: number }> {
+  const segundas: Array<{ x: number; dia: number }> = [];
+  for (let i = 0; i < eixo.totalDias; i++) {
+    const dia = somaDias(eixo.inicio, i);
+    if (diaDaSemana(dia) === 1) segundas.push({ x: i * eixo.pxPorDia, dia: Number(dia.slice(8)) });
+  }
+  return segundas;
 }
