@@ -88,12 +88,21 @@ describe("GET /products: ordenação", () => {
   test("usa a ordem pedida, com o nome como desempate", async () => {
     db.product.count.mockResolvedValue(0);
     await request(app).get("/products").query({ sort: "category", dir: "desc" });
-    expect(db.product.findMany.mock.calls[0][0].orderBy).toEqual([{ category: { name: "desc" } }, { name: "asc" }]);
+    expect(db.product.findMany.mock.calls[0][0].orderBy).toEqual([{ category: { name: "desc" } }, { name: "asc" }, { id: "asc" }]);
+  });
+
+  test("campo de ordem fora da lista branca (protótipo, lista) cai no padrão", async () => {
+    db.product.count.mockResolvedValue(0);
+    await request(app).get("/products").query({ sort: "constructor", dir: "desc" });
+    expect(db.product.findMany.mock.calls[0][0].orderBy).toEqual([{ name: "asc" }, { id: "asc" }]);
+    db.product.findMany.mockClear();
+    await request(app).get("/products?sort[]=category&sort[]=dre");
+    expect(db.product.findMany.mock.calls[0][0].orderBy).toEqual([{ name: "asc" }, { id: "asc" }]);
   });
 
   test("sem pedido, nome crescente", async () => {
     db.product.count.mockResolvedValue(0);
     await request(app).get("/products");
-    expect(db.product.findMany.mock.calls[0][0].orderBy).toEqual([{ name: "asc" }]);
+    expect(db.product.findMany.mock.calls[0][0].orderBy).toEqual([{ name: "asc" }, { id: "asc" }]);
   });
 });

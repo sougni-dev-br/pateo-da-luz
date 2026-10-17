@@ -52,6 +52,8 @@ export function proximaOrdem(atual: OrdemDaLista, campo: string): OrdemDaLista {
 }
 
 export function ariaSort(atual: OrdemDaLista, campo: string): "ascending" | "descending" | "none" {
+  // Sem escolha, a lista já vem por nome crescente: o leitor de tela precisa saber disso.
+  if (atual.campo === null && campo === "name") return "ascending";
   if (atual.campo !== campo) return "none";
   return atual.dir === "asc" ? "ascending" : "descending";
 }

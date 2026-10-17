@@ -180,12 +180,24 @@ export function Products() {
     isActive: filters.status === "todos" ? undefined : filters.status === "ativos" ? "true" : "false"
   };
 
-  async function loadProducts(paginaDesejada = page) {
+  // Resposta atrasada de uma busca antiga não pode sobrescrever a da busca mais nova (lista e contagens).
+  const listaSeq = useRef(0);
+  const facetasSeq = useRef(0);
+
+  /** Contagens dos filtros: um adendo. Se falharem, os filtros continuam funcionando, só sem número. */
+  function carregarFacetas() {
+    const minha = ++facetasSeq.current;
+    getProductFacets(filtrosAtivos)
+      .then((retorno) => { if (minha === facetasSeq.current) setFacetas(retorno); })
+      .catch(() => { if (minha === facetasSeq.current) setFacetas(null); });
+  }
+
+  /** `facetas: false` na paginação e na ordenação: o filtro não mudou, as contagens também não. */
+  async function loadProducts(paginaDesejada = page, opcoes: { facetas?: boolean } = {}) {
+    const minha = ++listaSeq.current;
     setLoading(true);
     setError(null);
-    // As contagens dos filtros acompanham toda recarga (filtro, lote, desfazer, inativar). São um adendo: se
-    // falharem, os filtros continuam funcionando, só sem número.
-    getProductFacets(filtrosAtivos).then(setFacetas).catch(() => setFacetas(null));
+    if (opcoes.facetas !== false) carregarFacetas();
 
     try {
       // Os indicadores sao da base inteira, sem filtro: sao um panorama do
@@ -200,6 +212,7 @@ export function Products() {
         getProducts({ ...filtrosAtivos, sort: ordem.campo ?? undefined, dir: ordem.campo ? ordem.dir : undefined, page: paginaDesejada, pageSize: PAGE_SIZE }),
         getProductsSummary().catch(() => null)
       ]);
+      if (minha !== listaSeq.current) return;
       setProducts(pagina.items);
       setTotalPages(pagina.totalPages);
       setTotalFiltrado(pagina.total);
@@ -211,9 +224,10 @@ export function Products() {
       }
       setPage(paginaDesejada);
     } catch (loadError) {
+      if (minha !== listaSeq.current) return;
       setError(loadError instanceof Error ? loadError.message : "Erro ao carregar produtos.");
     } finally {
-      setLoading(false);
+      if (minha === listaSeq.current) setLoading(false);
     }
   }
 
@@ -373,7 +387,15 @@ export function Products() {
     buscaDebounce.current = setTimeout(() => loadProducts(1), 350);
     return () => { if (buscaDebounce.current) clearTimeout(buscaDebounce.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.search, filters.category, filters.subcategory, filters.sector, filters.controlsStock, filters.pendencia, filters.nature, filters.status, ordem.campo, ordem.dir]);
+  }, [filters.search, filters.category, filters.subcategory, filters.sector, filters.controlsStock, filters.pendencia, filters.nature, filters.status]);
+
+  // Ordenar não é filtrar: só recarrega a lista, sem desmarcar o que o usuário marcou nem fechar o lote.
+  const primeiraOrdem = useRef(true);
+  useEffect(() => {
+    if (primeiraOrdem.current) { primeiraOrdem.current = false; return; }
+    void loadProducts(1, { facetas: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ordem.campo, ordem.dir]);
 
   async function loadSemDre() {
     try {
@@ -453,9 +475,11 @@ export function Products() {
               onChange={(event) => setFilters({ ...filters, category: event.target.value })}
             >
               <option value="">Todas</option>
-              {/* Categoria desativada só aparece se for a escolhida: INSUMOS e DESPESAS antigas não confundem. */}
+              {/* Categoria desativada só aparece se for a escolhida ou se ainda tiver produto: INSUMOS e DESPESAS
+                  antigas, vazias, não confundem, mas nenhum produto fica sem caminho de filtro. */}
               {categories
-                .filter((category) => category.isActive !== false || category.name === filters.category)
+                .filter((category) => category.isActive !== false || category.name === filters.category
+                  || (contagemPorNome(facetas?.categorias)?.get(category.name) ?? 0) > 0)
                 .map((category) => (
                   <option key={category.id} value={category.name}>{comContagem(category.name, contagemPorNome(facetas?.categorias))}</option>
                 ))}
@@ -915,7 +939,7 @@ export function Products() {
               <button
                 type="button"
                 className="secondary-button"
-                onClick={() => loadProducts(page - 1)}
+                onClick={() => loadProducts(page - 1, { facetas: false })}
                 disabled={page <= 1 || loading}
               >
                 Anterior
@@ -930,7 +954,7 @@ export function Products() {
               <button
                 type="button"
                 className="secondary-button"
-                onClick={() => loadProducts(page + 1)}
+                onClick={() => loadProducts(page + 1, { facetas: false })}
                 disabled={page >= totalPages || loading}
               >
                 Próxima

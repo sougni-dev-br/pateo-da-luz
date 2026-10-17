@@ -72,11 +72,14 @@ const CAMPOS_DE_ORDEM: Record<string, (direcao: Prisma.SortOrder) => Prisma.Prod
   dre: (dir) => ({ dreCategory: { name: dir } })
 };
 
-/** Ordem da lista: só campos conhecidos, e sempre o nome como desempate para a paginação não embaralhar. */
+/**
+ * Ordem da lista: só campos conhecidos, com o nome e, por último, o id como desempate. O nome não é único
+ * (ativo e inativo repetem), e sem um critério final estável a paginação repetiria ou perderia linhas.
+ */
 export function productListOrderBy(query: Record<string, unknown>): Prisma.ProductOrderByWithRelationInput[] {
   const conhecido = typeof query.sort === "string" && Object.hasOwn(CAMPOS_DE_ORDEM, query.sort);
-  if (!conhecido) return [{ name: "asc" }];
+  if (!conhecido) return [{ name: "asc" }, { id: "asc" }];
   const campo = query.sort as string;
   const direcao: Prisma.SortOrder = query.dir === "desc" ? "desc" : "asc";
-  return campo === "name" ? [{ name: direcao }] : [CAMPOS_DE_ORDEM[campo](direcao), { name: "asc" }];
+  return campo === "name" ? [{ name: direcao }, { id: "asc" }] : [CAMPOS_DE_ORDEM[campo](direcao), { name: "asc" }, { id: "asc" }];
 }

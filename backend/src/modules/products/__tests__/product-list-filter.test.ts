@@ -43,11 +43,11 @@ describe("productListWhere: omitir um critério (para contar as opções dele)",
 
 describe("productListOrderBy", () => {
   test("padrão: nome crescente", () => {
-    expect(productListOrderBy({})).toEqual([{ name: "asc" }]);
+    expect(productListOrderBy({})).toEqual([{ name: "asc" }, { id: "asc" }]);
   });
 
   test("por nome, na direção pedida", () => {
-    expect(productListOrderBy({ sort: "name", dir: "desc" })).toEqual([{ name: "desc" }]);
+    expect(productListOrderBy({ sort: "name", dir: "desc" })).toEqual([{ name: "desc" }, { id: "asc" }]);
   });
 
   test.each([
@@ -59,11 +59,11 @@ describe("productListOrderBy", () => {
   ])("ordena por %s, com o nome como desempate", (campo, esperado) => {
     const ordem = productListOrderBy({ sort: campo, dir: "desc" });
     expect(ordem[0]).toEqual(esperado);
-    expect(ordem[ordem.length - 1]).toEqual({ name: "asc" });
+    expect(ordem.slice(-2)).toEqual([{ name: "asc" }, { id: "asc" }]);
   });
 
   test("campo desconhecido ou direção inválida caem no padrão", () => {
-    expect(productListOrderBy({ sort: "senha", dir: "desc" })).toEqual([{ name: "asc" }]);
-    expect(productListOrderBy({ sort: "category", dir: "sideways" })).toEqual([{ category: { name: "asc" } }, { name: "asc" }]);
+    expect(productListOrderBy({ sort: "senha", dir: "desc" })).toEqual([{ name: "asc" }, { id: "asc" }]);
+    expect(productListOrderBy({ sort: "category", dir: "sideways" })).toEqual([{ category: { name: "asc" } }, { name: "asc" }, { id: "asc" }]);
   });
 });

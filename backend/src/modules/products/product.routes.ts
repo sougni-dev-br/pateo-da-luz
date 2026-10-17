@@ -523,13 +523,6 @@ productRouter.get("/form-options", async (request, response) => {
 });
 
 /**
- * Totais da listagem, calculados no banco.
- *
- * Os cartoes e graficos da tela somavam a lista carregada. Com pagina, somar o
- * que esta na tela mostraria o total da pagina — entao a conta sobe para o
- * banco e passa a valer para todo o filtro, nao so para a pagina visivel.
- */
-/**
  * Quantos produtos cada opção dos filtros teria, com os OUTROS filtros aplicados: é o número que aparece ao lado
  * de cada categoria, natureza, setor e pendência para o usuário saber o que vai achar antes de escolher.
  */
@@ -568,6 +561,13 @@ productRouter.get("/facets", async (request, response) => {
   });
 });
 
+/**
+ * Totais da listagem, calculados no banco.
+ *
+ * Os cartoes e graficos da tela somavam a lista carregada. Com pagina, somar o
+ * que esta na tela mostraria o total da pagina — entao a conta sobe para o
+ * banco e passa a valer para todo o filtro, nao so para a pagina visivel.
+ */
 productRouter.get("/summary", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
   if (!user) return;

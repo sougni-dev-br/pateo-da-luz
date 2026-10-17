@@ -48,5 +48,7 @@ describe("ordem da lista", () => {
     expect(ariaSort({ campo: "sector", dir: "desc" }, "sector")).toBe("descending");
     expect(ariaSort({ campo: "sector", dir: "asc" }, "sector")).toBe("ascending");
     expect(ariaSort({ campo: null, dir: "asc" }, "sector")).toBe("none");
+    expect(ariaSort({ campo: null, dir: "asc" }, "name")).toBe("ascending");
+    expect(ariaSort({ campo: "category", dir: "asc" }, "name")).toBe("none");
   });
 });
