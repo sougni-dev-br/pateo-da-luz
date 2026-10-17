@@ -46,6 +46,18 @@ describe("avisar e pagar", () => {
   });
 });
 
+describe("aviso por escrito (já avisei)", () => {
+  const avisada: ProgramacaoFerias = { ...programacao("g3", "2026-11-23"), avisadoEm: "2026-10-10T15:00:00.000Z" };
+
+  test("a lista traz o aviso e deixa os já avisados por último", () => {
+    const prazos = prazosDeAviso(lista([
+      pessoa("Ana", [avisada]),
+      pessoa("Bia", [programacao("g4", "2026-12-14")]),
+    ]));
+    expect(prazos.map((p) => [p.nome, p.avisadoEm])).toEqual([["Bia", null], ["Ana", "2026-10-10T15:00:00.000Z"]]);
+  });
+});
+
 describe("repouso na regra do início", () => {
   test("com repouso na terça, vedam-se a terça e os 2 dias antes; a quinta passa", () => {
     expect(motivoInicioVedado("2026-12-06", {}, [2])).toMatch(/domingo está a 2 dias do repouso semanal \(terça-feira\)/);

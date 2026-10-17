@@ -6,7 +6,7 @@
 .fe-plano > summary svg { color: var(--gold-dark); }
 .fe-plano > summary .fe-sub { font-weight: 400; }
 .fe-plano[open] > summary { border-bottom: 1px solid var(--line); }
-.fe-plano-corpo { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 20px; padding: 14px; }
+.fe-plano-corpo { display: grid; grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.5fr); gap: 20px; padding: 14px; }
 .fe-plano h3 { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; font-size: var(--fs-sm); }
 .fe-plano-barras { list-style: none; margin: 0 0 6px; padding: 0; display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 6px; align-items: end; height: 150px; }
 .fe-plano-barras li { display: grid; grid-template-rows: 16px 1fr 16px 14px; justify-items: center; align-items: end; height: 100%; min-width: 0; }
@@ -49,3 +49,11 @@ body.fe-sem-rolagem { overflow: hidden; }
 /* Ajuda curta (só na tela cheia, onde a dica comprida some) */
 .fe-tl-ajuda { display: none; width: 26px; height: 26px; border: 1px solid var(--line-strong); border-radius: 50%; background: var(--paper); color: var(--gold-dark); font: inherit; font-size: var(--fs-sm); font-weight: var(--fw-semibold); cursor: help; }
 .fe-tela--cheia .fe-tl-ajuda { display: inline-grid; place-items: center; }
+
+/* Aviso por escrito: botão "Já avisei" e a marca de quem já foi avisado */
+.fe-plano-ok { color: var(--success); }
+.fe-plano-avisado { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; color: var(--success); font-weight: var(--fw-semibold); }
+.fe-plano-desfazer { padding: 0; border: 0; background: none; color: var(--muted); font: inherit; font-size: var(--fs-2xs); font-weight: 400; text-decoration: underline; cursor: pointer; }
+.fe-plano-desfazer:hover { color: var(--ink); }
+.fe-plano-desfazer:focus-visible { outline: 2px solid var(--gold-dark); outline-offset: 2px; }
+.fe-plano-desfazer[aria-disabled="true"] { opacity: 0.6; cursor: not-allowed; }

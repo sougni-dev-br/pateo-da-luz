@@ -1,6 +1,7 @@
-import { BellRing, CalendarClock } from "lucide-react";
+import { BellRing, CalendarClock, Check } from "lucide-react";
 import { useMemo } from "react";
 import type { ListaFerias } from "../../../api/client";
+import { Button } from "../../../design-system";
 import { ausenciasDaLista } from "./eixoDoTempo";
 import { dataBr, plural } from "./feriasFormato";
 import { prazosDeAviso, resumoPorMes } from "./planejamento";
@@ -10,15 +11,17 @@ const URGENTE_EM_DIAS = 7;
 const quando = (dias: number) => (dias < 0 ? `passou há ${-dias} ${plural(-dias, "dia", "dias")}` : dias === 0 ? "hoje" : `em ${dias} ${plural(dias, "dia", "dias")}`);
 
 /** Quanta gente a casa terá fora mês a mês e o que falta fazer antes de cada férias (avisar e pagar). */
-export function PlanejamentoFerias({ lista }: { lista: ListaFerias }) {
+export function PlanejamentoFerias({ lista, ocupado, onAvisado }: { lista: ListaFerias; ocupado: boolean; onAvisado: (programacaoId: string, avisado: boolean, nome: string) => void }) {
   const meses = useMemo(() => resumoPorMes(ausenciasDaLista(lista), lista.hoje), [lista]);
   const prazos = useMemo(() => prazosDeAviso(lista), [lista]);
   const maior = Math.max(1, ...meses.map((m) => m.diasFora));
-  const urgentes = prazos.filter((p) => Math.min(p.diasParaAvisar, p.diasParaPagar) <= URGENTE_EM_DIAS).length;
+  // O que falta fazer é avisar: quem já foi avisado sai da conta (o pagamento não é registrado aqui, só mostrado).
+  const semAviso = prazos.filter((p) => p.avisadoEm === null);
+  const urgentes = semAviso.filter((p) => p.diasParaAvisar <= URGENTE_EM_DIAS).length;
   const totalDias = meses.reduce((s, m) => s + m.diasFora, 0);
-  const resumoPrazos = prazos.length === 0 ? ""
-    : urgentes > 0 ? ` · ${urgentes} ${plural(urgentes, "prazo", "prazos")} nos próximos ${URGENTE_EM_DIAS} dias`
-      : ` · ${prazos.length} ${plural(prazos.length, "aviso a fazer", "avisos a fazer")}`;
+  const resumoPrazos = semAviso.length === 0 ? ""
+    : urgentes > 0 ? ` · ${urgentes} ${plural(urgentes, "aviso urgente", "avisos urgentes")} (até ${URGENTE_EM_DIAS} dias)`
+      : ` · ${semAviso.length} ${plural(semAviso.length, "aviso a fazer", "avisos a fazer")}`;
 
   return (
     <details className="fe-plano">
@@ -35,11 +38,11 @@ export function PlanejamentoFerias({ lista }: { lista: ListaFerias }) {
                 <span className="fe-plano-valor">{m.diasFora || ""}</span>
                 <i className={`fe-plano-barra${m.pico >= 3 ? " fe-plano-barra--cheia" : ""}`} style={{ height: `${Math.max(m.diasFora ? 6 : 2, (m.diasFora / maior) * 100)}%` }} />
                 <span className="fe-plano-mes">{m.nome}</span>
-                <span className="fe-plano-pico">{m.pico > 0 ? `${m.pico} ${plural(m.pico, "junto", "juntos")}` : ""}</span>
+                <span className="fe-plano-pico">{m.pico > 0 ? `${m.pico}×` : ""}</span>
               </li>
             ))}
           </ol>
-          <p className="fe-sub">Soma dos dias de todos que estarão fora. A barra escura é o mês em que 3 ou mais saem ao mesmo tempo.</p>
+          <p className="fe-sub">Altura: soma dos dias de todos que estarão fora. Embaixo do mês, “N×” é o máximo de pessoas fora ao mesmo tempo; a barra escura é o mês com 3 ou mais.</p>
         </section>
 
         <section aria-labelledby="fe-plano-avisos">
@@ -49,14 +52,26 @@ export function PlanejamentoFerias({ lista }: { lista: ListaFerias }) {
           ) : (
             <div className="fe-plano-rolagem">
               <table className="fe-plano-tabela">
-                <thead><tr><th>Funcionário</th><th>Início</th><th>Avisar até (30 dias antes)</th><th>Pagar até (2 dias antes)</th></tr></thead>
+                <thead><tr><th>Funcionário</th><th>Início</th><th>Avisar até (30 dias antes)</th><th>Avisado?</th><th>Pagar até (2 dias antes)</th></tr></thead>
                 <tbody>
                   {prazos.map((p) => (
                     <tr key={p.chave}>
                       <td>{p.nome}</td>
                       <td>{dataBr(p.inicio)}</td>
-                      <td className={p.diasParaAvisar < 0 ? "fe-plano-passou" : p.diasParaAvisar <= URGENTE_EM_DIAS ? "fe-plano-logo" : undefined}>
-                        {dataBr(p.avisarAte)} <span className="fe-sub">{quando(p.diasParaAvisar)}</span>
+                      <td className={p.avisadoEm ? "fe-plano-ok" : p.diasParaAvisar < 0 ? "fe-plano-passou" : p.diasParaAvisar <= URGENTE_EM_DIAS ? "fe-plano-logo" : undefined}>
+                        {dataBr(p.avisarAte)} {!p.avisadoEm && <span className="fe-sub">{quando(p.diasParaAvisar)}</span>}
+                      </td>
+                      <td>
+                        {p.avisadoEm ? (
+                          <span className="fe-plano-avisado">
+                            <Check size={13} aria-hidden="true" /> Avisado em {dataBr(p.avisadoEm.slice(0, 10))}
+                            <button type="button" className="fe-plano-desfazer" aria-disabled={ocupado} aria-label={`Desfazer o aviso de ${p.nome}`}
+                              onClick={() => { if (!ocupado) onAvisado(p.chave, false, p.nome); }}>desfazer</button>
+                          </span>
+                        ) : (
+                          <Button size="sm" variant="secondary" leadingIcon={<Check size={13} />} aria-disabled={ocupado} aria-label={`Marcar que ${p.nome} foi avisado`}
+                            onClick={() => { if (!ocupado) onAvisado(p.chave, true, p.nome); }}>Já avisei</Button>
+                        )}
                       </td>
                       <td className={p.diasParaPagar <= URGENTE_EM_DIAS ? "fe-plano-logo" : undefined}>
                         {dataBr(p.pagarAte)} <span className="fe-sub">{quando(p.diasParaPagar)}</span>

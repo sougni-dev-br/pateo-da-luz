@@ -8389,6 +8389,8 @@ export type NivelFerias = "ok" | "atencao" | "perigo";
 export type ProgramacaoFerias = {
   id: string; aquisitivoInicio: string; gozoInicio: string | null; gozoFim: string | null;
   dias: number; diasAbono: number; status: "PROGRAMADA" | "GOZADA"; observacao: string | null; passouDaData: boolean;
+  /** Quando a pessoa foi avisada por escrito das datas; vazio = ainda não avisada. */
+  avisadoEm?: string | null;
 };
 export type PeriodoFerias = {
   aquisitivoInicio: string; aquisitivoFim: string; limiteInicioGozo: string; fimConcessivo: string;
@@ -8426,6 +8428,10 @@ export function marcarFeriasGozadas(employeeId: string, aquisitivoInicio: string
 }
 export function atualizarFerias(id: string, mudanca: Partial<Omit<PedidoFerias, "aquisitivoInicio">>) {
   return request<{ id: string }>(`/payroll/ferias/${encodeURIComponent(id)}`, json("PATCH", mudanca));
+}
+/** Registra (ou desfaz) que a pessoa foi avisada por escrito das datas das férias. */
+export function marcarFeriasAvisado(id: string, avisado: boolean) {
+  return request<{ id: string; avisadoEm: string | null }>(`/payroll/ferias/${encodeURIComponent(id)}/avisado`, json("POST", { avisado }));
 }
 export function cancelarFerias(id: string) {
   return request<{ ok: boolean }>(`/payroll/ferias/${encodeURIComponent(id)}`, { method: "DELETE" });

@@ -29,6 +29,8 @@ export type Programacao = {
   diasAbono: number;
   status: "PROGRAMADA" | "GOZADA";
   observacao: string | null;
+  /** ISO de quando a pessoa foi avisada das datas; null/ausente = ainda não avisada. */
+  avisadoEm?: string | null;
 };
 export type HistoricoFerias = {
   aquisitivoInicio: string;
