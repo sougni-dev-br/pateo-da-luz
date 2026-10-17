@@ -18,7 +18,7 @@ describe("planejarSubcategorias", () => {
   test("reaproveita a existente da mesma categoria, sem diferenciar caixa nem acento", () => {
     const plano = planejarSubcategorias([{ codigo: "P1", subcategoria: "arroz" }], [produto({ id: "p1" })], existentes);
     expect(plano.criar).toEqual([]);
-    expect(plano.atribuir).toEqual([{ productId: "p1", codigo: "P1", categoryId: "c-sec", name: "ARROZ", chave: "c-sec|arroz" }]);
+    expect(plano.atribuir).toEqual([{ productId: "p1", codigo: "P1", categoryId: "c-sec", name: "ARROZ", chave: "c-sec|arroz", antesId: null }]);
   });
 
   test("reaproveita a existente com acento ou caixa diferente", () => {
@@ -95,5 +95,68 @@ describe("planejarSubcategorias", () => {
     );
     expect(plano.atribuir.map((a) => a.productId)).toEqual(["p2"]);
     expect(plano.ignorados.map((i) => i.motivo)).toEqual(["produto não encontrado", "código repetido na planilha", "produto sem categoria"]);
+  });
+});
+
+describe("planejarSubcategorias: modo trocar", () => {
+  const comSub = (extra: Partial<ProdutoParaSubcategoria> & { id: string }): ProdutoParaSubcategoria =>
+    produto({ subcategoryId: "s-velha", subcategoryName: "LIMPEZA", ...extra });
+  const velhas: SubcategoriaExistente[] = [{ id: "s-velha", name: "LIMPEZA", categoryId: "c-sec" }];
+
+  test("troca quando a planilha mostra a subcategoria atual e ela ainda é essa", () => {
+    const plano = planejarSubcategorias(
+      [{ codigo: "P1", subcategoria: "Químicos", subcategoriaAtual: "limpeza" }],
+      [comSub({ id: "p1" })],
+      velhas,
+      { trocar: true }
+    );
+    expect(plano.criar).toEqual([{ categoryId: "c-sec", categoryName: "SECOS E GRAOS", name: "QUÍMICOS" }]);
+    expect(plano.atribuir[0]).toMatchObject({ productId: "p1", name: "QUÍMICOS", antesId: "s-velha" });
+  });
+
+  test("sem o modo trocar, produto com subcategoria nunca é tocado", () => {
+    const plano = planejarSubcategorias([{ codigo: "P1", subcategoria: "QUIMICOS", subcategoriaAtual: "LIMPEZA" }], [comSub({ id: "p1" })], velhas);
+    expect(plano.atribuir).toEqual([]);
+    expect(plano.ignorados[0].motivo).toMatch(/já tem subcategoria/);
+  });
+
+  test("se a subcategoria atual mudou desde a planilha, ignora", () => {
+    const plano = planejarSubcategorias(
+      [{ codigo: "P1", subcategoria: "QUIMICOS", subcategoriaAtual: "LIMPEZA" }],
+      [comSub({ id: "p1", subcategoryName: "OUTRA" })],
+      velhas,
+      { trocar: true }
+    );
+    expect(plano.atribuir).toEqual([]);
+    expect(plano.ignorados[0].motivo).toMatch(/subcategoria mudou desde a planilha/);
+  });
+
+  test("planilha sem a coluna da subcategoria atual não troca nada", () => {
+    const plano = planejarSubcategorias([{ codigo: "P1", subcategoria: "QUIMICOS" }], [comSub({ id: "p1" })], velhas, { trocar: true });
+    expect(plano.atribuir).toEqual([]);
+  });
+
+  test("ESVAZIAR deixa o produto sem subcategoria, guardando a atual para reverter", () => {
+    const plano = planejarSubcategorias(
+      [{ codigo: "P1", subcategoria: "", acao: "ESVAZIAR", subcategoriaAtual: "LIMPEZA" }],
+      [comSub({ id: "p1" })],
+      velhas,
+      { trocar: true }
+    );
+    expect(plano.atribuir).toEqual([{ productId: "p1", codigo: "P1", categoryId: "c-sec", name: null, chave: null, antesId: "s-velha" }]);
+  });
+
+  test("ESVAZIAR em quem já está sem subcategoria, e a proposta igual à atual, são ignorados", () => {
+    const plano = planejarSubcategorias(
+      [
+        { codigo: "P1", subcategoria: "", acao: "ESVAZIAR" },
+        { codigo: "P2", subcategoria: "LIMPEZA", subcategoriaAtual: "LIMPEZA" }
+      ],
+      [produto({ id: "p1" }), comSub({ id: "p2" })],
+      velhas,
+      { trocar: true }
+    );
+    expect(plano.atribuir).toEqual([]);
+    expect(plano.ignorados.map((i) => i.motivo)).toEqual(["já está sem subcategoria", "já está nessa subcategoria"]);
   });
 });

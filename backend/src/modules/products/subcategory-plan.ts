@@ -1,9 +1,10 @@
 /**
  * Plano de aplicação das subcategorias aprovadas na planilha. Só calcula, nada aqui grava.
  *
- * Regras: só preenche produto que ainda NÃO tem subcategoria (nunca troca a que já existe); reaproveita
- * a subcategoria existente da mesma categoria, comparando sem caixa nem acento; cria só o que falta; e só
- * vale se a categoria da planilha ainda é a do produto (a planilha foi revisada para aquela categoria).
+ * Regras: por padrão só preenche produto que ainda NÃO tem subcategoria (nunca troca a que já existe); no modo
+ * `trocar`, troca a subcategoria apenas quando a planilha mostra a subcategoria atual do produto e ela ainda é
+ * essa (a planilha foi revisada para aquele estado). Reaproveita a subcategoria existente da mesma categoria,
+ * comparando sem caixa nem acento; cria só o que falta; e só vale se a categoria da planilha ainda é a do produto.
  */
 import { normalizeText } from "../../shared/utils/normalize-text.js";
 
@@ -12,6 +13,10 @@ export type LinhaDeSubcategoria = {
   subcategoria: string;
   /** Categoria que a planilha mostrava para o produto; quando informada, precisa bater com a do banco. */
   categoria?: string;
+  /** Subcategoria que a planilha mostrava como atual (modo trocar). */
+  subcategoriaAtual?: string;
+  /** "ESVAZIAR": a subcategoria atual não serve e o produto fica sem subcategoria (modo trocar). */
+  acao?: string;
 };
 
 export type ProdutoParaSubcategoria = {
@@ -20,13 +25,25 @@ export type ProdutoParaSubcategoria = {
   categoryId: string | null;
   categoryName: string | null;
   subcategoryId: string | null;
+  subcategoryName?: string | null;
 };
 
 export type SubcategoriaExistente = { id: string; name: string; categoryId: string; isActive?: boolean };
 
+export type AtribuicaoDeSubcategoria = {
+  productId: string;
+  codigo: string;
+  categoryId: string;
+  /** Nome final da subcategoria; nulo quando a ação é esvaziar. */
+  name: string | null;
+  chave: string | null;
+  /** Subcategoria que o produto tem agora (nula se não tem): o gravar só vale se ainda for essa. */
+  antesId: string | null;
+};
+
 export type PlanoDeSubcategorias = {
   criar: Array<{ categoryId: string; categoryName: string; name: string }>;
-  atribuir: Array<{ productId: string; codigo: string; categoryId: string; name: string; chave: string }>;
+  atribuir: AtribuicaoDeSubcategoria[];
   ignorados: Array<{ codigo: string; motivo: string }>;
 };
 
@@ -43,8 +60,10 @@ export function chaveDaSubcategoria(categoryId: string, nome: string): string {
 export function planejarSubcategorias(
   linhas: LinhaDeSubcategoria[],
   produtos: ProdutoParaSubcategoria[],
-  existentes: SubcategoriaExistente[]
+  existentes: SubcategoriaExistente[],
+  opcoes: { trocar?: boolean } = {}
 ): PlanoDeSubcategorias {
+  const trocar = opcoes.trocar === true;
   const porCodigo = new Map(produtos.filter((p) => p.externalCode).map((p) => [String(p.externalCode), p]));
   const conhecidas = new Map(existentes.map((s) => [chaveDaSubcategoria(s.categoryId, s.name), s]));
   const criar = new Map<string, { categoryId: string; categoryName: string; name: string }>();
@@ -54,7 +73,8 @@ export function planejarSubcategorias(
 
   for (const linha of linhas) {
     const nome = nomeDaSubcategoria(linha.subcategoria);
-    if (!nome) continue; // em branco: o dono não escolheu, nada a fazer
+    const esvaziar = trocar && normalizeText(linha.acao) === "esvaziar";
+    if (!nome && !esvaziar) continue; // em branco: o dono não escolheu, nada a fazer
     const codigo = linha.codigo.trim();
     if (vistos.has(codigo)) {
       ignorados.push({ codigo, motivo: "código repetido na planilha" });
@@ -71,12 +91,27 @@ export function planejarSubcategorias(
       ignorados.push({ codigo, motivo: "produto sem categoria" });
       continue;
     }
-    if (produto.subcategoryId) {
-      ignorados.push({ codigo, motivo: "já tem subcategoria (a planilha nunca troca a existente)" });
-      continue;
-    }
     if (linha.categoria !== undefined && normalizeText(linha.categoria) !== normalizeText(produto.categoryName)) {
       ignorados.push({ codigo, motivo: `a categoria mudou desde a planilha (era ${linha.categoria}, agora ${produto.categoryName ?? "nenhuma"})` });
+      continue;
+    }
+
+    if (produto.subcategoryId) {
+      if (!trocar) {
+        ignorados.push({ codigo, motivo: "já tem subcategoria (a planilha nunca troca a existente)" });
+        continue;
+      }
+      if (linha.subcategoriaAtual === undefined || normalizeText(linha.subcategoriaAtual) !== normalizeText(produto.subcategoryName)) {
+        ignorados.push({ codigo, motivo: `a subcategoria mudou desde a planilha (era ${linha.subcategoriaAtual ?? "?"}, agora ${produto.subcategoryName ?? "outra"})` });
+        continue;
+      }
+    } else if (trocar && esvaziar) {
+      ignorados.push({ codigo, motivo: "já está sem subcategoria" });
+      continue;
+    }
+
+    if (esvaziar) {
+      atribuir.push({ productId: produto.id, codigo, categoryId: produto.categoryId, name: null, chave: null, antesId: produto.subcategoryId });
       continue;
     }
 
@@ -86,11 +121,15 @@ export function planejarSubcategorias(
       ignorados.push({ codigo, motivo: `a subcategoria ${existente.name} existe mas está inativa: reative ou escolha outra` });
       continue;
     }
+    if (existente && existente.id === produto.subcategoryId) {
+      ignorados.push({ codigo, motivo: "já está nessa subcategoria" });
+      continue;
+    }
     if (!existente && !criar.has(chave)) {
       criar.set(chave, { categoryId: produto.categoryId, categoryName: produto.categoryName ?? "", name: nome });
     }
     const nomeFinal = existente?.name ?? criar.get(chave)?.name ?? nome;
-    atribuir.push({ productId: produto.id, codigo, categoryId: produto.categoryId, name: nomeFinal, chave });
+    atribuir.push({ productId: produto.id, codigo, categoryId: produto.categoryId, name: nomeFinal, chave, antesId: produto.subcategoryId });
   }
 
   return { criar: [...criar.values()], atribuir, ignorados };
