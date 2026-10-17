@@ -2673,8 +2673,11 @@ export type ProductListFilters = {
   controlsStock?: string;
   isActive?: string;
   semDreCategoria?: string;
-  /** "sem-setor" | "sem-categoria" | "sem-subcategoria" | "sem-dre" | "sem-natureza" */
+  /** Uma ou várias, separadas por vírgula (valem juntas): "sem-setor" | "sem-categoria" | "sem-subcategoria" | "sem-dre" | "sem-natureza" */
   pendencia?: string;
+  /** Coluna da ordenação: "name" | "nature" | "category" | "sector" | "stock" | "dre" (padrão: nome). */
+  sort?: string;
+  dir?: "asc" | "desc";
   nature?: ProductNature;
   /** Sem page/pageSize a resposta vem completa — telas que montam autocomplete dependem disso. */
   page?: number;
@@ -2708,6 +2711,18 @@ export async function getProducts(filters?: ProductListFilters): Promise<Product
     return { items: resposta, total: resposta.length, page: 1, pageSize: null, totalPages: 1 };
   }
   return resposta;
+}
+
+/** Quantos produtos cada opção dos filtros teria, com os outros filtros aplicados. */
+export type ProductFacets = {
+  categorias: Array<{ nome: string; count: number }>;
+  naturezas: Array<{ valor: string; count: number }>;
+  setores: Array<{ nome: string; count: number }>;
+  pendencias: Record<string, number>;
+};
+
+export function getProductFacets(filters?: Omit<ProductListFilters, "page" | "pageSize" | "sort" | "dir">) {
+  return request<ProductFacets>(`/products/facets${toQueryString(filters)}`);
 }
 
 export type ProductSummary = {

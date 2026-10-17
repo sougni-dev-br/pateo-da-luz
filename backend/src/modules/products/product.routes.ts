@@ -6,7 +6,7 @@ import { normalizeText } from "../../shared/utils/normalize-text.js";
 import { parseDecimalInput } from "../../shared/utils/parse-decimal.js";
 import { formatProductCode, normalizeProductCode } from "../../shared/utils/product-code.js";
 import { productBulkRouter } from "./product-bulk.routes.js";
-import { productListWhere } from "./product-list-filter.js";
+import { PENDENCIAS_DA_LISTA, productListOrderBy, productListWhere } from "./product-list-filter.js";
 import { resolveProductNameConflict } from "./product-name-conflict.js";
 import { NATURE_DEFAULTS, PRODUCT_NATURES, camposObrigatoriosFaltando, palavrasDoNome, rankSimilarNames } from "./product-nature.js";
 import { parseBody } from "../../shared/validate-body.js";
@@ -523,6 +523,45 @@ productRouter.get("/form-options", async (request, response) => {
 });
 
 /**
+ * Quantos produtos cada opção dos filtros teria, com os OUTROS filtros aplicados: é o número que aparece ao lado
+ * de cada categoria, natureza, setor e pendência para o usuário saber o que vai achar antes de escolher.
+ */
+productRouter.get("/facets", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "ESTOQUISTA", "VISUALIZACAO"]);
+  if (!user) return;
+
+  const consulta = request.query as Record<string, unknown>;
+  const [categorias, naturezas, setores, ...pendencias] = await Promise.all([
+    prisma.product.groupBy({ by: ["categoryId"], where: productListWhere(consulta, { omitir: ["category"] }), _count: { _all: true } }),
+    prisma.product.groupBy({ by: ["nature"], where: productListWhere(consulta, { omitir: ["nature"] }), _count: { _all: true } }),
+    prisma.product.groupBy({ by: ["inventorySectorId"], where: productListWhere(consulta, { omitir: ["sector"] }), _count: { _all: true } }),
+    // Cada pendência conta com as OUTRAS já marcadas (valem juntas) e com o seu próprio critério ligado.
+    ...PENDENCIAS_DA_LISTA.map(({ chave, where }) => {
+      const demais = String(consulta.pendencia ?? "").split(",").map((p) => p.trim()).filter((p) => p && p !== chave).join(",");
+      return prisma.product.count({ where: { ...productListWhere({ ...consulta, pendencia: demais }), ...where } });
+    })
+  ]);
+
+  const [nomesDeCategoria, nomesDeSetor] = await Promise.all([
+    prisma.category.findMany({ select: { id: true, name: true } }),
+    prisma.inventorySector.findMany({ select: { id: true, name: true } })
+  ]);
+  const categoriaPorId = new Map(nomesDeCategoria.map((c) => [c.id, c.name]));
+  const setorPorId = new Map(nomesDeSetor.map((s) => [s.id, s.name]));
+
+  response.json({
+    categorias: categorias
+      .filter((linha) => linha.categoryId && categoriaPorId.has(linha.categoryId))
+      .map((linha) => ({ nome: categoriaPorId.get(linha.categoryId as string) as string, count: linha._count._all })),
+    naturezas: naturezas.filter((linha) => linha.nature).map((linha) => ({ valor: linha.nature as string, count: linha._count._all })),
+    setores: setores
+      .filter((linha) => linha.inventorySectorId && setorPorId.has(linha.inventorySectorId))
+      .map((linha) => ({ nome: setorPorId.get(linha.inventorySectorId as string) as string, count: linha._count._all })),
+    pendencias: Object.fromEntries(PENDENCIAS_DA_LISTA.map(({ chave }, indice) => [chave, pendencias[indice]]))
+  });
+});
+
+/**
  * Totais da listagem, calculados no banco.
  *
  * Os cartoes e graficos da tela somavam a lista carregada. Com pagina, somar o
@@ -580,7 +619,7 @@ productRouter.get("/", async (request, response) => {
     prisma.product.findMany({
       where,
       include: { category: true, subcategory: true, inventorySector: true, aliases: true, dreCategory: true },
-      orderBy: { name: "asc" },
+      orderBy: productListOrderBy(request.query as Record<string, unknown>),
       skip,
       take
     }),

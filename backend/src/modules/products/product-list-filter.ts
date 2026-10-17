@@ -2,29 +2,42 @@ import { Prisma } from "@prisma/client";
 import { normalizeText } from "../../shared/utils/normalize-text.js";
 import { PRODUCT_NATURES } from "./product-nature.js";
 
-/** Filtro da listagem, compartilhado entre a lista e o resumo. */
-export function productListWhere(query: Record<string, unknown>): Prisma.ProductWhereInput {
+/** Pendências de cadastro que a lista sabe filtrar (e contar). Podem ser combinadas. */
+export const PENDENCIAS_DA_LISTA: Array<{ chave: string; where: Prisma.ProductWhereInput }> = [
+  { chave: "sem-setor", where: { inventorySectorId: null } },
+  { chave: "sem-categoria", where: { categoryId: null } },
+  { chave: "sem-subcategoria", where: { subcategoryId: null } },
+  { chave: "sem-dre", where: { dreCategoryId: null } },
+  { chave: "sem-natureza", where: { nature: null } }
+];
+
+export type CriterioDoFiltro = "category" | "subcategory" | "nature" | "sector" | "pendencia";
+
+/**
+ * Filtro da listagem, compartilhado entre a lista, o resumo e as contagens das opções.
+ *
+ * `omitir` tira um critério do filtro: para contar quantos produtos cada categoria teria, a conta ignora o
+ * filtro de categoria, senão só a categoria já escolhida apareceria com número.
+ */
+export function productListWhere(query: Record<string, unknown>, opcoes: { omitir?: CriterioDoFiltro[] } = {}): Prisma.ProductWhereInput {
+  const omitir = new Set(opcoes.omitir ?? []);
   const rawSearch = query.search ? String(query.search) : undefined;
   const search = rawSearch ? normalizeText(rawSearch) : undefined;
-  const category = query.category ? String(query.category) : undefined;
-  const sector = query.sector ? String(query.sector) : undefined;
+  const category = query.category && !omitir.has("category") ? String(query.category) : undefined;
+  const sector = query.sector && !omitir.has("sector") ? String(query.sector) : undefined;
   const controlsStock = query.controlsStock ? String(query.controlsStock) === "true" : undefined;
   const isActive = query.isActive == null ? undefined : String(query.isActive) === "true";
   const semDreCategoria = query.semDreCategoria === "true";
 
-  const subcategory = query.subcategory ? String(query.subcategory) : undefined;
-  const nature = PRODUCT_NATURES.find((valor) => valor === query.nature);
+  // A subcategoria só existe dentro de uma categoria: sem o filtro de categoria, ela também sai.
+  const subcategory = query.subcategory && !omitir.has("subcategory") && !omitir.has("category") ? String(query.subcategory) : undefined;
+  const nature = omitir.has("nature") ? undefined : PRODUCT_NATURES.find((valor) => valor === query.nature);
   // Lista de trabalho: mostra o que falta preencher, em vez de caçar produto
   // a produto. "sem-apelido" ficou de fora de proposito — 816 dos 831 produtos
   // se encaixariam, entao nao ajuda a priorizar nada.
-  const pendencia = query.pendencia ? String(query.pendencia) : undefined;
-  const porPendencia: Record<string, Prisma.ProductWhereInput> = {
-    "sem-setor": { inventorySectorId: null },
-    "sem-categoria": { categoryId: null },
-    "sem-subcategoria": { subcategoryId: null },
-    "sem-dre": { dreCategoryId: null },
-    "sem-natureza": { nature: null }
-  };
+  // Pode vir mais de uma, separadas por vírgula: valem juntas.
+  const pendencias = query.pendencia && !omitir.has("pendencia") ? String(query.pendencia).split(",").map((p) => p.trim()) : [];
+  const porPendencia = Object.fromEntries(PENDENCIAS_DA_LISTA.map(({ chave, where }) => [chave, where]));
 
   return {
     ...(search && rawSearch
@@ -46,6 +59,27 @@ export function productListWhere(query: Record<string, unknown>): Prisma.Product
     ...(controlsStock === undefined ? {} : { controlsStock }),
     ...(isActive === undefined ? {} : { isActive }),
     ...(semDreCategoria ? { dreCategoryId: null } : {}),
-    ...(pendencia && Object.hasOwn(porPendencia, pendencia) ? porPendencia[pendencia] : {})
+    ...Object.assign({}, ...pendencias.filter((p) => Object.hasOwn(porPendencia, p)).map((p) => porPendencia[p]))
   };
+}
+
+const CAMPOS_DE_ORDEM: Record<string, (direcao: Prisma.SortOrder) => Prisma.ProductOrderByWithRelationInput> = {
+  name: (dir) => ({ name: dir }),
+  nature: (dir) => ({ nature: dir }),
+  category: (dir) => ({ category: { name: dir } }),
+  sector: (dir) => ({ inventorySector: { name: dir } }),
+  stock: (dir) => ({ controlsStock: dir }),
+  dre: (dir) => ({ dreCategory: { name: dir } })
+};
+
+/**
+ * Ordem da lista: só campos conhecidos, com o nome e, por último, o id como desempate. O nome não é único
+ * (ativo e inativo repetem), e sem um critério final estável a paginação repetiria ou perderia linhas.
+ */
+export function productListOrderBy(query: Record<string, unknown>): Prisma.ProductOrderByWithRelationInput[] {
+  const conhecido = typeof query.sort === "string" && Object.hasOwn(CAMPOS_DE_ORDEM, query.sort);
+  if (!conhecido) return [{ name: "asc" }, { id: "asc" }];
+  const campo = query.sort as string;
+  const direcao: Prisma.SortOrder = query.dir === "desc" ? "desc" : "asc";
+  return campo === "name" ? [{ name: direcao }, { id: "asc" }] : [CAMPOS_DE_ORDEM[campo](direcao), { name: "asc" }, { id: "asc" }];
 }
