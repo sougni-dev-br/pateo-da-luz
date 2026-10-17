@@ -237,3 +237,28 @@ fieldset.natureza-grid { border: 0; padding: 0; margin: 0; min-width: 0; }
 .lote-recusas ul { margin: 0.3rem 0 0; padding-left: 1.1rem; }
 .lote-avisos ul { margin: 0.3rem 0 0; padding-left: 1.1rem; }
 .lote-aviso-forte { margin: 0; padding: 0.6rem 0.9rem; border-radius: 8px; border: 1px solid var(--danger, #9a2b2b); background: #fdf2f2; }
+
+/* ── Lista de produtos: pendências combináveis, ordenação e linhas compactas ─ */
+.pendencias-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.5rem; margin: 0.25rem 0 0.5rem; }
+.pendencias-titulo { font-size: 0.82rem; font-weight: 700; color: var(--muted); margin-right: 0.25rem; }
+.chip-filtro {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.28rem 0.75rem;
+  background: var(--paper, #fff);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.chip-filtro:hover:not(:disabled) { border-color: var(--gold, #b8893a); }
+.chip-filtro-ativo { background: var(--gold-tint, #fbf3e2); border-color: var(--gold, #b8893a); font-weight: 700; }
+.chip-filtro:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.th-ordenavel { display: inline-flex; align-items: center; gap: 0.3rem; border: 0; padding: 0; background: none; font: inherit; color: inherit; cursor: pointer; text-transform: inherit; letter-spacing: inherit; }
+.th-ordenavel:hover { text-decoration: underline; }
+.th-seta { font-size: 0.7em; opacity: 0.45; }
+.th-ordenavel-ativo .th-seta { opacity: 1; color: var(--gold, #8a5a14); }
+
+/* Natureza curta e uma linha por produto: cabem mais linhas na tela e a coluna de ações não é cortada. */
+.produtos-tabela .ds-table-td { padding-top: 0.45rem; padding-bottom: 0.45rem; }
+.produtos-tabela .ds-table-th, .produtos-tabela .ds-table-td { padding-left: 0.6rem; padding-right: 0.6rem; }

@@ -8,12 +8,14 @@ import {
   desfazerLoteDeProdutos,
   DRECategory,
   getProductFormOptions,
+  getProductFacets,
   getProductsSummary,
   getProductHistory,
   getProducts,
   InventorySector,
   NatureOption,
   Product,
+  ProductFacets,
   ProductNature,
   ProductHistory,
   ProductSummary,
@@ -27,6 +29,18 @@ import { hasPermission } from "../lib/permissions";
 import { SimpleBarChart } from "../components/SimpleBarChart";
 import { ConversoesAutomaticas } from "./compras/ConversoesAutomaticas";
 import { LoteDeProdutos } from "./products/LoteDeProdutos";
+import {
+  NATUREZA_CURTA,
+  PENDENCIAS,
+  alternarPendencia,
+  ariaSort,
+  comContagem,
+  contagemPorNatureza,
+  contagemPorNome,
+  pendenciasMarcadas,
+  proximaOrdem,
+  type OrdemDaLista
+} from "./products/filtros";
 import {
   EmptyState,
   IconButton,
@@ -100,6 +114,9 @@ export function Products() {
   const [natures, setNatures] = useState<NatureOption[]>([]);
   const [filters, setFilters] = useState(FILTROS_VAZIOS);
   const [showMoreFilters, setShowMoreFilters] = useState(false);
+  // Ordem escolhida clicando no título da coluna (sem escolha: por nome) e quantos produtos cada opção dos filtros teria.
+  const [ordem, setOrdem] = useState<OrdemDaLista>({ campo: null, dir: "asc" });
+  const [facetas, setFacetas] = useState<ProductFacets | null>(null);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalFiltrado, setTotalFiltrado] = useState(0);
@@ -108,7 +125,7 @@ export function Products() {
   const temFiltroAtivo = (Object.keys(FILTROS_VAZIOS) as Array<keyof typeof FILTROS_VAZIOS>)
     .some((k) => filters[k] !== FILTROS_VAZIOS[k]);
   // Quantos dos filtros escondidos estao ligados, para o botao avisar.
-  const filtrosAvancadosAtivos = [filters.subcategory, filters.sector, filters.controlsStock, filters.pendencia]
+  const filtrosAvancadosAtivos = [filters.subcategory, filters.sector, filters.controlsStock]
     .filter(Boolean).length;
 
   // bulk DRE
@@ -166,6 +183,9 @@ export function Products() {
   async function loadProducts(paginaDesejada = page) {
     setLoading(true);
     setError(null);
+    // As contagens dos filtros acompanham toda recarga (filtro, lote, desfazer, inativar). São um adendo: se
+    // falharem, os filtros continuam funcionando, só sem número.
+    getProductFacets(filtrosAtivos).then(setFacetas).catch(() => setFacetas(null));
 
     try {
       // Os indicadores sao da base inteira, sem filtro: sao um panorama do
@@ -177,7 +197,7 @@ export function Products() {
       // recurso). Falhando, os totais caem para a contagem da pagina, que era
       // o comportamento antigo — a tela nao quebra por causa disso.
       const [pagina, resumo] = await Promise.all([
-        getProducts({ ...filtrosAtivos, page: paginaDesejada, pageSize: PAGE_SIZE }),
+        getProducts({ ...filtrosAtivos, sort: ordem.campo ?? undefined, dir: ordem.campo ? ordem.dir : undefined, page: paginaDesejada, pageSize: PAGE_SIZE }),
         getProductsSummary().catch(() => null)
       ]);
       setProducts(pagina.items);
@@ -298,6 +318,22 @@ export function Products() {
     }
   }
 
+  /** Título de coluna que ordena a lista inteira (no servidor) ao clicar; mostra a seta da ordem atual. */
+  function tituloOrdenavel(campo: string, rotulo: string) {
+    const ativa = ordem.campo === campo;
+    return (
+      <button
+        type="button"
+        className={`th-ordenavel${ativa ? " th-ordenavel-ativo" : ""}`}
+        onClick={() => setOrdem(proximaOrdem(ordem, campo))}
+        title={`Ordenar por ${rotulo.toLowerCase()}`}
+      >
+        {rotulo}
+        <span aria-hidden="true" className="th-seta">{ativa ? (ordem.dir === "asc" ? "▲" : "▼") : "↕"}</span>
+      </button>
+    );
+  }
+
   async function toggleStatus(product: Product) {
     setError(null);
 
@@ -337,7 +373,7 @@ export function Products() {
     buscaDebounce.current = setTimeout(() => loadProducts(1), 350);
     return () => { if (buscaDebounce.current) clearTimeout(buscaDebounce.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.search, filters.category, filters.subcategory, filters.sector, filters.controlsStock, filters.pendencia, filters.nature, filters.status]);
+  }, [filters.search, filters.category, filters.subcategory, filters.sector, filters.controlsStock, filters.pendencia, filters.nature, filters.status, ordem.campo, ordem.dir]);
 
   async function loadSemDre() {
     try {
@@ -417,16 +453,22 @@ export function Products() {
               onChange={(event) => setFilters({ ...filters, category: event.target.value })}
             >
               <option value="">Todas</option>
-              {categories.map((category) => (
-                <option key={category.id} value={category.name}>{category.name}</option>
-              ))}
+              {/* Categoria desativada só aparece se for a escolhida: INSUMOS e DESPESAS antigas não confundem. */}
+              {categories
+                .filter((category) => category.isActive !== false || category.name === filters.category)
+                .map((category) => (
+                  <option key={category.id} value={category.name}>{comContagem(category.name, contagemPorNome(facetas?.categorias))}</option>
+                ))}
             </select>
           </label>
           <label>
             Natureza
             <select value={filters.nature} onChange={(event) => setFilters({ ...filters, nature: event.target.value })}>
               <option value="">Todas</option>
-              {natures.map((opcao) => <option key={opcao.value} value={opcao.value}>{opcao.label}</option>)}
+              {natures.map((opcao) => {
+                const contagem = contagemPorNatureza(facetas?.naturezas)?.get(opcao.value);
+                return <option key={opcao.value} value={opcao.value}>{contagem === undefined && facetas ? `${opcao.label} (0)` : contagem === undefined ? opcao.label : `${opcao.label} (${contagem})`}</option>;
+              })}
             </select>
           </label>
           <label>
@@ -468,13 +510,33 @@ export function Products() {
           </button>
         </div>
 
+        <div className="pendencias-row" role="group" aria-label="O que falta preencher no cadastro">
+          <span className="pendencias-titulo">O que falta preencher:</span>
+          {PENDENCIAS.map((pendencia) => {
+            const marcada = pendenciasMarcadas(filters.pendencia).has(pendencia.chave);
+            const contagem = facetas?.pendencias[pendencia.chave];
+            return (
+              <button
+                key={pendencia.chave}
+                type="button"
+                className={`chip-filtro${marcada ? " chip-filtro-ativo" : ""}`}
+                aria-pressed={marcada}
+                disabled={!marcada && contagem === 0}
+                onClick={() => setFilters({ ...filters, pendencia: alternarPendencia(filters.pendencia, pendencia.chave) })}
+              >
+                {pendencia.rotulo}{contagem === undefined ? "" : ` (${contagem})`}
+              </button>
+            );
+          })}
+        </div>
+
         {showMoreFilters && (
           <div className="filters-row filters-row-advanced">
             <label>
               Setor
               <select value={filters.sector} onChange={(e) => setFilters({ ...filters, sector: e.target.value })}>
                 <option value="">Todos</option>
-                {sectors.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+                {sectors.map((s) => <option key={s.id} value={s.name}>{comContagem(s.name, contagemPorNome(facetas?.setores))}</option>)}
               </select>
             </label>
             <label>
@@ -502,17 +564,6 @@ export function Products() {
                 <option value="">Tanto faz</option>
                 <option value="true">Sim, entra na contagem</option>
                 <option value="false">Não, é despesa direta</option>
-              </select>
-            </label>
-            <label>
-              Pendência de cadastro
-              <select value={filters.pendencia} onChange={(e) => setFilters({ ...filters, pendencia: e.target.value })}>
-                <option value="">Nenhuma</option>
-                <option value="sem-setor">Sem setor</option>
-                <option value="sem-categoria">Sem categoria</option>
-                <option value="sem-subcategoria">Sem subcategoria</option>
-                <option value="sem-dre">Sem categoria DRE</option>
-                <option value="sem-natureza">Sem natureza</option>
               </select>
             </label>
           </div>
@@ -738,7 +789,7 @@ export function Products() {
         {loading && <div className="empty-state">Carregando produtos...</div>}
 
         {!loading && (
-          <Table>
+          <Table className="produtos-tabela">
             <Table.Head>
               <Table.Row>
                 <Table.Th style={{ width: "2rem" }}>
@@ -753,12 +804,12 @@ export function Products() {
                   />
                 </Table.Th>
                 <Table.Th>Código</Table.Th>
-                <Table.Th minWidth={200}>Produto</Table.Th>
-                <Table.Th>Natureza</Table.Th>
-                <Table.Th>Categoria</Table.Th>
-                <Table.Th>Setor</Table.Th>
-                <Table.Th align="center" title="Entra na contagem de estoque?">Conta estoque?</Table.Th>
-                <Table.Th>Categoria DRE</Table.Th>
+                <Table.Th minWidth={200} aria-sort={ariaSort(ordem, "name")}>{tituloOrdenavel("name", "Produto")}</Table.Th>
+                <Table.Th aria-sort={ariaSort(ordem, "nature")}>{tituloOrdenavel("nature", "Natureza")}</Table.Th>
+                <Table.Th aria-sort={ariaSort(ordem, "category")}>{tituloOrdenavel("category", "Categoria")}</Table.Th>
+                <Table.Th aria-sort={ariaSort(ordem, "sector")}>{tituloOrdenavel("sector", "Setor")}</Table.Th>
+                <Table.Th align="center" aria-sort={ariaSort(ordem, "stock")} title="Entra na contagem de estoque?">{tituloOrdenavel("stock", "Estoque?")}</Table.Th>
+                <Table.Th aria-sort={ariaSort(ordem, "dre")}>{tituloOrdenavel("dre", "Categoria DRE")}</Table.Th>
                 <Table.Th actions>Ações</Table.Th>
               </Table.Row>
             </Table.Head>
@@ -793,7 +844,7 @@ export function Products() {
                     </Table.Td>
                     <Table.Td>
                       {product.nature
-                        ? natures.find((opcao) => opcao.value === product.nature)?.label ?? product.nature
+                        ? <span title={natures.find((opcao) => opcao.value === product.nature)?.label ?? product.nature}>{NATUREZA_CURTA[product.nature] ?? product.nature}</span>
                         : <span className="cell-pendente">sem natureza</span>}
                     </Table.Td>
                     <Table.Td>

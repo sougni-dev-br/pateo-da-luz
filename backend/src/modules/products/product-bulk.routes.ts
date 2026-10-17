@@ -6,7 +6,7 @@ import { prisma } from "../../config/database.js";
 import { parseBody } from "../../shared/validate-body.js";
 import { requestIp, requireRole } from "../security/security-utils.js";
 import { PRODUCT_NATURES, type ProductNatureValue } from "./product-nature.js";
-import { productListWhere } from "./product-list-filter.js";
+import { PENDENCIAS_DA_LISTA, productListWhere } from "./product-list-filter.js";
 import {
   aplicarMudancasAoEstado,
   descreverAlteracao,
@@ -49,7 +49,13 @@ const filtroSchema = z
     subcategory: texto.optional(),
     sector: texto.optional(),
     controlsStock: z.enum(["true", "false"]).optional(),
-    pendencia: z.enum(["sem-setor", "sem-categoria", "sem-subcategoria", "sem-dre", "sem-natureza"]).optional(),
+    // Uma ou várias separadas por vírgula (a lista combina pendências), todas conhecidas.
+    pendencia: z
+      .string()
+      .refine((valor) => valor.split(",").every((p) => PENDENCIAS_DA_LISTA.some((conhecida) => conhecida.chave === p.trim())), {
+        message: "Pendência desconhecida."
+      })
+      .optional(),
     nature: z.enum(PRODUCT_NATURES).optional(),
     isActive: z.enum(["true", "false"]).optional(),
     semDreCategoria: z.literal("true").optional()
