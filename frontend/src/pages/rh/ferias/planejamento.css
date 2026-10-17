@@ -31,3 +31,21 @@
 }
 .fe-tela--cheia .fe-tl { max-height: calc(100dvh - 250px); min-height: 260px; }
 body.fe-sem-rolagem { overflow: hidden; }
+
+/* Tela cheia compacta: o gráfico fica com quase toda a altura. */
+.fe-tela--cheia { gap: 8px; padding-top: 10px; }
+.fe-tela--cheia .fe-topo p { display: none; }
+.fe-tela--cheia .fe-topo h2 { font-size: var(--fs-lg); }
+.fe-tela--cheia .fe-tl-dica { display: none; }
+.fe-tela--cheia .fe-tl { max-height: calc(100dvh - 170px); }
+.fe-cabeca { border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--paper-soft); }
+.fe-cabeca > summary { padding: 7px 12px; cursor: pointer; font-size: var(--fs-sm); color: var(--ink-soft); list-style: none; }
+.fe-cabeca > summary::-webkit-details-marker { display: none; }
+.fe-cabeca > summary::before { content: "▸ "; color: var(--gold-dark); }
+.fe-cabeca[open] > summary::before { content: "▾ "; }
+.fe-cabeca > summary:focus-visible { outline: 2px solid var(--gold-dark); outline-offset: 2px; }
+.fe-cabeca > summary.fe-cabeca--atencao { color: var(--danger); font-weight: var(--fw-semibold); }
+.fe-cabeca-corpo { display: grid; gap: 10px; padding: 10px 12px 12px; border-top: 1px solid var(--line); }
+/* Ajuda curta (só na tela cheia, onde a dica comprida some) */
+.fe-tl-ajuda { display: none; width: 26px; height: 26px; border: 1px solid var(--line-strong); border-radius: 50%; background: var(--paper); color: var(--gold-dark); font: inherit; font-size: var(--fs-sm); font-weight: var(--fw-semibold); cursor: help; }
+.fe-tela--cheia .fe-tl-ajuda { display: inline-grid; place-items: center; }
