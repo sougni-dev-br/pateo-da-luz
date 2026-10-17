@@ -8373,13 +8373,18 @@ export type PeriodoFerias = {
   foraDoPrazo: boolean; doHistorico: boolean; programacoes: ProgramacaoFerias[];
 };
 export type PessoaFerias = {
-  employeeId: string; nome: string; empresa: string | null; admissao: string | null; nivel: NivelFerias; periodos: PeriodoFerias[];
+  employeeId: string; nome: string; empresa: string | null; setor: string | null;
+  /** Dias da semana (0 = domingo) de repouso, lidos das folgas da escala; domingo quando a escala não mostra um padrão. */
+  repousoSemanal: number[]; repousoPelaEscala: boolean;
+  admissao: string | null; nivel: NivelFerias; periodos: PeriodoFerias[];
 };
 export type ListaFerias = {
   hoje: string;
   pessoas: PessoaFerias[];
   semDataDeAdmissao: Array<{ employeeId: string; nome: string }>;
   resumo: { vencidas: number; aVencer: number };
+  /** "AAAA-MM-DD" → nome do feriado (São Paulo), do ano passado até o limite de datas aceitas. */
+  feriados: Record<string, string>;
 };
 export type PedidoFerias = {
   aquisitivoInicio: string; gozoInicio: string; dias: number; diasAbono: number; observacao?: string; status?: "PROGRAMADA" | "GOZADA";

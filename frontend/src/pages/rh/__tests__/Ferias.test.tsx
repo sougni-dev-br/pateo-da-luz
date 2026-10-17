@@ -15,7 +15,8 @@ vi.mock("../../../api/client", async (importOriginal) => ({
 import { type ListaFerias, type PeriodoFerias, atualizarFerias, cancelarFerias, getFerias, marcarFeriasGozadas, programarFerias } from "../../../api/client";
 import { Ferias } from "../Ferias";
 
-const render = (ui: ReactElement, rota = "/rh/ferias") => renderRaw(<MemoryRouter initialEntries={[rota]}>{ui}</MemoryRouter>);
+// Os testes da lista abrem na visão "lista"; a linha do tempo (visão padrão) tem os seus.
+const render = (ui: ReactElement, rota = "/rh/ferias") => renderRaw(<MemoryRouter initialEntries={[rota.includes("?") ? `${rota}&visao=lista` : `${rota}?visao=lista`]}>{ui}</MemoryRouter>);
 
 const periodo = (o: Partial<PeriodoFerias> = {}): PeriodoFerias => ({
   aquisitivoInicio: "2025-03-01", aquisitivoFim: "2026-02-28", limiteInicioGozo: "2027-01-30", fimConcessivo: "2027-02-28",
@@ -24,8 +25,8 @@ const periodo = (o: Partial<PeriodoFerias> = {}): PeriodoFerias => ({
   foraDoPrazo: false, doHistorico: false, programacoes: [], ...o,
 });
 const lista = (periodos: PeriodoFerias[], resumo = { vencidas: 0, aVencer: 0 }): ListaFerias => ({
-  hoje: "2026-10-15", semDataDeAdmissao: [], resumo,
-  pessoas: [{ employeeId: "e1", nome: "Ana Souza", empresa: "Pateo", admissao: "2025-03-01", nivel: "ok", periodos }],
+  hoje: "2026-10-15", semDataDeAdmissao: [], resumo, feriados: {},
+  pessoas: [{ employeeId: "e1", nome: "Ana Souza", empresa: "Pateo", setor: null, repousoSemanal: [0], repousoPelaEscala: false, admissao: "2025-03-01", nivel: "ok", periodos }],
 });
 
 beforeEach(() => {
@@ -200,7 +201,7 @@ describe("Ferias", () => {
   });
 
   test("sem ninguém para listar mostra o estado vazio", async () => {
-    vi.mocked(getFerias).mockResolvedValue({ hoje: "2026-10-15", pessoas: [], semDataDeAdmissao: [{ employeeId: "x", nome: "Sem Data" }], resumo: { vencidas: 0, aVencer: 0 } });
+    vi.mocked(getFerias).mockResolvedValue({ hoje: "2026-10-15", pessoas: [], semDataDeAdmissao: [{ employeeId: "x", nome: "Sem Data" }], resumo: { vencidas: 0, aVencer: 0 }, feriados: {} });
     render(<Ferias />);
     expect(await screen.findByText("Nenhum período de férias")).toBeInTheDocument();
     expect(screen.getByText(/Sem Data/)).toBeInTheDocument();

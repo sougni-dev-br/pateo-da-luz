@@ -706,7 +706,7 @@ dashboardRouter.get("/alerts", async (request, response) => {
 
   // Férias: só contagem (sem nomes) e nunca derruba o painel se a leitura falhar.
   try {
-    const { vencidas, aVencer } = contarAlertas(await carregarFerias());
+    const { vencidas, aVencer } = contarAlertas(await carregarFerias(undefined, { comEscala: false }));
     const plural = (n: number) => (n !== 1 ? "s" : "");
     if (vencidas > 0) {
       alerts.push({

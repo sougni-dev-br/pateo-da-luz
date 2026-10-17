@@ -7,6 +7,7 @@ import {
   DIAS_ABONO, diaValido, periodosDeFerias, piorNivel, somarDias, somarMeses,
   type HistoricoFerias, type NivelAlerta, type PeriodoFerias, type Programacao, type ProgramacaoNoPeriodo,
 } from "./ferias-calc.js";
+import { SEMANAS_DE_ESCALA_LIDAS, feriadosEntre, motivoInicioVedado, repousoDaPessoa } from "./ferias-vedados.js";
 
 // ─── Programação de férias ──────────────────────────────────────────────────────
 //
@@ -40,21 +41,34 @@ export type PessoaFerias = {
   employeeId: string;
   nome: string;
   empresa: string | null;
+  setor: string | null;
+  /** Dias da semana (0 = domingo) de repouso, pelas folgas da escala; domingo quando a escala não mostra um padrão. */
+  repousoSemanal: number[];
+  repousoPelaEscala: boolean;
   admissao: string | null;
   nivel: NivelAlerta;
   periodos: PeriodoFerias[];
 };
 
+// Folgas das últimas semanas, para descobrir o dia de repouso de cada pessoa.
+const desde = (hoje: string) => paraData(somarDias(hoje, -7 * SEMANAS_DE_ESCALA_LIDAS));
+const selectPessoa = (hoje: string, comEscala = true) => ({
+  ...SELECT_PESSOA,
+  ...(comEscala ? { scheduleDays: { where: { type: "FOLGA" as const, date: { gte: desde(hoje), lte: paraData(hoje) } }, select: { date: true } } } : {}),
+});
+
 const SELECT_PESSOA = {
-  id: true, firstName: true, lastName: true, displayName: true, admissionDate: true, admissaoCarteira: true,
+  id: true, firstName: true, lastName: true, displayName: true, sector: true, scheduleRegime: true, admissionDate: true, admissaoCarteira: true,
   company: { select: { tradeName: true } },
   feriasProgramadas: { orderBy: { gozoInicio: "asc" as const } },
   feriasRegistradas: { select: { aquisitivoInicio: true, gozoInicio: true, gozoFim: true, abonoInicio: true, abonoFim: true } },
 } as const;
 
 type LinhaPessoa = {
-  id: string; firstName: string; lastName: string; displayName: string | null;
+  id: string; firstName: string; lastName: string; displayName: string | null; sector?: string | null;
   admissionDate: Date | null; admissaoCarteira: Date | null;
+  scheduleRegime?: string;
+  scheduleDays?: Array<{ date: Date }>;
   company: { tradeName: string | null } | null;
   feriasProgramadas: Array<{ id: string; aquisitivoInicio: Date; gozoInicio: Date | null; dias: number; diasAbono: number; status: string; observacao: string | null }>;
   feriasRegistradas: Array<{ aquisitivoInicio: Date; gozoInicio: Date | null; gozoFim: Date | null; abonoInicio: Date | null; abonoFim: Date | null }>;
@@ -77,16 +91,22 @@ export function montarPessoa(e: LinhaPessoa, hoje: string): PessoaFerias {
     abonoInicio: isoDia(h.abonoInicio), abonoFim: isoDia(h.abonoFim),
   }));
   const periodos = base ? periodosDeFerias({ admissao: base, hoje, programacoes, historico }) : [];
+  const repouso = repousoDaPessoa((e.scheduleDays ?? []).map((d) => isoDia(d.date) as string), e.scheduleRegime === "CINCO_POR_DOIS");
   return {
-    employeeId: e.id, nome: nomeDe(e), empresa: e.company?.tradeName ?? null,
+    employeeId: e.id, nome: nomeDe(e), empresa: e.company?.tradeName ?? null, setor: e.sector?.trim() || null,
+    repousoSemanal: repouso.repousos, repousoPelaEscala: repouso.inferido,
     admissao: base, nivel: piorNivel(periodos), periodos,
   };
 }
 
 const PESSOAS_ATIVAS_CLT = { deletedAt: null, isActive: true, terminationDate: null, modality: "CLT" as const };
 
-export async function carregarFerias(hoje = hojeEmSaoPaulo()): Promise<PessoaFerias[]> {
-  const linhas = await prisma.employee.findMany({ where: PESSOAS_ATIVAS_CLT, select: SELECT_PESSOA, orderBy: { firstName: "asc" } });
+/**
+ * `comEscala: false` pula a leitura das folgas (só serve para o dia de repouso): quem só conta alertas,
+ * como o Dashboard, não precisa dela.
+ */
+export async function carregarFerias(hoje = hojeEmSaoPaulo(), { comEscala = true } = {}): Promise<PessoaFerias[]> {
+  const linhas = await prisma.employee.findMany({ where: PESSOAS_ATIVAS_CLT, select: selectPessoa(hoje, comEscala), orderBy: { firstName: "asc" } });
   return linhas.map((e) => montarPessoa(e, hoje));
 }
 
@@ -103,7 +123,9 @@ feriasRouter.get("/", async (_request, response) => {
   const hoje = hojeEmSaoPaulo();
   const pessoas = await carregarFerias(hoje);
   const semData = pessoas.filter((p) => !p.admissao).map((p) => ({ employeeId: p.employeeId, nome: p.nome }));
-  response.json({ hoje, pessoas: pessoas.filter((p) => p.admissao), semDataDeAdmissao: semData, resumo: contarAlertas(pessoas) });
+  // Feriados do ano passado até o limite de datas aceitas: a tela marca e evita os dias vedados.
+  const feriados = feriadosEntre(somarMeses(hoje, -12), somarMeses(hoje, 12 * (ANOS_A_FRENTE + 1)));
+  response.json({ hoje, pessoas: pessoas.filter((p) => p.admissao), semDataDeAdmissao: semData, resumo: contarAlertas(pessoas), feriados });
 });
 
 // ─── entrada e trava ────────────────────────────────────────────────────────────
@@ -129,7 +151,7 @@ const comTrava = <T>(employeeId: string, fn: (tx: Cliente) => Promise<T>): Promi
   }, { timeout: 10_000 });
 
 async function pessoaDe(db: Cliente, employeeId: string, hoje: string): Promise<PessoaFerias> {
-  const e = await db.employee.findFirst({ where: { id: employeeId, ...PESSOAS_ATIVAS_CLT }, select: SELECT_PESSOA });
+  const e = await db.employee.findFirst({ where: { id: employeeId, ...PESSOAS_ATIVAS_CLT }, select: selectPessoa(hoje) });
   if (!e) throw new Recusa(404, "Funcionário CLT ativo não encontrado.");
   const pessoa = montarPessoa(e, hoje);
   if (!pessoa.admissao) throw new Recusa(400, "Funcionário sem data de admissão: cadastre antes de programar férias.");
@@ -175,6 +197,14 @@ function validarDatas(pedido: Pedido, periodo: PeriodoFerias, hoje: string) {
   if (pedido.status === ST_GOZADA && pedido.gozoInicio > hoje) throw new Recusa(400, "Férias que ainda não começaram não podem ser marcadas como gozadas.");
 }
 
+/** O início não pode cair em dia vedado. Só vale para o que está sendo combinado (férias já gozadas são histórico). */
+function validarDiaDeInicio(pedido: Pedido, repousos: number[], atual?: { gozoInicio?: Date | null }) {
+  if (!pedido.gozoInicio || pedido.status !== ST_PROGRAMADA) return;
+  if (atual && isoDia(atual.gozoInicio ?? null) === pedido.gozoInicio) return; // não mudou a data: editar a observação não pode travar
+  const motivo = motivoInicioVedado(pedido.gozoInicio, feriadosEntre(somarDias(pedido.gozoInicio, -3), somarDias(pedido.gozoInicio, 3)), repousos);
+  if (motivo) throw new Recusa(400, `As férias não podem começar em ${dataBr(pedido.gozoInicio)}: ${motivo} (CLT, art. 134, § 3º). Escolha outro dia.`);
+}
+
 function validarDias(pedido: Pedido, periodo: PeriodoFerias, excetoId?: string) {
   const proprio = excetoId ? periodo.programacoes.find((p) => p.id === excetoId) : undefined;
   const livre = periodo.diasPendentes + (proprio ? proprio.dias + proprio.diasAbono : 0);
@@ -198,11 +228,12 @@ function validarDias(pedido: Pedido, periodo: PeriodoFerias, excetoId?: string) 
   }
 }
 
-function validarContraPeriodo(pedido: Pedido, periodo: PeriodoFerias | undefined, hoje: string, atual?: { id: string }) {
+function validarContraPeriodo(pedido: Pedido, periodo: PeriodoFerias | undefined, hoje: string, repousos: number[], atual?: { id: string; gozoInicio?: Date | null }) {
   if (!periodo) throw new Recusa(400, "Período aquisitivo inválido para este funcionário.");
   if (periodo.situacao === "EM_AQUISICAO") throw new Recusa(400, "Esse período aquisitivo ainda não terminou: as férias só podem ser tiradas depois.");
   if (!atual && periodo.doHistorico) throw new Recusa(400, "Esse período já consta como gozado na ficha de registro da contabilidade.");
   validarDatas(pedido, periodo, hoje);
+  validarDiaDeInicio(pedido, repousos, atual);
   validarDias(pedido, periodo, atual?.id);
 }
 
@@ -225,7 +256,7 @@ feriasRouter.post("/", async (request, response) => {
       const pessoa = await pessoaDe(tx, employeeId, hoje);
       const periodo = pessoa.periodos.find((p) => p.aquisitivoInicio === b.aquisitivoInicio);
       const pedido = b.semDatas === true ? pedidoJaGozado(b, periodo) : pedidoDe(b);
-      validarContraPeriodo(pedido, periodo, hoje);
+      validarContraPeriodo(pedido, periodo, hoje, pessoa.repousoSemanal);
       const choque = sobreposto(pedido, pessoa);
       if (choque) throw new Recusa(400, `Essas datas batem com outras férias dessa pessoa (${dataBr(choque.gozoInicio)} a ${dataBr(choque.gozoFim)}).`);
       const criada = await tx.feriasProgramacao.create({
@@ -270,7 +301,7 @@ feriasRouter.patch("/:id", async (request, response) => {
         status: b.status ?? atual.status,
         observacao: b.observacao === undefined ? atual.observacao : b.observacao,
       });
-      validarContraPeriodo(pedido, pessoa.periodos.find((p) => p.aquisitivoInicio === pedido.aquisitivoInicio), hoje, atual);
+      validarContraPeriodo(pedido, pessoa.periodos.find((p) => p.aquisitivoInicio === pedido.aquisitivoInicio), hoje, pessoa.repousoSemanal, atual);
       if (sobreposto(pedido, pessoa, atual.id)) throw new Recusa(400, "Essas datas batem com outras férias dessa pessoa.");
       await tx.feriasProgramacao.update({
         where: { id: atual.id },

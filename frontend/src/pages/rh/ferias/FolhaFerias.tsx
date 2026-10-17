@@ -95,11 +95,13 @@ function TabelaContabilidade({ linhas }: { linhas: LinhaContabilidade[] }) {
         <tr>
           <th className="c-nome">Funcionário</th>
           <th className="c-periodo">Período aquisitivo</th>
-          <th>Início</th>
-          <th>Último dia</th>
-          <th>Volta em</th>
+          <th className="c-data">Início</th>
+          <th className="c-data">Último dia</th>
+          <th className="c-data">Volta em</th>
           <th className="c-dias">Dias</th>
           <th className="c-dias">Abono</th>
+          <th className="c-data">Avisar até</th>
+          <th className="c-data">Pagar até</th>
           <th className="c-obs">Observação</th>
         </tr>
       </thead>
@@ -108,11 +110,13 @@ function TabelaContabilidade({ linhas }: { linhas: LinhaContabilidade[] }) {
           <tr key={l.chave}>
             <td className="c-nome"><strong>{l.nome}</strong></td>
             <td className="c-periodo">{l.periodo}</td>
-            <td><strong>{l.inicio}</strong></td>
-            <td>{l.fim}</td>
-            <td>{l.retorno}</td>
+            <td className="c-data"><strong>{l.inicio}</strong></td>
+            <td className="c-data">{l.fim}</td>
+            <td className="c-data">{l.retorno}</td>
             <td className="c-dias">{l.dias}</td>
             <td className="c-dias">{l.abono > 0 ? `${l.abono} dias` : "—"}</td>
+            <td className="c-data">{l.avisarAte}</td>
+            <td className="c-data">{l.pagarAte}</td>
             <td className="c-obs">{l.observacao}</td>
           </tr>
         ))}

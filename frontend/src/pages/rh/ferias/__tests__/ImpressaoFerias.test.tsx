@@ -10,11 +10,11 @@ const periodo = (o: Partial<PeriodoFerias> = {}): PeriodoFerias => ({
   foraDoPrazo: false, doHistorico: false, programacoes: [], ...o,
 });
 const pessoa = (nome: string, empresa: string, periodos: PeriodoFerias[]): PessoaFerias =>
-  ({ employeeId: nome, nome, empresa, admissao: "2025-03-01", nivel: "ok", periodos });
+  ({ employeeId: nome, nome, empresa, setor: null, repousoSemanal: [0], repousoPelaEscala: false, admissao: "2025-03-01", nivel: "ok", periodos });
 const programada: ProgramacaoFerias = { id: "g1", aquisitivoInicio: "2025-03-01", gozoInicio: "2026-12-01", gozoFim: "2026-12-30", dias: 30, diasAbono: 0, status: "PROGRAMADA", observacao: null, passouDaData: false };
 
 const lista: ListaFerias = {
-  hoje: "2026-10-15", semDataDeAdmissao: [], resumo: { vencidas: 0, aVencer: 0 },
+  hoje: "2026-10-15", semDataDeAdmissao: [], resumo: { vencidas: 0, aVencer: 0 }, feriados: {},
   pessoas: [
     pessoa("Ana Souza", "Pateo da Luz", [periodo()]),
     pessoa("Bia Lima", "Frei Caneca", [periodo({ nivel: "atencao", situacao: "A_VENCER", diasParaLimite: 40 })]),
