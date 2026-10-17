@@ -6,7 +6,7 @@ import { PistaDaPessoa } from "./PistaDaPessoa";
 import { type LinhaFerias, dataBr, plural, resumoProgramacao, textoPrazo } from "./feriasFormato";
 import {
   type Ausencia, DIAS_NO_MES, type Eixo, ZOOMS, ausenciasDaLista, coberturaPorDia, criarEixo, diaDoX, mesesDoEixo, periodoAlvo,
-  pxPorDiaDaEscala, quemEstaFora, setoresDaLista, sugerirInicio, trechosDeCobertura, xDoDia,
+  pxPorDiaDaEscala, quemEstaFora, rotulosDosMeses, setoresDaLista, sugerirInicio, trechosDeCobertura, xDoDia,
 } from "./eixoDoTempo";
 
 const MAX_DIAS = 30;
@@ -56,6 +56,7 @@ export function LinhaDoTempo({ lista, pessoas, ocupado, abertoDe, previa, formul
   const feriadosVisiveis = useMemo(() => Object.entries(lista.feriados).filter(([dia]) => dia >= eixo.inicio && xDoDia(eixo, dia) < eixo.largura), [lista.feriados, eixo]);
   const grupos = useMemo(() => new Set(pessoas.map((p) => p.empresa ?? "Sem empresa")).size > 1, [pessoas]);
   const meses = useMemo(() => mesesDoEixo(eixo), [eixo]);
+  const rotulos = useMemo(() => rotulosDosMeses(meses), [meses]);
 
   // A escala abre no começo do mês de hoje (Trimestre = este mês e os dois seguintes); "hoje" fica marcado.
   const irParaHoje = useCallback((suave: boolean) => {
@@ -129,9 +130,9 @@ export function LinhaDoTempo({ lista, pessoas, ocupado, abertoDe, previa, formul
           <div className="fe-tl-cab">
             <div className="fe-tl-canto" />
             <div className="fe-tl-meses" aria-hidden="true">
-              {meses.map((m) => (
+              {meses.map((m, i) => (
                 <div key={m.iso} className={`fe-tl-mes${m.viraAno ? " fe-tl-mes--ano" : ""}`} style={{ left: m.x, width: m.largura }}>
-                  {m.largura >= 26 && <span>{m.nome}{(m.viraAno || m.iso === eixo.inicio) && <b>{m.ano}</b>}</span>}
+                  {m.largura >= 26 && <span>{rotulos[i].nome}{rotulos[i].ano && <b>{rotulos[i].ano}</b>}</span>}
                 </div>
               ))}
               {feriadosVisiveis.map(([dia, nome]) => (

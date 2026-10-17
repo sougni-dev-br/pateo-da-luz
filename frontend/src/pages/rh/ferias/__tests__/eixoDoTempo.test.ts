@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import type { PeriodoFerias, PessoaFerias } from "../../../../api/client";
 import { motivoInicioVedado } from "../regrasFerias";
 import {
-  type Ausencia, type ContextoSugestao, ZOOMS, pxPorDiaDaEscala, segundasDoEixo, colegasFora, trechosVedados, coberturaPorDia, criarEixo, diaDoX, mesesDoEixo, periodoAlvo, quemEstaFora, retangulo, sugerirInicio, trechosDeCobertura, xDoDia, zonasDaJanela,
+  type Ausencia, type ContextoSugestao, ZOOMS, pxPorDiaDaEscala, rotulosDosMeses, segundasDoEixo, colegasFora, trechosVedados, coberturaPorDia, criarEixo, diaDoX, mesesDoEixo, periodoAlvo, quemEstaFora, retangulo, sugerirInicio, trechosDeCobertura, xDoDia, zonasDaJanela,
 } from "../eixoDoTempo";
 
 const periodo = (o: Partial<PeriodoFerias> = {}): PeriodoFerias => ({
@@ -194,5 +194,24 @@ describe("segundas-feiras do eixo", () => {
     expect(segundas[0]).toEqual({ x: 2 * px, dia: 3 }); // 01/08/2026 é sábado: a primeira segunda é 03/08 (dia 2 do eixo)
     expect(segundas[1].dia).toBe(10);
     expect(segundas.length).toBe(Math.floor((eixo.totalDias + 4) / 7));
+  });
+});
+
+describe("rótulos dos meses", () => {
+  const meses = (px: number) => mesesDoEixo({ ...criarEixo(HOJE, [], px), totalDias: 150 });
+
+  test("com espaço, todos os meses levam o ano (e não só o primeiro e janeiro)", () => {
+    const r = rotulosDosMeses(meses(9)); // ~270 px por mês
+    expect(r.map((x) => `${x.nome} ${x.ano}`)).toEqual(["ago 2026", "set 2026", "out 2026", "nov 2026", "dez 2026"]);
+  });
+
+  test("com pouco espaço o ano encurta para todos; com muito pouco, some de todos", () => {
+    expect(rotulosDosMeses(meses(1.3)).every((x) => x.ano === "26")).toBe(true); // ~40 px por mês
+    expect(rotulosDosMeses(meses(0.8)).every((x) => x.ano === "")).toBe(true); // ~24 px por mês
+  });
+
+  test("a virada do ano não muda o critério: dez 2026 e jan 2027 saem iguais", () => {
+    const virada = mesesDoEixo({ inicio: "2026-11-01", totalDias: 120, pxPorDia: 5, largura: 600 });
+    expect(rotulosDosMeses(virada).map((x) => `${x.nome} ${x.ano}`)).toEqual(["nov 2026", "dez 2026", "jan 2027", "fev 2027"]);
   });
 });

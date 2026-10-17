@@ -83,6 +83,21 @@ export function mesesDoEixo(eixo: Eixo): MesDoEixo[] {
   return meses;
 }
 
+/** Largura (px) a partir da qual o mês cabe com o ano inteiro ("OUT 2026") e com o ano curto ("OUT 26"). */
+const LARGURA_ANO_COMPLETO = 46;
+const LARGURA_ANO_CURTO = 34;
+
+/**
+ * Textos do cabeçalho de meses. O ano aparece em todos os meses ou em nenhum (nunca só em alguns):
+ * completo quando o mês mais estreito comporta, curto quando só comporta isso, senão só o nome do mês.
+ * O último mês, que pode ser parcial, não entra na medida.
+ */
+export function rotulosDosMeses(meses: MesDoEixo[]): Array<{ nome: string; ano: string }> {
+  const medida = meses.length > 1 ? Math.min(...meses.slice(0, -1).map((m) => m.largura)) : (meses[0]?.largura ?? 0);
+  const ano = (m: MesDoEixo) => (medida >= LARGURA_ANO_COMPLETO ? String(m.ano) : medida >= LARGURA_ANO_CURTO ? String(m.ano).slice(2) : "");
+  return meses.map((m) => ({ nome: m.nome, ano: ano(m) }));
+}
+
 /** Retângulo (em px) de um intervalo fechado de dias, cortado nas pontas do eixo; null se cair fora. */
 export function retangulo(eixo: Eixo, inicio: string, fim: string): { x: number; largura: number; cortaEsquerda: boolean; cortaDireita: boolean } | null {
   const de = indiceDoDia(eixo, inicio);

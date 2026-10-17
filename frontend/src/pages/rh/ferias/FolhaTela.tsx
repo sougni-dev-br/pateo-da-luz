@@ -1,6 +1,6 @@
 import { Fragment } from "react";
 import type { ListaFerias, PeriodoFerias, PessoaFerias } from "../../../api/client";
-import { type Ausencia, type Eixo, coberturaPorDia, mesesDoEixo, retangulo, segundasDoEixo, trechosDeCobertura, xDoDia, zonasDaJanela } from "./eixoDoTempo";
+import { type Ausencia, type Eixo, coberturaPorDia, mesesDoEixo, retangulo, rotulosDosMeses, segundasDoEixo, trechosDeCobertura, xDoDia, zonasDaJanela } from "./eixoDoTempo";
 import { type LinhaFerias, dataBr, plural, resumoProgramacao, rotuloDaSituacao, textoPrazo } from "./feriasFormato";
 import { NOME_NA_FOLHA_PX, type OpcoesTela, larguraUtilPx, tituloDaFolha } from "./opcoesDaFolha";
 
@@ -23,6 +23,7 @@ export function FolhaTelaLinhaDoTempo(props: PropsLinha) {
   const { pessoas, eixo, ausencias, opcoes, lista } = props;
   const util = larguraUtilPx(opcoes);
   const meses = mesesDoEixo(eixo);
+  const rotulos = rotulosDosMeses(meses);
   const trechos = opcoes.cobertura ? trechosDeCobertura(coberturaPorDia(eixo, ausencias)) : [];
   const xHoje = lista.hoje >= eixo.inicio ? xDoDia(eixo, lista.hoje) + eixo.pxPorDia / 2 : -1;
   const agrupar = new Set(pessoas.map(semEmpresa)).size > 1;
@@ -56,8 +57,8 @@ export function FolhaTelaLinhaDoTempo(props: PropsLinha) {
             <th className="fe-ti-nome">Funcionário</th>
             <th className="fe-ti-trilha">
               <div className={`fe-ti-meses${semanas.length > 0 ? " fe-ti-meses--semanas" : ""}`} style={{ width: eixo.largura }}>
-                {meses.map((m) => (
-                  <span key={m.iso} style={{ left: m.x, width: m.largura }}>{m.largura >= 22 ? `${m.nome}${m.viraAno || m.iso === eixo.inicio ? ` ${m.ano}` : ""}` : ""}</span>
+                {meses.map((m, i) => (
+                  <span key={m.iso} style={{ left: m.x, width: m.largura }}>{m.largura >= 22 ? `${rotulos[i].nome}${rotulos[i].ano ? ` ${rotulos[i].ano}` : ""}` : ""}</span>
                 ))}
                 {semanas.map((w) => <em key={`n${w.x}`} className="fe-ti-seg" style={{ left: w.x }}>{w.dia}</em>)}
               </div>
