@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import type { PeriodoFerias, PessoaFerias } from "../../../../api/client";
 import { motivoInicioVedado } from "../regrasFerias";
 import {
-  type Ausencia, type ContextoSugestao, ZOOMS, pxPorDiaDaEscala, colegasFora, trechosVedados, coberturaPorDia, criarEixo, diaDoX, mesesDoEixo, periodoAlvo, quemEstaFora, retangulo, sugerirInicio, trechosDeCobertura, xDoDia, zonasDaJanela,
+  type Ausencia, type ContextoSugestao, ZOOMS, pxPorDiaDaEscala, segundasDoEixo, colegasFora, trechosVedados, coberturaPorDia, criarEixo, diaDoX, mesesDoEixo, periodoAlvo, quemEstaFora, retangulo, sugerirInicio, trechosDeCobertura, xDoDia, zonasDaJanela,
 } from "../eixoDoTempo";
 
 const periodo = (o: Partial<PeriodoFerias> = {}): PeriodoFerias => ({
@@ -184,5 +184,15 @@ describe("escalas da linha do tempo", () => {
 
   test("em tela muito estreita a escala não encolhe além do mínimo", () => {
     expect(pxPorDiaDaEscala(ano, 100)).toBe(2.4);
+  });
+});
+
+describe("segundas-feiras do eixo", () => {
+  test("uma por semana, com o dia do mês, na posição certa", () => {
+    const eixo = criarEixo(HOJE, [], px);
+    const segundas = segundasDoEixo(eixo);
+    expect(segundas[0]).toEqual({ x: 2 * px, dia: 3 }); // 01/08/2026 é sábado: a primeira segunda é 03/08 (dia 2 do eixo)
+    expect(segundas[1].dia).toBe(10);
+    expect(segundas.length).toBe(Math.floor((eixo.totalDias + 4) / 7));
   });
 });

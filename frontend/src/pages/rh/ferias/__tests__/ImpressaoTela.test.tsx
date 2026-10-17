@@ -95,6 +95,16 @@ describe("ImpressaoTela", () => {
     expect(imprimir).not.toHaveBeenCalled();
   });
 
+  test("só o trimestre leva marcas por semana na folha", () => {
+    abrir("linha");
+    const d = screen.getByRole("dialog");
+    expect(d.querySelectorAll(".fe-ti-seg").length).toBe(0);
+    fireEvent.click(screen.getByRole("radio", { name: /3 meses/ }));
+    const dias = [...d.querySelectorAll(".fe-ti-seg")].map((e) => e.textContent);
+    expect(dias.length).toBeGreaterThanOrEqual(12);
+    expect(dias.slice(0, 3)).toEqual(["5", "12", "19"]); // out/2026: primeira segunda é 05/10
+  });
+
   test("a folha da linha do tempo traz as barras e a faixa de cobertura", () => {
     abrir("linha");
     const d = screen.getByRole("dialog");

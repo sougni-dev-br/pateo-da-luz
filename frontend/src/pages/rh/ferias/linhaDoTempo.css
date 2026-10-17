@@ -150,8 +150,9 @@ button.fe-tl-fantasma { cursor: pointer; }
   display: inline-grid; place-items: center; min-width: 17px; height: 17px; padding: 0 4px; border-radius: var(--radius-pill);
   background: var(--danger); color: var(--paper); font-style: normal; font-size: var(--fs-2xs);
 }
-.fe-tl-fantasma--sugestao { border-style: dashed; background: color-mix(in srgb, var(--gold) 22%, transparent); pointer-events: auto; }
-.fe-tl-fantasma--sugestao:hover { background: color-mix(in srgb, var(--gold) 38%, transparent); }
+/* Fundo opaco: a sugestão cai por cima da faixa hachurada de prazo vencido e o texto precisa continuar legível. */
+.fe-tl-fantasma--sugestao { border-style: dashed; background: var(--gold-tint); color: var(--ink); pointer-events: auto; }
+.fe-tl-fantasma--sugestao:hover { background: color-mix(in srgb, var(--gold) 30%, var(--paper)); }
 .fe-tl-fantasma--arrasto, .fe-tl-fantasma--previa { background: color-mix(in srgb, var(--gold) 55%, var(--paper)); color: var(--ink); pointer-events: none; }
 .fe-tl-fantasma--risco { border-color: var(--danger); }
 

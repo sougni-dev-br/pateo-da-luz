@@ -282,3 +282,13 @@ export function trechosVedados(eixo: Eixo, feriados: Feriados, repousos: number[
   doEixo.set(chave, trechos);
   return trechos;
 }
+
+/** Segundas-feiras do eixo (x em px e dia do mês): as marcas semanais da folha de 3 meses. */
+export function segundasDoEixo(eixo: Eixo): Array<{ x: number; dia: number }> {
+  const segundas: Array<{ x: number; dia: number }> = [];
+  for (let i = 0; i < eixo.totalDias; i++) {
+    const dia = somaDias(eixo.inicio, i);
+    if (diaDaSemana(dia) === 1) segundas.push({ x: i * eixo.pxPorDia, dia: Number(dia.slice(8)) });
+  }
+  return segundas;
+}

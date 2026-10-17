@@ -67,3 +67,8 @@
   body.imprimindo-ferias .fe-ti { width: auto !important; }
   body.imprimindo-ferias .fe-ti-tabela { width: 100% !important; }
 }
+
+/* Trimestre: marcas por semana (segundas-feiras) na grade e o dia do mês embaixo do nome do mês */
+.fe-ti-semana { position: absolute; top: 0; bottom: 0; width: 0; border-left: 0.15mm dotted #aaa; }
+.fe-ti-meses--semanas { height: 8mm; }
+.fe-ti-seg { position: absolute; bottom: 0.4mm; padding-left: 0.6mm; font-style: normal; font-size: 6pt; color: #444; }
