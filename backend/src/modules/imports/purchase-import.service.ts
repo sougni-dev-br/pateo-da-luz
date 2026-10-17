@@ -30,7 +30,7 @@ import {
 import { recordPurchaseInventoryEntry } from "../inventory/inventory.routes.js";
 import { auditLog } from "../security/security-utils.js";
 import { addPurchaseToCycle, findOrCreateOpenCycle } from "../suppliers/supplier-billing-cycle.service.js";
-import { estruturaDeProdutoNovo } from "../products/product-defaults.js";
+import { ehCategoriaLegada, ehNomeDeCategoriaLegada, estruturaDeProdutoNovo } from "../products/product-defaults.js";
 
 const requiredPurchaseFields = [
   "purchaseDate",
@@ -402,6 +402,8 @@ async function findOrCreateCategory(
     counters.categoriesReused += 1;
     return existing;
   }
+  // Vocabulário antigo (INSUMOS, DESPESAS): se a categoria não existe, a nota não a recria.
+  if (ehNomeDeCategoriaLegada(name)) return null;
 
   counters.categoriesCreated += 1;
   return tx.category.create({ data: { name, mainGroup: "Compras" } });
@@ -487,7 +489,8 @@ async function findOrCreateProduct(
       unit: row.unit,
       unitMeasureId,
       categoryId: estrutura.categoryId ?? undefined,
-      subcategoryId: estrutura.reclassificada ? undefined : subcategoryId,
+      // A subcategoria da nota pertencia à categoria dela: se o produto caiu em outra (ou em nenhuma), não vale.
+      subcategoryId: estrutura.categoryId === (categoryId ?? null) ? subcategoryId : undefined,
       nature: padrao.nature,
       dreCategoryId: padrao.dreCategoryId,
       ...(padrao.controlsStock === null ? {} : { controlsStock: padrao.controlsStock }),
@@ -1105,12 +1108,10 @@ export async function confirmPurchaseImport(
 
       for (const entry of group.rows) {
         const category = await findOrCreateCategory(tx, entry.row.categoryName, counters);
-        const subcategory = await findOrCreateSubcategory(
-          tx,
-          entry.row.subcategoryName,
-          category?.id,
-          counters
-        );
+        // Categoria legada (INSUMOS/DESPESAS ou já desativada) não ganha subcategoria nova.
+        const subcategory = ehCategoriaLegada(category)
+          ? null
+          : await findOrCreateSubcategory(tx, entry.row.subcategoryName, category?.id, counters);
         const unitMeasure = await findOrCreateUnitMeasure(tx, entry.row.unit, counters);
         const product = await findOrCreateProduct(
           tx,

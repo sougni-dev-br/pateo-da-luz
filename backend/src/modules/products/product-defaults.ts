@@ -3,6 +3,23 @@ import { normalizeText } from "../../shared/utils/normalize-text.js";
 import { NATURE_DEFAULTS, type ProductNatureValue } from "./product-nature.js";
 import { proposeCategory } from "./taxonomy-proposal.js";
 
+const CATEGORIAS_LEGADAS = new Set(["insumos", "despesas"]);
+
+/** Nome de categoria do vocabulário antigo: a importação não a recria quando ela não existe. */
+export function ehNomeDeCategoriaLegada(nome: string | null | undefined): boolean {
+  return CATEGORIAS_LEGADAS.has(normalizeText(nome));
+}
+
+/**
+ * Categoria que a planilha de importação ainda usa mas que não faz parte da estrutura: inativa, ou uma das
+ * antigas (INSUMOS, DESPESAS) sem natureza. Produto novo nunca é gravado nela.
+ */
+export function ehCategoriaLegada(categoria: { name: string; nature?: ProductNatureValue | null; isActive?: boolean } | null | undefined): boolean {
+  if (!categoria) return false;
+  if (categoria.isActive === false) return true;
+  return !categoria.nature && CATEGORIAS_LEGADAS.has(normalizeText(categoria.name));
+}
+
 export type CategoriaParaPadrao = {
   nature: ProductNatureValue | null;
   defaultDreCategoryId: string | null;
@@ -67,9 +84,9 @@ export type EstruturaDeProdutoNovo = {
   padrao: PadraoDeProdutoNovo;
 };
 
-const CATEGORIA_SELECT = { id: true, name: true, nature: true, defaultDreCategoryId: true } as const;
+const CATEGORIA_SELECT = { id: true, name: true, nature: true, defaultDreCategoryId: true, isActive: true } as const;
 
-type CategoriaCarregada = { id: string; name: string; nature: ProductNatureValue | null; defaultDreCategoryId: string | null };
+type CategoriaCarregada = { id: string; name: string; nature: ProductNatureValue | null; defaultDreCategoryId: string | null; isActive?: boolean };
 
 /** Onde um produto criado por importação deve nascer: categoria final e o que ela define. */
 export async function estruturaDeProdutoNovo(
@@ -91,6 +108,11 @@ export async function estruturaDeProdutoNovo(
     if (destino?.nature) {
       return { categoryId: destino.id, reclassificada: true, padrao: padraoDeProdutoNovo(destino) };
     }
+  }
+  // Sem regra clara para mandar o item à estrutura nova: categoria legada não recebe produto novo. Fica sem
+  // categoria, aparece em "sem categoria" na lista e é classificado à mão.
+  if (ehCategoriaLegada(categoria)) {
+    return { categoryId: null, reclassificada: false, padrao: padraoDeProdutoNovo(null) };
   }
   return { categoryId: entrada.categoryId, reclassificada: false, padrao: padraoDeProdutoNovo(categoria) };
 }
