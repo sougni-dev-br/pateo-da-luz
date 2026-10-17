@@ -104,7 +104,7 @@ dashboardRouter.get("/purchases", async (request, response) => {
   const [purchases, previousPurchases] = await Promise.all([
     prisma.purchase.findMany({
       where: { id: { in: purchaseIds.map((row) => row.id) } },
-      include: { supplier: true, items: { include: { product: { include: { category: true } } } } },
+      include: { supplier: true, items: { include: { product: { include: { category: true, subcategory: true } } } } },
       orderBy: { purchaseDate: "desc" }
     }),
     prisma.purchase.findMany({
@@ -132,6 +132,7 @@ dashboardRouter.get("/purchases", async (request, response) => {
         rawCategory: item.rawCategory ?? null,
         nature: item.product.nature ?? null,
         categoryNature: item.product.category?.nature ?? null,
+        subcategoryName: item.product.subcategory?.name ?? null,
       })),
     }))
   );

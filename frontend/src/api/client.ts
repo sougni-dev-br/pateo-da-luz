@@ -2267,7 +2267,10 @@ export type AuditLog = {
 };
 
 export type DashboardNatureKey = ProductNature | "SEM_NATUREZA";
-export type DashboardRanking = { rows: Array<{ name: string; total: number }>; total: number };
+export type DashboardRanking = {
+  rows: Array<{ name: string; total: number; children?: Array<{ name: string; total: number }> }>;
+  total: number;
+};
 export type DashboardRankingView = { category: DashboardRanking; supplier: DashboardRanking; product: DashboardRanking };
 
 export type DashboardData = {
