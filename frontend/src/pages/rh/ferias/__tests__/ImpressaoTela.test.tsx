@@ -35,6 +35,7 @@ describe("ImpressaoTela", () => {
     abrir("linha");
     const d = screen.getByRole("dialog", { name: "Imprimir a tela" });
     expect(within(d).getByRole("radio", { name: /12 meses/ })).toBeChecked();
+    expect(within(d).getByRole("radio", { name: /3 meses/ })).not.toBeChecked(); // trimestre
     expect(within(d).getByRole("checkbox", { name: /Legenda das cores/ })).toBeChecked();
     expect(within(d).getByRole("checkbox", { name: /Quem está fora/ })).toBeChecked();
   });

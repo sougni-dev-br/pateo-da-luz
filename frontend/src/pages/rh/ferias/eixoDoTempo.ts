@@ -20,12 +20,20 @@ const DIAS_URGENTE = 30;
 /** Quanto do futuro a tela mostra, no mínimo, mesmo que ninguém tenha prazo tão longe. */
 const HORIZONTE_MINIMO_DIAS = 400;
 
-export type Zoom = { id: "ano" | "semestre" | "trimestre"; rotulo: string; pxPorDia: number };
+/** Cada escala mostra exatamente `meses` meses na largura disponível (Ano = 12, Semestre = 6, Trimestre = 3). */
+export type Zoom = { id: "ano" | "semestre" | "trimestre"; rotulo: string; meses: 12 | 6 | 3 };
 export const ZOOMS: Zoom[] = [
-  { id: "ano", rotulo: "Ano", pxPorDia: 2.4 },
-  { id: "semestre", rotulo: "Semestre", pxPorDia: 4.5 },
-  { id: "trimestre", rotulo: "Trimestre", pxPorDia: 9 },
+  { id: "ano", rotulo: "Ano", meses: 12 },
+  { id: "semestre", rotulo: "Semestre", meses: 6 },
+  { id: "trimestre", rotulo: "Trimestre", meses: 3 },
 ];
+export const DIAS_NO_MES = 30.44;
+/** Em telas muito estreitas a escala não encolhe além disto; a linha do tempo passa a rolar. */
+const PX_MINIMO_POR_DIA = 2.4;
+
+/** Px por dia para os meses da escala caberem na área das pistas (largura visível menos a coluna do nome). */
+export const pxPorDiaDaEscala = (zoom: Zoom, larguraDasPistas: number): number =>
+  Math.round(Math.max(PX_MINIMO_POR_DIA, larguraDasPistas / (zoom.meses * DIAS_NO_MES)) * 100) / 100;
 
 export type Eixo = { inicio: string; totalDias: number; pxPorDia: number; largura: number };
 

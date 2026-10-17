@@ -117,11 +117,11 @@ export function ImpressaoTela({ lista, visao, pessoas, linhas, filtroRotulo, emp
                     {MESES_OPCOES.map((m) => (
                       <label key={m} className="fe-imp-opcao">
                         <input type="radio" name="fe-it-meses" checked={opcoes.meses === m} onChange={() => mudar({ meses: m as MesesNaFolha })} />
-                        <span><strong>{m} meses</strong></span>
+                        <span><strong>{m} meses</strong>{m === 3 ? <small>trimestre</small> : null}</span>
                       </label>
                     ))}
                   </div>
-                  <small className="fe-imp-dica">Começa no mês passado.</small>
+                  <small className="fe-imp-dica">Começa no mês atual. 3 meses = um trimestre.</small>
                 </fieldset>
                 <fieldset className="fe-imp-grupo">
                   <legend>Mostrar</legend>

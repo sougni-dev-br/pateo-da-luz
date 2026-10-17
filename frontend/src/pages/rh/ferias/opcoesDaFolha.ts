@@ -6,7 +6,7 @@ import { somaDias } from "./feriasFormato";
 
 export type Papel = "A4" | "A3";
 export type Orientacao = "landscape" | "portrait";
-export type MesesNaFolha = 6 | 12 | 18;
+export type MesesNaFolha = 3 | 6 | 12 | 18;
 
 export type OpcoesTela = {
   papel: Papel;
@@ -20,7 +20,7 @@ export type OpcoesTela = {
 
 export const OPCOES_PADRAO: OpcoesTela = { papel: "A4", orientacao: "landscape", meses: 12, legenda: true, cobertura: true, semEmpresa: [] };
 
-export const MESES_OPCOES: MesesNaFolha[] = [6, 12, 18];
+export const MESES_OPCOES: MesesNaFolha[] = [3, 6, 12, 18];
 
 const PAPEIS_MM: Record<Papel, { largura: number; altura: number }> = { A4: { largura: 210, altura: 297 }, A3: { largura: 297, altura: 420 } };
 const MARGEM_MM = 10;
@@ -39,12 +39,12 @@ export function larguraUtilPx({ papel, orientacao }: Pick<OpcoesTela, "papel" | 
 export const estiloDePagina = ({ papel, orientacao }: Pick<OpcoesTela, "papel" | "orientacao">) =>
   `@page { size: ${papel} ${orientacao}; margin: ${MARGEM_MM}mm; }`;
 
-/** O período impresso começa no mês passado (dá para ver o que acabou de acontecer) e dura `meses` meses; tudo cabe na largura da folha. */
+/** O período impresso começa no mês atual (como a escala da tela) e dura `meses` meses (3 = trimestre); tudo cabe na largura da folha. */
 export function eixoDaFolha(hoje: string, opcoes: Pick<OpcoesTela, "papel" | "orientacao" | "meses">): Eixo {
   const largura = larguraUtilPx(opcoes) - NOME_NA_FOLHA_PX - 2;
   const [ano, mes] = hoje.split("-").map(Number);
-  const inicio = new Date(Date.UTC(ano, mes - 2, 1)).toISOString().slice(0, 10);
-  const fim = somaDias(new Date(Date.UTC(ano, mes - 2 + opcoes.meses, 1)).toISOString().slice(0, 10), -1);
+  const inicio = new Date(Date.UTC(ano, mes - 1, 1)).toISOString().slice(0, 10);
+  const fim = somaDias(new Date(Date.UTC(ano, mes - 1 + opcoes.meses, 1)).toISOString().slice(0, 10), -1);
   return criarEixoEntre(inicio, fim, largura);
 }
 

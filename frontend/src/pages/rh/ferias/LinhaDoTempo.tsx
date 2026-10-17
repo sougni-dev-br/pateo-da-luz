@@ -5,8 +5,8 @@ import { Button } from "../../../design-system";
 import { PistaDaPessoa } from "./PistaDaPessoa";
 import { type LinhaFerias, dataBr, plural, resumoProgramacao, textoPrazo } from "./feriasFormato";
 import {
-  type Ausencia, type Eixo, ZOOMS, type Zoom, ausenciasDaLista, coberturaPorDia, criarEixo, diaDoX, mesesDoEixo, periodoAlvo,
-  quemEstaFora, setoresDaLista, sugerirInicio, trechosDeCobertura, xDoDia,
+  type Ausencia, DIAS_NO_MES, type Eixo, ZOOMS, ausenciasDaLista, coberturaPorDia, criarEixo, diaDoX, mesesDoEixo, periodoAlvo,
+  pxPorDiaDaEscala, quemEstaFora, setoresDaLista, sugerirInicio, trechosDeCobertura, xDoDia,
 } from "./eixoDoTempo";
 
 const MAX_DIAS = 30;
@@ -37,13 +37,17 @@ type Props = AcoesDaLinha & {
 };
 
 export function LinhaDoTempo({ lista, pessoas, ocupado, abertoDe, previa, formularioDe, ...acoes }: Props) {
-  const [zoom, setZoom] = useState<Zoom>(ZOOMS[0]);
+  const [zoomId, setZoomId] = useState<(typeof ZOOMS)[number]["id"]>("ano");
+  const zoom = ZOOMS.find((z) => z.id === zoomId) ?? ZOOMS[0];
   const [selecionada, setSelecionada] = useState<{ employeeId: string; id: string } | null>(null);
   const rolagem = useRef<HTMLDivElement>(null);
-  const [visivel, setVisivel] = useState(900);
+  // Largura da área rolável e da coluna do nome: a escala escolhida divide o que sobra em meses iguais.
+  const [medidas, setMedidas] = useState({ visivel: 900, nome: NOME_PX, medido: false });
+  const visivel = medidas.visivel;
   const [setor, setSetor] = useState("");
 
-  const eixo = useMemo(() => criarEixo(lista.hoje, lista.pessoas, zoom.pxPorDia), [lista, zoom]);
+  const pxPorDia = pxPorDiaDaEscala(zoom, medidas.visivel - medidas.nome - 2);
+  const eixo = useMemo(() => criarEixo(lista.hoje, lista.pessoas, pxPorDia), [lista, pxPorDia]);
   const ausencias = useMemo(() => ausenciasDaLista(lista), [lista]);
   const setores = useMemo(() => setoresDaLista(lista), [lista]);
   // A faixa de cobertura pode olhar um setor só; a sugestão e os avisos sempre pesam o setor da própria pessoa.
@@ -53,24 +57,35 @@ export function LinhaDoTempo({ lista, pessoas, ocupado, abertoDe, previa, formul
   const grupos = useMemo(() => new Set(pessoas.map((p) => p.empresa ?? "Sem empresa")).size > 1, [pessoas]);
   const meses = useMemo(() => mesesDoEixo(eixo), [eixo]);
 
+  // A escala abre no começo do mês de hoje (Trimestre = este mês e os dois seguintes); "hoje" fica marcado.
   const irParaHoje = useCallback((suave: boolean) => {
     const el = rolagem.current;
-    // "Hoje" fica a ~20% da área das pistas: dá para ver um pouco do que passou e bastante do que vem.
     if (!el) return;
-    const left = Math.max(0, xDoDia(eixo, lista.hoje) - (el.clientWidth - NOME_PX) * 0.2);
+    const left = Math.max(0, xDoDia(eixo, `${lista.hoje.slice(0, 8)}01`));
     if (typeof el.scrollTo === "function") el.scrollTo({ left, behavior: suave ? "smooth" : "auto" });
     else el.scrollLeft = left;
   }, [eixo, lista.hoje]);
-  // Só ao montar e ao trocar a escala: recarregar a lista (programar, cancelar) não pode tirar o gestor de onde estava.
+  const andarMeses = (sentido: 1 | -1) => {
+    const el = rolagem.current;
+    const left = sentido * DIAS_NO_MES * eixo.pxPorDia;
+    if (el && typeof el.scrollBy === "function") el.scrollBy({ left, behavior: "smooth" });
+    else if (el) el.scrollLeft += left;
+  };
+  // Só ao montar, depois da primeira medida e ao trocar a escala: recarregar a lista (programar, cancelar) não pode tirar o gestor de onde estava.
   // eslint-disable-next-line react-hooks/exhaustive-deps -- `irParaHoje` muda a cada recarga; o que importa é o dia de hoje e a escala
-  useLayoutEffect(() => { irParaHoje(false); }, [lista.hoje, zoom.id]);
+  useLayoutEffect(() => { irParaHoje(false); }, [lista.hoje, zoom.id, medidas.medido]);
 
   useEffect(() => {
     const el = rolagem.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(() => setVisivel(el.clientWidth));
+    if (!el) return;
+    const medir = () => setMedidas((antes) => {
+      const nome = el.querySelector(".fe-tl-canto")?.getBoundingClientRect().width || NOME_PX;
+      return antes.medido && antes.visivel === el.clientWidth && antes.nome === nome ? antes : { visivel: el.clientWidth, nome, medido: true };
+    });
+    medir();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(medir);
     ro.observe(el);
-    setVisivel(el.clientWidth);
     return () => ro.disconnect();
   }, []);
 
@@ -84,8 +99,12 @@ export function LinhaDoTempo({ lista, pessoas, ocupado, abertoDe, previa, formul
         <div className="fe-tl-controles">
           <div className="fe-tl-zoom" role="group" aria-label="Escala da linha do tempo">
             {ZOOMS.map((z) => (
-              <button key={z.id} type="button" aria-pressed={zoom.id === z.id} onClick={() => setZoom(z)}>{z.rotulo}</button>
+              <button key={z.id} type="button" aria-pressed={zoom.id === z.id} title={`${z.meses} meses na tela`} onClick={() => setZoomId(z.id)}>{z.rotulo}</button>
             ))}
+          </div>
+          <div className="fe-tl-zoom" role="group" aria-label="Andar pelos meses">
+            <button type="button" aria-label="Mês anterior" title="Mês anterior" onClick={() => andarMeses(-1)}>‹</button>
+            <button type="button" aria-label="Próximo mês" title="Próximo mês" onClick={() => andarMeses(1)}>›</button>
           </div>
           {setores.length > 1 && (
             <label className="fe-tl-setor">Cobertura de

@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import type { PeriodoFerias, PessoaFerias } from "../../../../api/client";
 import { motivoInicioVedado } from "../regrasFerias";
 import {
-  type Ausencia, type ContextoSugestao, colegasFora, trechosVedados, ZOOMS, coberturaPorDia, criarEixo, diaDoX, mesesDoEixo, periodoAlvo, quemEstaFora, retangulo, sugerirInicio, trechosDeCobertura, xDoDia, zonasDaJanela,
+  type Ausencia, type ContextoSugestao, ZOOMS, pxPorDiaDaEscala, colegasFora, trechosVedados, coberturaPorDia, criarEixo, diaDoX, mesesDoEixo, periodoAlvo, quemEstaFora, retangulo, sugerirInicio, trechosDeCobertura, xDoDia, zonasDaJanela,
 } from "../eixoDoTempo";
 
 const periodo = (o: Partial<PeriodoFerias> = {}): PeriodoFerias => ({
@@ -14,7 +14,7 @@ const periodo = (o: Partial<PeriodoFerias> = {}): PeriodoFerias => ({
 const pessoa = (periodos: PeriodoFerias[]): PessoaFerias => ({ employeeId: "e1", nome: "Ana", empresa: null, setor: null, repousoSemanal: [0], repousoPelaEscala: false, admissao: "2025-03-01", nivel: "ok", periodos });
 const HOJE = "2026-10-15";
 const FERIADOS = { "2026-11-20": "Consciência Negra", "2026-12-25": "Natal", "2027-01-01": "Confraternização Universal" };
-const px = ZOOMS[0].pxPorDia;
+const px = 2.4;
 
 describe("eixo", () => {
   test("começa dois meses antes de hoje e termina no fim de um mês", () => {
@@ -166,5 +166,23 @@ describe("trechos vedados", () => {
     expect(primeiro).toEqual({ de: 0, ate: 1 });
     expect(trechosVedados(eixo, FERIADOS, [0])).toBe(trechos); // mesma lista, sem refazer a conta
     expect(trechosVedados(eixo, FERIADOS, [2])).not.toBe(trechos);
+  });
+});
+
+describe("escalas da linha do tempo", () => {
+  const [ano, semestre, trimestre] = ZOOMS;
+  test("cada escala mostra exatamente 12, 6 e 3 meses na largura das pistas", () => {
+    const pistas = 900;
+    for (const e of [ano, semestre, trimestre]) {
+      const px = pxPorDiaDaEscala(e, pistas);
+      expect(Math.round(px * 30.44 * e.meses)).toBeGreaterThanOrEqual(pistas - 15);
+      expect(px * 30.44 * e.meses).toBeLessThanOrEqual(pistas + 15);
+    }
+    expect(trimestre.meses).toBe(3);
+    expect(pxPorDiaDaEscala(trimestre, pistas)).toBeCloseTo(pxPorDiaDaEscala(ano, pistas) * 4, 0);
+  });
+
+  test("em tela muito estreita a escala não encolhe além do mínimo", () => {
+    expect(pxPorDiaDaEscala(ano, 100)).toBe(2.4);
   });
 });

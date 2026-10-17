@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { OPCOES_PADRAO, eixoDaFolha, estiloDePagina, larguraUtilPx, nomeDoArquivo } from "../opcoesDaFolha";
+import { MESES_OPCOES, OPCOES_PADRAO, eixoDaFolha, estiloDePagina, larguraUtilPx, nomeDoArquivo } from "../opcoesDaFolha";
 
 describe("papel e largura útil", () => {
   test("A4 deitado com margem de 10 mm dá ~1046 px; em pé ~718 px; A3 deitado ~1511 px", () => {
@@ -14,17 +14,22 @@ describe("papel e largura útil", () => {
 });
 
 describe("período da folha", () => {
-  test("começa no mês passado, dura os meses escolhidos e cabe na largura da folha", () => {
+  test("começa no mês atual, dura os meses escolhidos e cabe na largura da folha", () => {
     const eixo = eixoDaFolha("2026-10-15", OPCOES_PADRAO);
-    expect(eixo.inicio).toBe("2026-09-01");
-    expect(eixo.totalDias).toBe(365); // set/2026 a ago/2027
+    expect(eixo.inicio).toBe("2026-10-01");
+    expect(eixo.totalDias).toBe(365); // out/2026 a set/2027
     expect(Math.round(eixo.pxPorDia * eixo.totalDias)).toBe(eixo.largura);
     expect(eixo.largura).toBeLessThan(larguraUtilPx(OPCOES_PADRAO));
   });
 
-  test("6 e 18 meses mudam só o tamanho do período", () => {
-    expect(eixoDaFolha("2026-10-15", { ...OPCOES_PADRAO, meses: 6 }).totalDias).toBe(181); // set/2026 a fev/2027
-    expect(eixoDaFolha("2026-01-10", { ...OPCOES_PADRAO, meses: 18 }).inicio).toBe("2025-12-01");
+  test("3, 6 e 18 meses mudam só o tamanho do período (3 = trimestre: este mês e os dois seguintes)", () => {
+    expect(MESES_OPCOES).toEqual([3, 6, 12, 18]);
+    const tri = eixoDaFolha("2026-10-15", { ...OPCOES_PADRAO, meses: 3 });
+    expect(tri.inicio).toBe("2026-10-01");
+    expect(tri.totalDias).toBe(92); // out, nov e dez/2026
+    expect(tri.pxPorDia).toBeGreaterThan(eixoDaFolha("2026-10-15", OPCOES_PADRAO).pxPorDia * 3); // o trimestre é bem mais largo por dia
+    expect(eixoDaFolha("2026-10-15", { ...OPCOES_PADRAO, meses: 6 }).totalDias).toBe(182); // out/2026 a mar/2027
+    expect(eixoDaFolha("2026-01-10", { ...OPCOES_PADRAO, meses: 18 }).inicio).toBe("2026-01-01");
   });
 });
 
