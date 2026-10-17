@@ -18,7 +18,7 @@ const somaMeses = (iso: string, meses: number) => {
 const ALFA = "ALFA EXEMPLO COMERCIO DE ALIMENTOS LTDA";
 const BETA = "BETA EXEMPLO BAR E FORNERIA LTDA";
 
-type Gravada = { id: string; employeeId: string; aquisitivoInicio: string; gozoInicio: string | null; dias: number; diasAbono: number; status: "PROGRAMADA" | "GOZADA"; observacao: string | null };
+type Gravada = { id: string; employeeId: string; aquisitivoInicio: string; gozoInicio: string | null; dias: number; diasAbono: number; status: "PROGRAMADA" | "GOZADA"; observacao: string | null; avisadoEm?: string | null };
 type Pessoa = { id: string; nome: string; empresa: string; setor: string; /** dias da semana de repouso (0 = domingo); [0] = padrão */ repouso?: number[]; admissao: string };
 
 const hoje = () => paraIso(Date.now());
@@ -67,7 +67,7 @@ function programacaoNoPeriodo(g: Gravada): ProgramacaoFerias {
   const gozoFim = g.gozoInicio ? somaDias(g.gozoInicio, g.dias - 1) : null;
   return {
     id: g.id, aquisitivoInicio: g.aquisitivoInicio, gozoInicio: g.gozoInicio, gozoFim, dias: g.dias, diasAbono: g.diasAbono, status: g.status,
-    observacao: g.observacao, passouDaData: g.status === "PROGRAMADA" && g.gozoInicio !== null && g.gozoInicio <= hoje(),
+    observacao: g.observacao, avisadoEm: g.avisadoEm ?? null, passouDaData: g.status === "PROGRAMADA" && g.gozoInicio !== null && g.gozoInicio <= hoje(),
   };
 }
 
@@ -140,6 +140,14 @@ function montar(): ListaFerias {
 /** GET/POST /payroll/ferias, PATCH e DELETE /payroll/ferias/:id. */
 export function mockFerias(url: string, method = "GET", corpo?: unknown): unknown | undefined {
   const u = new URL(url, "http://localhost");
+  const aviso = /\/payroll\/ferias\/([^/]+)\/avisado$/.exec(u.pathname);
+  if (aviso && method.toUpperCase() === "POST") {
+    if (!gravadas) gravadas = sementes();
+    const { avisado } = (typeof corpo === "string" && corpo ? JSON.parse(corpo) : {}) as { avisado?: boolean };
+    const quando = avisado ? new Date().toISOString() : null;
+    gravadas = gravadas.map((g) => (g.id === aviso[1] ? { ...g, avisadoEm: g.avisadoEm && avisado ? g.avisadoEm : quando } : g));
+    return { id: aviso[1], avisadoEm: quando };
+  }
   const m = /\/payroll\/ferias(?:\/([^/]+))?$/.exec(u.pathname);
   if (!m) return undefined;
   if (!gravadas) gravadas = sementes();
@@ -159,6 +167,8 @@ export function mockFerias(url: string, method = "GET", corpo?: unknown): unknow
   if (verbo === "PATCH" && id) {
     gravadas = gravadas.map((g) => (g.id === id ? {
       ...g,
+      // Datas novas pedem aviso novo.
+      ...((typeof dados.gozoInicio === "string" && dados.gozoInicio !== g.gozoInicio) || (typeof dados.dias === "number" && dados.dias !== g.dias) ? { avisadoEm: null } : {}),
       ...(typeof dados.gozoInicio === "string" ? { gozoInicio: dados.gozoInicio } : {}),
       ...(typeof dados.dias === "number" ? { dias: dados.dias } : {}),
       ...(typeof dados.diasAbono === "number" ? { diasAbono: dados.diasAbono } : {}),

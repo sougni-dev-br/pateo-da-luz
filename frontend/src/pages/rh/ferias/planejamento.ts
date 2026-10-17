@@ -40,6 +40,8 @@ export type PrazoDeAviso = {
   chave: string; nome: string; inicio: string; avisarAte: string; pagarAte: string;
   /** Dias até o último dia de avisar e de pagar (negativo = já passou). */
   diasParaAvisar: number; diasParaPagar: number;
+  /** ISO de quando a pessoa foi avisada; null = falta avisar. */
+  avisadoEm: string | null;
 };
 
 /** O que falta fazer antes de cada férias programada que ainda não começou: avisar a pessoa e pagar. */
@@ -51,8 +53,9 @@ export function prazosDeAviso(lista: ListaFerias): PrazoDeAviso[] {
       const pagarAte = somaDias(g.gozoInicio, -DIAS_ANTES_PARA_PAGAR);
       return [{
         chave: g.id, nome: pessoa.nome, inicio: g.gozoInicio, avisarAte, pagarAte,
-        diasParaAvisar: diasEntre(lista.hoje, avisarAte), diasParaPagar: diasEntre(lista.hoje, pagarAte),
+        diasParaAvisar: diasEntre(lista.hoje, avisarAte), diasParaPagar: diasEntre(lista.hoje, pagarAte), avisadoEm: g.avisadoEm ?? null,
       }];
     })))
-    .sort((a, b) => a.pagarAte.localeCompare(b.pagarAte) || a.nome.localeCompare(b.nome, "pt-BR"));
+    // Quem ainda não foi avisado vem primeiro (o prazo mais perto no topo); os já avisados ficam no fim.
+    .sort((a, b) => Number(a.avisadoEm !== null) - Number(b.avisadoEm !== null) || a.pagarAte.localeCompare(b.pagarAte) || a.nome.localeCompare(b.nome, "pt-BR"));
 }

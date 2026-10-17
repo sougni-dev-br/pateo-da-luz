@@ -3298,6 +3298,9 @@ model FeriasProgramacao {
   diasAbono        Int       @default(0)
   status           String    @default("PROGRAMADA") // PROGRAMADA | GOZADA
   observacao       String?
+  // Quando a pessoa foi avisada por escrito das datas (CLT art. 135) e quem marcou. Mudar as datas apaga o aviso.
+  avisadoEm        DateTime?
+  avisadoPorId     String?
   createdById      String?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt

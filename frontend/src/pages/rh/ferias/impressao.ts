@@ -31,7 +31,7 @@ export type LinhaContabilidade = {
   retorno: string;
   dias: number;
   abono: number;
-  /** Último dia para avisar a pessoa por escrito (30 dias antes) e para pagar (2 dias antes). */
+  /** Último dia para avisar a pessoa por escrito (30 dias antes; "✓" quando já foi avisada) e para pagar (2 dias antes). */
   avisarAte: string;
   pagarAte: string;
   observacao: string;
@@ -89,7 +89,7 @@ export function folhasParaContabilidade(lista: ListaFerias): Array<FolhaEmpresa<
           linha: {
             chave: g.id, nome: pessoa.nome, periodo: periodoBr(periodo),
             inicio: dataBr(g.gozoInicio), fim: dataBr(fim), retorno: dataBr(somaDias(fim, 1)),
-            dias: g.dias, abono: g.diasAbono, avisarAte: dataBr(prazoParaAvisar(g.gozoInicio)), pagarAte: dataBr(prazoParaPagar(g.gozoInicio)),
+            dias: g.dias, abono: g.diasAbono, avisarAte: `${dataBr(prazoParaAvisar(g.gozoInicio))}${g.avisadoEm ? " ✓" : ""}`, pagarAte: dataBr(prazoParaPagar(g.gozoInicio)),
             observacao: periodo.foraDoPrazo ? "Fora do prazo (pagar em dobro)" : g.observacao ?? "",
           },
         });

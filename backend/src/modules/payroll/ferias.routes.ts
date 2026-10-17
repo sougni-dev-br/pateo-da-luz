@@ -70,7 +70,7 @@ type LinhaPessoa = {
   scheduleRegime?: string;
   scheduleDays?: Array<{ date: Date }>;
   company: { tradeName: string | null } | null;
-  feriasProgramadas: Array<{ id: string; aquisitivoInicio: Date; gozoInicio: Date | null; dias: number; diasAbono: number; status: string; observacao: string | null }>;
+  feriasProgramadas: Array<{ id: string; aquisitivoInicio: Date; gozoInicio: Date | null; dias: number; diasAbono: number; status: string; observacao: string | null; avisadoEm?: Date | null }>;
   feriasRegistradas: Array<{ aquisitivoInicio: Date; gozoInicio: Date | null; gozoFim: Date | null; abonoInicio: Date | null; abonoFim: Date | null }>;
 };
 
@@ -84,6 +84,7 @@ export function montarPessoa(e: LinhaPessoa, hoje: string): PessoaFerias {
     diasAbono: p.diasAbono,
     status: p.status === ST_GOZADA ? ST_GOZADA : ST_PROGRAMADA,
     observacao: p.observacao,
+    avisadoEm: p.avisadoEm ? p.avisadoEm.toISOString() : null,
   }));
   const historico: HistoricoFerias[] = e.feriasRegistradas.map((h) => ({
     aquisitivoInicio: isoDia(h.aquisitivoInicio) as string,
@@ -305,7 +306,11 @@ feriasRouter.patch("/:id", async (request, response) => {
       if (sobreposto(pedido, pessoa, atual.id)) throw new Recusa(400, "Essas datas batem com outras férias dessa pessoa.");
       await tx.feriasProgramacao.update({
         where: { id: atual.id },
-        data: { gozoInicio: paraData(pedido.gozoInicio as string), dias: pedido.dias, diasAbono: pedido.diasAbono, status: pedido.status, observacao: pedido.observacao },
+        data: {
+          gozoInicio: paraData(pedido.gozoInicio as string), dias: pedido.dias, diasAbono: pedido.diasAbono, status: pedido.status, observacao: pedido.observacao,
+          // Datas novas pedem aviso novo: o de antes valia para outras datas.
+          ...(isoDia(atual.gozoInicio) !== pedido.gozoInicio || atual.dias !== pedido.dias ? { avisadoEm: null, avisadoPorId: null } : {}),
+        },
       });
       return { atual, pedido };
     });
@@ -315,6 +320,34 @@ feriasRouter.patch("/:id", async (request, response) => {
       newValue: pedido, ...auditoria(request),
     });
     return response.json({ id: atual.id });
+  } catch (err) {
+    return responderRecusa(err, response);
+  }
+});
+
+// ─── POST /payroll/ferias/:id/avisado — marcar (ou desmarcar) que a pessoa foi avisada ──────
+feriasRouter.post("/:id/avisado", async (request, response) => {
+  const user = await getSessionUser(request);
+  if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
+  const b = (request.body ?? {}) as Record<string, unknown>;
+  if (typeof b.avisado !== "boolean") return response.status(400).json({ message: "Informe se a pessoa foi avisada (avisado: true ou false)." });
+  try {
+    const previa = await prisma.feriasProgramacao.findUnique({ where: { id: request.params.id }, select: { employeeId: true } });
+    if (!previa) throw new Recusa(404, "Programação não encontrada.");
+    const { atual, avisadoEm } = await comTrava(previa.employeeId, async (tx) => {
+      const atual = await tx.feriasProgramacao.findUnique({ where: { id: request.params.id } });
+      if (!atual) throw new Recusa(404, "Programação não encontrada.");
+      if (atual.status !== ST_PROGRAMADA || !atual.gozoInicio) throw new Recusa(400, "Só dá para registrar o aviso de férias programadas, com data.");
+      // Marcar de novo não troca a data nem quem marcou; desmarcar limpa os dois.
+      const avisadoEm = b.avisado ? atual.avisadoEm ?? new Date() : null;
+      await tx.feriasProgramacao.update({ where: { id: atual.id }, data: { avisadoEm, avisadoPorId: b.avisado ? atual.avisadoPorId ?? user.id : null } });
+      return { atual, avisadoEm };
+    });
+    await auditLog({
+      userId: user.id, action: b.avisado ? "NOTIFY_VACATION" : "UNDO_NOTIFY_VACATION", entity: "FeriasProgramacao", entityId: atual.id,
+      newValue: { employeeId: atual.employeeId, gozoInicio: isoDia(atual.gozoInicio), avisado: b.avisado }, ...auditoria(request),
+    });
+    return response.json({ id: atual.id, avisadoEm: avisadoEm ? avisadoEm.toISOString() : null });
   } catch (err) {
     return responderRecusa(err, response);
   }

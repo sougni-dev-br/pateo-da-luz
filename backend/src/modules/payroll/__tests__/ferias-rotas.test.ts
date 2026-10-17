@@ -326,3 +326,69 @@ describe("carregarFerias sem a escala (Dashboard)", () => {
     expect(pessoas[0].repousoSemanal).toEqual([0]); // sem escala, o repouso é o padrão
   });
 });
+
+describe("aviso por escrito das datas (avisado)", () => {
+  const gravada = { id: "f1", employeeId: "e1", aquisitivoInicio: d("2025-03-01"), gozoInicio: d("2026-12-07"), dias: 30, diasAbono: 0, status: "PROGRAMADA", observacao: null, avisadoEm: null, avisadoPorId: null };
+
+  test("marcar grava a data e quem marcou, e audita", async () => {
+    db.feriasProgramacao.findUnique.mockResolvedValue(gravada);
+    const r = await request(app).post("/payroll/ferias/f1/avisado").send({ avisado: true });
+    expect(r.status).toBe(200);
+    const dados = db.feriasProgramacao.update.mock.calls[0][0].data;
+    expect(dados.avisadoEm).toBeInstanceOf(Date);
+    expect(dados.avisadoPorId).toBe("u1");
+    expect(r.body.avisadoEm).toEqual(expect.any(String));
+    expect(auditLog).toHaveBeenCalledWith(expect.objectContaining({ action: "NOTIFY_VACATION", entityId: "f1" }));
+  });
+
+  test("marcar de novo não troca a data nem quem marcou", async () => {
+    const antes = new Date("2026-10-01T12:00:00.000Z");
+    db.feriasProgramacao.findUnique.mockResolvedValue({ ...gravada, avisadoEm: antes, avisadoPorId: "u9" });
+    await request(app).post("/payroll/ferias/f1/avisado").send({ avisado: true });
+    const dados = db.feriasProgramacao.update.mock.calls[0][0].data;
+    expect(dados.avisadoEm).toBe(antes);
+    expect(dados.avisadoPorId).toBe("u9");
+  });
+
+  test("desmarcar limpa a data e quem marcou", async () => {
+    db.feriasProgramacao.findUnique.mockResolvedValue({ ...gravada, avisadoEm: new Date(), avisadoPorId: "u9" });
+    const r = await request(app).post("/payroll/ferias/f1/avisado").send({ avisado: false });
+    expect(r.status).toBe(200);
+    expect(db.feriasProgramacao.update.mock.calls[0][0].data).toEqual({ avisadoEm: null, avisadoPorId: null });
+    expect(auditLog).toHaveBeenCalledWith(expect.objectContaining({ action: "UNDO_NOTIFY_VACATION" }));
+  });
+
+  test("recusa corpo sem avisado, férias já gozadas e programação inexistente", async () => {
+    db.feriasProgramacao.findUnique.mockResolvedValue(gravada);
+    expect((await request(app).post("/payroll/ferias/f1/avisado").send({})).status).toBe(400);
+    expect((await request(app).post("/payroll/ferias/f1/avisado").send({ avisado: "sim" })).status).toBe(400);
+    db.feriasProgramacao.findUnique.mockResolvedValue({ ...gravada, status: "GOZADA" });
+    expect((await request(app).post("/payroll/ferias/f1/avisado").send({ avisado: true })).status).toBe(400);
+    db.feriasProgramacao.findUnique.mockResolvedValue(null);
+    expect((await request(app).post("/payroll/ferias/zz/avisado").send({ avisado: true })).status).toBe(404);
+    expect(db.feriasProgramacao.update).not.toHaveBeenCalled();
+  });
+
+  test("sem sessão é 401", async () => {
+    (getSessionUser as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    expect((await request(app).post("/payroll/ferias/f1/avisado").send({ avisado: true })).status).toBe(401);
+  });
+
+  test("mudar a data apaga o aviso; mudar só a observação mantém", async () => {
+    const avisada = { ...gravada, avisadoEm: new Date("2026-10-01T12:00:00.000Z"), avisadoPorId: "u9" };
+    db.feriasProgramacao.findUnique.mockResolvedValue(avisada);
+    db.employee.findFirst.mockResolvedValue(eliana({ feriasProgramadas: [avisada] }));
+    await request(app).patch("/payroll/ferias/f1").send({ gozoInicio: "2026-12-14" });
+    expect(db.feriasProgramacao.update.mock.calls[0][0].data).toMatchObject({ avisadoEm: null, avisadoPorId: null });
+    db.feriasProgramacao.update.mockClear();
+    await request(app).patch("/payroll/ferias/f1").send({ observacao: "combinado por telefone" });
+    expect(db.feriasProgramacao.update.mock.calls[0][0].data).not.toHaveProperty("avisadoEm");
+  });
+
+  test("a lista devolve o aviso de cada programação", async () => {
+    const avisada = { ...gravada, avisadoEm: new Date("2026-10-01T12:00:00.000Z") };
+    db.employee.findMany.mockResolvedValue([eliana({ feriasProgramadas: [avisada] })]);
+    const r = await request(app).get("/payroll/ferias");
+    expect(r.body.pessoas[0].periodos[0].programacoes[0].avisadoEm).toBe("2026-10-01T12:00:00.000Z");
+  });
+});

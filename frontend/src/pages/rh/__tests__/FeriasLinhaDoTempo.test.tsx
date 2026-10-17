@@ -8,11 +8,12 @@ vi.mock("../../../api/client", async (importOriginal) => ({
   getFerias: vi.fn(),
   programarFerias: vi.fn(async () => ({ id: "f1" })),
   atualizarFerias: vi.fn(async () => ({ id: "f1" })),
+  marcarFeriasAvisado: vi.fn(async () => ({ id: "g1", avisadoEm: "2026-10-16T12:00:00.000Z" })),
   marcarFeriasGozadas: vi.fn(async () => ({ id: "f2" })),
   cancelarFerias: vi.fn(async () => ({ ok: true })),
 }));
 
-import { type ListaFerias, type PeriodoFerias, type PessoaFerias, cancelarFerias, getFerias, programarFerias } from "../../../api/client";
+import { type ListaFerias, type PeriodoFerias, type PessoaFerias, cancelarFerias, getFerias, marcarFeriasAvisado, programarFerias } from "../../../api/client";
 import { Ferias } from "../Ferias";
 
 const render = (ui: ReactElement, rota = "/rh/ferias") => renderRaw(<MemoryRouter initialEntries={[rota]}>{ui}</MemoryRouter>);
@@ -146,6 +147,21 @@ describe("Férias — linha do tempo", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
     fireEvent.click(screen.getByRole("button", { name: "Folhas por empresa" }));
     expect(screen.getByRole("dialog", { name: "Imprimir férias por empresa" })).toBeInTheDocument();
+  });
+
+  test("Já avisei registra o aviso e o botão vira \"Avisado em\", que dá para desfazer", async () => {
+    vi.mocked(getFerias).mockResolvedValue(lista([bruno]));
+    const { container } = render(<Ferias />);
+    await screen.findByRole("button", { name: /Férias programadas de Bruno Lima/ });
+    container.querySelector<HTMLElement>(".fe-plano > summary")?.click();
+    fireEvent.click(await screen.findByRole("button", { name: "Marcar que Bruno Lima foi avisado" }));
+    await waitFor(() => expect(marcarFeriasAvisado).toHaveBeenCalledWith("g1", true));
+    // Com o aviso devolvido pelo servidor a linha passa a mostrar a data e a opção de desfazer.
+    vi.mocked(getFerias).mockResolvedValue(lista([{ ...bruno, periodos: [{ ...bruno.periodos[0], programacoes: [{ ...bruno.periodos[0].programacoes[0], avisadoEm: "2026-10-16T12:00:00.000Z" }] }] }]));
+    fireEvent.click(screen.getByRole("button", { name: "Atualizar" }));
+    expect(await screen.findByText(/Avisado em 16\/10\/2026/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Desfazer o aviso de Bruno Lima" }));
+    await waitFor(() => expect(marcarFeriasAvisado).toHaveBeenLastCalledWith("g1", false));
   });
 
   test("clicar na barra mostra as opções e cancelar a programação chama o servidor", async () => {
