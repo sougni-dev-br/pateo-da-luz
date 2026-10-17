@@ -98,8 +98,13 @@ describe("Férias — linha do tempo", () => {
     expect(container.querySelector(".fe-tela--cheia")).not.toBeNull();
     expect(document.body.classList.contains("fe-sem-rolagem")).toBe(true);
     expect(screen.getByRole("button", { name: "Sair da tela cheia" })).toHaveAttribute("aria-pressed", "true");
+    // Na tela cheia avisos, planejamento e filtros recolhem atrás de uma linha-resumo; fora dela ficam à vista.
+    const resumo = container.querySelector("details.fe-cabeca > summary");
+    expect(resumo?.textContent).toMatch(/a programar · \d+ programadas/);
+    expect(container.querySelector("details.fe-cabeca")).not.toHaveAttribute("open");
     fireEvent.keyDown(window, { key: "Escape" });
     await waitFor(() => expect(container.querySelector(".fe-tela--cheia")).toBeNull());
+    expect(container.querySelector("details.fe-cabeca")).toBeNull();
     expect(document.body.classList.contains("fe-sem-rolagem")).toBe(false);
   });
 

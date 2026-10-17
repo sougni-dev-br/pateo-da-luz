@@ -10,6 +10,7 @@ import {
 } from "./eixoDoTempo";
 
 const MAX_DIAS = 30;
+const AJUDA = "Arraste sobre a linha de uma pessoa para escolher os dias, ou clique na faixa tracejada (menos colegas fora). Arraste uma barra azul para mudar a data. Esc sai da tela cheia.";
 /** Largura da coluna do nome (a mesma de --nome no CSS, na tela larga). */
 const NOME_PX = 208;
 
@@ -94,6 +95,7 @@ export function LinhaDoTempo({ lista, pessoas, ocupado, abertoDe, previa, formul
               </select>
             </label>
           )}
+          <button type="button" className="fe-tl-ajuda" aria-label={AJUDA} title={AJUDA}>?</button>
           <Button size="sm" variant="secondary" onClick={() => irParaHoje(true)}>Ir para hoje</Button>
         </div>
       </div>

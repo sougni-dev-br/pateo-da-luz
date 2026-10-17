@@ -196,6 +196,15 @@ export function Ferias() {
 
   const vencidas = lista?.resumo.vencidas ?? 0;
   const aVencer = lista?.resumo.aVencer ?? 0;
+  // Na tela cheia o espaço é do gráfico: avisos, planejamento e filtros ficam recolhidos atrás desta linha.
+  const resumoDoCabecalho = [
+    `${contagem.PENDENTES} a programar`,
+    `${contagem.PROGRAMADAS} programadas`,
+    vencidas > 0 ? `${vencidas} ${plural(vencidas, "fora do prazo", "fora do prazo")}` : null,
+    aVencer > 0 ? `${aVencer} ${plural(aVencer, "perto do limite", "perto do limite")}` : null,
+    empresa ? empresa : null,
+    `exibindo: ${rotuloDoFiltro}`,
+  ].filter(Boolean).join(" · ") + " — avisos, planejamento e filtros";
 
   return (
     <section className={`panel fe-tela${cheia ? " fe-tela--cheia" : ""}`} aria-labelledby="fe-titulo">
@@ -230,6 +239,10 @@ export function Ferias() {
         {aviso && <Alert tone="success" role={undefined}>{aviso}</Alert>}
       </div>
 
+      {cheia ? (
+        <details className="fe-cabeca">
+          <summary className={vencidas > 0 || aVencer > 0 ? "fe-cabeca--atencao" : undefined}>{resumoDoCabecalho}</summary>
+          <div className="fe-cabeca-corpo">
       {(vencidas > 0 || aVencer > 0) && (
         <Alert tone={vencidas > 0 ? "error" : "warning"} role={undefined}>
           {vencidas > 0 && <>{vencidas} {plural(vencidas, "período vencido ou programado", "períodos vencidos ou programados")} fora do prazo: férias pagas em dobro. </>}
@@ -258,6 +271,41 @@ export function Ferias() {
             {empresas.map((nome) => <option key={nome} value={nome}>{nome}</option>)}
           </select>
         </label>
+      )}
+          </div>
+        </details>
+      ) : (
+        <>
+      {(vencidas > 0 || aVencer > 0) && (
+        <Alert tone={vencidas > 0 ? "error" : "warning"} role={undefined}>
+          {vencidas > 0 && <>{vencidas} {plural(vencidas, "período vencido ou programado", "períodos vencidos ou programados")} fora do prazo: férias pagas em dobro. </>}
+          {aVencer > 0 && <>{aVencer} {plural(aVencer, "período chega", "períodos chegam")} ao limite em até 90 dias sem datas.</>}
+        </Alert>
+      )}
+      {lista && lista.semDataDeAdmissao.length > 0 && (
+        <Alert tone="info" role={undefined}>Sem data de admissão no cadastro (não entram no cálculo): {lista.semDataDeAdmissao.map((p) => p.nome).join(", ")}.</Alert>
+      )}
+
+      {lista && todasAsLinhas.length > 0 && <PlanejamentoFerias lista={lista} />}
+
+      {lista && linhas.length > 0 && (
+        <div className="fe-filtros" role="group" aria-label="Filtrar por situação">
+          {FILTROS.map((f) => (
+            <button key={f.id} type="button" className={`fe-filtro fe-filtro--${f.tom}`} aria-pressed={filtro === f.id} onClick={() => escolherFiltro(f.id)}>
+              <strong>{contagem[f.id]}</strong> {f.rotulo}
+            </button>
+          ))}
+        </div>
+      )}
+      {lista && empresas.length > 1 && (
+        <label className="fe-empresa">Empresa
+          <select value={empresa} onChange={(e) => escolherEmpresa(e.target.value)}>
+            <option value="">Todas</option>
+            {empresas.map((nome) => <option key={nome} value={nome}>{nome}</option>)}
+          </select>
+        </label>
+      )}
+        </>
       )}
       <p className="fe-sr" role="status">{lista && linhas.length > 0 ? `${visiveis.length} ${plural(visiveis.length, "período", "períodos")} em “${rotuloDoFiltro}”.` : ""}</p>
 
