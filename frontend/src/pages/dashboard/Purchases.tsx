@@ -1,5 +1,5 @@
-import { ArrowRight } from "lucide-react";
-import { useState } from "react";
+import { ArrowRight, ChevronRight } from "lucide-react";
+import { useId, useState } from "react";
 import type { DashboardNatureKey, DashboardRankingView, Purchase } from "../../api/client";
 import { Money, Tabs, useFormatCurrency } from "../../design-system";
 import { formatDate, formatNumber, formatPercent } from "../../utils/format";
@@ -15,7 +15,7 @@ import {
 } from "./naturezas";
 import "./naturezas.css";
 
-type Dimension = "category" | "supplier" | "product";
+type Dimension = "category" | "subcategory" | "supplier" | "product";
 type RankingSimples = { rows: RankingRow[]; total?: number };
 
 export type NaturezasDasCompras = {
@@ -31,7 +31,7 @@ type Props = {
   delta: Delta | null;
   reference?: string;
   /** Rankings sem separação (backend anterior à natureza). */
-  rankings: Record<Dimension, RankingSimples>;
+  rankings: Record<Exclude<Dimension, "subcategory">, RankingSimples>;
   /** Separação por natureza; quando vem, manda nos rankings. */
   naturezas?: NaturezasDasCompras;
   emptyAction?: { label: string; onClick: () => void };
@@ -39,6 +39,7 @@ type Props = {
 
 const TABS: Array<{ value: Dimension; label: string }> = [
   { value: "category", label: "Categoria" },
+  { value: "subcategory", label: "Subcategoria" },
   { value: "supplier", label: "Fornecedor" },
   { value: "product", label: "Produto" },
 ];
@@ -49,6 +50,16 @@ function nomeDaVisao(visao: VisaoCompras): string {
 
 export function PurchasesPanel({ total, count, delta, reference, rankings, naturezas, emptyAction }: Props) {
   const [dimension, setDimension] = useState<Dimension>("category");
+  // Categorias abertas para mostrar as subcategorias (chave inclui a natureza).
+  const [abertas, setAbertas] = useState<ReadonlySet<string>>(() => new Set());
+  const prefixoId = useId();
+  const alternar = (chave: string) =>
+    setAbertas((atual) => {
+      const proximo = new Set(atual);
+      if (proximo.has(chave)) proximo.delete(chave);
+      else proximo.add(chave);
+      return proximo;
+    });
   // Até a pessoa escolher, a visão acompanha os dados (abre em Insumos quando o mês tem insumo);
   // depois de escolher, a escolha vale também para os outros meses.
   const [escolha, setVisao] = useState<VisaoCompras | null>(null);
@@ -56,7 +67,13 @@ export function PurchasesPanel({ total, count, delta, reference, rankings, natur
 
   const view = naturezas?.views[visao];
   // A escolha da natureza sobrevive à troca de mês; mês sem aquela natureza mostra lista vazia.
-  const current: RankingSimples = naturezas ? (view ? view[dimension] : { rows: [], total: 0 }) : rankings[dimension];
+  // Sem a aba no backend (versão anterior) ou sem rankings por natureza, subcategoria cai na categoria.
+  const dimensaoValida: Dimension = dimension === "subcategory" && !view?.subcategory ? "category" : dimension;
+  const current: RankingSimples = naturezas
+    ? view
+      ? (view[dimensaoValida] ?? { rows: [], total: 0 })
+      : { rows: [], total: 0 }
+    : rankings[dimensaoValida === "subcategory" ? "category" : dimensaoValida];
   const rows = withRemainder(current.rows, current.total);
   const base = current.total ?? rows.reduce((s, r) => s + r.total, 0);
   const max = rows.reduce((m, r) => Math.max(m, r.total), 0);
@@ -97,37 +114,80 @@ export function PurchasesPanel({ total, count, delta, reference, rankings, natur
         <>
           <Tabs
             className="dash-purchases-tabs"
-            tabs={TABS}
-            value={dimension}
+            tabs={naturezas && Object.values(naturezas.views).some((v) => v?.subcategory) ? TABS : TABS.filter((t) => t.value !== "subcategory")}
+            value={dimensaoValida}
             onChange={(v) => setDimension(v as Dimension)}
             aria-label="Distribuir compras por"
           />
           <div
             role="tabpanel"
-            aria-label={`${nomeDaVisao(visao)} por ${TABS.find((t) => t.value === dimension)?.label.toLowerCase()}`}
+            aria-label={`${nomeDaVisao(visao)} por ${TABS.find((t) => t.value === dimensaoValida)?.label.toLowerCase()}`}
           >
             <ol className="dash-bars">
               {rows.map((row, i) => {
                 const share = base > 0 ? (row.total / base) * 100 : 0;
                 const width = max > 0 ? Math.max((row.total / max) * 100, 1.5) : 0;
                 const estilo = row.isRemainder ? { width: `${width}%` } : { width: `${width}%`, background: corDaBarra };
+                const temSub = dimensaoValida === "category" && !!row.children && row.children.length > 0;
+                const chave = `${visao}-${row.name}`;
+                const aberta = temSub && abertas.has(chave);
+                const idSub = `${prefixoId}-sub-${i}`;
                 return (
                   <li
-                    key={`${visao}-${dimension}-${row.name}`}
-                    className={`dash-bar-row${row.isRemainder ? " is-remainder" : ""}`}
+                    key={`${visao}-${dimensaoValida}-${row.group ?? ""}-${row.name}`}
+                    className={`dash-bar-row${row.isRemainder ? " is-remainder" : ""}${temSub ? " has-sub" : ""}`}
                   >
                     <span className="dash-bar-rank" aria-hidden>{row.isRemainder ? "" : i + 1}</span>
-                    <span className="dash-bar-name" title={row.name}>{row.name}</span>
+                    {temSub ? (
+                      <button
+                        type="button"
+                        className="dash-bar-name dash-bar-toggle"
+                        aria-expanded={aberta}
+                        aria-controls={aberta ? idSub : undefined}
+                        title={`${row.name} — ver subcategorias`}
+                        onClick={() => alternar(chave)}
+                      >
+                        <ChevronRight size={14} className="dash-bar-chevron" aria-hidden />
+                        <span>{row.name}</span>
+                      </button>
+                    ) : row.group ? (
+                      <span className="dash-bar-name" title={`${row.name} · ${row.group}`}>
+                        <span className={row.name === "Sem subcategoria" ? "dash-bar-missing" : undefined}>{row.name}</span>
+                        <span className="dash-bar-group"> · {row.group}</span>
+                      </span>
+                    ) : (
+                      <span className="dash-bar-name" title={row.name}>{row.name}</span>
+                    )}
                     <span className="dash-bar-value"><Money value={row.total} /></span>
                     <span className="dash-bar-share">{formatPercent(share)}</span>
                     <span className="dash-bar-track" aria-hidden>
                       <span className="dash-bar-fill" style={estilo} />
                     </span>
+                    {aberta && (
+                      <ul className="dash-sub-list" id={idSub} aria-label={`Subcategorias de ${row.name}`}>
+                        {row.children!.map((sub) => {
+                          const pctSub = row.total > 0 ? (sub.total / row.total) * 100 : 0;
+                          return (
+                            <li key={sub.name} className={`dash-sub-row${sub.name === "Sem subcategoria" ? " is-missing" : ""}`}>
+                              <span className="dash-sub-name" title={sub.name}>{sub.name}</span>
+                              <span className="dash-sub-value"><Money value={sub.total} /></span>
+                              <span className="dash-sub-share">{formatPercent(pctSub)}</span>
+                              <span className="dash-sub-track" aria-hidden>
+                                <span className="dash-sub-fill" style={{ width: `${Math.max(pctSub, 1.5)}%`, background: corDaBarra }} />
+                              </span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
                   </li>
                 );
               })}
             </ol>
-            {visao !== "TODAS" && dimension === "supplier" && (
+            {dimensaoValida === "category" && rows.some((r) => r.children && r.children.length > 0) && (
+              <p className="dash-footnote">Toque numa categoria para ver as subcategorias; o percentual delas é dentro da categoria.</p>
+            )}
+            {visao !== "TODAS" && dimensaoValida === "supplier" && (
               <p className="dash-footnote">Cada fornecedor soma só os itens desta natureza, não a nota inteira.</p>
             )}
           </div>

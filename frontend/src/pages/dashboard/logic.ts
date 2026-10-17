@@ -184,7 +184,15 @@ export function classifyAlerts(
 
 // ── Rankings ────────────────────────────────────────────────
 
-export type RankingRow = { name: string; total: number; isRemainder?: boolean };
+export type RankingRow = {
+  name: string;
+  total: number;
+  isRemainder?: boolean;
+  /** Na aba Subcategoria, a categoria da linha. */
+  group?: string;
+  /** Subcategorias de uma categoria (só na aba Categoria). */
+  children?: Array<{ name: string; total: number }>;
+};
 
 /**
  * Acrescenta a linha "Demais" com o que ficou fora do top exibido, para as
