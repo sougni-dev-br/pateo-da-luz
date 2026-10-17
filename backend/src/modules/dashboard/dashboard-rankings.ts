@@ -33,11 +33,17 @@ export type CompraParaRanking = {
 };
 
 /** Na categoria, `children` traz as subcategorias dela (todas, maiores primeiro). */
-export type LinhaRanking = { name: string; total: number; children?: Array<{ name: string; total: number }> };
+export type LinhaRanking = {
+  name: string;
+  total: number;
+  children?: Array<{ name: string; total: number }>;
+  /** Na aba de subcategorias, a categoria a que a subcategoria pertence. */
+  group?: string;
+};
 
 export const SEM_SUBCATEGORIA = "Sem subcategoria";
 export type Ranking = { rows: LinhaRanking[]; total: number };
-export type Visao = { category: Ranking; supplier: Ranking; product: Ranking };
+export type Visao = { category: Ranking; subcategory: Ranking; supplier: Ranking; product: Ranking };
 
 export type RankingsDeCompras = {
   /** Total de itens por natureza, na ordem fixa (só as que aparecem no mês). */
@@ -46,6 +52,10 @@ export type RankingsDeCompras = {
   unitemizedTotal: number;
   views: Partial<Record<VisaoChave, Visao>>;
 };
+
+// Separa categoria e subcategoria na chave: subcategorias de mesmo nome (e a falta
+// delas) em categorias diferentes são linhas diferentes.
+const SEP = "\u0001";
 
 class Somador {
   private readonly mapa = new Map<string, number>();
@@ -59,6 +69,10 @@ class Somador {
   }
   ranking(): Ranking {
     const linhas: LinhaRanking[] = [...this.mapa.entries()].map(([name, total]) => {
+      if (name.includes(SEP)) {
+        const [group, nome] = name.split(SEP);
+        return { name: nome, group, total };
+      }
       const sub = this.filhos.get(name);
       if (!sub) return { name, total };
       const children = [...sub.entries()].map(([n, t]) => ({ name: n, total: t })).sort((a, b) => b.total - a.total);
@@ -69,8 +83,19 @@ class Somador {
   }
 }
 
-type Somadores = { category: Somador; supplier: Somador; product: Somador };
-const novosSomadores = (): Somadores => ({ category: new Somador(), supplier: new Somador(), product: new Somador() });
+type Somadores = { category: Somador; subcategory: Somador; supplier: Somador; product: Somador };
+const novosSomadores = (): Somadores => ({
+  category: new Somador(),
+  subcategory: new Somador(),
+  supplier: new Somador(),
+  product: new Somador(),
+});
+const visaoDe = (s: Somadores): Visao => ({
+  category: s.category.ranking(),
+  subcategory: s.subcategory.ranking(),
+  supplier: s.supplier.ranking(),
+  product: s.product.ranking(),
+});
 
 export function categoriaDoItem(item: Pick<ItemDeCompra, "categoryName" | "rawCategory">): string {
   return item.categoryName ?? item.rawCategory ?? "Sem categoria";
@@ -92,6 +117,7 @@ export function montarRankings(compras: CompraParaRanking[]): RankingsDeCompras 
       const categoria = categoriaDoItem(item);
       const subcategoria = item.subcategoryName ?? SEM_SUBCATEGORIA;
       todas.category.add(categoria, item.totalPrice, subcategoria);
+      todas.subcategory.add(`${categoria}${SEP}${subcategoria}`, item.totalPrice);
       todas.product.add(item.productName, item.totalPrice);
 
       // Produto ainda sem natureza herda a da categoria.
@@ -103,6 +129,7 @@ export function montarRankings(compras: CompraParaRanking[]): RankingsDeCompras 
       // de hortifruti que também vendeu um saco de lixo não entra em Consumo pelo
       // valor da nota inteira.
       somadores.supplier.add(compra.supplierName, item.totalPrice);
+      somadores.subcategory.add(`${categoria}${SEP}${subcategoria}`, item.totalPrice);
       somadores.product.add(item.productName, item.totalPrice);
 
       const t = totais.get(chave) ?? { total: 0, items: 0 };
@@ -118,10 +145,10 @@ export function montarRankings(compras: CompraParaRanking[]): RankingsDeCompras 
   if (unitemizedTotal !== 0) todas.category.add(SEM_ITEMIZACAO, unitemizedTotal);
 
   const views: Partial<Record<VisaoChave, Visao>> = {
-    TODAS: { category: todas.category.ranking(), supplier: todas.supplier.ranking(), product: todas.product.ranking() },
+    TODAS: visaoDe(todas),
   };
   for (const [chave, s] of porNatureza) {
-    views[chave] = { category: s.category.ranking(), supplier: s.supplier.ranking(), product: s.product.ranking() };
+    views[chave] = visaoDe(s);
   }
 
   const byNature = ORDEM_NATUREZAS.filter((n) => totais.has(n)).map((nature) => ({ nature, ...totais.get(nature)! }));

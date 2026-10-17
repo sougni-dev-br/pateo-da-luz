@@ -98,6 +98,24 @@ describe("montarRankings", () => {
     expect(carnes.children!.reduce((s, c) => s + c.total, 0)).toBe(carnes.total);
   });
 
+  test("aba de subcategorias ranqueia todas, com a categoria de cada uma", () => {
+    const r = montarRankings([
+      compra("K", [
+        item({ categoryName: "FLV", subcategoryName: "Legumes", totalPrice: 300 }),
+        item({ categoryName: "CARNES", subcategoryName: "Bovinos", totalPrice: 500 }),
+        item({ categoryName: "FLV", subcategoryName: null, totalPrice: 40 }),
+        item({ categoryName: "CARNES", subcategoryName: null, totalPrice: 60 }),
+      ]),
+    ]);
+    expect(r.views.INSUMO!.subcategory.rows).toEqual([
+      { name: "Bovinos", group: "CARNES", total: 500 },
+      { name: "Legumes", group: "FLV", total: 300 },
+      { name: "Sem subcategoria", group: "CARNES", total: 60 },
+      { name: "Sem subcategoria", group: "FLV", total: 40 },
+    ]);
+    expect(r.views.INSUMO!.subcategory.total).toBe(900);
+  });
+
   test("fornecedor e produto não ganham subníveis", () => {
     const r = montarRankings([compra("J", [item({ subcategoryName: "X" })])]);
     expect(r.views.TODAS!.product.rows[0].children).toBeUndefined();

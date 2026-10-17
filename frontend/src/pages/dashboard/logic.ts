@@ -188,6 +188,8 @@ export type RankingRow = {
   name: string;
   total: number;
   isRemainder?: boolean;
+  /** Na aba Subcategoria, a categoria da linha. */
+  group?: string;
   /** Subcategorias de uma categoria (só na aba Categoria). */
   children?: Array<{ name: string; total: number }>;
 };

@@ -129,3 +129,7 @@ button.dash-nature-chip:hover { border-color: var(--line-strong); background: va
 @media (prefers-reduced-motion: reduce) {
   .dash-bar-chevron { transition: none; }
 }
+
+/* Aba Subcategoria: a categoria acompanha cada linha, em cinza. */
+.dash-bar-group { color: var(--muted); font-size: 12px; }
+.dash-bar-missing { color: var(--warning); font-style: italic; }
