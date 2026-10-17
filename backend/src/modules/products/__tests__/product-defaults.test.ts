@@ -2,6 +2,8 @@ import { describe, expect, test } from "vitest";
 import { NATURE_DEFAULTS } from "../product-nature.js";
 import {
   categoriaDaEstruturaParaItemNovo,
+  ehCategoriaLegada,
+  ehNomeDeCategoriaLegada,
   estruturaDeProdutoNovo,
   padraoDeProdutoNovo,
   planilhaPodeReclassificar
@@ -94,14 +96,14 @@ describe("estruturaDeProdutoNovo", () => {
     expect(r).toMatchObject({ categoryId: "c-lat", reclassificada: false, padrao: { nature: "INSUMO" } });
   });
 
-  test("categoria antiga sem regra clara fica na antiga, sem natureza", async () => {
+  test("categoria antiga sem regra clara não recebe o produto: fica sem categoria e sem natureza", async () => {
     const r = await estruturaDeProdutoNovo(banco([insumos, laticinios]), { descricao: "Coisa estranha", categoryId: "c-ins" });
-    expect(r).toMatchObject({ categoryId: "c-ins", reclassificada: false, padrao: { nature: null, controlsStock: null } });
+    expect(r).toMatchObject({ categoryId: null, reclassificada: false, padrao: { nature: null, controlsStock: null } });
   });
 
-  test("categoria de destino ausente no banco não quebra: fica na da planilha", async () => {
+  test("categoria de destino ausente no banco não quebra: o produto fica sem categoria (a antiga é legada)", async () => {
     const r = await estruturaDeProdutoNovo(banco([insumos]), { descricao: "Queijo", categoryId: "c-ins" });
-    expect(r.categoryId).toBe("c-ins");
+    expect(r.categoryId).toBeNull();
     expect(r.reclassificada).toBe(false);
   });
 
@@ -112,12 +114,12 @@ describe("estruturaDeProdutoNovo", () => {
 
   test("destino desativado não recebe produto novo", async () => {
     const r = await estruturaDeProdutoNovo(banco([insumos, { ...laticinios, isActive: false }]), { descricao: "Queijo", categoryId: "c-ins" });
-    expect(r.categoryId).toBe("c-ins");
+    expect(r.categoryId).toBeNull();
   });
 
   test("destino sem natureza cai no fallback", async () => {
     const r = await estruturaDeProdutoNovo(banco([insumos, { ...laticinios, nature: null }]), { descricao: "Queijo", categoryId: "c-ins" });
-    expect(r).toMatchObject({ categoryId: "c-ins", reclassificada: false });
+    expect(r).toMatchObject({ categoryId: null, reclassificada: false });
   });
 
   test("categoria já carregada pelo chamador evita nova consulta", async () => {
@@ -128,5 +130,60 @@ describe("estruturaDeProdutoNovo", () => {
   test("sem categoria na planilha, nada a decidir", async () => {
     const r = await estruturaDeProdutoNovo(banco([]), { descricao: "Queijo", categoryId: undefined });
     expect(r).toMatchObject({ categoryId: undefined, reclassificada: false, padrao: { nature: null } });
+  });
+});
+
+describe("ehCategoriaLegada", () => {
+  test("categoria inativa é legada", () => {
+    expect(ehCategoriaLegada({ name: "QUALQUER", nature: "INSUMO", isActive: false })).toBe(true);
+  });
+
+  test("INSUMOS e DESPESAS sem natureza são legadas, mesmo ativas", () => {
+    expect(ehCategoriaLegada({ name: "INSUMOS", nature: null, isActive: true })).toBe(true);
+    expect(ehCategoriaLegada({ name: "Despesas", nature: null })).toBe(true);
+  });
+
+  test("categoria da estrutura nova, ou com natureza, não é", () => {
+    expect(ehCategoriaLegada({ name: "SECOS E GRAOS", nature: "INSUMO", isActive: true })).toBe(false);
+    expect(ehCategoriaLegada({ name: "INSUMOS", nature: "INSUMO", isActive: true })).toBe(false);
+    expect(ehCategoriaLegada(null)).toBe(false);
+  });
+});
+
+describe("estruturaDeProdutoNovo: categoria legada da planilha", () => {
+  const legadaInativa = { id: "c-ins", name: "INSUMOS", nature: null, defaultDreCategoryId: null, isActive: false };
+  const bancoCom = (categorias: Array<Record<string, unknown>>) =>
+    ({
+      category: {
+        findUnique: async ({ where }: { where: { id: string } }) => categorias.find((c) => c.id === where.id) ?? null,
+        findFirst: async ({ where }: { where: { name: { equals: string } } }) =>
+          categorias.find((c) => String(c.name).toLowerCase() === where.name.equals.toLowerCase() && c.isActive !== false) ?? null
+      }
+    }) as never;
+
+  test("legada inativa com nome claro vai para a categoria da estrutura nova", async () => {
+    const laticinios = { id: "c-lat", name: "LATICINIOS E FRIOS", nature: "INSUMO", defaultDreCategoryId: "dre-cmv", isActive: true };
+    const r = await estruturaDeProdutoNovo(bancoCom([legadaInativa, laticinios]), { descricao: "Queijo mussarela", categoryId: "c-ins", categoria: legadaInativa as never });
+    expect(r).toMatchObject({ categoryId: "c-lat", reclassificada: true });
+  });
+
+  test("legada sem regra clara não recebe o produto: fica sem categoria, para classificar à mão", async () => {
+    const r = await estruturaDeProdutoNovo(bancoCom([legadaInativa]), { descricao: "Coisa estranha", categoryId: "c-ins", categoria: legadaInativa as never });
+    expect(r).toMatchObject({ categoryId: null, reclassificada: false, padrao: { nature: null, controlsStock: null } });
+  });
+
+  test("INSUMOS ativa sem natureza também é tratada como legada", async () => {
+    const legadaAtiva = { ...legadaInativa, isActive: true };
+    const r = await estruturaDeProdutoNovo(bancoCom([legadaAtiva]), { descricao: "Coisa estranha", categoryId: "c-ins", categoria: legadaAtiva as never });
+    expect(r.categoryId).toBeNull();
+  });
+});
+
+describe("ehNomeDeCategoriaLegada", () => {
+  test("INSUMOS e DESPESAS, em qualquer caixa, são vocabulário antigo", () => {
+    expect(ehNomeDeCategoriaLegada("INSUMOS")).toBe(true);
+    expect(ehNomeDeCategoriaLegada(" despesas ")).toBe(true);
+    expect(ehNomeDeCategoriaLegada("SECOS E GRAOS")).toBe(false);
+    expect(ehNomeDeCategoriaLegada(null)).toBe(false);
   });
 });

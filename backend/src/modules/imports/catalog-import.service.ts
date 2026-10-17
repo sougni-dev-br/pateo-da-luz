@@ -22,7 +22,8 @@ import {
 import { readWorkbookSheetNames, readWorksheetRows } from "./excel-reader.service.js";
 import { normalizeInventorySectorInput } from "../master-data/inventory-sector-utils.js";
 import { normalizeProductCode } from "../../shared/utils/product-code.js";
-import { estruturaDeProdutoNovo, padraoDeProdutoNovo, planilhaPodeReclassificar } from "../products/product-defaults.js";
+import { ehCategoriaLegada, ehNomeDeCategoriaLegada, estruturaDeProdutoNovo, planilhaPodeReclassificar } from "../products/product-defaults.js";
+import { dadosDeCriacaoDoProduto, interpretarSetorDaPlanilha } from "./catalog-product-rules.js";
 import type { ProductNatureValue } from "../products/product-nature.js";
 
 type CatalogKind = "suppliers" | "products";
@@ -60,6 +61,7 @@ type ProductCatalogRow = {
   storageNotes: string | null;
   accountType: string | null;
   controlsStock: boolean;
+  setorAposentado: boolean;
   missingSector: boolean;
   countableInGeneral: boolean;
   countableInSectoral: boolean;
@@ -165,14 +167,6 @@ function asText(value: unknown): string | null {
   return text || null;
 }
 
-function shouldControlStock(sectorName?: string | null, accountType?: string | null) {
-  const sector = normalizeText(sectorName);
-  const account = normalizeText(accountType);
-  if (sector === "nao bater est" || sector === "nao bater estoque") return false;
-  if (account === "custo fixo" || account === "custo variavel") return false;
-  return true;
-}
-
 function detectedColumns<T extends string>(columns: ResolvedColumnMap<T>) {
   return Object.fromEntries(
     Object.entries(columns).filter(([, column]) => Boolean(column))
@@ -202,7 +196,9 @@ function mapSupplierRows(rows: Record<string, unknown>[], columns: ResolvedColum
 function mapProductRows(rows: Record<string, unknown>[], columns: ResolvedColumnMap<ProductCatalogField>) {
   return rows.map<ProductCatalogRow>((row, index) => {
     const rawSectorName = asText(getCell(row, columns, "sectorName"));
-    const sectorName = normalizeInventorySectorInput(rawSectorName);
+    const accountType = asText(getCell(row, columns, "accountType"));
+    // "NÃO BATER EST" foi aposentado: a linha vira "não controla estoque", sem setor.
+    const setor = interpretarSetorDaPlanilha(rawSectorName, normalizeInventorySectorInput(rawSectorName), accountType);
     return {
       rowNumber: Number(row.__rowNumber ?? index + 2),
       // Canoniza o codigo da planilha: "001196" e "1196" sao o mesmo produto.
@@ -211,34 +207,19 @@ function mapProductRows(rows: Record<string, unknown>[], columns: ResolvedColumn
       categoryName: asText(getCell(row, columns, "categoryName")),
       subcategoryName: asText(getCell(row, columns, "subcategoryName")),
       unit: asText(getCell(row, columns, "unit")),
-      sectorName,
+      sectorName: setor.sectorName,
       storageLocation: asText(getCell(row, columns, "storageLocation")),
       storageCorridor: asText(getCell(row, columns, "storageCorridor")),
       storageShelf: asText(getCell(row, columns, "storageShelf")),
       storagePosition: asText(getCell(row, columns, "storagePosition")),
       storageNotes: asText(getCell(row, columns, "storageNotes")),
-      accountType: asText(getCell(row, columns, "accountType")),
-      controlsStock: shouldControlStock(
-        sectorName,
-        asText(getCell(row, columns, "accountType"))
-      ),
-      missingSector: !sectorName,
-      countableInGeneral: shouldControlStock(
-        sectorName,
-        asText(getCell(row, columns, "accountType"))
-      ),
-      countableInSectoral: Boolean(sectorName)
-        && shouldControlStock(
-          sectorName,
-          asText(getCell(row, columns, "accountType"))
-        ),
-      countabilityReasons: [
-        ...(!sectorName ? [rawSectorName ? "SETOR_INVALIDO" : "SEM_SETOR"] : []),
-        ...(!shouldControlStock(
-          sectorName,
-          asText(getCell(row, columns, "accountType"))
-        ) ? ["SEM_CONTROLE_ESTOQUE"] : [])
-      ]
+      accountType,
+      controlsStock: setor.controlsStock,
+      setorAposentado: setor.setorAposentado,
+      missingSector: setor.missingSector,
+      countableInGeneral: setor.countableInGeneral,
+      countableInSectoral: setor.countableInSectoral,
+      countabilityReasons: setor.countabilityReasons
     };
   });
 }
@@ -704,6 +685,8 @@ async function findOrCreateCategoryCached(
 
   const existing = caches.categoriesByName.get(cleanName);
   if (existing) return existing;
+  // Vocabulário antigo (INSUMOS, DESPESAS): se a categoria não existe, a planilha não a recria.
+  if (ehNomeDeCategoriaLegada(cleanName)) return null;
 
   const created = await tx.category.upsert({
     where: { name: cleanName },
@@ -1183,7 +1166,10 @@ export async function confirmProductCatalogImport(
       await prisma.$transaction(async (tx) => {
         const externalCode = row.code as string;
         const existing = caches.productsByCode.get(externalCode) ?? null;
-        const category = await findOrCreateCategoryCached(tx, caches, row.categoryName);
+        const categoriaDaPlanilha = await findOrCreateCategoryCached(tx, caches, row.categoryName);
+        // A planilha ainda traz INSUMOS/DESPESAS (e categorias já desativadas): essas nunca recebem produto
+        // nem subcategoria nova; produto novo é roteado pelo nome ou fica sem categoria, para classificar à mão.
+        const category = ehCategoriaLegada(categoriaDaPlanilha) ? null : categoriaDaPlanilha;
         const subcategory = await findOrCreateSubcategoryCached(
           tx,
           caches,
@@ -1201,7 +1187,8 @@ export async function confirmProductCatalogImport(
           unitMeasureId: unitMeasure?.id,
           categoryId: category?.id,
           subcategoryId: subcategory?.id,
-          inventorySectorId: sector?.id,
+          // Setor aposentado na planilha: desvincula (null), em vez de só "não mexer".
+          inventorySectorId: row.setorAposentado ? null : sector?.id,
           accountType: row.accountType,
           controlsStock: row.controlsStock,
           isActive: true
@@ -1212,16 +1199,10 @@ export async function confirmProductCatalogImport(
         // desfaria a reorganização.
         const estrutura = existing
           ? null
-          : await estruturaDeProdutoNovo(tx, { descricao: row.description, categoryId: category?.id, categoria: category });
-        const padrao = estrutura?.padrao ?? padraoDeProdutoNovo(category);
+          : await estruturaDeProdutoNovo(tx, { descricao: row.description, categoryId: categoriaDaPlanilha?.id, categoria: categoriaDaPlanilha });
         const criar = {
           ...data,
-          ...(estrutura?.reclassificada
-            ? { categoryId: estrutura.categoryId ?? undefined, subcategoryId: undefined }
-            : {}),
-          nature: padrao.nature,
-          dreCategoryId: padrao.dreCategoryId,
-          ...(padrao.controlsStock === null ? {} : { controlsStock: padrao.controlsStock })
+          ...dadosDeCriacaoDoProduto({ linha: data, estrutura })
         };
         const atualizar = planilhaPodeReclassificar(existing)
           ? data
