@@ -44,6 +44,12 @@ export function criarEixo(hoje: string, pessoas: PessoaFerias[], pxPorDia: numbe
   return { inicio, totalDias, pxPorDia, largura: Math.round(totalDias * pxPorDia) };
 }
 
+/** Eixo entre duas datas (inclusive), espremido numa largura em px: serve à folha impressa. */
+export function criarEixoEntre(inicio: string, fim: string, largura: number): Eixo {
+  const totalDias = diasEntre(inicio, fim) + 1;
+  return { inicio, totalDias, pxPorDia: largura / totalDias, largura };
+}
+
 export const fimDoEixo = (eixo: Eixo) => somaDias(eixo.inicio, eixo.totalDias - 1);
 export const indiceDoDia = (eixo: Eixo, iso: string) => diasEntre(eixo.inicio, iso);
 export const xDoDia = (eixo: Eixo, iso: string) => indiceDoDia(eixo, iso) * eixo.pxPorDia;
