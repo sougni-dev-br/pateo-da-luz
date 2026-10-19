@@ -1,0 +1,28 @@
+.cobertura-grade {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 12px;
+  margin-top: 8px;
+}
+.cobertura-canal {
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.cobertura-canal header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.cobertura-canal h3 { margin: 0; font-size: 16px; }
+.cobertura-canal p { margin: 0; font-size: 13px; }
+.cobertura-ultimo span, .cobertura-dias, .cobertura-vazio { color: var(--color-text-muted, #6b7280); }
+.cobertura-canal summary { cursor: pointer; font-size: 13px; }
+.cobertura-lista-dias { margin-top: 4px; line-height: 1.6; overflow-wrap: anywhere; }
+.cobertura-origens { margin: 0; padding-left: 16px; font-size: 12px; color: var(--color-text-muted, #6b7280); }
+.cobertura-canal .cobertura-dica { color: var(--color-warning-text, #92400e); }

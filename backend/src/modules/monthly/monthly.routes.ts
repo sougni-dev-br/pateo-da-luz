@@ -25,6 +25,7 @@ import {
   saveMonthlyCmv,
   undoInventorySnapshot
 } from "./monthly.service.js";
+import { getRevenueCoverage } from "./revenue-coverage.service.js";
 import { confirmRevenueImport, previewRevenueImport, undoRevenueImportBatch } from "./revenue-import.service.js";
 
 const upload = multer({ dest: "uploads/" });
@@ -389,6 +390,20 @@ monthlyRouter.get("/revenue", async (request, response) => {
       byDay: normalizedByDay
     }
   });
+});
+
+// Antes de "/revenue/:id", senão "coverage" seria lido como um id.
+monthlyRouter.get("/revenue/coverage", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "VISUALIZACAO"]);
+  if (!user) return;
+  const hoje = new Date();
+  const year = numberParam(request.query.year, hoje.getFullYear());
+  const month = numberParam(request.query.month, hoje.getMonth() + 1);
+  if (!Number.isInteger(year) || year < 2024 || year > 2100 || !Number.isInteger(month) || month < 1 || month > 12) {
+    response.status(400).json({ message: "Competência inválida" });
+    return;
+  }
+  response.json(await getRevenueCoverage({ year, month }));
 });
 
 monthlyRouter.get("/revenue/:id", async (request, response) => {
