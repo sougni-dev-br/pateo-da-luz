@@ -50,7 +50,7 @@ describe("Embalagens de compra", () => {
     expect(opcoes).toEqual(["", "CX", "PCT", "UN", "L", "BARRIL"]);
     // o destino é a unidade de contagem, só texto: nenhum campo para digitar
     expect(screen.queryByPlaceholderText(/PCT, CX/)).toBeNull();
-    expect(screen.getAllByRole("textbox")).toHaveLength(1);
+    expect(screen.getAllByRole("textbox")).toHaveLength(2); // quantidade na nota + quanto entra
   });
 
   test("mostra o exemplo calculado ao vivo", () => {
@@ -142,20 +142,37 @@ describe("lerFator", () => {
   test.each(["", "abc", "1,2,3", "-1", "1e3"])("recusa %j", (texto) => expect(lerFator(texto)).toBeNull());
 });
 
-describe("conversão que o sistema já faz sozinho", () => {
-  test("litro para barril avisa e não deixa adicionar embalagem", () => {
+describe("quantidade nos dois lados (50 L = 1 barril)", () => {
+  const quantidade = () => screen.getByLabelText("Quantidade na nota") as HTMLInputElement;
+  const adicionar = () => screen.getByRole("button", { name: "Adicionar embalagem" }) as HTMLButtonElement;
+
+  test("quando a compra vier em 50 L, entra 1 barril: guarda 1 L = 0,02 BARRIL e mostra 50 L = 1 BARRIL", () => {
+    render(<Tela contagem="BARRIL" />);
+    fireEvent.change(quantidade(), { target: { value: "50" } });
+    fireEvent.change(origem(), { target: { value: "L" } });
+    fireEvent.change(fator(), { target: { value: "1" } });
+    expect(screen.getByRole("status").textContent).toBe("Exemplo: 50 L na nota = 1 BARRIL no estoque.");
+    expect(adicionar().disabled).toBe(false);
+    fireEvent.click(adicionar());
+    expect(ultimas).toHaveLength(1);
+    expect(Number(ultimas[0].factor)).toBeCloseTo(0.02, 10);
+    expect(screen.getByText("50 L = 1 BARRIL")).toBeTruthy();
+  });
+
+  test("o inverso: estoque em litros, 1 barril na nota = 50 L", () => {
+    render(<Tela contagem="L" />);
+    fireEvent.change(origem(), { target: { value: "BARRIL" } });
+    fireEvent.change(fator(), { target: { value: "50" } });
+    fireEvent.click(adicionar());
+    expect(ultimas[0]).toMatchObject({ fromUnit: "BARRIL", toUnit: "L", factor: "50" });
+    expect(screen.getByText("1 BARRIL = 50 L")).toBeTruthy();
+  });
+
+  test("quantidade zerada ou inválida não deixa adicionar", () => {
     render(<Tela contagem="BARRIL" />);
     fireEvent.change(origem(), { target: { value: "L" } });
     fireEvent.change(fator(), { target: { value: "1" } });
-    expect(screen.getByRole("alert").textContent).toContain("já converte sozinho (1 L = 0,02 BARRIL)");
-    expect((screen.getByRole("button", { name: "Adicionar embalagem" }) as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  test("barril para litro (estoque em litros) também avisa: 1 BARRIL = 50 L", () => {
-    render(<Tela contagem="L" />);
-    fireEvent.change(origem(), { target: { value: "BARRIL" } });
-    fireEvent.change(fator(), { target: { value: "1" } });
-    expect(screen.getByRole("alert").textContent).toContain("já converte sozinho (1 BARRIL = 50 L)");
-    expect((screen.getByRole("button", { name: "Adicionar embalagem" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(quantidade(), { target: { value: "0" } });
+    expect(adicionar().disabled).toBe(true);
   });
 });
