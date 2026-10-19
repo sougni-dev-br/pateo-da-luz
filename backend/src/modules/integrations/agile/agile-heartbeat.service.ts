@@ -12,8 +12,13 @@ const TOLERANCIA_RELOGIO_MS = 5 * 60 * 1000;
 // as regras de atraso não podem acreditar nele. O relógio do agente
 // (`ocorridoEm`) só serve para uma coisa: um heartbeat "ok" mais antigo que o já
 // guardado (atrasado na rede, reenviado fora de ordem) não pode recuar o último OK.
-export async function registrarHeartbeat(payload: HeartbeatPayload, agora: Date = new Date()): Promise<{ recebidoEm: string }> {
-  const chave = { sourcePlatform_agenteHost: { sourcePlatform: SOURCE_PLATFORM, agenteHost: payload.agenteHost } };
+// O mesmo registro serve a qualquer agente de máquina (hoje o Agile e a Keeta): a plataforma separa as linhas.
+export async function registrarHeartbeat(
+  payload: HeartbeatPayload,
+  agora: Date = new Date(),
+  plataforma: string = SOURCE_PLATFORM
+): Promise<{ recebidoEm: string }> {
+  const chave = { sourcePlatform_agenteHost: { sourcePlatform: plataforma, agenteHost: payload.agenteHost } };
   const existente = await prisma.agileAgentHeartbeat.findUnique({
     where: chave,
     select: { ultimoOkOcorridoEm: true }
@@ -45,7 +50,7 @@ export async function registrarHeartbeat(payload: HeartbeatPayload, agora: Date 
   await prisma.agileAgentHeartbeat.upsert({
     where: chave,
     create: {
-      sourcePlatform: SOURCE_PLATFORM,
+      sourcePlatform: plataforma,
       agenteHost: payload.agenteHost,
       agenteVersion: payload.agenteVersion ?? null,
       ...comuns,
@@ -64,10 +69,14 @@ export async function registrarHeartbeat(payload: HeartbeatPayload, agora: Date 
 
 // Estado do agente para a tela. Considera a máquina com o heartbeat mais recente
 // (hoje só existe a PDVTOUCH).
-export async function obterSaudeAgente(agora: Date = new Date()): Promise<SaudeAgente> {
+export async function obterSaudeAgente(
+  agora: Date = new Date(),
+  plataforma: string = SOURCE_PLATFORM,
+  rotulo: string = "PDV"
+): Promise<SaudeAgente> {
   const registro = await prisma.agileAgentHeartbeat.findFirst({
-    where: { sourcePlatform: SOURCE_PLATFORM },
+    where: { sourcePlatform: plataforma },
     orderBy: { ultimoHeartbeatEm: "desc" }
   });
-  return avaliarSaudeAgente(registro, agora);
+  return avaliarSaudeAgente(registro, agora, rotulo);
 }

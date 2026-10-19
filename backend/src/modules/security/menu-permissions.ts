@@ -460,6 +460,7 @@ function menuFromRequest(request: Request): MenuId | null {
   if (path.startsWith("/monthly/cmv-real")) return "cmv-real";
   if (path.startsWith("/monthly/revenue")) return "revenue";
   if (path.startsWith("/integrations/agile/status")) return "faturamento-salao";
+  if (path.startsWith("/integrations/keeta-agente/status")) return "delivery-keeta";
   if (path.startsWith("/integrations/agile/analise")) return "analise-salao";
   // Cadastrar loja e gravar credencial pertencem a tela de Integracoes, cujo modulo
   // no controle de acesso e "integracao-*". Sem estas duas regras aquele interruptor

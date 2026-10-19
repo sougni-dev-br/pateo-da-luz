@@ -48,11 +48,12 @@ function formatarDataHora(data: Date): string {
   return `${p("day")}/${p("month")}/${p("year")} ${p("hour")}:${p("minute")}`;
 }
 
-export function avaliarSaudeAgente(registro: RegistroHeartbeat | null, agora: Date): SaudeAgente {
+/** `rotulo` entra nas mensagens: "PDV" para o Agile, "agente da Keeta" para a Keeta. */
+export function avaliarSaudeAgente(registro: RegistroHeartbeat | null, agora: Date, rotulo: string = "PDV"): SaudeAgente {
   if (!registro) {
     return {
       estado: "aguardando",
-      alertas: [{ nivel: "info", mensagem: "Aguardando primeiro heartbeat do PDV" }],
+      alertas: [{ nivel: "info", mensagem: `Aguardando primeiro heartbeat do ${rotulo}` }],
       horasSemOk: null,
       ultimoStatus: null,
       ultimoHeartbeatEm: null,
@@ -69,7 +70,7 @@ export function avaliarSaudeAgente(registro: RegistroHeartbeat | null, agora: Da
 
   if (registro.ultimoStatus === "erro") {
     const detalhe = registro.ultimaMensagem?.trim() || "sem detalhe informado pelo agente";
-    alertas.push({ nivel: "alerta", mensagem: `Último sync do PDV falhou: ${detalhe}` });
+    alertas.push({ nivel: "alerta", mensagem: `Último sync do ${rotulo} falhou: ${detalhe}` });
     estado = "erro";
   }
 
@@ -78,7 +79,7 @@ export function avaliarSaudeAgente(registro: RegistroHeartbeat | null, agora: Da
     const critico = msSemOk > LIMITE_CRITICO_HORAS * HORA_MS;
     alertas.push({
       nivel: critico ? "critico" : "alerta",
-      mensagem: `PDV sem sincronizar há ${horasSemOk} h (último OK em ${formatarDataHora(registro.ultimoOkEm)})`
+      mensagem: `${rotulo} sem sincronizar há ${horasSemOk} h (último OK em ${formatarDataHora(registro.ultimoOkEm)})`
     });
     estado = critico ? "critico" : estado === "erro" ? "erro" : "atrasado";
   }

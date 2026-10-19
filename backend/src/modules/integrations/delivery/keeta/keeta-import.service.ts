@@ -131,7 +131,7 @@ export async function preverImportacaoKeeta(buffer: Buffer, nome: string): Promi
 export async function confirmarImportacaoKeeta(
   buffer: Buffer,
   nome: string,
-  contexto: { userId: string; ipAddress?: string | null; userAgent?: string | null }
+  contexto: { userId: string | null; ipAddress?: string | null; userAgent?: string | null }
 ): Promise<ResultadoKeeta> {
   const { dias, erros, avisos } = lerTabelaKeeta(await lerArquivo(buffer, nome));
   if (erros.length > 0) throw new ErroDeImportacao("O arquivo tem linhas com erro. Corrija e envie de novo.");

@@ -1,4 +1,7 @@
 import { prisma } from "../../config/database.js";
+import type { SaudeAgente } from "../integrations/agile/agile-heartbeat.health.js";
+import { obterSaudeAgente } from "../integrations/agile/agile-heartbeat.service.js";
+import { PLATAFORMA_DO_AGENTE, ROTULO_DO_AGENTE } from "../integrations/delivery/keeta/keeta-agente.constantes.js";
 import {
   calcularCobertura,
   canalDaLinha,
@@ -25,6 +28,7 @@ export async function getRevenueCoverage(params: { year: number; month: number }
   period: { year: number; month: number; from: string; to: string };
   today: string;
   channels: CoberturaDoCanal[];
+  agenteKeeta: SaudeAgente;
 }> {
   const { from, to } = limitesDoMes(params.year, params.month);
   const today = hojeEmBrasilia();
@@ -52,6 +56,8 @@ export async function getRevenueCoverage(params: { year: number; month: number }
   return {
     period: { year: params.year, month: params.month, from, to },
     today,
-    channels: calcularCobertura({ from, to, today, rows, ultimoDiaGeral })
+    channels: calcularCobertura({ from, to, today, rows, ultimoDiaGeral }),
+    // A Keeta entra por um agente na PDVTOUCH: o cartão dela mostra se o agente está vivo ou pediu login.
+    agenteKeeta: await obterSaudeAgente(new Date(), PLATAFORMA_DO_AGENTE, ROTULO_DO_AGENTE)
   };
 }

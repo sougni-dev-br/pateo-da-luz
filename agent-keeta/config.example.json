@@ -1,0 +1,16 @@
+{
+  "portal": {
+    "shopId": 0,
+    "navegador": "msedge",
+    "headless": true,
+    "email": "",
+    "senha": ""
+  },
+  "backend": {
+    "baseUrl": "https://pateo-backend.onrender.com",
+    "ingestToken": "TROCAR",
+    "retryMaxAttempts": 3,
+    "retryDelayMs": 300000
+  },
+  "perfilDir": "C:\\PateoAgentKeeta\\perfil"
+}

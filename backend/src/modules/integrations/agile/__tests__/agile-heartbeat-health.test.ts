@@ -22,6 +22,14 @@ describe("avaliarSaudeAgente", () => {
     expect(s.alertas).toEqual([{ nivel: "info", mensagem: "Aguardando primeiro heartbeat do PDV" }]);
   });
 
+  test("o rótulo do agente vai nas mensagens (a Keeta não é o PDV)", () => {
+    expect(avaliarSaudeAgente(null, agora, "agente da Keeta").alertas[0]?.mensagem).toBe("Aguardando primeiro heartbeat do agente da Keeta");
+    const falhou = avaliarSaudeAgente(registro({ ultimoStatus: "erro", ultimaMensagem: "Keeta pediu login de novo" }), agora, "agente da Keeta");
+    expect(falhou.alertas[0]?.mensagem).toBe("Último sync do agente da Keeta falhou: Keeta pediu login de novo");
+    const velho = avaliarSaudeAgente(registro({ ultimoOkEm: new Date(agora.getTime() - 30 * HORA) }), agora, "agente da Keeta");
+    expect(velho.alertas[0]?.mensagem).toContain("agente da Keeta sem sincronizar há 30 h");
+  });
+
   test("ok recente nao gera alerta", () => {
     const s = avaliarSaudeAgente(registro(), agora);
     expect(s.estado).toBe("ok");
