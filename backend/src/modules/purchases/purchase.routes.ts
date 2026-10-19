@@ -21,7 +21,7 @@ import { composicaoParaTela } from "../payroll/salario-combinado-folha.js";
 import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
 import { gravarConversaoDoItemDeCompra, recordPurchaseInventoryEntry } from "../inventory/inventory.routes.js";
 import { detectarEmbalagem, normalizarUnidade } from "../../shared/unidades/conversao.js";
-import { fatorSugeridoPeloPreco, linhasSuspeitas, pareceEmbalagem, precoDeReferencia, precoNormal, validarEmbalagem } from "./revisao-embalagem.js";
+import { fatorSugeridoPeloPreco, linhasSuspeitas, pareceEmbalagem, precoDeReferencia, precoNaContagem, precoNormal, validarEmbalagem } from "./revisao-embalagem.js";
 import { removeCardStatementItemsForPurchase, syncCardStatementItemForPurchase, syncCardStatementItemsForPurchase } from "../cards/cards.service.js";
 import { addPurchaseToCycle, findOrCreateOpenCycle, updatePurchaseInCycle } from "../suppliers/supplier-billing-cycle.service.js";
 import { REIMBURSEMENT_PAYMENT_TYPE, REIMBURSEMENT_SOURCE, ReimbursementError, ehCategoriaFuncionario } from "../reimbursements/reimbursement-rules.js";
@@ -2052,7 +2052,17 @@ purchaseRouter.get("/embalagens/revisao", async (request, response) => {
       porProduto.set(linha.productId, lista);
     }
     const produtos = [...porProduto.values()].flatMap((lista) => {
-      const comPreco = lista.map((l) => ({ ...l, id: l.itemId, precoUnitario: Number(l.precoUnitario ?? 0), revisada: l.revisada }));
+      const doProduto = conversoes
+        .filter((c) => c.productId === lista[0].productId)
+        .map((c) => ({ fromUnit: c.fromUnit, toUnit: c.toUnit, factor: Number(c.factor) }));
+      // Preco por unidade de CONTAGEM: 50 L viram 1 BARRIL antes de comparar com o barril de R$ 675.
+      const comPreco = lista.map((l) => {
+        const na = precoNaContagem({
+          total: Number(l.total), quantidade: Number(l.quantidade), unidadeDaNota: l.unidade,
+          unidadeDeContagem: l.unidadeDeContagem, precoGravado: l.precoUnitario == null ? null : Number(l.precoUnitario), conversoes: doProduto
+        });
+        return { ...l, id: l.itemId, precoUnitario: na.precoUnitario, quantidadeNaContagem: na.quantidadeNaContagem, converteSozinho: na.converteSozinho, revisada: l.revisada };
+      });
       const suspeitas = linhasSuspeitas(comPreco);
       if (!suspeitas.length) return [];
       const referencia = precoDeReferencia(comPreco);
@@ -2068,7 +2078,7 @@ purchaseRouter.get("/embalagens/revisao", async (request, response) => {
         sugestaoDoNome: detectarEmbalagem(primeiro.produto).slice(0, 2),
         // Valor que a confusao colocaria a mais no estoque: o que a linha
         // suspeita pagou, menos o que valeria pelo preco de referencia.
-        excesso: suspeitas.reduce((soma, l) => soma + Number(l.total) - Number(l.quantidade) * (referencia ?? 0), 0),
+        excesso: suspeitas.reduce((soma, l) => soma + Number(l.total) - l.quantidadeNaContagem * (referencia ?? 0), 0),
         linhas: comPreco
           .sort((a, b) => b.data.getTime() - a.data.getTime())
           .map((l) => ({
@@ -2083,8 +2093,8 @@ purchaseRouter.get("/embalagens/revisao", async (request, response) => {
             precoUnitario: l.precoUnitario,
             fator: l.fator == null ? null : Number(l.fator),
             revisada: l.revisada,
-            suspeita: !l.revisada && pareceEmbalagem(l.precoUnitario, referencia),
-            fatorSugerido: pareceEmbalagem(l.precoUnitario, referencia) ? fatorSugeridoPeloPreco(l.precoUnitario, referencia) : null
+            suspeita: !l.revisada && !l.converteSozinho && pareceEmbalagem(l.precoUnitario, referencia),
+            fatorSugerido: !l.converteSozinho && pareceEmbalagem(l.precoUnitario, referencia) ? fatorSugeridoPeloPreco(l.precoUnitario, referencia) : null
           }))
       }];
     }).sort((a, b) => b.excesso - a.excesso);
