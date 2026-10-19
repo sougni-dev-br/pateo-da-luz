@@ -35,6 +35,17 @@ describe("resolvePermissionContext — caminho normalizado", () => {
     expect(await ctx("GET", "/payroll/rescisoes/abc")).toEqual({ menuId: "payroll", action: "view" });
   });
 
+  it("barras duplicadas não escapam do catálogo", async () => {
+    expect(await ctx("POST", "//integrations//delivery/keeta/import/confirm")).toEqual({ menuId: "delivery-keeta", action: "approve" });
+    expect(await ctx("GET", "//monthly///revenue/coverage")).toEqual({ menuId: "revenue", action: "view" });
+  });
+
+  it("importação da Keeta e cobertura do faturamento têm dono no catálogo", async () => {
+    expect(await ctx("POST", "/INTEGRATIONS/Delivery/Keeta/import/confirm/")).toEqual({ menuId: "delivery-keeta", action: "approve" });
+    expect(await ctx("POST", "/integrations/delivery/keeta/import/preview")).toEqual({ menuId: "delivery-keeta", action: "create" });
+    expect(await ctx("GET", "/monthly/REVENUE/coverage")).toEqual({ menuId: "revenue", action: "view" });
+  });
+
   it("rota fora do catálogo continua sem contexto", async () => {
     expect(await ctx("GET", "/auth/me")).toBeNull();
   });

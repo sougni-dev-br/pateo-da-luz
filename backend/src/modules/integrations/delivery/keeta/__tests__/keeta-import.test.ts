@@ -69,6 +69,32 @@ describe("lerTabelaKeeta", () => {
     expect(r.erros[0]).toContain("01/04/2026");
   });
 
+  test("rejeita datas fora da janela plausível (antes de 2024 ou no futuro)", () => {
+    const r = lerTabelaKeeta(
+      [CABECALHO, ["01/04/2023", "100", "0", "80", "2"], ["01/04/2026", "100", "0", "80", "2"], ["25/12/2026", "100", "0", "80", "2"]],
+      "2026-10-19"
+    );
+    expect(r.dias.map((d) => d.date)).toEqual(["2026-04-01"]);
+    expect(r.erros).toHaveLength(2);
+    expect(r.erros[0]).toContain("fora do período");
+  });
+
+  test("rejeita valor absurdo que estouraria a coluna do banco", () => {
+    const r = lerTabelaKeeta([CABECALHO, ["01/04/2026", "99999999999", "0", "80", "2"]], "2026-10-19");
+    expect(r.dias).toEqual([]);
+    expect(r.erros[0]).toContain("acima do limite");
+  });
+
+  test("recusa o arquivo inteiro quando passa do limite de dias", () => {
+    const linhas = Array.from({ length: 401 }, (_, i) => {
+      const d = new Date(Date.UTC(2025, 0, 1 + i)).toISOString().slice(0, 10).split("-").reverse().join("/");
+      return [d, "100", "0", "80", "2"];
+    });
+    const r = lerTabelaKeeta([CABECALHO, ...linhas], "2026-10-19");
+    expect(r.dias).toEqual([]);
+    expect(r.erros[0]).toContain("mais de 400 dias");
+  });
+
   test("rejeita data repetida e data inválida", () => {
     const r = lerTabelaKeeta([
       CABECALHO,

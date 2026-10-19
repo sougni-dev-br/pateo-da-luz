@@ -33,6 +33,11 @@ export type ItemDoPlano = { dia: DiaKeeta; acao: AcaoDoDia; existenteId: string 
 
 const CENTAVO = 0.01;
 
+/** Tetos que protegem a gravação: arquivo gigante ou valor absurdo viram erro de leitura, não erro de banco. */
+const MAX_DIAS_POR_ARQUIVO = 400;
+const PRIMEIRO_DIA_ACEITO = "2024-01-01";
+const VALOR_MAXIMO_POR_DIA = 10_000_000;
+
 /** Nomes de coluna aceitos, já normalizados (minúsculo, sem acento). */
 const COLUNAS = {
   data: ["data", "dia", "date", "data de conclusao", "data do pedido"],
@@ -108,7 +113,7 @@ function ehLinhaVazia(linha: unknown[]): boolean {
   return linha.every((c) => String(c ?? "").trim() === "");
 }
 
-export function lerTabelaKeeta(tabela: unknown[][]): LeituraKeeta {
+export function lerTabelaKeeta(tabela: unknown[][], hoje: string = new Date().toISOString().slice(0, 10)): LeituraKeeta {
   // O cabeçalho é a primeira linha que reconhece data + vendas; o que vem antes é título.
   const indiceCabecalho = tabela.findIndex((linha) => {
     const m = mapearColunas(linha);
@@ -122,11 +127,16 @@ export function lerTabelaKeeta(tabela: unknown[][]): LeituraKeeta {
     return { dias: [], erros: [`Colunas obrigatórias não encontradas: ${lista}.`] };
   }
 
+  const corpo = tabela.slice(indiceCabecalho + 1).filter((l) => !ehLinhaVazia(l));
+  if (corpo.length > MAX_DIAS_POR_ARQUIVO) {
+    return { dias: [], erros: [`O arquivo tem mais de ${MAX_DIAS_POR_ARQUIVO} dias. Envie um período menor (um mês por vez).`] };
+  }
+
   const dias: DiaKeeta[] = [];
   const erros: string[] = [];
   const vistos = new Set<string>();
 
-  for (const linha of tabela.slice(indiceCabecalho + 1)) {
+  for (const linha of corpo) {
     if (ehLinhaVazia(linha)) continue;
     const bruto = linha[colunas.data!];
     if (normalizar(bruto) === "total") continue;
@@ -135,6 +145,10 @@ export function lerTabelaKeeta(tabela: unknown[][]): LeituraKeeta {
     const rotulo = String(bruto ?? "").trim() || "(sem data)";
     if (!date) {
       erros.push(`Linha "${rotulo}": data inválida.`);
+      continue;
+    }
+    if (date < PRIMEIRO_DIA_ACEITO || date > hoje) {
+      erros.push(`Linha ${diaBr(date)}: data fora do período aceito (de 2024 até hoje).`);
       continue;
     }
     if (vistos.has(date)) {
@@ -149,6 +163,10 @@ export function lerTabelaKeeta(tabela: unknown[][]): LeituraKeeta {
 
     if (vendas === null || repasse === null || vendas < 0 || repasse < 0 || promocao < 0 || pedidos < 0) {
       erros.push(`Linha ${diaBr(date)}: valor ausente ou negativo.`);
+      continue;
+    }
+    if (vendas > VALOR_MAXIMO_POR_DIA || repasse > VALOR_MAXIMO_POR_DIA) {
+      erros.push(`Linha ${diaBr(date)}: valor acima do limite de ${VALOR_MAXIMO_POR_DIA.toLocaleString("pt-BR")}; confira as colunas.`);
       continue;
     }
     const grossAmount = arredondar(vendas - promocao);

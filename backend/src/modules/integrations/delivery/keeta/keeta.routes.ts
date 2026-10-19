@@ -1,8 +1,9 @@
-import { Router, type Request, type Response } from "express";
+import { Router, type NextFunction, type Request, type Response } from "express";
 import multer from "multer";
 import { z } from "zod";
 import { requestIp, requireRole } from "../../../security/security-utils.js";
 import { getKeetaSummary } from "./keeta.service.js";
+import { ErroDeImportacao } from "./erro-de-importacao.js";
 import { confirmarImportacaoKeeta, preverImportacaoKeeta } from "./keeta-import.service.js";
 
 // Router da Keeta. A plataforma não tem integração, então não há credencial para salvar
@@ -32,29 +33,43 @@ keetaDeliveryRouter.get("/summary", async (request, response) => {
 
 // Prévia e confirmação recebem o MESMO arquivo: o servidor recalcula na confirmação,
 // então o que a tela mostrou nunca é a entrada da gravação.
+const MENSAGEM_GENERICA = "Não foi possível processar o arquivo. Confira se é o relatório exportado do portal da Keeta.";
+
+/** O papel é checado ANTES de o multer ler até 5 MB para a memória. */
+async function exigirPapelDeEscrita(request: Request, response: Response, next: NextFunction) {
+  const user = await requireRole(request, response, [...WRITE_ROLES]);
+  if (!user) return;
+  response.locals.userId = user.id;
+  next();
+}
+
 async function tratarImportacao(
   request: Request,
   response: Response,
   executar: (buffer: Buffer, nome: string, userId: string) => Promise<unknown>
 ) {
-  const user = await requireRole(request, response, [...WRITE_ROLES]);
-  if (!user) return;
   if (!request.file?.buffer) {
     response.status(400).json({ message: "Arquivo não enviado." });
     return;
   }
   try {
-    response.json(await executar(request.file.buffer, request.file.originalname, user.id));
+    response.json(await executar(request.file.buffer, request.file.originalname, String(response.locals.userId)));
   } catch (error) {
-    response.status(400).json({ message: error instanceof Error ? error.message : "Erro ao importar a Keeta." });
+    // Só mensagem escrita para o usuário sai daqui; erro de Prisma/exceljs/banco fica no log.
+    if (error instanceof ErroDeImportacao) {
+      response.status(400).json({ message: error.message });
+      return;
+    }
+    console.error("[Keeta] falha na importação:", error);
+    response.status(400).json({ message: MENSAGEM_GENERICA });
   }
 }
 
-keetaDeliveryRouter.post("/import/preview", uploadMemoria.single("file"), (request, response) =>
+keetaDeliveryRouter.post("/import/preview", exigirPapelDeEscrita, uploadMemoria.single("file"), (request, response) =>
   tratarImportacao(request, response, (buffer, nome) => preverImportacaoKeeta(buffer, nome))
 );
 
-keetaDeliveryRouter.post("/import/confirm", uploadMemoria.single("file"), (request, response) =>
+keetaDeliveryRouter.post("/import/confirm", exigirPapelDeEscrita, uploadMemoria.single("file"), (request, response) =>
   tratarImportacao(request, response, (buffer, nome, userId) =>
     confirmarImportacaoKeeta(buffer, nome, {
       userId,

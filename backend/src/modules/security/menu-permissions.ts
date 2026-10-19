@@ -399,7 +399,9 @@ export async function replaceRoleMenuPermissions(role: UserRole, permissions: Pa
 // "/EMPLOYEES" caía em "rota não catalogada" e passava SEM checar permissão
 // (achado de 29/09/2026: funcionário, folha e demais módulos abriam para qualquer login).
 function caminhoDaPermissao(request: Request): string {
-  return request.path.toLowerCase().replace(/\/+$/, "") || "/";
+  // Barras duplicadas também colapsam: o Express hoje responde 404 a "//rota", mas se um proxy
+  // ou uma versão futura passar a rotear, o caminho cairia como não catalogado (público).
+  return request.path.toLowerCase().replace(/\/{2,}/g, "/").replace(/\/+$/, "") || "/";
 }
 
 function menuFromRequest(request: Request): MenuId | null {
