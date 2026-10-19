@@ -30,12 +30,14 @@ const SINONIMOS: Record<string, string> = {
 
 /** Massa e volume são física: valem para qualquer produto. */
 const FATORES_UNIVERSAIS: Record<string, number> = {
-  "G>KG": 0.001, "KG>G": 1000, "ML>L": 0.001, "L>ML": 1000
+  "G>KG": 0.001, "KG>G": 1000, "ML>L": 0.001, "L>ML": 1000,
+  // Barril de chopp: 1 barril = 50 L.
+  "BARRIL>L": 50, "L>BARRIL": 0.02, "BARRIL>ML": 50000, "ML>BARRIL": 0.00002
 };
 
 /** Unidades que sempre aparecem como opção quando a grandeza combina com a do produto. */
 const IRMAS_UNIVERSAIS: Record<string, string[]> = {
-  KG: ["G"], G: ["KG"], L: ["ML"], ML: ["L"]
+  KG: ["G"], G: ["KG"], L: ["ML"], ML: ["L"], BARRIL: ["L", "ML"]
 };
 
 export function normalizarUnidade(unidade: unknown): string {

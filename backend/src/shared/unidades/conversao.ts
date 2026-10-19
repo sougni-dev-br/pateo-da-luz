@@ -25,7 +25,12 @@ const FATORES_UNIVERSAIS: Record<string, number> = {
   "G>KG": 0.001,
   "KG>G": 1000,
   "ML>L": 0.001,
-  "L>ML": 1000
+  "L>ML": 1000,
+  // Barril de chopp: 1 barril = 50 L.
+  "BARRIL>L": 50,
+  "L>BARRIL": 0.02,
+  "BARRIL>ML": 50000,
+  "ML>BARRIL": 0.00002
 };
 
 /** Grafias que significam a mesma unidade. A base tem as tres para "unidade". */
