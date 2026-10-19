@@ -9652,3 +9652,67 @@ export function uploadWastePhoto(id: string, foto: Blob) {
 export function getWastePhoto(id: string) {
   return fetchBlob(`/waste/${id}/photo`);
 }
+
+export type CoberturaOrigem = { origem: string; dias: number; ultimoDia: string };
+
+export type CoberturaCanal = {
+  canal: "Salão" | "99Food" | "iFood" | "Keeta";
+  situacao: "EM_DIA" | "ATRASADO" | "SEM_DADOS";
+  ultimoDia: string | null;
+  diasDesdeUltimo: number | null;
+  diasNoPeriodo: number;
+  diasComDado: number;
+  diasSemLancamento: string[];
+  origens: CoberturaOrigem[];
+};
+
+export type CoberturaFaturamento = {
+  period: { year: number; month: number; from: string; to: string };
+  today: string;
+  channels: CoberturaCanal[];
+};
+
+export function getRevenueCoverage(params: { year: number; month: number }) {
+  const query = new URLSearchParams({ year: String(params.year), month: String(params.month) });
+  return request<CoberturaFaturamento>(`/monthly/revenue/coverage?${query.toString()}`);
+}
+
+export type KeetaDiaImportacao = {
+  date: string;
+  orders: number;
+  grossAmount: number;
+  netAmount: number;
+  platformFees: number;
+};
+
+export type KeetaAcaoDoDia = "CRIAR" | "ALTERAR" | "IGUAL" | "CONFLITO";
+
+export type KeetaPrevisaoImportacao = {
+  arquivo: string;
+  erros: string[];
+  plano: Array<{ dia: KeetaDiaImportacao; acao: KeetaAcaoDoDia; existenteId: string | null }>;
+  mesesTravados: string[];
+  totais: { criar: number; alterar: number; igual: number; conflito: number; travado: number };
+};
+
+export type KeetaResultadoImportacao = KeetaPrevisaoImportacao & { gravados: number };
+
+function keetaFormData(file: File) {
+  const formData = new FormData();
+  formData.append("file", file);
+  return formData;
+}
+
+export function previewKeetaImport(file: File) {
+  return request<KeetaPrevisaoImportacao>("/integrations/delivery/keeta/import/preview", {
+    method: "POST",
+    body: keetaFormData(file)
+  });
+}
+
+export function confirmKeetaImport(file: File) {
+  return request<KeetaResultadoImportacao>("/integrations/delivery/keeta/import/confirm", {
+    method: "POST",
+    body: keetaFormData(file)
+  });
+}
