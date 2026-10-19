@@ -25,6 +25,12 @@ describe("normalizarUnidade", () => {
 });
 
 describe("resolveUnitFactor", () => {
+  it("1 barril de chopp tem 50 L", () => {
+    expect(resolveUnitFactor("BARRIL", "L", [])).toBe(50);
+    expect(resolveUnitFactor("L", "BARRIL", [])).toBeCloseTo(0.02, 10);
+    expect(resolveUnitFactor("BARRIL", "ML", [])).toBe(50000);
+  });
+
   test("mesma unidade e fator 1, mesmo com grafias diferentes", () => {
     expect(resolveUnitFactor("UN", "UNI", [])).toBe(1);
   });
