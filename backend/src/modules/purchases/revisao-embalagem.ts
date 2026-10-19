@@ -9,16 +9,55 @@
 // O sinal e o preco: dentro do mesmo produto, uma linha que custa 10x ou mais
 // que a mais barata quase sempre e pacote/caixa lancado como unidade.
 
-import { normalizarUnidade } from "../../shared/unidades/conversao.js";
+import { normalizarUnidade, resolveUnitFactor, type UnitConversion } from "../../shared/unidades/conversao.js";
 
 export const RAZAO_SUSPEITA = 10;
 
 export type LinhaDeCompra = {
   id: string;
+  /** A unidade da nota ja converte para a de contagem (litro para barril, g para kg): nao e pacote disfarcado. */
+  converteSozinho?: boolean;
   /** Preco por unidade de contagem (ja convertido quando havia conversao). */
   precoUnitario: number;
   revisada: boolean;
 };
+
+export type PrecoNaContagem = {
+  /** Preco por 1 unidade de contagem. */
+  precoUnitario: number;
+  /** Quantidade da linha na unidade de contagem (total / precoUnitario). */
+  quantidadeNaContagem: number;
+  /** A conversao veio do fator universal ou do cadastro, sem precisar de embalagem nova. */
+  converteSozinho: boolean;
+};
+
+/**
+ * Preco da linha na unidade em que o produto e contado. A unidade da nota (L) pode
+ * ser outra que a de contagem (BARRIL): converte antes de comparar, senao 50 L a
+ * R$ 10,16 viram "50 barris a R$ 10,16" e um barril de R$ 675 parece pacote de 66.
+ * Quando nao ha fator conhecido, vale o preco gravado na linha (comportamento antigo).
+ */
+export function precoNaContagem(linha: {
+  total: number;
+  quantidade: number;
+  unidadeDaNota: string | null;
+  unidadeDeContagem: string | null;
+  precoGravado: number | null;
+  conversoes: UnitConversion[];
+}): PrecoNaContagem {
+  const { total, quantidade, conversoes } = linha;
+  const nota = normalizarUnidade(linha.unidadeDaNota);
+  const contagem = normalizarUnidade(linha.unidadeDeContagem);
+  if (nota && contagem && nota !== contagem) {
+    const fator = resolveUnitFactor(nota, contagem, conversoes);
+    if (fator != null && Number.isFinite(fator) && fator > 0 && quantidade > 0 && total > 0) {
+      const quantidadeNaContagem = quantidade * fator;
+      return { precoUnitario: total / quantidadeNaContagem, quantidadeNaContagem, converteSozinho: true };
+    }
+  }
+  const precoUnitario = linha.precoGravado != null && Number.isFinite(linha.precoGravado) ? linha.precoGravado : quantidade > 0 ? total / quantidade : 0;
+  return { precoUnitario, quantidadeNaContagem: precoUnitario > 0 ? total / precoUnitario : quantidade, converteSozinho: false };
+}
 
 /** Menor preco por unidade entre as linhas do produto (a referencia do avulso). */
 export function precoDeReferencia(linhas: readonly Pick<LinhaDeCompra, "precoUnitario">[]): number | null {
@@ -38,7 +77,7 @@ export function pareceEmbalagem(precoUnitario: number, referencia: number | null
  */
 export function linhasSuspeitas<T extends LinhaDeCompra>(linhas: readonly T[]): T[] {
   const referencia = precoDeReferencia(linhas);
-  return linhas.filter((l) => !l.revisada && pareceEmbalagem(l.precoUnitario, referencia));
+  return linhas.filter((l) => !l.revisada && !l.converteSozinho && pareceEmbalagem(l.precoUnitario, referencia));
 }
 
 /** Quantas unidades de contagem cabem na embalagem: o preco sugere o fator. */
