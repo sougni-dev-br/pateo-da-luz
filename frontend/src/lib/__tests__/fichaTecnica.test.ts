@@ -62,6 +62,8 @@ describe("unidades", () => {
   it("converte massa e volume sem cadastro", () => {
     expect(fatorConversao("G", "KG", [])).toBe(0.001);
     expect(fatorConversao("L", "ML", [])).toBe(1000);
+    expect(fatorConversao("BARRIL", "L", [])).toBe(50);
+    expect(fatorConversao("L", "BARRIL", [])).toBeCloseTo(0.02, 10);
   });
 
   it("GR converte como G — antes a previa mostrava traço", () => {

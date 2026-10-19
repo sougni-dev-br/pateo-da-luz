@@ -8,7 +8,8 @@ const UNIDADES = [
   { id: "1", code: "CX", name: "Caixa" },
   { id: "2", code: "PCT", name: "Pacote" },
   { id: "3", code: "UN", name: "Unidade" },
-  { id: "4", code: "L", name: "Litro" }
+  { id: "4", code: "L", name: "Litro" },
+  { id: "5", code: "BARRIL", name: "Barril" }
 ];
 
 const ANTIGA: ConversaoDoForm = {
@@ -46,7 +47,7 @@ describe("Embalagens de compra", () => {
     render(<Tela />);
     expect(origem().tagName).toBe("SELECT");
     const opcoes = within(origem()).getAllByRole("option").map((o) => (o as HTMLOptionElement).value);
-    expect(opcoes).toEqual(["", "CX", "PCT", "UN", "L"]);
+    expect(opcoes).toEqual(["", "CX", "PCT", "UN", "L", "BARRIL"]);
     // o destino é a unidade de contagem, só texto: nenhum campo para digitar
     expect(screen.queryByPlaceholderText(/PCT, CX/)).toBeNull();
     expect(screen.getAllByRole("textbox")).toHaveLength(1);
@@ -147,6 +148,14 @@ describe("conversão que o sistema já faz sozinho", () => {
     fireEvent.change(origem(), { target: { value: "L" } });
     fireEvent.change(fator(), { target: { value: "1" } });
     expect(screen.getByRole("alert").textContent).toContain("já converte sozinho (1 L = 0,02 BARRIL)");
+    expect((screen.getByRole("button", { name: "Adicionar embalagem" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  test("barril para litro (estoque em litros) também avisa: 1 BARRIL = 50 L", () => {
+    render(<Tela contagem="L" />);
+    fireEvent.change(origem(), { target: { value: "BARRIL" } });
+    fireEvent.change(fator(), { target: { value: "1" } });
+    expect(screen.getByRole("alert").textContent).toContain("já converte sozinho (1 BARRIL = 50 L)");
     expect((screen.getByRole("button", { name: "Adicionar embalagem" }) as HTMLButtonElement).disabled).toBe(true);
   });
 });
