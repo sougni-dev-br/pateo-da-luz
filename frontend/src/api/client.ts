@@ -9690,6 +9690,7 @@ export type KeetaAcaoDoDia = "CRIAR" | "ALTERAR" | "IGUAL" | "CONFLITO";
 export type KeetaPrevisaoImportacao = {
   arquivo: string;
   erros: string[];
+  avisos: string[];
   plano: Array<{ dia: KeetaDiaImportacao; acao: KeetaAcaoDoDia; existenteId: string | null }>;
   mesesTravados: string[];
   totais: { criar: number; alterar: number; igual: number; conflito: number; travado: number };

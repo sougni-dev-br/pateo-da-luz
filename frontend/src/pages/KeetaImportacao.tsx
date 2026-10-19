@@ -111,6 +111,15 @@ export function KeetaImportacao({ onImportado }: { onImportado: () => void }) {
               </ul>
             </Alert>
           )}
+          {previsao.avisos.length > 0 && (
+            <Alert tone="info" title="Dias para conferir (serão gravados)">
+              <ul style={{ margin: 0, paddingLeft: "18px" }}>
+                {previsao.avisos.map((m) => (
+                  <li key={m}>{m}</li>
+                ))}
+              </ul>
+            </Alert>
+          )}
           {previsao.mesesTravados.length > 0 && (
             <Alert tone="warning" title="Fechamento travado">
               {previsao.mesesTravados.join(", ")}: os dias desses meses não serão gravados. Reabra o mês antes.

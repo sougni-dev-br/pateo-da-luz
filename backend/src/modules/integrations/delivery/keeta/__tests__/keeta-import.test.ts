@@ -58,15 +58,29 @@ describe("lerTabelaKeeta", () => {
     expect(r.erros[0]).toContain("Ganhos líquidos");
   });
 
-  test("rejeita a linha em que o repasse é maior que o bruto, sem derrubar as demais", () => {
-    const r = lerTabelaKeeta([
-      CABECALHO,
-      ["01/04/2026", "100", "0", "150", "2"],
-      ["02/04/2026", "100", "0", "80", "2"]
-    ]);
-    expect(r.dias.map((d) => d.date)).toEqual(["2026-04-02"]);
-    expect(r.erros).toHaveLength(1);
-    expect(r.erros[0]).toContain("01/04/2026");
+  test("dia isolado com repasse acima do bruto é aceito com aviso (ganhos extras de dia fraco)", () => {
+    // Caso real do portal: Ganhos líquidos pode passar de Vendas − Despesa quando a plataforma
+    // credita outros ganhos (ex.: entrega) num dia de pouca venda. A retenção fica negativa.
+    const linhas = Array.from({ length: 9 }, (_, i) => [`0${i + 1}/04/2026`, "100", "0", "80", "2"]);
+    const r = lerTabelaKeeta([CABECALHO, ["10/04/2026", "100", "0", "150", "2"], ...linhas], "2026-10-19");
+    expect(r.erros).toEqual([]);
+    expect(r.dias).toHaveLength(10);
+    const dia = r.dias.find((d) => d.date === "2026-04-10");
+    expect(dia).toEqual({ date: "2026-04-10", orders: 2, grossAmount: 100, netAmount: 150, platformFees: -50 });
+    expect(r.avisos).toHaveLength(1);
+    expect(r.avisos[0]).toContain("10/04/2026");
+  });
+
+  test("repasse acima do bruto em muitos dias indica colunas trocadas e recusa o arquivo", () => {
+    const linhas = Array.from({ length: 6 }, (_, i) => [`0${i + 1}/04/2026`, "100", "0", "150", "2"]);
+    const r = lerTabelaKeeta([CABECALHO, ...linhas, ["07/04/2026", "100", "0", "80", "2"]], "2026-10-19");
+    expect(r.dias).toEqual([]);
+    expect(r.erros[0]).toContain("parecem trocadas");
+  });
+
+  test("arquivo sem anomalia não traz aviso", () => {
+    const r = lerTabelaKeeta([CABECALHO, ["01/04/2026", "100", "0", "80", "2"]], "2026-10-19");
+    expect(r.avisos).toEqual([]);
   });
 
   test("rejeita datas fora da janela plausível (antes de 2024 ou no futuro)", () => {
