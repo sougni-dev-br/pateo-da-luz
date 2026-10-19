@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useId, useState } from "react";
 import {
   conversaoComUnidadeInvalida,
   descreverConversao,
@@ -28,9 +28,10 @@ export function EmbalagensDeCompra(props: Props) {
   const { unidades, unidadeDeContagem, conversoes, origem, fator, onOrigem, onFator, onAdicionar, onRemover } = props;
   const idOrigem = useId();
   const idFator = useId();
+  const [quantidade, setQuantidade] = useState("1");
   const tocou = origem !== "" || fator.trim() !== "";
-  const problema = diagnosticarRascunho({ origem, fator, contagem: unidadeDeContagem, existentes: conversoes });
-  const exemplo = exemploAoVivo(origem, fator, unidadeDeContagem);
+  const problema = diagnosticarRascunho({ origem, fator, contagem: unidadeDeContagem, existentes: conversoes, quantidade });
+  const exemplo = exemploAoVivo(origem, fator, unidadeDeContagem, quantidade);
   // Só reclama do que a pessoa já começou a preencher; a tela limpa não grita.
   // Fator ainda vazio é só "falta digitar", não erro.
   const faltaSoOFator = problema === "fator-invalido" && fator.trim() === "";
@@ -48,6 +49,13 @@ export function EmbalagensDeCompra(props: Props) {
 
       <div className="embalagens-frase">
         <label htmlFor={idOrigem}>Quando a nota vier em</label>
+        <input
+          aria-label="Quantidade na nota"
+          className="embalagens-quantidade"
+          inputMode="decimal"
+          value={quantidade}
+          onChange={(event) => setQuantidade(event.target.value)}
+        />
         <select id={idOrigem} value={origem} onChange={(event) => onOrigem(event.target.value)}>
           <option value="">escolha a embalagem</option>
           {unidades.map((u) => <option key={u.id} value={u.code}>{u.code} - {u.name}</option>)}
@@ -72,7 +80,8 @@ export function EmbalagensDeCompra(props: Props) {
         disabled={!podeAdicionar}
         onClick={() => {
           if (!podeAdicionar) return;
-          onAdicionar(montarConversao(origem, fator, unidadeDeContagem));
+          onAdicionar(montarConversao(origem, fator, unidadeDeContagem, quantidade));
+          setQuantidade("1");
         }}
       >
         Adicionar embalagem

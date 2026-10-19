@@ -1,5 +1,3 @@
-import { fatorConversao } from "../../lib/fichaTecnica";
-
 // Regras da seção "Embalagens de compra" do cadastro de produto.
 // Funções puras: a tela só desenha o que elas devolvem.
 
@@ -40,7 +38,6 @@ export type ProblemaDoRascunho =
   | "origem-igual-contagem"
   | "fator-invalido"
   | "ja-cadastrada"
-  | "converte-sozinho"
   | null;
 
 export function mensagemDoProblema(problema: ProblemaDoRascunho, origem: string, contagem: string): string {
@@ -53,13 +50,6 @@ export function mensagemDoProblema(problema: ProblemaDoRascunho, origem: string,
       return "Digite quantas unidades vêm em cada embalagem, com um número maior que zero (ex.: 12 ou 0,5).";
     case "ja-cadastrada":
       return `Já existe uma conversão de ${origem} para ${contagem}. Remova a antiga se quiser trocar o número.`;
-    case "converte-sozinho": {
-      const f = fatorConversao(origem, contagem, []);
-      if (f == null) return "";
-      // Sempre a quantidade "redonda" na frente: 1 BARRIL = 50 L, ou 50 L = 1 BARRIL.
-      const [de, para] = f >= 1 ? [`1 ${origem}`, `${formatarNumero(f)} ${contagem}`] : [`${formatarNumero(1 / f)} ${origem}`, `1 ${contagem}`];
-      return `Não precisa adicionar: o sistema já converte sozinho, nos dois sentidos. Quando a compra vier em ${de}, entram ${para} no estoque (e ao contrário: ${para} = ${de}).`;
-    }
     default:
       return "";
   }
@@ -70,32 +60,38 @@ export function diagnosticarRascunho(input: {
   fator: string;
   contagem: string;
   existentes: ConversaoDoForm[];
+  /** Quantas unidades de `origem` vêm na nota para entrarem `fator` (padrão 1). */
+  quantidade?: string;
 }): ProblemaDoRascunho {
-  const { origem, fator, contagem, existentes } = input;
+  const { origem, fator, contagem, existentes, quantidade = "1" } = input;
   if (!contagem) return "sem-contagem";
   if (!origem) return "sem-origem";
   if (origem.toUpperCase() === contagem.toUpperCase()) return "origem-igual-contagem";
-  // Física (g↔kg, ml↔l) e barril (1 = 50 L) valem para qualquer produto: cadastrar seria redundante e confuso.
-  if (fatorConversao(origem, contagem, []) != null) return "converte-sozinho";
   const n = lerFator(fator);
-  if (n == null || n <= 0) return "fator-invalido";
+  const q = lerFator(quantidade);
+  if (n == null || n <= 0 || q == null || q <= 0) return "fator-invalido";
   const repetida = existentes.some(
     (c) => c.fromUnit.trim().toUpperCase() === origem.toUpperCase() && c.toUnit.trim().toUpperCase() === contagem.toUpperCase()
   );
   return repetida ? "ja-cadastrada" : null;
 }
 
-/** "10 CX na nota = 120 UN no estoque". Null enquanto faltar dado para calcular. */
-export function exemploAoVivo(origem: string, fator: string, contagem: string): string | null {
+/** "10 CX na nota = 120 UN no estoque" (ou "50 L na nota = 1 BARRIL no estoque"). Null enquanto faltar dado. */
+export function exemploAoVivo(origem: string, fator: string, contagem: string, quantidade = "1"): string | null {
   const n = lerFator(fator);
-  if (!origem || !contagem || n == null || n <= 0) return null;
-  return `Exemplo: 10 ${origem} na nota = ${formatarNumero(10 * n)} ${contagem} no estoque.`;
+  const q = lerFator(quantidade);
+  if (!origem || !contagem || n == null || n <= 0 || q == null || q <= 0) return null;
+  if (q === 1) return `Exemplo: 10 ${origem} na nota = ${formatarNumero(10 * n)} ${contagem} no estoque.`;
+  return `Exemplo: ${formatarNumero(q)} ${origem} na nota = ${formatarNumero(n)} ${contagem} no estoque.`;
 }
 
-/** Texto da conversão já cadastrada: "1 CX = 12 UN". */
+/** Texto da conversão já cadastrada: "1 CX = 12 UN"; fator fracionário vira o lado inteiro ("50 L = 1 BARRIL"). */
 export function descreverConversao(c: ConversaoDoForm): string {
   const n = lerFator(c.factor);
-  return `1 ${c.fromUnit} = ${n == null ? c.factor : formatarNumero(n)} ${c.toUnit}`;
+  if (n == null) return `1 ${c.fromUnit} = ${c.factor} ${c.toUnit}`;
+  const inverso = n > 0 && n < 1 ? Math.round((1 / n) * 1e6) / 1e6 : null;
+  if (inverso != null && Number.isInteger(inverso)) return `${formatarNumero(inverso)} ${c.fromUnit} = 1 ${c.toUnit}`;
+  return `1 ${c.fromUnit} = ${formatarNumero(n)} ${c.toUnit}`;
 }
 
 /** Unidade que não dá para usar (ex.: "PCT, CX, FD" gravada por engano). */
@@ -104,9 +100,12 @@ export function conversaoComUnidadeInvalida(c: ConversaoDoForm): boolean {
 }
 
 /** Linha nova no formato que o backend espera; peso e observação ficam vazios. */
-export function montarConversao(origem: string, fator: string, contagem: string): ConversaoDoForm {
+export function montarConversao(origem: string, fator: string, contagem: string, quantidade = "1"): ConversaoDoForm {
   const n = lerFator(fator) as number;
-  return { fromUnit: origem, toUnit: contagem, factor: String(n), averagePackageWeight: "", notes: "", isActive: true };
+  const q = lerFator(quantidade) as number;
+  // Guarda sempre "quanto entra por 1 unidade da nota": 50 L = 1 BARRIL vira 1 L = 0,02 BARRIL.
+  const porUnidade = Math.round((n / q) * 1e9) / 1e9;
+  return { fromUnit: origem, toUnit: contagem, factor: String(porUnidade), averagePackageWeight: "", notes: "", isActive: true };
 }
 
 /** "12.000000" -> "12"; texto que não é número volta como veio. */
