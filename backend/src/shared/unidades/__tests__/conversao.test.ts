@@ -180,6 +180,37 @@ describe("detectarEmbalagem - nomes reais da base", () => {
   });
 });
 
+describe("converterItemDeCompra: barril de chopp (50 L)", () => {
+  const compra = (quantity: number, de: string, para: string) =>
+    converterItemDeCompra({ quantity, unitPrice: 10, unidadeDaCompra: de, unidadeDeEstoque: para, conversions: [] });
+
+  it("nota em litros, estoque em barril: 50 L = 1 barril", () => {
+    const r = compra(50, "L", "BARRIL");
+    expect(r.conversionMissing).toBe(false);
+    expect(r.convertedQuantity).toBeCloseTo(1, 10);
+    expect(r.convertedUnitPrice).toBeCloseTo(500, 6);
+  });
+
+  it("nota em barril, estoque em litros: 1 barril = 50 L (inverso)", () => {
+    const r = compra(1, "BARRIL", "L");
+    expect(r.conversionMissing).toBe(false);
+    expect(r.convertedQuantity).toBe(50);
+    expect(r.convertedUnitPrice).toBeCloseTo(0.2, 10);
+  });
+
+  it("o total do item não muda nos dois sentidos", () => {
+    const ida = compra(50, "L", "BARRIL");
+    const volta = compra(3, "BARRIL", "L");
+    expect(ida.convertedQuantity! * ida.convertedUnitPrice!).toBeCloseTo(500, 6);
+    expect(volta.convertedQuantity! * volta.convertedUnitPrice!).toBeCloseTo(30, 6);
+  });
+
+  it("aceita as grafias da unidade (litros, lt, barril minúsculo)", () => {
+    expect(compra(100, "litros", "barril").convertedQuantity).toBeCloseTo(2, 10);
+    expect(compra(2, "barril", "lt").convertedQuantity).toBe(100);
+  });
+});
+
 describe("converterItemDeCompra", () => {
   const CAIXA_DE_800 = [{ fromUnit: "CX", toUnit: "UN", factor: 800 }];
 
