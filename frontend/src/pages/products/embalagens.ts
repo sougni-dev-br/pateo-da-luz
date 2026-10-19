@@ -1,3 +1,5 @@
+import { fatorConversao } from "../../lib/fichaTecnica";
+
 // Regras da seção "Embalagens de compra" do cadastro de produto.
 // Funções puras: a tela só desenha o que elas devolvem.
 
@@ -38,6 +40,7 @@ export type ProblemaDoRascunho =
   | "origem-igual-contagem"
   | "fator-invalido"
   | "ja-cadastrada"
+  | "converte-sozinho"
   | null;
 
 export function mensagemDoProblema(problema: ProblemaDoRascunho, origem: string, contagem: string): string {
@@ -50,6 +53,10 @@ export function mensagemDoProblema(problema: ProblemaDoRascunho, origem: string,
       return "Digite quantas unidades vêm em cada embalagem, com um número maior que zero (ex.: 12 ou 0,5).";
     case "ja-cadastrada":
       return `Já existe uma conversão de ${origem} para ${contagem}. Remova a antiga se quiser trocar o número.`;
+    case "converte-sozinho": {
+      const f = fatorConversao(origem, contagem, []);
+      return `${origem} para ${contagem} o sistema já converte sozinho (1 ${origem} = ${f == null ? "" : formatarNumero(f)} ${contagem}). Não precisa adicionar embalagem.`;
+    }
     default:
       return "";
   }
@@ -65,6 +72,8 @@ export function diagnosticarRascunho(input: {
   if (!contagem) return "sem-contagem";
   if (!origem) return "sem-origem";
   if (origem.toUpperCase() === contagem.toUpperCase()) return "origem-igual-contagem";
+  // Física (g↔kg, ml↔l) e barril (1 = 50 L) valem para qualquer produto: cadastrar seria redundante e confuso.
+  if (fatorConversao(origem, contagem, []) != null) return "converte-sozinho";
   const n = lerFator(fator);
   if (n == null || n <= 0) return "fator-invalido";
   const repetida = existentes.some(

@@ -7,7 +7,8 @@ import { lerFator, type ConversaoDoForm } from "../embalagens";
 const UNIDADES = [
   { id: "1", code: "CX", name: "Caixa" },
   { id: "2", code: "PCT", name: "Pacote" },
-  { id: "3", code: "UN", name: "Unidade" }
+  { id: "3", code: "UN", name: "Unidade" },
+  { id: "4", code: "L", name: "Litro" }
 ];
 
 const ANTIGA: ConversaoDoForm = {
@@ -45,7 +46,7 @@ describe("Embalagens de compra", () => {
     render(<Tela />);
     expect(origem().tagName).toBe("SELECT");
     const opcoes = within(origem()).getAllByRole("option").map((o) => (o as HTMLOptionElement).value);
-    expect(opcoes).toEqual(["", "CX", "PCT", "UN"]);
+    expect(opcoes).toEqual(["", "CX", "PCT", "UN", "L"]);
     // o destino é a unidade de contagem, só texto: nenhum campo para digitar
     expect(screen.queryByPlaceholderText(/PCT, CX/)).toBeNull();
     expect(screen.getAllByRole("textbox")).toHaveLength(1);
@@ -138,4 +139,14 @@ describe("lerFator", () => {
     ["12", 12], ["0,5", 0.5], ["0.5", 0.5], ["1.000,5", 1000.5], [" 3 ", 3]
   ])("lê %j", (texto, esperado) => expect(lerFator(texto)).toBe(esperado));
   test.each(["", "abc", "1,2,3", "-1", "1e3"])("recusa %j", (texto) => expect(lerFator(texto)).toBeNull());
+});
+
+describe("conversão que o sistema já faz sozinho", () => {
+  test("litro para barril avisa e não deixa adicionar embalagem", () => {
+    render(<Tela contagem="BARRIL" />);
+    fireEvent.change(origem(), { target: { value: "L" } });
+    fireEvent.change(fator(), { target: { value: "1" } });
+    expect(screen.getByRole("alert").textContent).toContain("já converte sozinho (1 L = 0,02 BARRIL)");
+    expect((screen.getByRole("button", { name: "Adicionar embalagem" }) as HTMLButtonElement).disabled).toBe(true);
+  });
 });
