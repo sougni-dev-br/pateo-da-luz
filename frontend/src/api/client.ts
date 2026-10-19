@@ -9666,10 +9666,19 @@ export type CoberturaCanal = {
   origens: CoberturaOrigem[];
 };
 
+export type SaudeDoAgente = {
+  estado: "aguardando" | "ok" | "erro" | "atrasado" | "critico";
+  alertas: Array<{ nivel: "info" | "alerta" | "critico"; mensagem: string }>;
+  horasSemOk: number | null;
+  ultimoOkEm: string | null;
+};
+
 export type CoberturaFaturamento = {
   period: { year: number; month: number; from: string; to: string };
   today: string;
   channels: CoberturaCanal[];
+  /** Ausente em backend antigo. */
+  agenteKeeta?: SaudeDoAgente;
 };
 
 export function getRevenueCoverage(params: { year: number; month: number }) {

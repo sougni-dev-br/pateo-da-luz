@@ -10,6 +10,7 @@ import { agileIntegrationRouter } from "./modules/integrations/agile/agile-sync.
 import { ifoodDeliveryRouter } from "./modules/integrations/delivery/ifood/ifood.routes.js";
 import { noventaNoveDeliveryRouter, noventaNovePublicRouter } from "./modules/integrations/delivery/noventa-nove/noventa-nove.routes.js";
 import { keetaDeliveryRouter } from "./modules/integrations/delivery/keeta/keeta.routes.js";
+import { keetaAgenteRouter } from "./modules/integrations/delivery/keeta/keeta-agente.routes.js";
 import { notificationsAdminRouter, notificationsPublicRouter } from "./modules/notifications/notifications.routes.js";
 import { receivableRouter } from "./modules/receivables/receivable.routes.js";
 import { ifoodExpenseRouter } from "./modules/ifood-expenses/ifood-expense.routes.js";
@@ -207,6 +208,7 @@ app.use("/integrations/agile", agileIntegrationRouter);
 app.use("/integrations/delivery/ifood", ifoodDeliveryRouter);
 app.use("/integrations/delivery/noventa-nove", noventaNoveDeliveryRouter);
 app.use("/integrations/delivery/keeta", keetaDeliveryRouter);
+app.use("/integrations/keeta-agente", keetaAgenteRouter);
 app.use("/receivables", receivableRouter);
 app.use("/ifood-expenses", ifoodExpenseRouter);
 

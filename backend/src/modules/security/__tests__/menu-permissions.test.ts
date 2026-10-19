@@ -46,6 +46,14 @@ describe("resolvePermissionContext — caminho normalizado", () => {
     expect(await ctx("GET", "/monthly/REVENUE/coverage")).toEqual({ menuId: "revenue", action: "view" });
   });
 
+  it("agente da Keeta: o status é do módulo; sync e heartbeat ficam só com o token da máquina", async () => {
+    expect(await ctx("GET", "/integrations/keeta-agente/status")).toEqual({ menuId: "delivery-keeta", action: "view" });
+    expect(await ctx("GET", "/INTEGRATIONS/Keeta-Agente/status/")).toEqual({ menuId: "delivery-keeta", action: "view" });
+    // Sem contexto = o portão por sessão não se aplica; quem protege é o token no próprio roteador.
+    expect(await ctx("POST", "/integrations/keeta-agente/sync")).toBeNull();
+    expect(await ctx("POST", "/integrations/keeta-agente/heartbeat")).toBeNull();
+  });
+
   it("rota fora do catálogo continua sem contexto", async () => {
     expect(await ctx("GET", "/auth/me")).toBeNull();
   });

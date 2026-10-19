@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getRevenueCoverage, type CoberturaCanal, type CoberturaFaturamento } from "../api/client";
+import { getRevenueCoverage, type CoberturaCanal, type CoberturaFaturamento, type SaudeDoAgente } from "../api/client";
 import { PanelEyebrow, StatusBadge } from "../design-system";
 import type { StatusTone } from "../design-system";
 import "./CoberturaPorCanal.css";
@@ -35,8 +35,19 @@ function textoDoAtraso(canal: CoberturaCanal) {
   return `há ${canal.diasDesdeUltimo} dias`;
 }
 
-function CartaoDoCanal({ canal }: { canal: CoberturaCanal }) {
+/** Só há o que mostrar depois que o agente mandou o primeiro sinal de vida. */
+function linhaDoAgente(agente: SaudeDoAgente | undefined): { texto: string; problema: boolean } | null {
+  if (!agente || agente.estado === "aguardando") return null;
+  if (agente.estado === "ok") {
+    const horas = agente.horasSemOk;
+    return { texto: `Agente da Keeta ativo${horas === null ? "" : horas === 0 ? ": último envio agora há pouco" : `: último envio há ${horas} h`}.`, problema: false };
+  }
+  return { texto: agente.alertas[0]?.mensagem ?? "O agente da Keeta precisa de atenção.", problema: true };
+}
+
+function CartaoDoCanal({ canal, agente }: { canal: CoberturaCanal; agente?: SaudeDoAgente }) {
   const situacao = SITUACAO[canal.situacao];
+  const doAgente = canal.canal === "Keeta" ? linhaDoAgente(agente) : null;
   return (
     <article className="cobertura-canal">
       <header>
@@ -50,6 +61,7 @@ function CartaoDoCanal({ canal }: { canal: CoberturaCanal }) {
       <p className="cobertura-dias">
         {canal.diasComDado} de {canal.diasNoPeriodo} dias com lançamento no mês
       </p>
+      {doAgente && <p className={doAgente.problema ? "cobertura-dica" : "cobertura-dias"}>{doAgente.texto}</p>}
       {canal.situacao !== "EM_DIA" && <p className="cobertura-dica">{DICA_DE_ATRASO[canal.canal]}</p>}
       {canal.diasSemLancamento.length > 0 && (
         <details>
@@ -92,7 +104,7 @@ export function CoberturaPorCanal({ year, month }: { year: number; month: number
       {dados && (
         <div className="cobertura-grade">
           {dados.channels.map((canal) => (
-            <CartaoDoCanal key={canal.canal} canal={canal} />
+            <CartaoDoCanal key={canal.canal} canal={canal} agente={dados.agenteKeeta} />
           ))}
         </div>
       )}
