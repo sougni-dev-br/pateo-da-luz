@@ -28,6 +28,8 @@ type Banco = Prisma.TransactionClient | typeof prisma;
 export type PrevisaoKeeta = {
   arquivo: string;
   erros: string[];
+  /** Dias aceitos que merecem um olhar (ex.: repasse acima do bruto). Não bloqueiam a gravação. */
+  avisos: string[];
   plano: ItemDoPlano[];
   /** Meses com fechamento travado: os dias deles não serão gravados. */
   mesesTravados: string[];
@@ -107,7 +109,7 @@ async function mesesTravadosDe(dias: DiaKeeta[]): Promise<Set<string>> {
   return travados;
 }
 
-async function montarPrevisao(db: Banco, nome: string, dias: DiaKeeta[], erros: string[]): Promise<PrevisaoKeeta> {
+async function montarPrevisao(db: Banco, nome: string, dias: DiaKeeta[], erros: string[], avisos: string[]): Promise<PrevisaoKeeta> {
   const plano = planejarImportacao(dias, await lerExistentes(db, dias));
   const travados = await mesesTravadosDe(dias);
   const totais = { criar: 0, alterar: 0, igual: 0, conflito: 0, travado: 0 };
@@ -118,12 +120,12 @@ async function montarPrevisao(db: Banco, nome: string, dias: DiaKeeta[], erros: 
     else if (item.acao === "IGUAL") totais.igual += 1;
     else totais.conflito += 1;
   }
-  return { arquivo: nome, erros, plano, mesesTravados: [...travados].sort(), totais };
+  return { arquivo: nome, erros, avisos, plano, mesesTravados: [...travados].sort(), totais };
 }
 
 export async function preverImportacaoKeeta(buffer: Buffer, nome: string): Promise<PrevisaoKeeta> {
-  const { dias, erros } = lerTabelaKeeta(await lerArquivo(buffer, nome));
-  return montarPrevisao(prisma, nome, dias, erros);
+  const { dias, erros, avisos } = lerTabelaKeeta(await lerArquivo(buffer, nome));
+  return montarPrevisao(prisma, nome, dias, erros, avisos);
 }
 
 export async function confirmarImportacaoKeeta(
@@ -131,7 +133,7 @@ export async function confirmarImportacaoKeeta(
   nome: string,
   contexto: { userId: string; ipAddress?: string | null; userAgent?: string | null }
 ): Promise<ResultadoKeeta> {
-  const { dias, erros } = lerTabelaKeeta(await lerArquivo(buffer, nome));
+  const { dias, erros, avisos } = lerTabelaKeeta(await lerArquivo(buffer, nome));
   if (erros.length > 0) throw new ErroDeImportacao("O arquivo tem linhas com erro. Corrija e envie de novo.");
 
   const anteriores: Array<{ id: string; gross: number; net: number; orders: number }> = [];
@@ -141,7 +143,7 @@ export async function confirmarImportacaoKeeta(
       // O que a tela mostrou na prévia não é confiável: com o lock tomado, o plano é refeito
       // contra o estado atual (lançamento cancelado, mês travado ou criado à mão desde então).
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${CHAVE_DO_LOCK}))`;
-      const atual = await montarPrevisao(tx, nome, dias, erros);
+      const atual = await montarPrevisao(tx, nome, dias, erros, avisos);
       const travados = new Set(atual.mesesTravados);
       const gravar = atual.plano.filter(
         (i) => (i.acao === "CRIAR" || i.acao === "ALTERAR") && !travados.has(i.dia.date.slice(0, 7))

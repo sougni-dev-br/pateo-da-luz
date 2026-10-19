@@ -18,7 +18,7 @@ export type DiaKeeta = {
   platformFees: number;
 };
 
-export type LeituraKeeta = { dias: DiaKeeta[]; erros: string[] };
+export type LeituraKeeta = { dias: DiaKeeta[]; erros: string[]; avisos: string[] };
 
 export type DiaExistente = {
   id: string;
@@ -37,6 +37,9 @@ const CENTAVO = 0.01;
 const MAX_DIAS_POR_ARQUIVO = 400;
 const PRIMEIRO_DIA_ACEITO = "2024-01-01";
 const VALOR_MAXIMO_POR_DIA = 10_000_000;
+/** Repasse acima do bruto em tantos dias assim deixa de ser exceção e vira sinal de colunas trocadas. */
+const MIN_ANOMALIAS_PARA_RECUSAR = 3;
+const PROPORCAO_MAXIMA_DE_ANOMALIAS = 0.25;
 
 /** Nomes de coluna aceitos, já normalizados (minúsculo, sem acento). */
 const COLUNAS = {
@@ -124,17 +127,18 @@ export function lerTabelaKeeta(tabela: unknown[][], hoje: string = new Date().to
   const faltando = OBRIGATORIAS.filter((o) => colunas[o.key] === undefined).map((o) => o.rotulo);
   if (indiceCabecalho < 0 || faltando.length > 0) {
     const lista = (faltando.length > 0 ? faltando : OBRIGATORIAS.map((o) => o.rotulo)).join(", ");
-    return { dias: [], erros: [`Colunas obrigatórias não encontradas: ${lista}.`] };
+    return { dias: [], erros: [`Colunas obrigatórias não encontradas: ${lista}.`], avisos: [] };
   }
 
   const corpo = tabela.slice(indiceCabecalho + 1).filter((l) => !ehLinhaVazia(l));
   if (corpo.length > MAX_DIAS_POR_ARQUIVO) {
-    return { dias: [], erros: [`O arquivo tem mais de ${MAX_DIAS_POR_ARQUIVO} dias. Envie um período menor (um mês por vez).`] };
+    return { dias: [], erros: [`O arquivo tem mais de ${MAX_DIAS_POR_ARQUIVO} dias. Envie um período menor (um mês por vez).`], avisos: [] };
   }
 
   const dias: DiaKeeta[] = [];
   const erros: string[] = [];
   const vistos = new Set<string>();
+  const acimaDoBruto: Array<{ date: string; netAmount: number; grossAmount: number }> = [];
 
   for (const linha of corpo) {
     if (ehLinhaVazia(linha)) continue;
@@ -171,9 +175,14 @@ export function lerTabelaKeeta(tabela: unknown[][], hoje: string = new Date().to
     }
     const grossAmount = arredondar(vendas - promocao);
     const netAmount = arredondar(repasse);
-    if (grossAmount < 0 || netAmount > grossAmount + CENTAVO) {
-      erros.push(`Linha ${diaBr(date)}: o repasse (${netAmount}) é maior que o bruto (${grossAmount}); confira as colunas.`);
+    if (grossAmount < 0) {
+      erros.push(`Linha ${diaBr(date)}: a despesa (${arredondar(promocao)}) é maior que as vendas (${arredondar(vendas)}); confira as colunas.`);
       continue;
+    }
+    // O repasse pode passar do bruto num dia fraco (a plataforma credita outros ganhos, como entrega):
+    // o dia entra com retenção negativa e um aviso. Só o conjunto diz se as colunas estão trocadas.
+    if (netAmount > grossAmount + CENTAVO) {
+      acimaDoBruto.push({ date, netAmount, grossAmount });
     }
 
     vistos.add(date);
@@ -186,7 +195,20 @@ export function lerTabelaKeeta(tabela: unknown[][], hoje: string = new Date().to
     });
   }
 
-  return { dias: dias.sort((a, b) => a.date.localeCompare(b.date)), erros };
+  if (acimaDoBruto.length >= MIN_ANOMALIAS_PARA_RECUSAR && acimaDoBruto.length / dias.length > PROPORCAO_MAXIMA_DE_ANOMALIAS) {
+    return {
+      dias: [],
+      erros: [
+        `Em ${acimaDoBruto.length} de ${dias.length} dias o repasse é maior que o bruto: as colunas Vendas de itens e Ganhos líquidos parecem trocadas.`
+      ],
+      avisos: []
+    };
+  }
+  const avisos = acimaDoBruto.map(
+    (a) => `Dia ${diaBr(a.date)}: o repasse (${a.netAmount}) ficou acima do bruto (${a.grossAmount}); o dia entra com retenção negativa.`
+  );
+
+  return { dias: dias.sort((a, b) => a.date.localeCompare(b.date)), erros, avisos };
 }
 
 /** CSV simples: BOM, aspas, delimitador `;` (padrão brasileiro) ou `,`. */
