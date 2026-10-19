@@ -1,6 +1,7 @@
 import { appendFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { redigirSegredos } from "./logica.js";
 
 // Log por dia em logs/keeta-YYYY-MM-DD.log e também no stdout (o Agendador de Tarefas captura).
 // NUNCA registre senha, token ou cookie: só o que ajuda a entender o que o agente fez.
@@ -9,6 +10,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PASTAS = [process.env.PATEO_KEETA_LOG_DIR ?? "C:\\PateoAgentKeeta\\logs", path.resolve(__dirname, "..", "logs")];
 
 let pastaEscolhida = null;
+let segredos = [];
+
+/** Valores que nunca podem aparecer no log (senha, e-mail, token). */
+export function definirSegredos(lista) {
+  segredos = lista.filter((v) => typeof v === "string" && v.length > 0);
+}
+
+export function redigir(texto) {
+  return redigirSegredos(texto, segredos);
+}
 
 async function pasta() {
   if (pastaEscolhida) return pastaEscolhida;
@@ -34,7 +45,7 @@ function hoje() {
 }
 
 async function escrever(nivel, mensagem, extra) {
-  const linha = `${new Date().toISOString()} [${nivel}] ${mensagem}${extra ? " " + JSON.stringify(extra) : ""}`;
+  const linha = redigir(`${new Date().toISOString()} [${nivel}] ${mensagem}${extra ? " " + JSON.stringify(extra) : ""}`);
   console.log(linha);
   try {
     await appendFile(path.join(await pasta(), `keeta-${hoje()}.log`), linha + "\n");

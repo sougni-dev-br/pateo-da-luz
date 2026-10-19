@@ -102,3 +102,42 @@ export function cabecalhosParaReusar(capturados) {
 export function ehPaginaDeLogin(url) {
   return String(url).includes("/pc/login");
 }
+
+/** Domínios que a Keeta usa para entregar o arquivo (ex.: bucket.s3-fra01-eu.mykeeta.net). */
+const DOMINIOS_DE_DOWNLOAD = [".mykeeta.net", ".mykeeta.com"];
+
+/**
+ * O link do arquivo vem da resposta do portal: só baixa se for https num domínio da Keeta. Sem isso, uma
+ * resposta adulterada faria o agente (que roda dentro da rede do restaurante) buscar qualquer endereço.
+ */
+export function urlDeDownloadValida(url) {
+  try {
+    const u = new URL(String(url));
+    return u.protocol === "https:" && DOMINIOS_DE_DOWNLOAD.some((dominio) => u.hostname.endsWith(dominio));
+  } catch {
+    return false;
+  }
+}
+
+/** O token do ERP viaja em cada envio: https sempre, exceto para testar numa máquina local. */
+export function urlDoErpValida(url) {
+  try {
+    const u = new URL(String(url));
+    if (u.protocol === "https:") return true;
+    return u.protocol === "http:" && ["localhost", "127.0.0.1"].includes(u.hostname);
+  } catch {
+    return false;
+  }
+}
+
+const TAMANHO_MINIMO_DO_SEGREDO = 4;
+
+/** Mensagens de erro do navegador podem repetir o valor digitado: nada disso vai para log nem para o ERP. */
+export function redigirSegredos(texto, segredos) {
+  let limpo = String(texto);
+  for (const segredo of segredos) {
+    if (typeof segredo !== "string" || segredo.length < TAMANHO_MINIMO_DO_SEGREDO) continue;
+    limpo = limpo.split(segredo).join("***");
+  }
+  return limpo;
+}

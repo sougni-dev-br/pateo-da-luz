@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { urlDoErpValida } from "./logica.js";
 
 // config.json guarda a senha da Keeta e o token do ERP: fica FORA do controle de versão (git-ignored).
 // Procura primeiro em C:\PateoAgentKeeta\config.json (produção) e cai para agent-keeta/config.json em dev.
@@ -45,7 +46,7 @@ export async function loadConfig() {
 export function validar(config) {
   const faltando = [];
   if (!Number.isInteger(config.portal?.shopId)) faltando.push("portal.shopId (número da loja na Keeta)");
-  if (!config.backend?.baseUrl) faltando.push("backend.baseUrl");
+  if (!urlDoErpValida(config.backend?.baseUrl)) faltando.push("backend.baseUrl (precisa ser https://, exceto http://localhost para teste)");
   if (!config.backend?.ingestToken || config.backend.ingestToken === "TROCAR") faltando.push("backend.ingestToken");
   // E-mail e senha só são exigidos para renovar o login sozinho; sem eles o agente avisa e espera.
   if (faltando.length > 0) throw new Error(`Campos obrigatórios ausentes: ${faltando.join(", ")}`);

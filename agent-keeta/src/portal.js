@@ -3,9 +3,11 @@ import {
   cabecalhosParaReusar,
   corpoDaExportacao,
   ehPaginaDeLogin,
-  escolherRegistro
+  escolherRegistro,
+  urlDeDownloadValida
 } from "./logica.js";
-import { logger, pastaDeLogs } from "./logger.js";
+import { logger, pastaDeLogs, redigir } from "./logger.js";
+import { readdir, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 
 // Fala com o portal da Keeta (merchant.mykeeta.com) por um navegador com perfil PERSISTENTE: o login
@@ -24,6 +26,8 @@ const INTERVALO_DA_CONSULTA_MS = 5000;
 const ESPERA_DA_PAGINA_MS = 45 * 1000;
 const ESPERA_DO_LOGIN_MS = 30 * 1000;
 const ASSINATURA_ZIP = Buffer.from([0x50, 0x4b]); // "PK": um .xlsx é um zip
+const TAMANHO_MAXIMO_DO_ARQUIVO = 5 * 1024 * 1024; // o mesmo teto do ERP
+const DIAS_DE_GUARDA_DAS_IMAGENS = 7;
 
 const dormir = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -63,9 +67,21 @@ async function capturarCabecalhos(page) {
   throw new Error("O portal não chamou a API de relatórios no tempo esperado (o layout pode ter mudado).");
 }
 
+/** A imagem pode mostrar o e-mail digitado: não fica guardada para sempre. */
+async function apagarImagensAntigas(pasta) {
+  const limite = Date.now() - DIAS_DE_GUARDA_DAS_IMAGENS * 24 * 60 * 60 * 1000;
+  for (const nome of await readdir(pasta)) {
+    if (!/^keeta-.*.png$/.test(nome)) continue;
+    const caminho = path.join(pasta, nome);
+    if ((await stat(caminho)).mtimeMs < limite) await unlink(caminho);
+  }
+}
+
 async function salvarImagemDeDiagnostico(page, motivo) {
   try {
-    const arquivo = path.join(await pastaDeLogs(), `keeta-${motivo}-${Date.now()}.png`);
+    const pasta = await pastaDeLogs();
+    await apagarImagensAntigas(pasta);
+    const arquivo = path.join(pasta, `keeta-${motivo}-${Date.now()}.png`);
     await page.screenshot({ path: arquivo });
     await logger.warn("Imagem de diagnóstico salva", { arquivo });
   } catch {
@@ -78,7 +94,19 @@ async function salvarImagemDeDiagnostico(page, motivo) {
  * "Continuar", campo de senha). Se aparecer código de verificação ou captcha, o agente para e avisa:
  * nada disso ele consegue resolver.
  */
-async function fazerLogin(page, { email, senha }) {
+async function fazerLogin(page, credenciais) {
+  try {
+    await preencherLogin(page, credenciais);
+  } catch (err) {
+    if (err instanceof LoginNecessarioError) throw err;
+    // A mensagem do Playwright traz o "call log" com o valor digitado: vai só redigida para o log.
+    await logger.error("Falha ao preencher o login da Keeta", { detalhe: redigir(String(err.message).slice(0, 300)) });
+    await salvarImagemDeDiagnostico(page, "login-falhou");
+    throw new LoginNecessarioError("Não consegui preencher o login da Keeta (a tela pode ter mudado). Entre manualmente na máquina.");
+  }
+}
+
+async function preencherLogin(page, { email, senha }) {
   await logger.info("Keeta pediu login: tentando entrar com e-mail e senha");
   const campoEmail = page.getByPlaceholder(/e-?mail/i).first();
   await campoEmail.waitFor({ state: "visible", timeout: 15000 });
@@ -141,10 +169,17 @@ export async function baixarRelatorio({ context, cabecalhos, shopId, inicio, fim
     const registro = escolherRegistro(lista?.data?.downloadRecordDTOList ?? [], { inicio, fim, depoisDe: pedidoEm });
     if (!registro) continue;
 
-    // O link é assinado pelo próprio portal: baixa sem cookie nenhum.
-    const arquivo = await fetch(registro.s3Url, { signal: AbortSignal.timeout(60_000) });
+    if (!urlDeDownloadValida(registro.s3Url)) {
+      throw new Error("O link do relatório não é https de um domínio da Keeta; recusei o download.");
+    }
+    // O link é assinado pelo próprio portal: baixa sem cookie nenhum, sem seguir redirecionamento, com teto de tamanho.
+    const arquivo = await fetch(registro.s3Url, { redirect: "error", signal: AbortSignal.timeout(60_000) });
     if (!arquivo.ok) throw new Error(`Não consegui baixar o relatório (HTTP ${arquivo.status}).`);
+    if (Number(arquivo.headers.get("content-length") ?? 0) > TAMANHO_MAXIMO_DO_ARQUIVO) {
+      throw new Error("O relatório da Keeta passa de 5 MB; recusei o download.");
+    }
     const buffer = Buffer.from(await arquivo.arrayBuffer());
+    if (buffer.length > TAMANHO_MAXIMO_DO_ARQUIVO) throw new Error("O relatório da Keeta passa de 5 MB; recusei o arquivo.");
     if (buffer.length === 0 || !buffer.subarray(0, 2).equals(ASSINATURA_ZIP)) {
       throw new Error("O arquivo baixado da Keeta não parece um .xlsx.");
     }

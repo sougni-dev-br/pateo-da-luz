@@ -7,7 +7,10 @@ import {
   ehPaginaDeLogin,
   mesesParaSincronizar,
   periodoDoMes,
-  prefixoDoArquivo
+  prefixoDoArquivo,
+  redigirSegredos,
+  urlDeDownloadValida,
+  urlDoErpValida
 } from "../src/logica.js";
 
 describe("periodoDoMes", () => {
@@ -120,6 +123,54 @@ describe("cabecalhosParaReusar", () => {
     for (const proibido of ["cookie", "Cookie", "user-agent", "content-length", "host", "origin"]) {
       assert.equal(proibido in reaproveitados, false);
     }
+  });
+});
+
+describe("urlDeDownloadValida", () => {
+  test("aceita só https em domínio da Keeta", () => {
+    assert.equal(urlDeDownloadValida("https://bucket.s3-fra01-eu.mykeeta.net/arquivo.xlsx?assinatura=1"), true);
+    assert.equal(urlDeDownloadValida("https://merchant.mykeeta.com/x"), true);
+  });
+
+  test("recusa http, outro domínio, domínio parecido, IP interno e lixo", () => {
+    for (const ruim of [
+      "http://bucket.s3-fra01-eu.mykeeta.net/a",
+      "https://evil.com/mykeeta.net",
+      "https://mykeeta.net.evil.com/a",
+      "https://notmykeeta.net/a",
+      "https://169.254.169.254/latest/meta-data",
+      "file:///c:/windows/win.ini",
+      "nao e url",
+      ""
+    ]) {
+      assert.equal(urlDeDownloadValida(ruim), false, ruim);
+    }
+  });
+});
+
+describe("urlDoErpValida", () => {
+  test("exige https, exceto em máquina local (teste)", () => {
+    assert.equal(urlDoErpValida("https://pateo-backend.onrender.com"), true);
+    assert.equal(urlDoErpValida("http://localhost:3334"), true);
+    assert.equal(urlDoErpValida("http://127.0.0.1:3334"), true);
+    assert.equal(urlDoErpValida("http://pateo-backend.onrender.com"), false);
+    assert.equal(urlDoErpValida("pateo-backend.onrender.com"), false);
+  });
+});
+
+describe("redigirSegredos", () => {
+  test("troca senha, e-mail e token por *** onde quer que apareçam", () => {
+    const texto = "locator.fill: value 'Senha#123' for user@teste.com failed; token abc123def456";
+    const limpo = redigirSegredos(texto, ["Senha#123", "user@teste.com", "abc123def456"]);
+    assert.equal(limpo, "locator.fill: value '***' for *** failed; token ***");
+  });
+
+  test("ignora segredo vazio ou curto demais (não pode apagar o texto todo)", () => {
+    assert.equal(redigirSegredos("texto normal", ["", undefined, null, "a"]), "texto normal");
+  });
+
+  test("segredo com caracteres de regex é tratado como texto", () => {
+    assert.equal(redigirSegredos("a.*+?b e a.*+?b", ["a.*+?b"]), "*** e ***");
   });
 });
 

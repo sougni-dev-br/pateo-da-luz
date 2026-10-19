@@ -1,7 +1,7 @@
 import { BackendClient } from "./backend-client.js";
 import { loadConfig, temCredenciais } from "./config.js";
 import { mesesParaSincronizar, periodoDoMes } from "./logica.js";
-import { logger } from "./logger.js";
+import { definirSegredos, logger, redigir } from "./logger.js";
 import { abrirNavegador, baixarRelatorio, LoginNecessarioError, prepararSessao } from "./portal.js";
 
 // Uso:
@@ -22,7 +22,7 @@ function hojeLocal() {
 function heartbeat({ status, mensagem, inicio, fim, dias, duracaoMs }) {
   return {
     status,
-    mensagem: status === "erro" ? String(mensagem ?? "").slice(0, 480) : null,
+    mensagem: status === "erro" ? redigir(String(mensagem ?? "")).slice(0, 480) : null,
     periodoInicio: inicio,
     periodoFim: fim,
     batchId: null,
@@ -124,6 +124,8 @@ async function main() {
     console.error(err.message);
     return 1;
   }
+  // Senha, e-mail e token nunca podem aparecer em log, em mensagem de erro nem no sinal de vida enviado ao ERP.
+  definirSegredos([config.portal.senha, config.portal.email, config.backend.ingestToken]);
   return process.argv.includes("--login") ? loginManual(config) : sincronizar(config);
 }
 

@@ -19,7 +19,8 @@ const READ_ROLES = ["ADMIN", "GESTAO_COMPLETA", "VISUALIZACAO"] as const;
 const requireKeetaToken = criarTokenDeMaquina({
   envVar: "KEETA_INGEST_TOKEN",
   header: "x-keeta-token",
-  mensagemNaoConfigurado: "Agente da Keeta não configurado no servidor. Defina KEETA_INGEST_TOKEN."
+  mensagemNaoConfigurado: "Agente da Keeta não configurado no servidor. Defina KEETA_INGEST_TOKEN (diferente do AGILE_INGEST_TOKEN).",
+  diferenteDe: ["AGILE_INGEST_TOKEN"]
 });
 const uploadMemoria = multer({ storage: multer.memoryStorage(), limits: { fileSize: TAMANHO_MAXIMO_BYTES } });
 
