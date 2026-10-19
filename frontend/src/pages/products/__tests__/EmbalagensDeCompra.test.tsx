@@ -147,7 +147,7 @@ describe("conversão que o sistema já faz sozinho", () => {
     render(<Tela contagem="BARRIL" />);
     fireEvent.change(origem(), { target: { value: "L" } });
     fireEvent.change(fator(), { target: { value: "1" } });
-    expect(screen.getByRole("alert").textContent).toContain("já converte sozinho (1 L = 0,02 BARRIL)");
+    expect(screen.getByRole("alert").textContent).toContain("Quando a compra vier em 50 L, entram 1 BARRIL no estoque (e ao contrário: 1 BARRIL = 50 L)");
     expect((screen.getByRole("button", { name: "Adicionar embalagem" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
@@ -155,7 +155,7 @@ describe("conversão que o sistema já faz sozinho", () => {
     render(<Tela contagem="L" />);
     fireEvent.change(origem(), { target: { value: "BARRIL" } });
     fireEvent.change(fator(), { target: { value: "1" } });
-    expect(screen.getByRole("alert").textContent).toContain("já converte sozinho (1 BARRIL = 50 L)");
+    expect(screen.getByRole("alert").textContent).toContain("Quando a compra vier em 1 BARRIL, entram 50 L no estoque (e ao contrário: 50 L = 1 BARRIL)");
     expect((screen.getByRole("button", { name: "Adicionar embalagem" }) as HTMLButtonElement).disabled).toBe(true);
   });
 });

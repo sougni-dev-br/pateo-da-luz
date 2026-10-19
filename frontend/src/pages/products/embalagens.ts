@@ -55,7 +55,10 @@ export function mensagemDoProblema(problema: ProblemaDoRascunho, origem: string,
       return `Já existe uma conversão de ${origem} para ${contagem}. Remova a antiga se quiser trocar o número.`;
     case "converte-sozinho": {
       const f = fatorConversao(origem, contagem, []);
-      return `${origem} para ${contagem} o sistema já converte sozinho (1 ${origem} = ${f == null ? "" : formatarNumero(f)} ${contagem}). Não precisa adicionar embalagem.`;
+      if (f == null) return "";
+      // Sempre a quantidade "redonda" na frente: 1 BARRIL = 50 L, ou 50 L = 1 BARRIL.
+      const [de, para] = f >= 1 ? [`1 ${origem}`, `${formatarNumero(f)} ${contagem}`] : [`${formatarNumero(1 / f)} ${origem}`, `1 ${contagem}`];
+      return `Não precisa adicionar: o sistema já converte sozinho, nos dois sentidos. Quando a compra vier em ${de}, entram ${para} no estoque (e ao contrário: ${para} = ${de}).`;
     }
     default:
       return "";
