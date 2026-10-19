@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { CalendarDays, TrendingDown, TrendingUp } from "lucide-react";
 import { getKeetaSummary, type KeetaPeriodSummary, type Variacao } from "../api/client";
 import { Alert, Card, Money, PanelEyebrow, Select, SummaryCard } from "../design-system";
+import { KeetaImportacao } from "./KeetaImportacao";
 import "./DeliveryFinance.css";
 
 const MESES_PT = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
@@ -50,6 +51,7 @@ export function DeliveryKeeta() {
   const [resumo, setResumo] = useState<KeetaPeriodSummary | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(true);
+  const [recarga, setRecarga] = useState(0);
 
   const { year, month } = useMemo(() => parseMonthKey(selectedMonth || "2026-09"), [selectedMonth]);
 
@@ -63,7 +65,7 @@ export function DeliveryKeeta() {
       .catch((e: unknown) => { if (ativo) setErro(e instanceof Error ? e.message : "Falha ao carregar o faturamento da Keeta."); })
       .finally(() => { if (ativo) setCarregando(false); });
     return () => { ativo = false; };
-  }, [selectedMonth, year, month]);
+  }, [selectedMonth, year, month, recarga]);
 
   const rotuloAnterior = resumo
     ? `${MESES_PT[resumo.previousMonth.month - 1]?.slice(0, 3).toLowerCase()}/${resumo.previousMonth.year}`
@@ -90,6 +92,8 @@ export function DeliveryKeeta() {
         Por isso não há quebra por loja nem repasse individual — e o lançamento manual da Keeta
         no "Fechar o dia" está desativado, para não somar duas vezes.
       </Alert>
+
+      <KeetaImportacao onImportado={() => setRecarga((n) => n + 1)} />
 
       {erro && <Alert tone="error">{erro}</Alert>}
 

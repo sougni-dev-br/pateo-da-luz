@@ -18,6 +18,7 @@ import type { ImportTab } from "./ImportsHub";
 import { formatDate, formatNumber, formatPercent } from "../utils/format";
 import { currentMonthPeriod, periodForPreset, type PeriodState } from "../utils/period";
 import { hojeLocalIso } from "../lib/datas";
+import { CoberturaPorCanal } from "./CoberturaPorCanal";
 
 const channels = ["Salão", "Delivery", "Eventos / Empreitada", "Outros"];
 
@@ -509,6 +510,8 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
   return (
     <div className="stack">
       <Notice notice={notice} />
+
+      <CoberturaPorCanal year={splitMonth(month).year} month={splitMonth(month).month} />
 
       <section className="panel">
         <div className="section-heading">
