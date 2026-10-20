@@ -24,11 +24,13 @@ type Props = {
   duplicarDe?: string | null;
   hoje: string;
   podeEditar: boolean;
+  /** Cancelar ou reativar a guia pede a permissão de excluir. */
+  podeCancelar: boolean;
   onFechar: () => void;
   onSalvo: (mensagem: string) => void;
 };
 
-export function ModalGuia({ editId, duplicarDe = null, hoje, podeEditar, onFechar, onSalvo }: Props) {
+export function ModalGuia({ editId, duplicarDe = null, hoje, podeEditar, podeCancelar, onFechar, onSalvo }: Props) {
   const emEdicao = editId != null;
   const [form, setForm] = useState<FormGuia>(FORM_VAZIO);
   const [detalhe, setDetalhe] = useState<TaxPaymentDetail | null>(null);
@@ -243,7 +245,7 @@ export function ModalGuia({ editId, duplicarDe = null, hoje, podeEditar, onFecha
               )}
             </>
           )}
-          {emEdicao && podeEditar && (
+          {emEdicao && podeEditar && podeCancelar && (
             <FormField label="Situação da guia" hint={paga ? "Guia paga não pode ser cancelada: estorne o pagamento antes." : "Cancelada sai de Contas a Pagar e do DRE."}>
               <Select value={form.cancelada ? "CANCELED" : "ATIVA"} disabled={!editavel} onChange={(e) => campo("cancelada", e.target.value === "CANCELED")}
                 options={[{ value: "ATIVA", label: "Ativa" }, { value: "CANCELED", label: "Cancelada", disabled: paga }]} />

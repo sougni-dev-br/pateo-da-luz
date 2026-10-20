@@ -18,6 +18,7 @@ vi.mock("../../../config/database.js", () => {
 vi.mock("../../security/security-utils.js", () => ({
   getSessionUser: vi.fn(), auditLog: vi.fn(), requestIp: vi.fn(() => "127.0.0.1"),
 }));
+vi.mock("../../security/menu-permissions.js", () => ({ userHasPermission: vi.fn(async () => true) }));
 vi.mock("../../cmv-real/cmv-real.service.js", () => ({ assertPeriodWritableForDate: vi.fn() }));
 vi.mock("../tax-payment-import.service.js", () => ({
   buildExistingDedupKeys: vi.fn(async () => new Set()),
@@ -25,6 +26,7 @@ vi.mock("../tax-payment-import.service.js", () => ({
 }));
 
 import { prisma } from "../../../config/database.js";
+import { userHasPermission } from "../../security/menu-permissions.js";
 import { getSessionUser } from "../../security/security-utils.js";
 import { previewTaxImport } from "../tax-payment-import.service.js";
 import { taxPaymentRouter } from "../tax-payment.routes.js";
@@ -251,6 +253,26 @@ describe("edição", () => {
     db.taxPayment.findFirst.mockResolvedValue({ ...existente, status: "CANCELED" });
     await request(app).put("/tax-payments/g1").send({ description: "só texto" });
     expect(db.taxPayment.update.mock.calls[0][0].data.status).toBe("CANCELED");
+  });
+
+  test("cancelar e reativar pedem a permissão de excluir, não só a de editar", async () => {
+    vi.mocked(userHasPermission).mockResolvedValueOnce(false);
+    const r = await request(app).put("/tax-payments/g1").send({ status: "CANCELED" });
+    expect(r.status).toBe(403);
+    expect(r.body.message).toMatch(/excluir/);
+    expect(db.taxPayment.update).not.toHaveBeenCalled();
+
+    db.taxPayment.findFirst.mockResolvedValue({ ...existente, status: "CANCELED" });
+    vi.mocked(userHasPermission).mockResolvedValueOnce(false);
+    const r2 = await request(app).put("/tax-payments/g1").send({ status: "PENDING" });
+    expect(r2.status).toBe(403);
+  });
+
+  test("editar sem mexer no cancelamento não pede a permissão de excluir", async () => {
+    vi.mocked(userHasPermission).mockResolvedValue(false);
+    const r = await request(app).put("/tax-payments/g1").send({ description: "só texto" });
+    expect(r.status).toBe(200);
+    vi.mocked(userHasPermission).mockResolvedValue(true);
   });
 
   test("não deixa limpar a competência de guia ativa", async () => {

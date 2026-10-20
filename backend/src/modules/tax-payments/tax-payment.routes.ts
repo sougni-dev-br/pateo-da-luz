@@ -8,6 +8,8 @@ import { prisma } from "../../config/database.js";
 import { auditLog, getSessionUser, requestIp } from "../security/security-utils.js";
 import { buildExistingDedupKeys, previewTaxImport } from "./tax-payment-import.service.js";
 import { categoriaIdPorNome, sugerirCategoriaImposto } from "./categoria-imposto.js";
+import { userHasPermission } from "../security/menu-permissions.js";
+import type { SessionUser } from "../security/security-utils.js";
 import { montarPanorama } from "./tax-payment-panorama.js";
 import { diaIso, hojeBrasilia, lerData, parseValorGuia, resolverUploadImportacao, statusDaGuia } from "./tax-payment-rules.js";
 
@@ -356,6 +358,11 @@ taxPaymentRouter.put("/:id", async (request, response) => {
 
   // Só "CANCELED" é decisão do usuário; qualquer outro valor é ignorado e o status sai das datas.
   const cancelada = status !== undefined ? status === "CANCELED" : existing.status === "CANCELED";
+  // Cancelar tira a guia de Contas a Pagar e do DRE (efeito de excluir) e reativar desfaz isso (como restaurar):
+  // pela edição passaria com a permissão de editar, então pede a mesma de excluir.
+  if (cancelada !== (existing.status === "CANCELED") && !(await userHasPermission(user as SessionUser, "tax-payments", "delete"))) {
+    return response.status(403).json({ message: "Cancelar ou reativar uma guia exige a permissão de excluir." });
+  }
   // Cancelar uma guia paga tiraria o desembolso do DRE e de Contas a Pagar com o pagamento ainda gravado.
   if (cancelada && existing.status !== "CANCELED" && existing.paymentDate) {
     return response.status(409).json({ message: "Esta guia está paga. Estorne o pagamento (em Contas a Pagar) antes de cancelar." });

@@ -108,6 +108,7 @@
 .ip-grade th, .ip-grade td { padding: 0; text-align: center; font-weight: var(--fw-medium); }
 
 .ip-grade-grupo {
+  position: sticky; left: 0; z-index: 1; background: var(--paper);
   text-align: left !important; padding-right: 14px !important; white-space: nowrap;
   font-size: var(--fs-sm); font-weight: var(--fw-semibold); color: var(--ink);
 }
@@ -128,7 +129,7 @@
   transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
 }
 .ip-celula:hover { transform: var(--lift); box-shadow: var(--shadow-soft); }
-.ip-celula:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.ip-celula:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .ip-celula--pago { background: var(--tint-success); border-color: var(--tint-success-border); color: var(--success); }
 .ip-celula--aberto { background: var(--tint-info); border-color: var(--tint-info-border); color: var(--info); }
 .ip-celula--vencido { background: var(--tint-danger); border-color: var(--tint-danger-border); color: var(--danger); }
@@ -148,12 +149,12 @@
   transition: border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
 }
 .ip-pilula:hover { border-color: var(--line-strong); background: var(--paper-soft); }
-.ip-pilula:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.ip-pilula:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .ip-pilula[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--paper); }
 .ip-pilula--danger:not([aria-pressed="true"]) .ip-pilula-qtd { background: var(--tint-danger); color: var(--danger); }
 .ip-pilula-qtd {
   min-width: 22px; padding: 1px 7px; border-radius: var(--radius-pill);
-  background: var(--paper-soft); color: var(--muted);
+  background: var(--paper-soft); color: var(--ink-soft);
   font-size: var(--fs-2xs); font-weight: var(--fw-bold); font-variant-numeric: tabular-nums; text-align: center;
 }
 .ip-pilula[aria-pressed="true"] .ip-pilula-qtd { background: rgba(255, 255, 255, 0.18); color: var(--paper); }
@@ -244,7 +245,7 @@
   transition: border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
 }
 .ip-tipo:hover:not(:disabled) { border-color: var(--ink); }
-.ip-tipo:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.ip-tipo:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .ip-tipo[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--paper); }
 .ip-tipo:disabled { opacity: 0.6; cursor: not-allowed; }
 .ip-tipo-select { min-width: 170px; }
@@ -300,7 +301,7 @@
   transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease);
 }
 .ip-soltar:hover:not(:disabled) { border-color: var(--gold); background: var(--gold-tint); }
-.ip-soltar:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.ip-soltar:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .ip-soltar span { font-size: var(--fs-xs); color: var(--muted); }
 
 .ip-importa-cartoes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }

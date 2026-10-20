@@ -35,6 +35,8 @@ export function TaxPayments({ user }: Props) {
   const podeLancar = hasPermission(user, "tax-payments", "create");
   const podeEditar = hasPermission(user, "tax-payments", "edit");
   const podeExcluir = hasPermission(user, "tax-payments", "delete");
+  // Confirmar a importação é "approve" no servidor: sem isso o botão só levaria a um 403 depois de conferir tudo.
+  const podeImportar = hasPermission(user, "tax-payments", "approve");
   const navigate = useNavigate();
   const topoDaLista = useRef<HTMLDivElement>(null);
 
@@ -164,7 +166,7 @@ export function TaxPayments({ user }: Props) {
         </p>
         {podeLancar && (
           <div className="ip-cabecalho-acoes">
-            <Button variant="secondary" leadingIcon={<Upload size={15} />} onClick={() => setJanela({ tipo: "importar" })}>Importar planilha</Button>
+            {podeImportar && <Button variant="secondary" leadingIcon={<Upload size={15} />} onClick={() => setJanela({ tipo: "importar" })}>Importar planilha</Button>}
             <Button leadingIcon={<Plus size={15} />} onClick={() => setJanela({ tipo: "guia", editId: null, duplicarDe: null })}>Lançar guia</Button>
           </div>
         )}
@@ -257,6 +259,7 @@ export function TaxPayments({ user }: Props) {
           duplicarDe={janela.duplicarDe}
           hoje={hoje}
           podeEditar={janela.editId ? podeEditar : podeLancar}
+          podeCancelar={podeExcluir}
           onFechar={() => setJanela(null)}
           onSalvo={aposAcao}
         />

@@ -201,6 +201,8 @@ function Celula({ c, grupo, onVerMes }: { c: CelulaGrade; grupo: string; onVerMe
       <button
         type="button"
         className={`ip-celula ip-celula--${c.estado}${c.lacuna ? " ip-celula--lacuna" : ""}`}
+        // O teclado chega aos meses pelo cabeçalho; 12 x N botões na ordem do Tab atrasariam a lista.
+        tabIndex={-1}
         title={descricao}
         aria-label={descricao}
         onClick={() => onVerMes(c.mes)}
