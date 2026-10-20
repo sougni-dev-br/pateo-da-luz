@@ -97,7 +97,7 @@ export function ResumoApuracao({ comp, compacto = false, onAjustarServico }: Res
           {money(comp.grossPool)}
         </Termo>
         <Termo label={`Retenção ${comp.deductionPercent.toLocaleString("pt-BR")}%`}>− {money(retido)}</Termo>
-        {quebraPct > 0 && <Termo label={`Quebra ${quebraPct.toLocaleString("pt-BR")}%`} detalhe="Retida além da retenção; não vira ponto.">− {money(quebra)}</Termo>}
+        {quebraPct > 0 && <Termo label={`Quebra ${quebraPct.toLocaleString("pt-BR")}%`} detalhe="Retenção da casa para quebra de pratos, utensílios etc.; não vira ponto.">− {money(quebra)}</Termo>}
         <Termo label="Líquido a distribuir" destaque="var(--info)">{money(comp.netPool)}</Termo>
         {temRescisao && (paraLivre ? (
           <Termo label="Rescisões (pagas à parte)" detalhe={`${pts(comp.rescisoes.pontos)} pts com o valor do ponto de cada saída; não saem do ponto do mês: ${notaLivre}`}>

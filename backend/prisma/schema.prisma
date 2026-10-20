@@ -3453,7 +3453,7 @@ model TipPeriod {
   saldoRetido            Decimal                @default(0) @db.Decimal(14, 2)
   // Pontos que vão para o fundo de reserva da gorjeta (valor = pontos × valor do ponto).
   reservaPontos          Decimal                @default(0) @db.Decimal(8, 2)
-  // Quebra: % do serviço retido além da retenção (sai do líquido que vira ponto).
+  // Quebra: retenção da casa (pratos, utensílios etc.), % do serviço além da retenção; sai do líquido que vira ponto.
   quebraPct              Decimal                @default(0) @db.Decimal(5, 2)
   // Destino dos pontos não distribuídos: FUNDO (fundo de reserva) | LIVRE (fica no período, sem ir ao fundo) | REDISTRIBUIR (sobe o valor do ponto).
   destinoSobra           String                 @default("FUNDO")
