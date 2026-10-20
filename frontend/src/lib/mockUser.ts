@@ -17,6 +17,7 @@ import type { AppUser } from "../api/client";
 import { API_BASE_URL } from "../api/client";
 import { isLocal } from "../utils/env";
 import { mockFichas } from "./mockFichas";
+import { mockImpostos } from "./mockImpostos";
 import { mockAnaliseSalao } from "./mockAnaliseSalao";
 import { mockFerias } from "./mockFerias";
 import { mockPagamentoMeio } from "./mockPagamentoMeio";
@@ -220,6 +221,10 @@ function pathFrom(url: string): string {
 
 function mockResponseFor(url: string, method = "GET", corpo?: BodyInit | null): unknown {
   const path = pathFrom(url);
+
+  // Impostos e Guias: painel, lista, detalhe e categorias (o path real vem com o prefixo da API).
+  const impostos = mockImpostos(url, method);
+  if (impostos !== undefined) return impostos;
 
   // Fichas técnicas: lista, detalhe, categorias e busca de produto com dados de exemplo.
   const fichas = mockFichas(url, method);

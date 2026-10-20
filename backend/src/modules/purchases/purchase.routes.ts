@@ -600,6 +600,7 @@ purchaseRouter.get("/payables", async (request, response) => {
   // ── Tax payments ───────────────────────────────────────────────────────────
   const taxStatusExpr = Prisma.sql`
     CASE
+      WHEN tp."status" = 'CANCELED' THEN 'CANCELLED'
       WHEN tp."paymentDate" IS NOT NULL THEN 'PAID'
       WHEN tp."dueDate" IS NOT NULL AND tp."dueDate" < ${startToday} THEN 'OVERDUE'
       ELSE 'OPEN'
@@ -608,11 +609,11 @@ purchaseRouter.get("/payables", async (request, response) => {
   const taxStatusFilter = !status
     ? Prisma.sql`true`
     : status === "OPEN"
-      ? Prisma.sql`tp."paymentDate" IS NULL AND (tp."dueDate" IS NULL OR tp."dueDate" >= ${startToday})`
+      ? Prisma.sql`tp."status" <> 'CANCELED' AND tp."paymentDate" IS NULL AND (tp."dueDate" IS NULL OR tp."dueDate" >= ${startToday})`
       : status === "PAID" || status === "PAID_LATE"
-        ? Prisma.sql`tp."paymentDate" IS NOT NULL`
+        ? Prisma.sql`tp."status" <> 'CANCELED' AND tp."paymentDate" IS NOT NULL`
         : status === "OVERDUE"
-          ? Prisma.sql`tp."paymentDate" IS NULL AND tp."dueDate" IS NOT NULL AND tp."dueDate" < ${startToday}`
+          ? Prisma.sql`tp."status" <> 'CANCELED' AND tp."paymentDate" IS NULL AND tp."dueDate" IS NOT NULL AND tp."dueDate" < ${startToday}`
           : status === "CANCELLED"
             ? Prisma.sql`tp."status" = 'CANCELED'`
             : Prisma.sql`false`;
@@ -943,6 +944,7 @@ purchaseRouter.get("/payables/report.pdf", async (request, response) => {
   // diferente do que a tela mostra.
   const taxStatusExpr = Prisma.sql`
     CASE
+      WHEN tp."status" = 'CANCELED' THEN 'CANCELLED'
       WHEN tp."paymentDate" IS NOT NULL THEN 'PAID'
       WHEN tp."dueDate" IS NOT NULL AND tp."dueDate" < ${startToday} THEN 'OVERDUE'
       ELSE 'OPEN'
@@ -951,11 +953,11 @@ purchaseRouter.get("/payables/report.pdf", async (request, response) => {
   const taxStatusFilter = !status
     ? Prisma.sql`true`
     : status === "OPEN"
-      ? Prisma.sql`tp."paymentDate" IS NULL AND (tp."dueDate" IS NULL OR tp."dueDate" >= ${startToday})`
+      ? Prisma.sql`tp."status" <> 'CANCELED' AND tp."paymentDate" IS NULL AND (tp."dueDate" IS NULL OR tp."dueDate" >= ${startToday})`
       : status === "PAID" || status === "PAID_LATE"
-        ? Prisma.sql`tp."paymentDate" IS NOT NULL`
+        ? Prisma.sql`tp."status" <> 'CANCELED' AND tp."paymentDate" IS NOT NULL`
         : status === "OVERDUE"
-          ? Prisma.sql`tp."paymentDate" IS NULL AND tp."dueDate" IS NOT NULL AND tp."dueDate" < ${startToday}`
+          ? Prisma.sql`tp."status" <> 'CANCELED' AND tp."paymentDate" IS NULL AND tp."dueDate" IS NOT NULL AND tp."dueDate" < ${startToday}`
           : status === "CANCELLED"
             ? Prisma.sql`tp."status" = 'CANCELED'`
             : Prisma.sql`false`;

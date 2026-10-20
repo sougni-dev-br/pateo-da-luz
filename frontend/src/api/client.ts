@@ -5569,6 +5569,25 @@ export type TaxPaymentFilters = {
   pageSize?: number;
 };
 
+// Painel da tela de Impostos (global, não segue os filtros da lista).
+export type TaxPanorama = {
+  hoje: string;
+  situacoes: { todas: number; vencidas: number; aVencer: number; pagas: number; canceladas: number };
+  aPagar: {
+    vencido: { qtd: number; valor: number };
+    ate7: { qtd: number; valor: number };
+    ate30: { qtd: number; valor: number };
+    depois: { qtd: number; valor: number };
+  };
+  meses: string[];
+  cobertura: Array<{ mes: string; grupo: string; qtd: number; pagas: number; vencidas: number; valor: number }>;
+  semCompetencia: number;
+};
+
+export function getTaxPanorama() {
+  return request<TaxPanorama>("/tax-payments/panorama");
+}
+
 export type TaxImportPreviewRow = {
   cnpj: string | null;
   legalName: string | null;
@@ -5589,7 +5608,6 @@ export type TaxImportPreviewRow = {
 
 export type TaxImportPreview = {
   importFileId: string;
-  filePath: string;
   totalRows: number;
   validRows: number;
   invalidRows: number;
@@ -5663,10 +5681,10 @@ export async function previewTaxImportXlsx(file: File): Promise<TaxImportPreview
   throw new Error("Backend não encontrado.");
 }
 
-export function confirmTaxImport(filePath: string, skipDuplicates = true) {
+export function confirmTaxImport(importFileId: string, skipDuplicates = true) {
   return request<{ importBatchId: string; imported: number; skipped: number; total: number }>(
     "/tax-payments/import-xlsx/confirm",
-    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ filePath, skipDuplicates }) }
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ importFileId, skipDuplicates }) }
   );
 }
 
