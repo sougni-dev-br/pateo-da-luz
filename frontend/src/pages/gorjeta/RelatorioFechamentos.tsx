@@ -256,6 +256,7 @@ function DetalheFechamento({ id, onVoltar, onErro }: { id: string; onVoltar: () 
     ...(ajusteServico !== 0 ? [["Ajuste do serviço", `${money(ajusteServico)}${texto(p.ajusteServicoMotivo) ? ` — ${texto(p.ajusteServicoMotivo)}` : ""}`] as [string, string]] : []),
     ["Serviço bruto", money(num(p.grossPool))],
     ["Retenção", `${pts(num(p.deductionPercent))}%`],
+    ...((num(p.quebraPercent) ?? 0) > 0 ? [["Quebra", `${pts(num(p.quebraPercent))}%`] as [string, string]] : []),
     ["Líquido", money(num(t.netPool))],
     ["Cotas fixas", money(num(t.fixedTotal))],
     ["Rescisões", rescisoes.valor ? `${money(rescisoes.valor)} (${pts(rescisoes.pontos)} pts)` : "—"],

@@ -15,7 +15,7 @@ import { getOrDefaultSettings } from "./payroll.service.js";
 import { round2 } from "./vt-calc.js";
 import { motivoParaNaoRetirar, saldoReserva, travarFundo } from "./tip-historico.service.js";
 import { proximoCodigoApuracao, registrarFechamento, registrarReabertura } from "./tip-fechamento.service.js";
-import { DIA_PRIMEIRA_QUINZENA, adiantamentoDoFechado, calcularRateio, emTesteNaGorjeta, motivoGorjetaRealSemEfeito, type ParticipanteEntrada, type RegrasPeriodo, type TipoCalculo, regraEfetiva } from "./tip-rateio.js";
+import { DIA_PRIMEIRA_QUINZENA, adiantamentoDoFechado, calcularRateio, destinoSobraValido, emTesteNaGorjeta, motivoGorjetaRealSemEfeito, type DestinoSobra, type ParticipanteEntrada, type RegrasPeriodo, type TipoCalculo, regraEfetiva } from "./tip-rateio.js";
 import { minutosValidos, parseHoras } from "./hora-extra.js";
 import { apelidoDe, nomeCompleto } from "./nomes.js";
 import { diaDeReferencia } from "./cadastro-historico.js";
@@ -223,6 +223,10 @@ export type TipComputation = {
   ajusteServico: number;
   ajusteServicoMotivo: string | null;
   deductionPercent: number;
+  // Quebra retida além da retenção (% e valor) e o destino dos pontos não distribuídos.
+  quebraPercent: number;
+  quebraValor: number;
+  destinoSobra: DestinoSobra;
   netPool: number;
   fixedTotal: number;
   // O que as rescisões levam, em reais e em pontos. Só sai da apuração do mês no
@@ -547,11 +551,16 @@ export async function computeTipCommission(
   const servicoFaturamento = period ? round2(Number(period.servicoFaturamento)) : grossPool;
   const ajusteServico = period ? round2(Number(period.ajusteServico)) : 0;
   const deductionPercent = period ? Number(period.deductionPercent) : 20;
-  const netPool = round2(grossPool * (1 - deductionPercent / 100));
+  // Quebra: retenção extra sobre o serviço; o líquido que vira ponto já vem sem ela.
+  const quebraPercent = period ? Number(period.quebraPct ?? 0) : 0;
+  const quebraValor = round2(grossPool * (quebraPercent / 100));
+  const destinoSobra = destinoSobraValido(period?.destinoSobra);
+  const netPool = round2(grossPool * (1 - (deductionPercent + quebraPercent) / 100));
   const pointsBudget = period ? Number(period.pointsTotal) : 100;
   const config = await getOrDefaultSettings();
   const regras: RegrasPeriodo = {
-    start, end, netPool, deductionPercent, pointsTotal: pointsBudget,
+    start, end, netPool, deductionPercent: deductionPercent + quebraPercent, pointsTotal: pointsBudget,
+    destinoSobra, reservaPontos: Number(period?.reservaPontos ?? 0),
     diasPadrao: period?.diasPadrao ?? 26,
     descontaFalta: period?.descontaFalta ?? true,
     descontaAtestado: period?.descontaAtestado ?? true,
@@ -998,7 +1007,7 @@ export async function computeTipCommission(
     periodEnd: end.toISOString(),
     grossPool, servicoFaturamento, ajusteServico,
     ajusteServicoMotivo: period?.ajusteServicoMotivo ?? null,
-    deductionPercent, netPool,
+    deductionPercent, quebraPercent, quebraValor, destinoSobra, netPool,
     fixedTotal: rateio.totalCotasFixas,
     rescisoes: rateio.rescisoes,
     pontosDisponiveis: rateio.pontosDisponiveis,
@@ -1301,7 +1310,9 @@ export async function closeTipPeriod(year: number, month: number, usuario: { id:
     const anteriores = await tx.tipReserveMovement.findMany({
       where: { periodId: comp.periodId!, type: { in: ["FECHAMENTO_RESERVA", "FECHAMENTO_SALDO"] } }, select: { amount: true },
     });
-    const retirada = round2(anteriores.reduce((a, m) => a + Number(m.amount), 0) - comp.composicao.reserva.valor - Math.max(0, comp.saldo));
+    // Só o destino FUNDO manda o saldo para o fundo; LIVRE o deixa no período.
+    const saldoAoFundo = comp.destinoSobra === "FUNDO" ? Math.max(0, comp.saldo) : 0;
+    const retirada = round2(anteriores.reduce((a, m) => a + Number(m.amount), 0) - comp.composicao.reserva.valor - saldoAoFundo);
     const bloqueio = motivoParaNaoRetirar(await saldoReserva(tx), retirada, `${String(month).padStart(2, "0")}/${year}`);
     if (bloqueio) throw new Error(bloqueio);
     await tx.tipReserveMovement.deleteMany({ where: { periodId: comp.periodId!, type: { in: ["FECHAMENTO_RESERVA", "FECHAMENTO_SALDO"] } } });
@@ -1315,7 +1326,7 @@ export async function closeTipPeriod(year: number, month: number, usuario: { id:
         },
       });
     }
-    if (comp.saldo > 0.005) {
+    if (saldoAoFundo > 0.005) {
       await tx.tipReserveMovement.create({
         data: {
           id: crypto.randomUUID(), date: dataFechamento, type: "FECHAMENTO_SALDO", amount: comp.saldo,

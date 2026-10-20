@@ -7507,6 +7507,8 @@ export type TipComputedParticipant = {
   vales: TipComputedVale[];
 };
 
+export type DestinoSobra = "FUNDO" | "LIVRE" | "REDISTRIBUIR";
+
 export type TipComputation = {
   year: number;
   month: number;
@@ -7524,6 +7526,11 @@ export type TipComputation = {
   ajusteServico: number;
   ajusteServicoMotivo: string | null;
   deductionPercent: number;
+  /** Quebra retida além da retenção (% do serviço e valor). */
+  quebraPercent?: number;
+  quebraValor?: number;
+  /** Destino dos pontos não distribuídos. */
+  destinoSobra?: DestinoSobra;
   netPool: number;
   fixedTotal: number;
   rescisoes: { valor: number; pontos: number };
@@ -7617,6 +7624,8 @@ export type TipPeriodPayload = {
   proporcionalEntrada?: boolean;
   sobraRescisaoParaSaldo?: boolean;
   reservaPontos?: number;
+  quebraPct?: number;
+  destinoSobra?: DestinoSobra;
   ajusteServico?: number;
   ajusteServicoMotivo?: string | null;
 };

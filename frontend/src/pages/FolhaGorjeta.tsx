@@ -1,7 +1,7 @@
 import { Check, ChevronLeft, ChevronRight, Lock, Maximize2, Minimize2, Plus, RefreshCw, Save, Unlock, UserPlus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
-  type TipComputation, type TipComputedParticipant, type TipRosterEmployee,
+  type DestinoSobra, type TipComputation, type TipComputedParticipant, type TipRosterEmployee,
   closeTipPeriodApi, getTipCommission, getTipRoster, openTipPeriod,
   refreshTipService, removeTipParticipant, setTipGorjetaReal, reopenTipPeriodApi, saveTipParticipants, syncTipParticipants, updateTipPeriod,
 } from "../api/client";
@@ -34,6 +34,8 @@ type Parametros = {
   proporcionalEntrada: boolean;
   sobraRescisaoParaSaldo: boolean;
   reservaPontos: string;
+  quebraPct: string;
+  destinoSobra: DestinoSobra;
 };
 
 function parametrosDe(c: TipComputation): Parametros {
@@ -45,6 +47,8 @@ function parametrosDe(c: TipComputation): Parametros {
     proporcionalEntrada: c.proporcionalEntrada,
     sobraRescisaoParaSaldo: c.sobraRescisaoParaSaldo === true,
     reservaPontos: String(c.reservaPontos),
+    quebraPct: String(c.quebraPercent ?? 0),
+    destinoSobra: c.destinoSobra ?? "FUNDO",
   };
 }
 
@@ -201,6 +205,8 @@ export function FolhaGorjeta() {
         proporcionalEntrada: params.proporcionalEntrada,
         sobraRescisaoParaSaldo: params.sobraRescisaoParaSaldo,
         reservaPontos: Math.max(0, Number(params.reservaPontos.replace(",", ".")) || 0),
+        quebraPct: Math.min(100, Math.max(0, Number(params.quebraPct.replace(",", ".")) || 0)),
+        destinoSobra: params.destinoSobra,
         ...(datasMudaram ? { periodStart: params.start, periodEnd: params.end } : {}),
       });
       await load();
@@ -440,7 +446,7 @@ export function FolhaGorjeta() {
                   <summary>
                     Parâmetros do período <span style={{ ...mutedStyle, fontWeight: 400 }}>
                       — {comp.diasPadrao} dias padrão; descontam: {[comp.descontaFalta && "falta", comp.descontaAtestado && "atestado", comp.descontaFerias && "férias", comp.descontaAfastamento !== false && "afastamento", comp.descontaOutros && "outros"].filter(Boolean).join(", ") || "nada"}{comp.proporcionalEntrada ? "; admitido recebe proporcional" : ""}
-                      ; parte de quem saiu: {comp.sobraRescisaoParaSaldo ? "vai para o livre" : "fica com quem continua"}
+                      ; sobra: {({ FUNDO: "fundo de reserva", LIVRE: "livre no período", REDISTRIBUIR: "redistribuída" } as const)[comp.destinoSobra ?? "FUNDO"]}{(comp.quebraPercent ?? 0) > 0 ? `; quebra ${comp.quebraPercent}%` : ""}; parte de quem saiu: {comp.sobraRescisaoParaSaldo ? "vai para o livre" : "fica com quem continua"}
                     </span>
                   </summary>
                   <div className="painel-detalhes-corpo">
@@ -449,6 +455,7 @@ export function FolhaGorjeta() {
                     <FormField label="Fim"><input style={inputStyle} type="date" value={params.end} disabled={readonly} onChange={(e) => setParams({ ...params, end: e.target.value })} /></FormField>
                     <FormField label="Retenção (%)"><input style={inputStyle} type="number" step="0.01" value={params.deduction} disabled={readonly} onChange={(e) => setParams({ ...params, deduction: e.target.value })} /></FormField>
                     <FormField label="Pontos de referência"><input style={inputStyle} type="number" step="1" min="1" value={params.pointsTotal} disabled={readonly} onChange={(e) => setParams({ ...params, pointsTotal: e.target.value })} /></FormField>
+                    <FormField label="Quebra (%)"><input style={inputStyle} type="number" step="0.01" min="0" max="100" value={params.quebraPct} disabled={readonly} title="Retida do serviço além da retenção; não vira ponto" onChange={(e) => setParams({ ...params, quebraPct: e.target.value })} /></FormField>
                     <FormField label="Dias padrão de trabalho"><input style={inputStyle} type="number" step="1" min="1" max="31" value={params.diasPadrao} disabled={readonly} onChange={(e) => setParams({ ...params, diasPadrao: e.target.value })} /></FormField>
                     <FormField label="Pontos da reserva da casa"><input style={inputStyle} type="number" step="0.5" min="0" value={params.reservaPontos} disabled={readonly} title="Vão para o fundo de reserva: pontos × valor do ponto" onChange={(e) => setParams({ ...params, reservaPontos: e.target.value })} /></FormField>
                   </FormGrid>
@@ -467,6 +474,15 @@ export function FolhaGorjeta() {
                       <label key={String(valor)} style={{ display: "flex", gap: 6, alignItems: "center" }}>
                         <input type="radio" name="sobraRescisaoParaSaldo" checked={params.sobraRescisaoParaSaldo === valor} disabled={readonly}
                           onChange={() => setParams({ ...params, sobraRescisaoParaSaldo: valor })} />{label}
+                      </label>
+                    ))}
+                  </fieldset>
+                  <fieldset style={{ border: "none", margin: 0, padding: 0, display: "flex", gap: 16, flexWrap: "wrap", fontSize: 14 }}>
+                    <legend style={{ ...mutedStyle, padding: 0, marginBottom: 6 }}>Pontos não distribuídos (o que sobra do líquido):</legend>
+                    {([["FUNDO", "Vão para o fundo de reserva"], ["LIVRE", "Ficam livres no período (não vão ao fundo)"], ["REDISTRIBUIR", "Redistribuir entre quem participa (sobe o ponto)"]] as const).map(([valor, label]) => (
+                      <label key={valor} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        <input type="radio" name="destinoSobra" checked={params.destinoSobra === valor} disabled={readonly}
+                          onChange={() => setParams({ ...params, destinoSobra: valor })} />{label}
                       </label>
                     ))}
                   </fieldset>

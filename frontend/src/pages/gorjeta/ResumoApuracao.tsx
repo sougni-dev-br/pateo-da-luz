@@ -35,7 +35,10 @@ type ResumoProps = { comp: TipComputation; compacto?: boolean; onAjustarServico?
 export function ResumoApuracao({ comp, compacto = false, onAjustarServico }: ResumoProps) {
   const temRescisao = comp.rescisoes.pontos > 0 || comp.rescisoes.valor > 0;
   const ajustado = Math.abs(comp.ajusteServico) >= 0.005;
-  const retido = Math.round((comp.grossPool - comp.netPool) * 100) / 100;
+  const quebraPct = comp.quebraPercent ?? 0;
+  const quebra = comp.quebraValor ?? 0;
+  const retido = Math.round((comp.grossPool - comp.netPool - quebra) * 100) / 100;
+  const destino = comp.destinoSobra ?? "FUNDO";
   const c = comp.composicao;
   const estourou = comp.saldo < -0.005;
   // Modo "vai para o livre": quem saiu é pago à parte e não mexe no ponto do mês.
@@ -64,7 +67,7 @@ export function ResumoApuracao({ comp, compacto = false, onAjustarServico }: Res
       : ["Rescisões", `− ${money(comp.rescisoes.valor)}`, undefined, "Saem do líquido antes do ponto do mês: o serviço depois da saída fica com quem continua."];
     const itens: Item[] = [
       ["Serviço", money(comp.grossPool), undefined],
-      [`Líquido (−${comp.deductionPercent.toLocaleString("pt-BR")}%)`, money(comp.netPool), "var(--info)"],
+      [`Líquido (−${(comp.deductionPercent + quebraPct).toLocaleString("pt-BR")}%)`, money(comp.netPool), "var(--info)"],
       ...(temRescisao ? [rescisaoCompacta] : []),
       [`Ponto (÷ ${pts(comp.pontosDisponiveis)})`, money(comp.pointValue), "var(--gold)"],
       ["Distribuído", money(comp.distribuido), undefined],
@@ -94,6 +97,7 @@ export function ResumoApuracao({ comp, compacto = false, onAjustarServico }: Res
           {money(comp.grossPool)}
         </Termo>
         <Termo label={`Retenção ${comp.deductionPercent.toLocaleString("pt-BR")}%`}>− {money(retido)}</Termo>
+        {quebraPct > 0 && <Termo label={`Quebra ${quebraPct.toLocaleString("pt-BR")}%`} detalhe="Retida além da retenção; não vira ponto.">− {money(quebra)}</Termo>}
         <Termo label="Líquido a distribuir" destaque="var(--info)">{money(comp.netPool)}</Termo>
         {temRescisao && (paraLivre ? (
           <Termo label="Rescisões (pagas à parte)" detalhe={`${pts(comp.rescisoes.pontos)} pts com o valor do ponto de cada saída; não saem do ponto do mês: ${notaLivre}`}>
@@ -141,7 +145,8 @@ export function ResumoApuracao({ comp, compacto = false, onAjustarServico }: Res
               {" "}— a critério do responsável, pelo <em>Ajuste</em> de quem vai receber, na tabela abaixo.
               {paraLivre && temRescisao && <> Inclui {notaLivre}.</>}
             </span>
-            <span>O que não for usado entra no fundo de reserva no fechamento e vai acumulando mês a mês. Fundo hoje: <strong>{money(comp.fundoReservaSaldo)}</strong>.</span>
+            {destino === "FUNDO" && <span>O que não for usado entra no fundo de reserva no fechamento e vai acumulando mês a mês. Fundo hoje: <strong>{money(comp.fundoReservaSaldo)}</strong>.</span>}
+            {destino === "LIVRE" && <span>O que não for usado fica no período como saldo livre: não entra no fundo de reserva no fechamento.</span>}
           </div>
         )}
         <div style={{ display: "flex", gap: 18, flexWrap: "wrap" }}>

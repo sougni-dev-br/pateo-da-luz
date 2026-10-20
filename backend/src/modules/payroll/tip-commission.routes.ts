@@ -1,6 +1,7 @@
 // Rotas da Folha da Gorjeta (Comissão) — Fase A.
 // Registrada em app.ts como:  app.use("/payroll/tip", tipCommissionRouter);
 
+import { destinoSobraValido } from "./tip-rateio.js";
 import crypto from "node:crypto";
 import { Router, type Request, type Response } from "express";
 import { Prisma } from "@prisma/client";
@@ -213,7 +214,7 @@ tipCommissionRouter.put("/periods/:id", async (request, response) => {
       grossPool: true, servicoFaturamento: true, ajusteServico: true, ajusteServicoMotivo: true, deductionPercent: true,
       pointsTotal: true, periodStart: true, periodEnd: true, diasPadrao: true, reservaPontos: true,
       descontaFalta: true, descontaAtestado: true, descontaFerias: true, descontaOutros: true, descontaAfastamento: true, proporcionalEntrada: true,
-      sobraRescisaoParaSaldo: true,
+      sobraRescisaoParaSaldo: true, quebraPct: true, destinoSobra: true,
     },
   });
   const gross = numOrNull(b.grossPool);
@@ -313,6 +314,8 @@ tipCommissionRouter.put("/periods/:id", async (request, response) => {
       descontaAfastamento: boolOrUndefined(b.descontaAfastamento),
       proporcionalEntrada: boolOrUndefined(b.proporcionalEntrada),
       sobraRescisaoParaSaldo: boolOrUndefined(b.sobraRescisaoParaSaldo),
+      quebraPct: (() => { const n = numOrNull(b.quebraPct); return n == null ? undefined : Math.min(100, Math.max(0, n)); })(),
+      destinoSobra: b.destinoSobra === undefined ? undefined : destinoSobraValido(b.destinoSobra),
       reservaPontos: (() => { const n = numOrNull(b.reservaPontos); return n == null ? undefined : Math.max(0, n); })(),
       periodStart,
       periodEnd,
@@ -330,6 +333,7 @@ tipCommissionRouter.put("/periods/:id", async (request, response) => {
       periodStart: period.periodStart, periodEnd: period.periodEnd, diasPadrao: period.diasPadrao, reservaPontos: period.reservaPontos,
       descontaFalta: period.descontaFalta, descontaAtestado: period.descontaAtestado, descontaFerias: period.descontaFerias, descontaOutros: period.descontaOutros, descontaAfastamento: period.descontaAfastamento,
       proporcionalEntrada: period.proporcionalEntrada, sobraRescisaoParaSaldo: period.sobraRescisaoParaSaldo,
+      quebraPct: period.quebraPct, destinoSobra: period.destinoSobra,
     },
     ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
   });
