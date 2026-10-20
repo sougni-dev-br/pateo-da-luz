@@ -1,6 +1,7 @@
 // Rotas da Folha da Gorjeta (Comissão) — Fase A.
 // Registrada em app.ts como:  app.use("/payroll/tip", tipCommissionRouter);
 
+import { destinoSobraValido } from "./tip-rateio.js";
 import crypto from "node:crypto";
 import { Router, type Request, type Response } from "express";
 import { Prisma } from "@prisma/client";
@@ -213,7 +214,7 @@ tipCommissionRouter.put("/periods/:id", async (request, response) => {
       grossPool: true, servicoFaturamento: true, ajusteServico: true, ajusteServicoMotivo: true, deductionPercent: true,
       pointsTotal: true, periodStart: true, periodEnd: true, diasPadrao: true, reservaPontos: true,
       descontaFalta: true, descontaAtestado: true, descontaFerias: true, descontaOutros: true, descontaAfastamento: true, proporcionalEntrada: true,
-      sobraRescisaoParaSaldo: true,
+      sobraRescisaoParaSaldo: true, quebraPct: true, destinoSobra: true,
     },
   });
   const gross = numOrNull(b.grossPool);
@@ -293,6 +294,17 @@ tipCommissionRouter.put("/periods/:id", async (request, response) => {
   if (Math.abs(ajuste) >= 0.005 && motivo === null) {
     return response.status(422).json({ message: "Informe o motivo do ajuste no serviço arrecadado." });
   }
+  // Destino da sobra: valor desconhecido é erro, não um "fundo" silencioso (é o que mexe no fundo de reserva).
+  if (b.destinoSobra !== undefined && !["FUNDO", "LIVRE", "REDISTRIBUIR"].includes(String(b.destinoSobra))) {
+    return response.status(422).json({ message: "Destino da sobra inválido: use FUNDO, LIVRE ou REDISTRIBUIR." });
+  }
+  const destinoSobraPut = b.destinoSobra === undefined ? undefined : destinoSobraValido(b.destinoSobra);
+  // Retenção + quebra não passam de 100% do serviço (o líquido não pode ficar negativo).
+  const retencaoFinal = numOrNull(b.deductionPercent) ?? Number(antesDoPeriodo?.deductionPercent ?? 20);
+  const quebraFinal = numOrNull(b.quebraPct) == null ? Number(antesDoPeriodo?.quebraPct ?? 0) : Math.min(100, Math.max(0, numOrNull(b.quebraPct) as number));
+  if (retencaoFinal < 0 || retencaoFinal + quebraFinal > 100) {
+    return response.status(422).json({ message: "A retenção somada à quebra não pode passar de 100% do serviço." });
+  }
   const grossFinal = Math.round((faturamento + ajuste) * 100) / 100;
   if (grossFinal < 0) return response.status(422).json({ message: "O serviço arrecadado não pode ficar negativo." });
   const period = await prisma.tipPeriod.update({
@@ -313,6 +325,8 @@ tipCommissionRouter.put("/periods/:id", async (request, response) => {
       descontaAfastamento: boolOrUndefined(b.descontaAfastamento),
       proporcionalEntrada: boolOrUndefined(b.proporcionalEntrada),
       sobraRescisaoParaSaldo: boolOrUndefined(b.sobraRescisaoParaSaldo),
+      quebraPct: (() => { const n = numOrNull(b.quebraPct); return n == null ? undefined : Math.min(100, Math.max(0, n)); })(),
+      destinoSobra: destinoSobraPut,
       reservaPontos: (() => { const n = numOrNull(b.reservaPontos); return n == null ? undefined : Math.max(0, n); })(),
       periodStart,
       periodEnd,
@@ -330,6 +344,7 @@ tipCommissionRouter.put("/periods/:id", async (request, response) => {
       periodStart: period.periodStart, periodEnd: period.periodEnd, diasPadrao: period.diasPadrao, reservaPontos: period.reservaPontos,
       descontaFalta: period.descontaFalta, descontaAtestado: period.descontaAtestado, descontaFerias: period.descontaFerias, descontaOutros: period.descontaOutros, descontaAfastamento: period.descontaAfastamento,
       proporcionalEntrada: period.proporcionalEntrada, sobraRescisaoParaSaldo: period.sobraRescisaoParaSaldo,
+      quebraPct: period.quebraPct, destinoSobra: period.destinoSobra,
     },
     ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
   });

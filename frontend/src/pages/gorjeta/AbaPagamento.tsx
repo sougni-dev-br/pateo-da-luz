@@ -639,8 +639,8 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
         <strong>Fundo de reserva da gorjeta</strong>
         <div style={{ display: "flex", gap: 24, flexWrap: "wrap", alignItems: "baseline", fontVariantNumeric: "tabular-nums" }}>
           <span>Reserva deste período ({pts(comp.reservaPontos)} pts): <strong>{money(comp.reservaTotal)}</strong></span>
-          <span>Saldo não distribuído: <strong>{money(Math.max(0, comp.saldo))}</strong></span>
-          <span>Entra no fundo ao fechar: <strong>{money(comp.reservaTotal + Math.max(0, comp.saldo))}</strong></span>
+          <span>Saldo não distribuído: <strong>{money(Math.max(0, comp.saldo))}</strong>{(comp.saldoAoFundo ?? Math.max(0, comp.saldo)) === 0 && comp.saldo > 0.005 && <> (fica livre; não vai ao fundo)</>}</span>
+          <span>Entra no fundo ao fechar: <strong>{money(comp.reservaTotal + (comp.saldoAoFundo ?? Math.max(0, comp.saldo)))}</strong></span>
           <span>Saldo atual do fundo: <strong>{money(comp.fundoReservaSaldo)}</strong></span>
         </div>
         <span style={mutedStyle}>Não entra na lista de pagamento nem no envio à contabilidade. Extrato, ajustes e distribuição ficam em Relatórios → Fundo de reserva.</span>

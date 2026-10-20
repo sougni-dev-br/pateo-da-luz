@@ -46,6 +46,8 @@ export function montarRetrato(comp: TipComputation, reservaLancada: Array<{ type
     ajusteServicoMotivo: comp.ajusteServicoMotivo,
     grossPool: comp.grossPool,
     deductionPercent: comp.deductionPercent,
+    quebraPercent: comp.quebraPercent,
+    destinoSobra: comp.destinoSobra,
     pointsTotal: comp.pointsBudget,
     diasPadrao: comp.diasPadrao,
     descontaFalta: comp.descontaFalta,
