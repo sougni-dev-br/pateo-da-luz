@@ -8,6 +8,7 @@ import { prisma } from "../../config/database.js";
 import { auditLog, getSessionUser, requestIp } from "../security/security-utils.js";
 import { buildExistingDedupKeys, previewTaxImport } from "./tax-payment-import.service.js";
 import { categoriaIdPorNome, sugerirCategoriaImposto } from "./categoria-imposto.js";
+import { montarPanorama } from "./tax-payment-panorama.js";
 import { diaIso, hojeBrasilia, lerData, parseValorGuia, resolverUploadImportacao, statusDaGuia } from "./tax-payment-rules.js";
 
 export const taxPaymentRouter = Router();
@@ -77,6 +78,8 @@ type TaxPaymentRow = {
 };
 
 // ─── GET /tax-payments ────────────────────────────────────────────────────────
+// Ordem por urgência: o que ainda falta pagar vem primeiro (vencimento mais próximo no topo);
+// pagas e canceladas vão depois, da mais recente para a mais antiga.
 taxPaymentRouter.get("/", async (request, response) => {
   const {
     companyId,
@@ -129,11 +132,11 @@ taxPaymentRouter.get("/", async (request, response) => {
   }
 
   if (competenceStart) conditions.push(`tp."competenceDate" >= ${addParam(new Date(competenceStart))}`);
-  if (competenceEnd) conditions.push(`tp."competenceDate" <= ${addParam(new Date(competenceEnd + "T23:59:59"))}`);
+  if (competenceEnd) conditions.push(`tp."competenceDate" <= ${addParam(new Date(competenceEnd + "T23:59:59.999Z"))}`);
   if (dueStart) conditions.push(`tp."dueDate" >= ${addParam(new Date(dueStart))}`);
-  if (dueEnd) conditions.push(`tp."dueDate" <= ${addParam(new Date(dueEnd + "T23:59:59"))}`);
+  if (dueEnd) conditions.push(`tp."dueDate" <= ${addParam(new Date(dueEnd + "T23:59:59.999Z"))}`);
   if (paymentStart) conditions.push(`tp."paymentDate" >= ${addParam(new Date(paymentStart))}`);
-  if (paymentEnd) conditions.push(`tp."paymentDate" <= ${addParam(new Date(paymentEnd + "T23:59:59"))}`);
+  if (paymentEnd) conditions.push(`tp."paymentDate" <= ${addParam(new Date(paymentEnd + "T23:59:59.999Z"))}`);
 
   if (search) {
     const like = addParam(`%${search}%`);
@@ -150,7 +153,10 @@ taxPaymentRouter.get("/", async (request, response) => {
       FROM "TaxPayment" tp
       LEFT JOIN "DRECategory" dc ON dc.id = tp."dreCategoryId"
       WHERE ${where}
-      ORDER BY tp."dueDate" ASC, tp."createdAt" DESC
+      ORDER BY
+        (tp."paymentDate" IS NOT NULL OR tp."status" = 'CANCELED') ASC,
+        CASE WHEN tp."paymentDate" IS NULL AND tp."status" <> 'CANCELED' THEN tp."dueDate" END ASC,
+        tp."dueDate" DESC, tp."createdAt" DESC, tp."id"
       LIMIT ${size} OFFSET ${offset}
     `, ...params),
     prisma.$queryRawUnsafe<[{ total: string }]>(`
@@ -188,6 +194,12 @@ taxPaymentRouter.get("/", async (request, response) => {
 // ─── Categorias do DRE para a tela de impostos ────────────────────────────────
 // Ficam aqui (e não só em /dre) porque quem lança guia nem sempre tem acesso ao DRE.
 // Precisam vir antes de "/:id", senão o Express trata o nome da rota como id.
+// Painel da tela: a pagar por faixa de vencimento, guias por situação e meses já lançados.
+// Antes de "/:id" pelo mesmo motivo das categorias.
+taxPaymentRouter.get("/panorama", async (_request, response) => {
+  response.json(await montarPanorama());
+});
+
 taxPaymentRouter.get("/categorias-dre", async (_request, response) => {
   response.json(await categoriasAtivas());
 });

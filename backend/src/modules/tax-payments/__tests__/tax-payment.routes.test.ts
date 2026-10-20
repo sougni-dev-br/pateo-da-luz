@@ -313,6 +313,20 @@ describe("lista e totais da tela de impostos", () => {
     expect(lista).not.toContain("NOW()");
   });
 
+  test("a lista vem por urgência: o que falta pagar primeiro, pagas e canceladas depois", async () => {
+    await request(app).get("/tax-payments");
+    const lista = consultas().find((q: string) => q.includes("ORDER BY")) as string;
+    expect(lista).toMatch(/ORDER BY\s+\(tp\."paymentDate" IS NOT NULL OR tp\."status" = 'CANCELED'\) ASC,\s+CASE WHEN tp\."paymentDate" IS NULL AND tp\."status" <> 'CANCELED' THEN tp\."dueDate" END ASC/);
+  });
+
+  test("o painel responde pela rota /panorama, sem cair no detalhe", async () => {
+    db.$queryRawUnsafe.mockResolvedValue([]);
+    const r = await request(app).get("/tax-payments/panorama");
+    expect(r.status).toBe(200);
+    expect(r.body.meses).toHaveLength(12);
+    expect(db.taxPayment.findFirst).not.toHaveBeenCalled();
+  });
+
   test("filtro Cancelado continua pelo status gravado", async () => {
     await request(app).get("/tax-payments").query({ status: "CANCELED" });
     const lista = consultas().find((q: string) => q.includes("ORDER BY")) as string;
