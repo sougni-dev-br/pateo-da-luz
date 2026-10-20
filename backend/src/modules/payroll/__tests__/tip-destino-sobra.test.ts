@@ -37,6 +37,7 @@ describe("destino dos pontos não distribuídos", () => {
   test("REDISTRIBUIR divide o líquido só entre os pontos de quem participa", () => {
     const r = calcularRateio({ ...REGRAS, destinoSobra: "REDISTRIBUIR" }, equipe);
     expect(r.valorPonto).toBe(100);
+    expect(r.pontosDisponiveis).toBe(10);
     expect(r.distribuido).toBe(1000);
     expect(r.saldo).toBe(0);
   });

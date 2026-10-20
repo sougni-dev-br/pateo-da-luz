@@ -283,7 +283,7 @@ export function FolhaGorjeta() {
       titulo: `Fechar a gorjeta de ${MONTHS[month - 1]}/${year}?`,
       texto: <>
         <p>Os valores ficam gravados no registro de fechamentos ({comp.code}) e não mudam mais sem reabrir, com motivo.</p>
-        <p>Distribuído <strong>{money(comp.distribuido)}</strong> · valor do ponto <strong>{money(comp.pointValue)}</strong>{comp.saldo > 0.005 && <> · saldo de <strong>{money(comp.saldo)}</strong> vai para o fundo de reserva</>}.</p>
+        <p>Distribuído <strong>{money(comp.distribuido)}</strong> · valor do ponto <strong>{money(comp.pointValue)}</strong>{comp.saldo > 0.005 && <> · saldo de <strong>{money(comp.saldo)}</strong> {comp.destinoSobra === "LIVRE" ? "fica livre no período (não vai ao fundo de reserva)" : "vai para o fundo de reserva"}</>}.</p>
       </>,
       confirmar: "Fechar período",
     });

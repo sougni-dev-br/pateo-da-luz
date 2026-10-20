@@ -607,11 +607,11 @@ export type ResumoRateio = {
 function valorPontoRedistribuido(
   regras: RegrasPeriodo, totalCotasFixas: number, calculadas: { valor: number; pontos: number },
   previa: ParticipanteCalculado[], paraSaldo: boolean,
-): number {
+): { valor: number; divisor: number | null } {
   const pontosDoMes = previa.reduce((a, l) => a + (l.tipoCalculo === "MES" ? l.pontosFinais : 0), 0);
   const divisor = pontosDoMes + Math.max(0, regras.reservaPontos ?? 0);
-  if (divisor <= 0) return valorPontoMes(regras, totalCotasFixas, paraSaldo ? { valor: 0, pontos: 0 } : calculadas);
-  return Math.max(0, regras.netPool - totalCotasFixas - calculadas.valor) / divisor;
+  if (divisor <= 0) return { valor: valorPontoMes(regras, totalCotasFixas, paraSaldo ? { valor: 0, pontos: 0 } : calculadas), divisor: null };
+  return { valor: Math.max(0, regras.netPool - totalCotasFixas - calculadas.valor) / divisor, divisor };
 }
 
 export function calcularRateio(regras: RegrasPeriodo, participantes: ParticipanteEntrada[]): ResumoRateio {
@@ -632,8 +632,11 @@ export function calcularRateio(regras: RegrasPeriodo, participantes: Participant
   };
   // Modo "vai para o livre": as rescisões não saem da conta do ponto do mês.
   const paraSaldo = regras.sobraRescisaoParaSaldo === true;
-  const valorPonto = regras.destinoSobra === "REDISTRIBUIR"
+  const redistribuido = regras.destinoSobra === "REDISTRIBUIR"
     ? valorPontoRedistribuido(regras, totalCotasFixas, calculadas, previa, paraSaldo)
+    : null;
+  const valorPonto = redistribuido
+    ? redistribuido.valor
     : valorPontoMes(regras, totalCotasFixas, paraSaldo ? { valor: 0, pontos: 0 } : calculadas);
   // 2ª passada: quem fica e as quitadas, com o valor do ponto que sobrou.
   const linhas = participantes.map((p) => calcularParticipante(regras, p, valorPonto));
@@ -649,7 +652,7 @@ export function calcularRateio(regras: RegrasPeriodo, participantes: Participant
     valorPontoBruto: valorPonto,
     rescisoes,
     // É o divisor do ponto do mês: no modo "vai para o livre" os pontos das rescisões não saem.
-    pontosDisponiveis: round2(paraSaldo ? regras.pointsTotal : regras.pointsTotal - rescisoes.pontos),
+    pontosDisponiveis: redistribuido?.divisor != null ? round2(redistribuido.divisor) : round2(paraSaldo ? regras.pointsTotal : regras.pointsTotal - rescisoes.pontos),
     totalCotasFixas,
     distribuido,
     saldo: round2(regras.netPool - distribuido),

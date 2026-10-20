@@ -46,7 +46,7 @@ export function ResumoApuracao({ comp, compacto = false, onAjustarServico }: Res
   const notaLivre = "a sobra de quem saiu (o que deixou de ganhar depois da saída) vai para o livre";
   // Livre em pontos pelo valor do ponto: no modo "vai para o livre" inclui a sobra das
   // rescisões, que não cabe em (referência − pontos usados).
-  const pontosLivres = paraLivre && comp.pointValue > 0 ? Math.round((comp.saldo / comp.pointValue) * 100) / 100 : comp.pointsRemaining;
+  const pontosLivres = (paraLivre || destino === "REDISTRIBUIR") && comp.pointValue > 0 ? Math.round((comp.saldo / comp.pointValue) * 100) / 100 : comp.pointsRemaining;
 
   const fatias: Fatia[] = [
     { chave: "mes", label: "Equipe no mês", valor: c.mes.valor, detalhe: `${c.mes.pessoas} pessoas · ${pts(c.mes.pontos)} pts`, cor: "var(--info)" },
@@ -55,7 +55,7 @@ export function ResumoApuracao({ comp, compacto = false, onAjustarServico }: Res
     { chave: "fixo", label: "Cotas fixas", valor: c.fixos.valor, detalhe: `${c.fixos.pessoas} pessoas`, cor: "#8c7a5b" },
     { chave: "reserva", label: "Reserva da casa", valor: c.reserva.valor, detalhe: `${pts(c.reserva.pontos)} pts`, cor: "var(--gold)" },
     { chave: "saldo", label: estourou ? "Estouro" : "Saldo não distribuído", valor: Math.abs(comp.saldo), cor: estourou ? "var(--danger)" : "var(--warning)",
-      detalhe: estourou ? "passa do líquido" : "livre; o que sobrar vai ao fundo", hachurado: true },
+      detalhe: estourou ? "passa do líquido" : destino === "LIVRE" ? "livre no período; não vai ao fundo" : destino === "REDISTRIBUIR" ? "arredondamento; os pontos foram redistribuídos" : "livre; o que sobrar vai ao fundo", hachurado: true },
   ].filter((f) => f.valor > 0.004 || f.chave === "mes" || f.chave === "saldo" || (f.chave === "resc" && c.rescisoes.pessoas > 0));
 
   const base = Math.max(comp.netPool, comp.distribuido, 0.01);
@@ -108,8 +108,8 @@ export function ResumoApuracao({ comp, compacto = false, onAjustarServico }: Res
             − {money(comp.rescisoes.valor)}
           </Termo>
         ))}
-        <Termo label={temRescisao && !paraLivre ? "Pontos que sobram" : "Pontos de referência"}
-          detalhe={!temRescisao ? undefined
+        <Termo label={destino === "REDISTRIBUIR" ? "Pontos de quem participa" : temRescisao && !paraLivre ? "Pontos que sobram" : "Pontos de referência"}
+          detalhe={destino === "REDISTRIBUIR" ? `sobra redistribuída (referência: ${pts(comp.pointsBudget)})` : !temRescisao ? undefined
             : paraLivre ? "as rescisões não saem do total"
               : `${pts(comp.pointsBudget)} − ${pts(comp.rescisoes.pontos)} das rescisões`}>
           ÷ {pts(comp.pontosDisponiveis)}
