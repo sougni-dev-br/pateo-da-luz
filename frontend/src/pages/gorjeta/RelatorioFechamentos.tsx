@@ -51,7 +51,7 @@ const situacaoDe = (f: TipFechamentoResumo) => (f.reopenedAt ? "Reaberto" : "Vig
 const COLUNAS_LISTA: ColunaOpcional[] = [
   { chave: "comp", rotulo: "Competência" }, { chave: "fechado", rotulo: "Fechado em / por" }, { chave: "pessoas", rotulo: "Pessoas" },
   { chave: "liquido", rotulo: "Líquido" }, { chave: "ponto", rotulo: "Valor do ponto" }, { chave: "distribuido", rotulo: "Distribuído" },
-  { chave: "saldo", rotulo: "Saldo ao fundo" }, { chave: "situacao", rotulo: "Situação" },
+  { chave: "saldo", rotulo: "Saldo não distribuído" }, { chave: "situacao", rotulo: "Situação" },
 ];
 
 type ListaProps = {
@@ -82,7 +82,7 @@ function ListaFechamentos({ ano, setAno, lista, onAbrir }: ListaProps) {
 
   function exportar() {
     baixarCsv(`gorjeta-fechamentos-${ano}.csv`, [
-      ["Registro", "Competência", "Fechado em", "Fechado por", "Pessoas", "Líquido", "Valor do ponto", "Distribuído", "Saldo ao fundo", "Reaberto em", "Reaberto por", "Motivo da reabertura", "Íntegro"],
+      ["Registro", "Competência", "Fechado em", "Fechado por", "Pessoas", "Líquido", "Valor do ponto", "Distribuído", "Saldo não distribuído", "Reaberto em", "Reaberto por", "Motivo da reabertura", "Íntegro"],
       ...aplicarOrdem(todas, ord.ordem, EXT_LISTA).map((f) => [
         f.code, competencia(f.competenceYear, f.competenceMonth), dataHora(f.closedAt), f.closedByName, f.pessoas,
         f.liquido, f.valorPonto, f.distribuido, f.saldo, f.reopenedAt ? dataHora(f.reopenedAt) : null, f.reopenedByName, f.reopenReason, f.integro ? "sim" : "NÃO",
@@ -137,7 +137,7 @@ function ListaFechamentos({ ano, setAno, lista, onAbrir }: ListaProps) {
               {v("liquido") && <ThOrdenavel {...th("liquido")}>Líquido</ThOrdenavel>}
               {v("ponto") && <ThOrdenavel {...th("ponto")}>Valor do ponto</ThOrdenavel>}
               {v("distribuido") && <ThOrdenavel {...th("distribuido")}>Distribuído</ThOrdenavel>}
-              {v("saldo") && <ThOrdenavel {...th("saldo")}>Saldo ao fundo</ThOrdenavel>}
+              {v("saldo") && <ThOrdenavel {...th("saldo")}>Saldo não distribuído</ThOrdenavel>}
               {v("situacao") && <ThOrdenavel {...th("situacao")}>Situação</ThOrdenavel>}
             </Table.Row>
           </Table.Head>
@@ -268,7 +268,8 @@ function DetalheFechamento({ id, onVoltar, onErro }: { id: string; onVoltar: () 
     ["Valor do ponto", money(num(t.pointValue))],
     ["Pontos da reserva", pts(num(p.reservaPontos))],
     ["Distribuído", money(num(t.distribuido))],
-    ["Saldo ao fundo", money(num(t.saldo))],
+    ["Saldo não distribuído", money(num(t.saldo))],
+    ["Destino da sobra", ({ LIVRE: "Livre no período (não foi ao fundo)", REDISTRIBUIR: "Redistribuída entre quem participa" } as Record<string, string>)[String(p.destinoSobra)] ?? "Fundo de reserva"],
     ["Total a pagar", money(num(t.totalAPagar))],
   ];
 

@@ -48,8 +48,8 @@ export type RegrasPeriodo = {
   // Parte de quem saiu depois da saída: false = sobe o ponto de quem fica (padrão);
   // true = o ponto do mês não desconta as rescisões e a sobra vai para o livre.
   sobraRescisaoParaSaldo?: boolean;
-  // Destino dos pontos não distribuídos. REDISTRIBUIR divide o líquido só entre os pontos
-  // de quem participa (mais a reserva da casa), então o valor do ponto sobe e não sobra nada.
+  // Destino dos pontos não distribuídos. REDISTRIBUIR reparte a sobra entre os pontos de quem
+  // participa (mais a reserva da casa): o valor do ponto sobe e não sobra nada.
   destinoSobra?: DestinoSobra;
   // Pontos da reserva da casa: contam no divisor quando a sobra é redistribuída.
   reservaPontos?: number;
@@ -589,6 +589,8 @@ export function calcularParticipante(regras: RegrasPeriodo, p: ParticipanteEntra
 }
 
 export type ResumoRateio = {
+  /** REDISTRIBUIR só vale se houver pontos para dividir; sem eles a conta volta ao normal. */
+  sobraRedistribuida: boolean;
   valorPonto: number;
   /** Sem arredondar: é o que multiplica os pontos (e a reserva). */
   valorPontoBruto: number;
@@ -601,17 +603,19 @@ export type ResumoRateio = {
   linhas: ParticipanteCalculado[];
 };
 
-// Sobra redistribuída: o divisor é a soma dos pontos de quem participa do mês + a reserva da
-// casa, não o total de referência. As rescisões sempre saem do líquido antes (não há sobra
-// para onde mandá-las). Sem pontos para dividir, volta à conta normal.
-function valorPontoRedistribuido(
-  regras: RegrasPeriodo, totalCotasFixas: number, calculadas: { valor: number; pontos: number },
-  previa: ParticipanteCalculado[], paraSaldo: boolean,
-): { valor: number; divisor: number | null } {
-  const pontosDoMes = previa.reduce((a, l) => a + (l.tipoCalculo === "MES" ? l.pontosFinais : 0), 0);
-  const divisor = pontosDoMes + Math.max(0, regras.reservaPontos ?? 0);
-  if (divisor <= 0) return { valor: valorPontoMes(regras, totalCotasFixas, paraSaldo ? { valor: 0, pontos: 0 } : calculadas), divisor: null };
-  return { valor: Math.max(0, regras.netPool - totalCotasFixas - calculadas.valor) / divisor, divisor };
+// Sobra redistribuída: roda a conta normal e reparte o que sobrou (ou faltou) entre os pontos que
+// dependem do valor do ponto — quem fica no mês sem gorjeta real informada, mais a reserva da
+// casa. Rescisões, cotas fixas e gorjeta real não mudam; só o ponto do mês ajusta, então a soma
+// continua fechando no líquido. Sem pontos para dividir, a conta normal vale.
+function redistribuirSobra(
+  regras: RegrasPeriodo, valorPonto: number, linhas: ParticipanteCalculado[],
+): { valorPonto: number; divisor: number } | null {
+  const reserva = Math.max(0, regras.reservaPontos ?? 0);
+  const divisor = linhas.reduce((a, l) => a + (l.tipoCalculo === "MES" && !l.gorjetaRealAplicada ? l.pontosFinais : 0), 0) + reserva;
+  if (divisor <= 0) return null;
+  const distribuido = linhas.reduce((a, l) => a + l.rateio, 0);
+  const sobra = regras.netPool - distribuido - reserva * valorPonto;
+  return { valorPonto: Math.max(0, valorPonto + sobra / divisor), divisor };
 }
 
 export function calcularRateio(regras: RegrasPeriodo, participantes: ParticipanteEntrada[]): ResumoRateio {
@@ -632,14 +636,17 @@ export function calcularRateio(regras: RegrasPeriodo, participantes: Participant
   };
   // Modo "vai para o livre": as rescisões não saem da conta do ponto do mês.
   const paraSaldo = regras.sobraRescisaoParaSaldo === true;
-  const redistribuido = regras.destinoSobra === "REDISTRIBUIR"
-    ? valorPontoRedistribuido(regras, totalCotasFixas, calculadas, previa, paraSaldo)
-    : null;
-  const valorPonto = redistribuido
-    ? redistribuido.valor
-    : valorPontoMes(regras, totalCotasFixas, paraSaldo ? { valor: 0, pontos: 0 } : calculadas);
+  let valorPonto = valorPontoMes(regras, totalCotasFixas, paraSaldo ? { valor: 0, pontos: 0 } : calculadas);
   // 2ª passada: quem fica e as quitadas, com o valor do ponto que sobrou.
-  const linhas = participantes.map((p) => calcularParticipante(regras, p, valorPonto));
+  let linhas = participantes.map((p) => calcularParticipante(regras, p, valorPonto));
+  let redistribuido: { valorPonto: number; divisor: number } | null = null;
+  if (regras.destinoSobra === "REDISTRIBUIR") {
+    redistribuido = redistribuirSobra(regras, valorPonto, linhas);
+    if (redistribuido) {
+      valorPonto = redistribuido.valorPonto;
+      linhas = participantes.map((p) => calcularParticipante(regras, p, valorPonto));
+    }
+  }
   const ehRescisao = (t: string) => t === "RESCISAO" || t === "RESCISAO_QUITADA";
   const rescisoes = {
     valor: round2(linhas.reduce((a, l) => a + (ehRescisao(l.tipoCalculo) ? l.rateio : 0), 0)),
@@ -648,11 +655,12 @@ export function calcularRateio(regras: RegrasPeriodo, participantes: Participant
   };
   const distribuido = round2(linhas.reduce((a, l) => a + l.rateio, 0));
   return {
+    sobraRedistribuida: redistribuido != null,
     valorPonto: round2(valorPonto),
     valorPontoBruto: valorPonto,
     rescisoes,
     // É o divisor do ponto do mês: no modo "vai para o livre" os pontos das rescisões não saem.
-    pontosDisponiveis: redistribuido?.divisor != null ? round2(redistribuido.divisor) : round2(paraSaldo ? regras.pointsTotal : regras.pointsTotal - rescisoes.pontos),
+    pontosDisponiveis: redistribuido ? round2(redistribuido.divisor) : round2(paraSaldo ? regras.pointsTotal : regras.pointsTotal - rescisoes.pontos),
     totalCotasFixas,
     distribuido,
     saldo: round2(regras.netPool - distribuido),

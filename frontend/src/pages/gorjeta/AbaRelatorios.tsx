@@ -419,7 +419,7 @@ function FundoReserva({ comp, canEdit, onNotice, onChanged }: Props) {
         {comp?.periodId && (
           <div style={mutedStyle}>
             {MONTHS[comp.month - 1]}/{comp.year}: reserva de {pts(comp.reservaPontos)} pts = <strong>{money(comp.reservaTotal)}</strong>
-            {comp.saldo > 0 && <> + saldo de <strong>{money(comp.saldo)}</strong></>}
+            {(comp.saldoAoFundo ?? Math.max(0, comp.saldo)) > 0 && <> + saldo de <strong>{money(comp.saldoAoFundo ?? comp.saldo)}</strong></>}
             {comp.status === "CLOSED" ? " (já no fundo)" : " — entra no fundo ao fechar"}
           </div>
         )}

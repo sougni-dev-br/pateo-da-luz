@@ -193,6 +193,12 @@ export function FolhaGorjeta() {
     if (!params || !comp) return;
     setBusy(true);
     try {
+      const quebra = Number(params.quebraPct.replace(",", ".")) || 0;
+      const retencao = Number(String(params.deduction).replace(",", "."));
+      if (quebra < 0 || quebra > 100 || !Number.isFinite(retencao) || retencao < 0 || retencao + quebra > 100) {
+        setNotice({ tone: "error", message: "Retenção e quebra precisam ficar entre 0% e 100% somadas." });
+        return;
+      }
       const id = await ensurePeriod();
       const datasMudaram = params.start !== comp.periodStart.slice(0, 10) || params.end !== comp.periodEnd.slice(0, 10);
       await updateTipPeriod(id, {
@@ -283,7 +289,7 @@ export function FolhaGorjeta() {
       titulo: `Fechar a gorjeta de ${MONTHS[month - 1]}/${year}?`,
       texto: <>
         <p>Os valores ficam gravados no registro de fechamentos ({comp.code}) e não mudam mais sem reabrir, com motivo.</p>
-        <p>Distribuído <strong>{money(comp.distribuido)}</strong> · valor do ponto <strong>{money(comp.pointValue)}</strong>{comp.saldo > 0.005 && <> · saldo de <strong>{money(comp.saldo)}</strong> {comp.destinoSobra === "LIVRE" ? "fica livre no período (não vai ao fundo de reserva)" : "vai para o fundo de reserva"}</>}.</p>
+        <p>Distribuído <strong>{money(comp.distribuido)}</strong> · valor do ponto <strong>{money(comp.pointValue)}</strong>{comp.saldo > 0.005 && <> · saldo de <strong>{money(comp.saldo)}</strong> {(comp.saldoAoFundo ?? comp.saldo) > 0.005 ? "vai para o fundo de reserva" : "fica livre no período (não vai ao fundo de reserva)"}</>}.</p>
       </>,
       confirmar: "Fechar período",
     });

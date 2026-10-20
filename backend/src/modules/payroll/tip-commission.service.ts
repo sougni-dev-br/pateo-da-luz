@@ -227,6 +227,10 @@ export type TipComputation = {
   quebraPercent: number;
   quebraValor: number;
   destinoSobra: DestinoSobra;
+  // O que vale de fato: REDISTRIBUIR sem pontos para dividir age como LIVRE.
+  destinoEfetivo: DestinoSobra;
+  // Parte do saldo que entra no fundo de reserva ao fechar (só no destino FUNDO).
+  saldoAoFundo: number;
   netPool: number;
   fixedTotal: number;
   // O que as rescisões levam, em reais e em pontos. Só sai da apuração do mês no
@@ -854,6 +858,8 @@ export async function computeTipCommission(
   // Distribuído = o que foi para as pessoas + a reserva da casa.
   const distribuido = round2(participants.reduce((a, p) => a + p.rateioAmount, 0) + reservaValor);
   const saldo = round2(netPool - distribuido);
+  const destinoEfetivo: DestinoSobra = destinoSobra === "REDISTRIBUIR" && !rateio.sobraRedistribuida ? "LIVRE" : destinoSobra;
+  const saldoAoFundo = destinoEfetivo === "FUNDO" ? Math.max(0, saldo) : 0;
   const totalPoints = round2(participants.reduce((a, p) => a + (p.kind === "PONTOS" ? p.points : 0), 0) + reservaPontos);
   const pointsPool = round2(netPool - rateio.totalCotasFixas);
 
@@ -1007,7 +1013,7 @@ export async function computeTipCommission(
     periodEnd: end.toISOString(),
     grossPool, servicoFaturamento, ajusteServico,
     ajusteServicoMotivo: period?.ajusteServicoMotivo ?? null,
-    deductionPercent, quebraPercent, quebraValor, destinoSobra, netPool,
+    deductionPercent, quebraPercent, quebraValor, destinoSobra, destinoEfetivo, saldoAoFundo, netPool,
     fixedTotal: rateio.totalCotasFixas,
     rescisoes: rateio.rescisoes,
     pontosDisponiveis: rateio.pontosDisponiveis,
@@ -1311,7 +1317,7 @@ export async function closeTipPeriod(year: number, month: number, usuario: { id:
       where: { periodId: comp.periodId!, type: { in: ["FECHAMENTO_RESERVA", "FECHAMENTO_SALDO"] } }, select: { amount: true },
     });
     // Só o destino FUNDO manda o saldo para o fundo; LIVRE o deixa no período.
-    const saldoAoFundo = comp.destinoSobra === "FUNDO" ? Math.max(0, comp.saldo) : 0;
+    const saldoAoFundo = comp.saldoAoFundo;
     const retirada = round2(anteriores.reduce((a, m) => a + Number(m.amount), 0) - comp.composicao.reserva.valor - saldoAoFundo);
     const bloqueio = motivoParaNaoRetirar(await saldoReserva(tx), retirada, `${String(month).padStart(2, "0")}/${year}`);
     if (bloqueio) throw new Error(bloqueio);

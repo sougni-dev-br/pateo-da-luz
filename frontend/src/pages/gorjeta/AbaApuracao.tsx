@@ -246,7 +246,7 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
   // Agrupado: a ordem vale dentro de cada grupo. Sem agrupar: uma lista só, como no Excel.
   const grupos = agrupar ? [
     { chave: "mes", titulo: "No mês", nota: null as string | null, lista: ordenados.filter((p) => p.tipoCalculo === "MES") },
-    { chave: "resc", titulo: "Desligados no período", nota: "Valor do ponto próprio (serviço até a saída, menos a retenção, ÷ 100). "
+    { chave: "resc", titulo: "Desligados no período", nota: "Valor do ponto próprio (serviço até a saída, menos a retenção e a quebra, ÷ 100). "
       + (comp.sobraRescisaoParaSaldo
         ? "O ponto do mês não desconta as rescisões: o que quem saiu deixou de ganhar depois da saída vai para o livre."
         : "O valor e os pontos das rescisões saem antes de dividir o restante entre quem fica."),
@@ -604,7 +604,7 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
                     <Table.Td>
                       <div style={{ fontWeight: 600 }}>{pts(p.points)}</div>
                       {quitada && p.pontosDireito !== p.points && <div style={mutedStyle}>direito {pts(p.pontosDireito)}</div>}
-                      {quitada && p.pontosDevolvidos > 0 && <div className="nota-pontos nota-volta" title="Ficam livres para o responsável distribuir no mês; o que sobrar vai ao fundo de reserva">{pts(p.pontosDevolvidos)} pts livres para distribuir</div>}
+                      {quitada && p.pontosDevolvidos > 0 && <div className="nota-pontos nota-volta" title="Ficam livres para o responsável distribuir no mês; o que sobrar segue o destino da sobra do período">{pts(p.pontosDevolvidos)} pts livres para distribuir</div>}
                       {quitada && p.extraRescisao > 0 && (
                         <div className="nota-pontos nota-extra" title={p.justificativaExtra ?? undefined}>+{pts(p.extraRescisao)} extra automático</div>
                       )}

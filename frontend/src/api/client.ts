@@ -7531,6 +7531,10 @@ export type TipComputation = {
   quebraValor?: number;
   /** Destino dos pontos não distribuídos. */
   destinoSobra?: DestinoSobra;
+  /** O destino que vale de fato (REDISTRIBUIR sem pontos para dividir age como LIVRE). */
+  destinoEfetivo?: DestinoSobra;
+  /** Parte do saldo que entra no fundo de reserva ao fechar. */
+  saldoAoFundo?: number;
   netPool: number;
   fixedTotal: number;
   rescisoes: { valor: number; pontos: number };

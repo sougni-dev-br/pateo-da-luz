@@ -38,7 +38,7 @@ export function ResumoApuracao({ comp, compacto = false, onAjustarServico }: Res
   const quebraPct = comp.quebraPercent ?? 0;
   const quebra = comp.quebraValor ?? 0;
   const retido = Math.round((comp.grossPool - comp.netPool - quebra) * 100) / 100;
-  const destino = comp.destinoSobra ?? "FUNDO";
+  const destino = comp.destinoEfetivo ?? comp.destinoSobra ?? "FUNDO";
   const c = comp.composicao;
   const estourou = comp.saldo < -0.005;
   // Modo "vai para o livre": quem saiu é pago à parte e não mexe no ponto do mês.

@@ -60,4 +60,30 @@ describe("destino dos pontos não distribuídos", () => {
     expect(destinoSobraValido("LIVRE")).toBe("LIVRE");
     expect(destinoSobraValido("REDISTRIBUIR")).toBe("REDISTRIBUIR");
   });
+
+  // A soma de quem recebe + a reserva fecha no líquido (com folga de centavos por pessoa).
+  const fecha = (r: ReturnType<typeof calcularRateio>, reservaPontos = 0) =>
+    Math.abs(r.distribuido + reservaPontos * r.valorPontoBruto - REGRAS.netPool);
+
+  test("REDISTRIBUIR com rescisão quitada sem serviço não estoura o líquido", () => {
+    const quitada = { ...pessoa(5), desligamento: d("2026-10-05"), rescisaoValorFixo: 500, rescisaoLancada: true };
+    const r = calcularRateio({ ...REGRAS, destinoSobra: "REDISTRIBUIR" }, [...equipe, quitada]);
+    expect(r.saldo).toBeGreaterThanOrEqual(-0.05);
+    expect(fecha(r)).toBeLessThan(0.05);
+  });
+
+  test("REDISTRIBUIR com gorjeta real informada acima do calculado não estoura", () => {
+    const real = { ...pessoa(4), gorjetaReal: 700 };
+    const r = calcularRateio({ ...REGRAS, destinoSobra: "REDISTRIBUIR" }, [pessoa(8), real]);
+    expect(r.linhas[1].rateio).toBe(700);
+    expect(r.saldo).toBeGreaterThanOrEqual(-0.05);
+    expect(fecha(r)).toBeLessThan(0.05);
+  });
+
+  test("REDISTRIBUIR junto com a sobra de quem saiu para o livre também fecha", () => {
+    const saiu = { ...pessoa(5), desligamento: d("2026-10-05"), rescisaoServicoBruto: 600 };
+    const r = calcularRateio({ ...REGRAS, destinoSobra: "REDISTRIBUIR", sobraRescisaoParaSaldo: true, reservaPontos: 2 }, [...equipe, saiu]);
+    expect(r.saldo).toBeGreaterThanOrEqual(-0.05);
+    expect(fecha(r, 2)).toBeLessThan(0.05);
+  });
 });

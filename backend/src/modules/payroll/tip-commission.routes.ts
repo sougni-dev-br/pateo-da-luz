@@ -294,6 +294,17 @@ tipCommissionRouter.put("/periods/:id", async (request, response) => {
   if (Math.abs(ajuste) >= 0.005 && motivo === null) {
     return response.status(422).json({ message: "Informe o motivo do ajuste no serviço arrecadado." });
   }
+  // Destino da sobra: valor desconhecido é erro, não um "fundo" silencioso (é o que mexe no fundo de reserva).
+  if (b.destinoSobra !== undefined && !["FUNDO", "LIVRE", "REDISTRIBUIR"].includes(String(b.destinoSobra))) {
+    return response.status(422).json({ message: "Destino da sobra inválido: use FUNDO, LIVRE ou REDISTRIBUIR." });
+  }
+  const destinoSobraPut = b.destinoSobra === undefined ? undefined : destinoSobraValido(b.destinoSobra);
+  // Retenção + quebra não passam de 100% do serviço (o líquido não pode ficar negativo).
+  const retencaoFinal = numOrNull(b.deductionPercent) ?? Number(antesDoPeriodo?.deductionPercent ?? 20);
+  const quebraFinal = numOrNull(b.quebraPct) == null ? Number(antesDoPeriodo?.quebraPct ?? 0) : Math.min(100, Math.max(0, numOrNull(b.quebraPct) as number));
+  if (retencaoFinal < 0 || retencaoFinal + quebraFinal > 100) {
+    return response.status(422).json({ message: "A retenção somada à quebra não pode passar de 100% do serviço." });
+  }
   const grossFinal = Math.round((faturamento + ajuste) * 100) / 100;
   if (grossFinal < 0) return response.status(422).json({ message: "O serviço arrecadado não pode ficar negativo." });
   const period = await prisma.tipPeriod.update({
@@ -315,7 +326,7 @@ tipCommissionRouter.put("/periods/:id", async (request, response) => {
       proporcionalEntrada: boolOrUndefined(b.proporcionalEntrada),
       sobraRescisaoParaSaldo: boolOrUndefined(b.sobraRescisaoParaSaldo),
       quebraPct: (() => { const n = numOrNull(b.quebraPct); return n == null ? undefined : Math.min(100, Math.max(0, n)); })(),
-      destinoSobra: b.destinoSobra === undefined ? undefined : destinoSobraValido(b.destinoSobra),
+      destinoSobra: destinoSobraPut,
       reservaPontos: (() => { const n = numOrNull(b.reservaPontos); return n == null ? undefined : Math.max(0, n); })(),
       periodStart,
       periodEnd,
