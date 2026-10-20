@@ -2,11 +2,13 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import { Router } from "express";
 import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
+import { PeriodLockedError } from "../cmv-real/period-locked-error.js";
 import multer from "multer";
 import { prisma } from "../../config/database.js";
 import { auditLog, getSessionUser, requestIp } from "../security/security-utils.js";
 import { buildExistingDedupKeys, previewTaxImport } from "./tax-payment-import.service.js";
 import { categoriaIdPorNome, sugerirCategoriaImposto } from "./categoria-imposto.js";
+import { diaIso, hojeBrasilia, lerData, parseValorGuia, resolverUploadImportacao, statusDaGuia } from "./tax-payment-rules.js";
 
 export const taxPaymentRouter = Router();
 
@@ -25,11 +27,7 @@ const upload = multer({
 });
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
-function computeStatus(paymentDate: Date | null, dueDate: Date): string {
-  if (paymentDate) return "PAID";
-  if (dueDate < new Date()) return "OVERDUE";
-  return "PENDING";
-}
+const PASTA_UPLOADS = "uploads/";
 
 function categoriasAtivas() {
   return prisma.dRECategory.findMany({
@@ -114,9 +112,17 @@ taxPaymentRouter.get("/", async (request, response) => {
   if (documentType) conditions.push(`tp."documentType" ILIKE ${addParam(`%${documentType}%`)}`);
   if (dreCategoryId) conditions.push(`tp."dreCategoryId" = ${addParam(dreCategoryId)}`);
 
+  // Mesma regra de situação de Contas a Pagar e do selo da lista: cancelada, paga, vencida (antes de
+  // hoje, em Brasília) ou a vencer. O status gravado só decide o cancelamento; "vencido" envelhece sozinho.
+  // hoje vem de Intl (AAAA-MM-DD), por isso pode ser interpolado.
+  const hoje = hojeBrasilia();
   if (status) {
     if (status === "OVERDUE") {
-      conditions.push(`tp."paymentDate" IS NULL AND tp."dueDate" < NOW() AND tp."status" != 'CANCELED'`);
+      conditions.push(`tp."status" <> 'CANCELED' AND tp."paymentDate" IS NULL AND tp."dueDate" < '${hoje}'::timestamp`);
+    } else if (status === "PENDING") {
+      conditions.push(`tp."status" <> 'CANCELED' AND tp."paymentDate" IS NULL AND tp."dueDate" >= '${hoje}'::timestamp`);
+    } else if (status === "PAID") {
+      conditions.push(`tp."status" <> 'CANCELED' AND tp."paymentDate" IS NOT NULL`);
     } else {
       conditions.push(`tp."status" = ${addParam(status)}`);
     }
@@ -160,10 +166,10 @@ taxPaymentRouter.get("/", async (request, response) => {
       withoutReceipt: string;
     }>>(`
       SELECT
-        COALESCE(SUM(tp.amount), 0)::text AS total,
-        COALESCE(SUM(CASE WHEN tp."paymentDate" IS NOT NULL THEN tp.amount ELSE 0 END), 0)::text AS paid,
-        COALESCE(SUM(CASE WHEN tp."paymentDate" IS NULL AND tp."dueDate" >= NOW() AND tp.status != 'CANCELED' THEN tp.amount ELSE 0 END), 0)::text AS pending,
-        COALESCE(SUM(CASE WHEN tp."paymentDate" IS NULL AND tp."dueDate" < NOW() AND tp.status != 'CANCELED' THEN tp.amount ELSE 0 END), 0)::text AS overdue,
+        COALESCE(SUM(CASE WHEN tp.status <> 'CANCELED' THEN tp.amount ELSE 0 END), 0)::text AS total,
+        COALESCE(SUM(CASE WHEN tp.status <> 'CANCELED' AND tp."paymentDate" IS NOT NULL THEN tp.amount ELSE 0 END), 0)::text AS paid,
+        COALESCE(SUM(CASE WHEN tp.status <> 'CANCELED' AND tp."paymentDate" IS NULL AND tp."dueDate" >= '${hoje}'::timestamp THEN tp.amount ELSE 0 END), 0)::text AS pending,
+        COALESCE(SUM(CASE WHEN tp.status <> 'CANCELED' AND tp."paymentDate" IS NULL AND tp."dueDate" < '${hoje}'::timestamp THEN tp.amount ELSE 0 END), 0)::text AS overdue,
         COALESCE(SUM(CASE WHEN tp.status = 'WITHOUT_RECEIPT' THEN tp.amount ELSE 0 END), 0)::text AS "withoutReceipt"
       FROM "TaxPayment" tp
       WHERE ${where}
@@ -218,7 +224,8 @@ async function competenciaBloqueada(
     await assertPeriodWritableForDate(competence, contexto);
     return false;
   } catch (error) {
-    response.status(400).json({ message: error instanceof Error ? error.message : "Periodo fechado." });
+    if (!(error instanceof PeriodLockedError)) throw error;
+    response.status(400).json({ message: error.message });
     return true;
   }
 }
@@ -234,15 +241,28 @@ taxPaymentRouter.post("/", async (request, response) => {
   if (!documentType || typeof documentType !== "string" || !documentType.trim()) {
     return response.status(400).json({ message: "Tipo de documento obrigatório." });
   }
-  if (!dueDate) return response.status(400).json({ message: "Vencimento obrigatório." });
-  if (amount == null) return response.status(400).json({ message: "Valor obrigatório." });
 
-  const parsedDueDate = new Date(dueDate as string);
-  const parsedPaymentDate = paymentDate ? new Date(paymentDate as string) : null;
-  const status = computeStatus(parsedPaymentDate, parsedDueDate);
+  const vencimento = lerData(dueDate);
+  if (!vencimento.ok || !vencimento.data) return response.status(400).json({ message: "Vencimento obrigatório e válido." });
+  const valor = parseValorGuia(amount);
+  if (valor == null) return response.status(400).json({ message: "Valor obrigatório e maior que zero." });
 
-  const parsedCompetence = competenceDate ? new Date(competenceDate as string) : null;
-  if (await competenciaBloqueada(parsedCompetence, "Cadastro de imposto", response)) return;
+  // Sem competência a guia não entra em DRE nenhum: é o que a tela promete ao lançar um imposto.
+  const competencia = lerData(competenceDate);
+  if (!competencia.ok || !competencia.data) {
+    return response.status(400).json({ message: "Competência obrigatória: sem ela a guia fica fora do DRE." });
+  }
+
+  const pagamento = lerData(paymentDate);
+  if (!pagamento.ok) return response.status(400).json({ message: "Data de pagamento inválida." });
+  const valorPago = pagamento.data ? (paidAmount == null || paidAmount === "" ? valor : parseValorGuia(paidAmount)) : null;
+  if (pagamento.data && valorPago == null) return response.status(400).json({ message: "Valor pago deve ser maior que zero." });
+  if (!pagamento.data && paidAmount != null && paidAmount !== "") {
+    return response.status(400).json({ message: "Valor pago exige a data do pagamento. Para pagar depois, use a ação Pagar." });
+  }
+
+  if (await competenciaBloqueada(competencia.data, "Cadastro de imposto", response)) return;
+  if (pagamento.data && await competenciaBloqueada(pagamento.data, "Cadastro de imposto (data do pagamento)", response)) return;
 
   // Sem categoria a guia cai em "Não categorizadas" no DRE. Campo ausente = regra pelo
   // tipo da guia; null ou "" = a pessoa escolheu deixar sem categoria.
@@ -259,12 +279,12 @@ taxPaymentRouter.post("/", async (request, response) => {
       tradeName: (tradeName as string) || null,
       documentType: String(documentType).trim(),
       description: (description as string) || null,
-      competenceDate: competenceDate ? new Date(competenceDate as string) : null,
-      dueDate: parsedDueDate,
-      amount: Number(amount),
-      paymentDate: parsedPaymentDate,
-      paidAmount: paidAmount != null ? Number(paidAmount) : null,
-      status: status as "PENDING" | "PAID" | "OVERDUE" | "CANCELED" | "WITHOUT_RECEIPT",
+      competenceDate: competencia.data,
+      dueDate: vencimento.data,
+      amount: valor,
+      paymentDate: pagamento.data,
+      paidAmount: valorPago,
+      status: statusDaGuia(pagamento.data, vencimento.data),
       comments: (comments as string) || null,
       source: "MANUAL",
       dreCategoryId: categoriaId,
@@ -286,6 +306,10 @@ taxPaymentRouter.post("/", async (request, response) => {
 });
 
 // ─── PUT /tax-payments/:id ────────────────────────────────────────────────────
+// Pagar e estornar têm rota própria (/pay e /reverse), com 409 de "já pago", guarda de valor
+// absurdo, trava do mês do pagamento e motivo no estorno. Aqui o pagamento é somente leitura:
+// mexer nele pela edição contornava tudo isso. O status também não é aceito do formulário —
+// sai das datas; a única escolha explícita é cancelar a guia (e reativá-la).
 taxPaymentRouter.put("/:id", async (request, response) => {
   const user = await getSessionUser(request);
   if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
@@ -299,20 +323,39 @@ taxPaymentRouter.put("/:id", async (request, response) => {
     competenceDate, dueDate, amount, paymentDate, paidAmount, comments, dreCategoryId, status,
   } = request.body as Record<string, unknown>;
 
-  const parsedDueDate = dueDate ? new Date(dueDate as string) : existing.dueDate;
-  const parsedPaymentDate = paymentDate !== undefined
-    ? (paymentDate ? new Date(paymentDate as string) : null)
-    : existing.paymentDate;
+  const pagoAnterior = existing.paidAmount == null ? null : Number(existing.paidAmount);
+  const pagoInformado = paidAmount === null || paidAmount === "" ? null : Number(paidAmount);
+  const pagamentoMudou =
+    (paymentDate !== undefined && diaIso(paymentDate as string) !== diaIso(existing.paymentDate)) ||
+    (paidAmount !== undefined && pagoInformado !== pagoAnterior);
+  if (pagamentoMudou) {
+    return response.status(400).json({
+      message: "O pagamento não se altera na edição. Use Pagar para dar baixa ou Estornar para desfazer.",
+    });
+  }
 
-  const effectiveStatus = (status as string) || computeStatus(parsedPaymentDate, parsedDueDate);
+  const vencimento = dueDate ? lerData(dueDate) : { ok: true as const, data: existing.dueDate };
+  if (!vencimento.ok || !vencimento.data) return response.status(400).json({ message: "Vencimento inválido." });
+  const valor = amount != null && amount !== "" ? parseValorGuia(amount) : Number(existing.amount);
+  if (valor == null) return response.status(400).json({ message: "Valor deve ser maior que zero." });
+
+  const competencia = competenceDate !== undefined ? lerData(competenceDate) : { ok: true as const, data: existing.competenceDate };
+  if (!competencia.ok) return response.status(400).json({ message: "Competência inválida." });
+
+  // Só "CANCELED" é decisão do usuário; qualquer outro valor é ignorado e o status sai das datas.
+  const cancelada = status !== undefined ? status === "CANCELED" : existing.status === "CANCELED";
+  // Cancelar uma guia paga tiraria o desembolso do DRE e de Contas a Pagar com o pagamento ainda gravado.
+  if (cancelada && existing.status !== "CANCELED" && existing.paymentDate) {
+    return response.status(409).json({ message: "Esta guia está paga. Estorne o pagamento (em Contas a Pagar) antes de cancelar." });
+  }
+  if (!competencia.data && !cancelada) {
+    return response.status(400).json({ message: "Competência obrigatória: sem ela a guia fica fora do DRE." });
+  }
 
   // Vale para a competencia atual e para a pretendida: nem alterar imposto que ja esta
   // num mes fechado, nem mover um aberto para dentro de um fechado.
-  const novaCompetencia = competenceDate !== undefined
-    ? (competenceDate ? new Date(competenceDate as string) : null)
-    : existing.competenceDate;
   if (await competenciaBloqueada(existing.competenceDate, "Edicao de imposto", response)) return;
-  if (await competenciaBloqueada(novaCompetencia, "Edicao de imposto", response)) return;
+  if (await competenciaBloqueada(competencia.data, "Edicao de imposto", response)) return;
 
   const updated = await prisma.taxPayment.update({
     where: { id },
@@ -323,12 +366,10 @@ taxPaymentRouter.put("/:id", async (request, response) => {
       tradeName: tradeName !== undefined ? ((tradeName as string) || null) : existing.tradeName,
       documentType: documentType ? String(documentType).trim() : existing.documentType,
       description: description !== undefined ? ((description as string) || null) : existing.description,
-      competenceDate: competenceDate !== undefined ? (competenceDate ? new Date(competenceDate as string) : null) : existing.competenceDate,
-      dueDate: parsedDueDate,
-      amount: amount != null ? Number(amount) : existing.amount,
-      paymentDate: parsedPaymentDate,
-      paidAmount: paidAmount !== undefined ? (paidAmount != null ? Number(paidAmount) : null) : existing.paidAmount,
-      status: effectiveStatus as "PENDING" | "PAID" | "OVERDUE" | "CANCELED" | "WITHOUT_RECEIPT",
+      competenceDate: competencia.data,
+      dueDate: vencimento.data,
+      amount: valor,
+      status: statusDaGuia(existing.paymentDate, vencimento.data, cancelada),
       comments: comments !== undefined ? ((comments as string) || null) : existing.comments,
       dreCategoryId: dreCategoryId !== undefined ? ((dreCategoryId as string) || null) : existing.dreCategoryId,
       updatedById: user.id,
@@ -360,6 +401,8 @@ taxPaymentRouter.delete("/:id", async (request, response) => {
 
   // Excluir um imposto tira o valor do mes da competencia no DRE.
   if (await competenciaBloqueada(existing.competenceDate, "Exclusao de imposto", response)) return;
+  // Guia paga também carrega o desembolso do mês do pagamento (a restauração já confere os dois).
+  if (existing.paymentDate && await competenciaBloqueada(existing.paymentDate, "Exclusao de imposto (data do pagamento)", response)) return;
 
   await prisma.taxPayment.update({
     where: { id },
@@ -472,6 +515,11 @@ taxPaymentRouter.patch("/:id/pay", async (request, response) => {
     });
   }
 
+  // Guia cancelada não é dívida: pagá-la a traria de volta ao DRE. Reative antes, na edição.
+  if (existing.status === "CANCELED") {
+    return response.status(409).json({ message: "Este imposto está cancelado. Reative a guia na edição antes de pagar." });
+  }
+
   if (existing.status === "PAID" || existing.paymentDate) {
     return response.status(409).json({
       message: "Este imposto ja consta como pago. Estorne a baixa antes de lancar outra — assim a correcao fica registrada."
@@ -524,6 +572,10 @@ taxPaymentRouter.patch("/:id/reverse", async (request, response) => {
 
   if (!existing.paymentDate) {
     return response.status(400).json({ message: "Este lançamento ainda não possui pagamento para estornar." });
+  }
+  // Estornar reativaria em silêncio uma guia cancelada: o cancelamento é decidido na edição.
+  if (existing.status === "CANCELED") {
+    return response.status(409).json({ message: "Esta guia está cancelada. Reative-a na edição antes de estornar o pagamento." });
   }
 
   // Estornar tira o desembolso do mes em que ele entrou; se aquele mes estiver
@@ -582,7 +634,7 @@ taxPaymentRouter.post("/import-xlsx/preview", upload.single("file"), async (requ
   const existingKeySet = await buildExistingDedupKeys();
 
   try {
-    const preview = await previewTaxImport(request.file.path, existingKeySet);
+    const { filePath: _caminhoInterno, ...preview } = await previewTaxImport(request.file.path, existingKeySet);
     // Mostra na prévia em que categoria do DRE cada tipo vai entrar; null = sem regra.
     const categorias = await categoriasAtivas();
     const categoriasPorTipo: Record<string, Array<string | null>> = {};
@@ -592,7 +644,8 @@ taxPaymentRouter.post("/import-xlsx/preview", upload.single("file"), async (requ
       const { nome } = categoriaSugerida(categorias, row.documentType, row.description);
       if (!nomes.includes(nome)) categoriasPorTipo[row.documentType] = [...nomes, nome];
     }
-    return response.json({ ...preview, categoriasPorTipo });
+    // O navegador só recebe o nome que o multer deu ao arquivo; o caminho no servidor nunca sai daqui.
+    return response.json({ ...preview, importFileId: request.file.filename, categoriasPorTipo });
   } catch (error) {
     fs.unlink(request.file.path, () => undefined);
     return response.status(400).json({ message: error instanceof Error ? error.message : "Erro ao processar arquivo." });
@@ -604,17 +657,26 @@ taxPaymentRouter.post("/import-xlsx/confirm", async (request, response) => {
   const user = await getSessionUser(request);
   if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
 
-  const { filePath, importBatchId, skipDuplicates = true } = request.body as {
-    filePath: string;
+  const { importFileId, importBatchId, skipDuplicates = true } = request.body as {
+    importFileId?: string;
     importBatchId?: string;
     skipDuplicates?: boolean;
   };
 
-  if (!filePath) return response.status(400).json({ message: "filePath obrigatório." });
+  // Nunca aceitar caminho vindo do navegador: o servidor lê e apaga esse arquivo.
+  const filePath = resolverUploadImportacao(importFileId, PASTA_UPLOADS);
+  if (!filePath) return response.status(400).json({ message: "importFileId inválido. Faça o upload novamente." });
   if (!fs.existsSync(filePath)) return response.status(400).json({ message: "Arquivo não encontrado. Faça o upload novamente." });
 
+  const limparArquivo = () => fs.unlink(filePath, () => undefined);
   const existingKeySet = await buildExistingDedupKeys();
-  const preview = await previewTaxImport(filePath, existingKeySet);
+  let preview: Awaited<ReturnType<typeof previewTaxImport>>;
+  try {
+    preview = await previewTaxImport(filePath, existingKeySet);
+  } catch (error) {
+    limparArquivo();
+    return response.status(400).json({ message: error instanceof Error ? error.message : "Erro ao processar arquivo." });
+  }
 
   const toImport = preview.rows.filter((r) => r.valid && (!skipDuplicates || !r.isDuplicate));
 
@@ -625,12 +687,13 @@ taxPaymentRouter.post("/import-xlsx/confirm", async (request, response) => {
   // e pior que nenhuma, porque parece completa.
   const linhaBloqueada = [];
   for (const row of toImport) {
-    for (const [data, rotulo] of [[row.competenceDate, "competencia"], [row.dueDate, "vencimento"]] as Array<[Date | null | undefined, string]>) {
+    for (const [data, rotulo] of [[row.competenceDate, "competencia"], [row.dueDate, "vencimento"], [row.paymentDate, "pagamento"]] as Array<[Date | null | undefined, string]>) {
       if (!data || Number.isNaN(new Date(data).getTime())) continue;
       try {
         await assertPeriodWritableForDate(new Date(data), "Importacao de impostos");
       } catch (error) {
-        linhaBloqueada.push(`${rotulo} ${new Date(data).toISOString().slice(0, 10)}: ${error instanceof Error ? error.message : "periodo fechado"}`);
+        if (!(error instanceof PeriodLockedError)) throw error;
+        linhaBloqueada.push(`${rotulo} ${new Date(data).toISOString().slice(0, 10)}: ${error.message}`);
       }
     }
   }
@@ -649,7 +712,7 @@ taxPaymentRouter.post("/import-xlsx/confirm", async (request, response) => {
     for (const row of toImport) {
       const parsedPaymentDate = row.paymentDate;
       const parsedDueDate = row.dueDate!;
-      const status = computeStatus(parsedPaymentDate, parsedDueDate);
+      const status = statusDaGuia(parsedPaymentDate, parsedDueDate);
 
       const record = await tx.taxPayment.create({
         data: {

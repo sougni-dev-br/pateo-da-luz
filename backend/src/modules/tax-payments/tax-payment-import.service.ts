@@ -52,7 +52,7 @@ const DATE_INVALID_TEXTS = new Set([
   "sem data", "semdatas", "anual", "diversos", "n/a", "na", "-", "", "indefinido",
 ]);
 
-function parseFlexibleDate(value: unknown): Date | null {
+export function parseFlexibleDate(value: unknown, aceitaMesAno = false): Date | null {
   if (value == null) return null;
   if (value instanceof Date) return isNaN(value.getTime()) ? null : value;
 
@@ -77,6 +77,17 @@ function parseFlexibleDate(value: unknown): Date | null {
     return isNaN(date.getTime()) ? null : date;
   }
 
+  // Competência escrita como mês/ano ("05/2026"): vale o primeiro dia do mês. Antes virava
+  // null sem aviso e a guia ficava fora do DRE.
+  if (aceitaMesAno && parts.length === 2) {
+    const [m, y] = parts.map((p) => p.replace(/\D/g, ""));
+    if (!m || !y || m.length > 2 || (y.length !== 2 && y.length !== 4)) return null;
+    const month = Number(m) - 1;
+    const year = y.length === 2 ? 2000 + Number(y) : Number(y);
+    if (month < 0 || month > 11) return null;
+    return new Date(year, month, 1);
+  }
+
   // ISO format YYYY-MM-DD
   const isoMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (isoMatch) {
@@ -95,10 +106,13 @@ function normalizeCnpj(value: unknown): string | null {
   return digits.padStart(14, "0").slice(0, 14); // CNPJ
 }
 
-function parseAmount(value: unknown): number | null {
+export function parseAmount(value: unknown): number | null {
   if (value == null) return null;
   if (typeof value === "number") return isNaN(value) ? null : Math.abs(value);
-  const text = String(value).trim().replace(/\./g, "").replace(",", ".").replace(/[^\d.]/g, "");
+  const bruto = String(value).trim();
+  // "12.50" (ponto decimal, sem vírgula) é 12,50; antes o ponto era tratado como milhar e virava 1250.
+  const pontoDecimal = !bruto.includes(",") && /^\D*\d+\.\d{1,2}\D*$/.test(bruto);
+  const text = (pontoDecimal ? bruto : bruto.replace(/\./g, "").replace(",", ".")).replace(/[^\d.]/g, "");
   const num = parseFloat(text);
   return isNaN(num) ? null : Math.abs(num);
 }
@@ -255,6 +269,11 @@ export async function previewTaxImport(
     impostosRows = await readSheet(filePath, "Sheet1").catch(() => []);
   }
 
+  // Aba "Impostos" ausente ou vazia não é planilha vazia de sucesso: avisa em vez de importar 0 linhas.
+  if (impostosRows.length === 0) {
+    throw new Error('A planilha não tem linhas na aba "Impostos" (nem em "Sheet1"). Confira o arquivo.');
+  }
+
   const companyMap = buildCompanyMap(empresasRows);
   const headers = impostosRows.length > 0 ? Object.keys(impostosRows[0]) : [];
 
@@ -283,7 +302,7 @@ export async function previewTaxImport(
       tradeName: cleanText(raw[fantasiaH]) ?? companyInfo?.tradeName ?? null,
       documentType: cleanText(raw[orgaoH]),
       description: cleanText(raw[descH]),
-      competenceDate: parseFlexibleDate(raw[compH]),
+      competenceDate: parseFlexibleDate(raw[compH], true),
       dueDate: parseFlexibleDate(raw[vencH]),
       amount: parseAmount(raw[valorH]),
       paymentDate: parseFlexibleDate(raw[pagtoH]),
@@ -295,7 +314,9 @@ export async function previewTaxImport(
     const errors: string[] = [];
     if (!row.documentType) errors.push("Tipo de documento (ÓRGÃO/DOCUMENTO) obrigatório");
     if (!row.dueDate) errors.push("Vencimento inválido ou ausente");
-    if (row.amount == null) errors.push("Valor inválido ou ausente");
+    if (row.amount == null || row.amount <= 0) errors.push("Valor inválido, zero ou ausente");
+    // Sem competência a guia não entra em DRE nenhum; o lançamento manual também exige.
+    if (!row.competenceDate) errors.push("Competência ausente ou ilegível (use dd/mm/aaaa ou mm/aaaa)");
 
     const dedupKey = makeDedupKey(row);
     const isDuplicate = dedupKey != null && (existingDedupKeys.has(dedupKey) || seenKeys.has(dedupKey));

@@ -10885,6 +10885,22 @@ tr.dre-row-selected td {
   font-weight: 500;
 }
 
+/* Resumo "o que acontece ao salvar" do lançamento de guia: a pessoa vê o destino antes de gravar. */
+.tax-resumo {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--brand);
+  border-radius: 6px;
+  background: var(--paper);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.tax-resumo ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
 /* ── pnova field helpers (reutilizado em TaxPayments e Requisitions) ─── */
 .pnova-fieldset {
   border: 1px solid var(--line);

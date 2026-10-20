@@ -5589,7 +5589,6 @@ export type TaxImportPreviewRow = {
 
 export type TaxImportPreview = {
   importFileId: string;
-  filePath: string;
   totalRows: number;
   validRows: number;
   invalidRows: number;
@@ -5663,10 +5662,10 @@ export async function previewTaxImportXlsx(file: File): Promise<TaxImportPreview
   throw new Error("Backend não encontrado.");
 }
 
-export function confirmTaxImport(filePath: string, skipDuplicates = true) {
+export function confirmTaxImport(importFileId: string, skipDuplicates = true) {
   return request<{ importBatchId: string; imported: number; skipped: number; total: number }>(
     "/tax-payments/import-xlsx/confirm",
-    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ filePath, skipDuplicates }) }
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ importFileId, skipDuplicates }) }
   );
 }
 

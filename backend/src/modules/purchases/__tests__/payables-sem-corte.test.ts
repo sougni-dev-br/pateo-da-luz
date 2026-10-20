@@ -60,6 +60,26 @@ test("PDF: impostos e Folha ordenados antes do LIMIT", async () => {
   }
 });
 
+// Guia cancelada não é dívida: aparecia como "em aberto/vencida" e, paga, voltava ao DRE.
+test("impostos cancelados saem como CANCELLED, na tela e no PDF, e não entram em aberto/vencido/pago", async () => {
+  db.$queryRaw.mockResolvedValue([]);
+  await request(app).get("/purchases/payables?status=OPEN");
+  await request(app).get("/purchases/payables?status=OVERDUE");
+  await request(app).get("/purchases/payables/report.pdf?includeOther=true&status=OPEN");
+  // $queryRaw`...` recebe as partes do template e os valores; os fragmentos Prisma.sql
+  // (status/filtro) chegam como valores e precisam ser expandidos para ver o SQL completo.
+  const montar = (c: unknown[]) => {
+    const partes = c[0] as string[];
+    return partes.map((parte, i) => parte + (i < c.length - 1 ? ((c[i + 1] as { sql?: string })?.sql ?? "?") : "")).join("");
+  };
+  const consultas = (db.$queryRaw.mock.calls.map(montar) as string[]).filter((s) => s.includes('FROM "TaxPayment"'));
+  expect(consultas.length).toBeGreaterThanOrEqual(3);
+  for (const q of consultas) {
+    expect(q).toContain(`WHEN tp."status" = 'CANCELED' THEN 'CANCELLED'`);
+    expect(q).toContain(`tp."status" <> 'CANCELED'`);
+  }
+});
+
 test("o cabeçalho de corte é lido pelo navegador (CORS exposedHeaders)", async () => {
   const { readFileSync } = await import("node:fs");
   const fonte = readFileSync(new URL("../../../app.ts", import.meta.url), "utf8");

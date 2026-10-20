@@ -1,13 +1,13 @@
 import { Copy, Plus, Search, Upload, X } from "lucide-react";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ApiError,
   type AppUser,
   type TaxDreCategory,
   type TaxImportPreview,
   type TaxPayment,
   type TaxPaymentDetail,
   type TaxPaymentFilters,
-  type TaxPaymentStatus,
   type TaxPaymentSummary,
   confirmTaxImport,
   createTaxPayment,
@@ -24,6 +24,7 @@ import { Notice, type NoticeState, useNotice } from "../components/Notice";
 import { Money, StatusBadge as DsStatusBadge, useFormatCurrency } from "../design-system";
 import type { StatusTone } from "../design-system";
 import { competenciaSugerida } from "../lib/competencia-imposto";
+import { formatarDiaDaGuia, formatarMesAno, resumoDaGuia, situacaoDaGuia } from "../lib/guia-imposto";
 import { hasPermission } from "../lib/permissions";
 
 const DOCUMENT_TYPES = [
@@ -33,7 +34,7 @@ const DOCUMENT_TYPES = [
 ];
 
 const STATUS_LABELS: Record<string, string> = {
-  PENDING: "Pendente",
+  PENDING: "A vencer",
   PAID: "Pago",
   OVERDUE: "Vencido",
   CANCELED: "Cancelado",
@@ -46,12 +47,7 @@ const STATUS_TONES: Record<string, StatusTone> = {
   CANCELED: "neutral",
 };
 
-function formatDate(value: string | null | undefined): string {
-  if (!value) return "—";
-  const d = new Date(value);
-  if (isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("pt-BR");
-}
+const formatDate = formatarDiaDaGuia;
 
 function formatCnpj(cnpj: string | null | undefined): string {
   if (!cnpj) return "—";
@@ -62,9 +58,7 @@ function formatCnpj(cnpj: string | null | undefined): string {
 }
 
 function computeEffectiveStatus(tp: TaxPayment): string {
-  if (tp.paymentDate) return "PAID";
-  if (new Date(tp.dueDate) < new Date() && tp.status !== "CANCELED") return "OVERDUE";
-  return tp.status;
+  return situacaoDaGuia(tp);
 }
 
 // ─── KPI Card ────────────────────────────────────────────────────────────────
@@ -98,15 +92,18 @@ function ImportModal({ onClose, onImported, notify }: ImportModalProps) {
   const [loading, setLoading] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [skipDuplicates, setSkipDuplicates] = useState(true);
+  // O aviso da página fica atrás do modal: erro da importação aparece aqui dentro.
+  const [erro, setErro] = useState<{ message: string; bloqueios: string[] } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   async function handleFile(file: File) {
     setLoading(true);
+    setErro(null);
     try {
       const p = await previewTaxImportXlsx(file);
       setPreview(p);
     } catch (err) {
-      notify({ tone: "error", message: err instanceof Error ? err.message : "Erro ao processar arquivo." });
+      setErro({ message: err instanceof Error ? err.message : "Erro ao processar arquivo.", bloqueios: [] });
     } finally {
       setLoading(false);
     }
@@ -115,17 +112,30 @@ function ImportModal({ onClose, onImported, notify }: ImportModalProps) {
   async function handleConfirm() {
     if (!preview) return;
     setConfirming(true);
+    setErro(null);
     try {
-      const result = await confirmTaxImport(preview.filePath, skipDuplicates);
+      const result = await confirmTaxImport(preview.importFileId, skipDuplicates);
       notify({ tone: "success", message: `${result.imported} lançamentos importados com sucesso.` });
       onImported();
       onClose();
     } catch (err) {
-      notify({ tone: "error", message: err instanceof Error ? err.message : "Erro ao confirmar importação." });
+      const bloqueios = err instanceof ApiError && Array.isArray(err.body?.bloqueios) ? (err.body.bloqueios as string[]) : [];
+      setErro({ message: err instanceof Error ? err.message : "Erro ao confirmar importação.", bloqueios });
     } finally {
       setConfirming(false);
     }
   }
+
+  const erroImportacao = erro && (
+    <div className="field-hint field-hint--alerta" role="alert">
+      <p style={{ margin: 0 }}>{erro.message}</p>
+      {erro.bloqueios.length > 0 && (
+        <ul style={{ margin: "4px 0 0", paddingLeft: 18 }}>
+          {erro.bloqueios.map((b) => <li key={b}>{b}</li>)}
+        </ul>
+      )}
+    </div>
+  );
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -141,7 +151,9 @@ function ImportModal({ onClose, onImported, notify }: ImportModalProps) {
               Selecione a planilha XLSX com as abas <strong>Empresas</strong> e <strong>Impostos</strong>.
               Campos esperados: CNPJ, RAZÃO SOCIAL, NOME FANTASIA, ÓRGÃO / DOCUMENTO, DESCRIÇÃO,
               COMPETENCIA, VENCIMENTO, VALOR, DATA PAGAMENTO, COMENTÁRIOS.
+              A <strong>competência</strong> é obrigatória (dd/mm/aaaa ou mm/aaaa): sem ela a guia não entra no DRE.
             </p>
+            {erroImportacao}
             <input
               ref={inputRef}
               type="file"
@@ -222,8 +234,10 @@ function ImportModal({ onClose, onImported, notify }: ImportModalProps) {
               <span>Ignorar duplicadas ({preview.duplicateRows})</span>
             </label>
 
+            {erroImportacao}
+
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-              <button type="button" className="secondary-button" onClick={() => setPreview(null)}>Voltar</button>
+              <button type="button" className="secondary-button" onClick={() => { setPreview(null); setErro(null); }}>Voltar</button>
               <button
                 type="button"
                 className="primary-button"
@@ -355,19 +369,21 @@ function EditModal({ editId, prefillData, onClose, onSaved, notify, canEdit }: E
         competenceDate: form.competenceDate || null,
         dueDate: form.dueDate,
         amount: form.amount,
-        paymentDate: form.paymentDate || null,
-        paidAmount: form.paidAmount || null,
         comments: form.comments || null,
         // Sem escolha da pessoa vai "undefined" e o servidor aplica a regra; null é "sem categoria".
         dreCategoryId: form.dreCategoryId || (categoriaEscolhida ? null : undefined),
-        status: form.status as TaxPaymentStatus,
       };
       if (editId) {
-        await updateTaxPayment(editId, payload);
+        // Pagamento não se altera aqui (Contas a Pagar paga e estorna) e o status "vencido/pago"
+        // sai das datas: a única escolha é manter a guia ativa ou cancelá-la.
+        await updateTaxPayment(editId, { ...payload, status: form.status === "CANCELED" ? "CANCELED" : "PENDING" });
         notify({ tone: "success", message: "Lançamento atualizado." });
       } else {
-        await createTaxPayment(payload);
-        notify({ tone: "success", message: "Lançamento criado com sucesso." });
+        await createTaxPayment({ ...payload, paymentDate: form.paymentDate || null, paidAmount: form.paidAmount || null });
+        notify({
+          tone: "success",
+          message: `Guia lançada. Já aparece em Contas a Pagar (vence em ${formatDate(form.dueDate)}) e entra no DRE de ${formatarMesAno(form.competenceDate)}.`,
+        });
       }
       onSaved();
       onClose();
@@ -422,8 +438,8 @@ function EditModal({ editId, prefillData, onClose, onSaved, notify, canEdit }: E
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-card" style={{ maxWidth: 600, width: "100%" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>{editId ? "Editar lançamento" : prefillData ? "Copiar lançamento" : "Novo lançamento"}</h2>
-          <button type="button" className="modal-close" onClick={onClose}><X size={18} /></button>
+          <h2>{editId ? "Editar guia" : prefillData ? "Copiar guia" : "Lançar guia de imposto"}</h2>
+          <button type="button" className="modal-close" aria-label="Fechar" onClick={onClose}><X size={18} /></button>
         </div>
 
         <form onSubmit={(e) => void handleSave(e)}>
@@ -458,12 +474,15 @@ function EditModal({ editId, prefillData, onClose, onSaved, notify, canEdit }: E
                     {DOCUMENT_TYPES.map((dt) => <option key={dt} value={dt}>{dt}</option>)}
                   </select>
                 </label>
-                <label className="pnova-field" style={{ flex: 1 }}>
-                  <span>Status</span>
-                  <select value={form.status} onChange={f("status")} disabled={!canEdit}>
-                    {Object.entries(STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                  </select>
-                </label>
+                {editId && (
+                  <label className="pnova-field" style={{ flex: 1 }}>
+                    <span>Situação da guia</span>
+                    <select value={form.status === "CANCELED" ? "CANCELED" : "PENDING"} onChange={f("status")} disabled={!canEdit}>
+                      <option value="PENDING">Ativa (a pagar ou paga)</option>
+                      <option value="CANCELED">Cancelada (sai de Contas a Pagar e do DRE)</option>
+                    </select>
+                  </label>
+                )}
               </div>
               <label className="pnova-field">
                 <span>Descrição</span>
@@ -497,17 +516,20 @@ function EditModal({ editId, prefillData, onClose, onSaved, notify, canEdit }: E
               <legend>Datas e Valores</legend>
               <div className="pnova-field-row">
                 <label className="pnova-field">
-                  <span>Competência</span>
+                  <span>Competência *</span>
                   <input
                     type="date"
                     value={form.competenceDate}
                     onChange={handleCompetencia}
+                    required={form.status !== "CANCELED"}
                     disabled={!canEdit}
-                    aria-describedby={competenciaSugeridaAtiva ? "tax-competencia-aviso" : undefined}
+                    aria-describedby="tax-competencia-aviso"
                   />
-                  {competenciaSugeridaAtiva && (
-                    <small id="tax-competencia-aviso" className="field-hint">Mês anterior ao vencimento.</small>
-                  )}
+                  <small id="tax-competencia-aviso" className="field-hint">
+                    {competenciaSugeridaAtiva
+                      ? "Sugerida: mês anterior ao vencimento. É por ela que a guia entra no DRE."
+                      : "Mês a que o imposto se refere. É por ela que a guia entra no DRE."}
+                  </small>
                 </label>
                 <label className="pnova-field">
                   <span>Vencimento *</span>
@@ -515,19 +537,24 @@ function EditModal({ editId, prefillData, onClose, onSaved, notify, canEdit }: E
                 </label>
                 <label className="pnova-field">
                   <span>Valor *</span>
-                  <input type="number" step="0.01" min="0" inputMode="decimal" value={form.amount} onChange={f("amount")} required disabled={!canEdit} />
+                  <input type="number" step="0.01" min="0.01" inputMode="decimal" value={form.amount} onChange={f("amount")} required disabled={!canEdit} />
                 </label>
               </div>
               <div className="pnova-field-row">
                 <label className="pnova-field">
-                  <span>Data pagamento</span>
-                  <input type="date" value={form.paymentDate} onChange={f("paymentDate")} disabled={!canEdit} />
+                  <span>{editId ? "Data do pagamento" : "Já paga? Data do pagamento"}</span>
+                  <input type="date" value={form.paymentDate} onChange={f("paymentDate")} disabled={!canEdit || Boolean(editId)} />
                 </label>
                 <label className="pnova-field">
                   <span>Valor pago</span>
-                  <input type="number" step="0.01" min="0" inputMode="decimal" value={form.paidAmount} onChange={f("paidAmount")} disabled={!canEdit} />
+                  <input type="number" step="0.01" min="0" inputMode="decimal" value={form.paidAmount} onChange={f("paidAmount")} disabled={!canEdit || Boolean(editId)} />
                 </label>
               </div>
+              <small className="field-hint">
+                {editId
+                  ? "O pagamento não se altera aqui. Para dar baixa ou estornar, use Contas a Pagar."
+                  : "Deixe em branco se a guia ainda não foi paga: ela fica em Contas a Pagar até a baixa."}
+              </small>
             </fieldset>
 
             {/* Comentários */}
@@ -535,6 +562,20 @@ function EditModal({ editId, prefillData, onClose, onSaved, notify, canEdit }: E
               <span>Comentários</span>
               <textarea value={form.comments} onChange={f("comments")} rows={2} disabled={!canEdit} style={{ resize: "vertical" }} />
             </label>
+
+            {canEdit && form.status !== "CANCELED" && (
+              <div className="tax-resumo" aria-live="polite">
+                <strong>O que acontece ao salvar</strong>
+                <ul>
+                  {resumoDaGuia({
+                    amount: form.amount,
+                    dueDate: form.dueDate,
+                    competenceDate: form.competenceDate,
+                    categoriaNome: categoriaAtual?.name ?? null,
+                  }).map((linha) => <li key={linha}>{linha}</li>)}
+                </ul>
+              </div>
+            )}
 
             {erroAoSalvar && (
               <p ref={erroRef} className="field-hint field-hint--alerta" role="alert">{erroAoSalvar}</p>
@@ -545,7 +586,7 @@ function EditModal({ editId, prefillData, onClose, onSaved, notify, canEdit }: E
             <div className="modal-footer">
               <button type="button" className="secondary-button" onClick={onClose}>Cancelar</button>
               <button type="submit" className="primary-button" disabled={saving}>
-                {saving ? "Salvando..." : editId ? "Salvar" : "Criar"}
+                {saving ? "Salvando..." : editId ? "Salvar" : "Lançar guia"}
               </button>
             </div>
           )}
@@ -679,9 +720,9 @@ export function TaxPayments({ user }: TaxPaymentsProps) {
       {/* KPI Cards */}
       {summary && (
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-          <KpiCard label="Total no período" value={fmt(summary.total)} />
+          <KpiCard label="Total listado" value={fmt(summary.total)} />
           <KpiCard label="Pago" value={fmt(summary.paid)} color="var(--success)" />
-          <KpiCard label="Pendente" value={fmt(summary.pending)} color="var(--warning)" />
+          <KpiCard label="A vencer" value={fmt(summary.pending)} color="var(--warning)" />
           <KpiCard label="Vencido" value={fmt(summary.overdue)} color="var(--danger)" />
         </div>
       )}
@@ -776,7 +817,7 @@ export function TaxPayments({ user }: TaxPaymentsProps) {
                             {canEdit ? "Editar" : "Ver"}
                           </button>
                           {canEdit && (
-                            <button type="button" className="action-button" title="Copiar lançamento" onClick={() => void openCopy(tp)}>
+                            <button type="button" className="action-button" title="Copiar lançamento" aria-label="Copiar lançamento" onClick={() => void openCopy(tp)}>
                               <Copy size={13} />
                             </button>
                           )}
@@ -901,7 +942,7 @@ export function TaxPayments({ user }: TaxPaymentsProps) {
           onClose={() => { setEditId(null); setCopyPrefill(null); }}
           onSaved={() => { void load(filters); setCopyPrefill(null); }}
           notify={setNotice}
-          canEdit={canEdit || canCreate}
+          canEdit={editId === "new" ? canCreate : canEdit}
         />
       )}
 
@@ -920,7 +961,10 @@ export function TaxPayments({ user }: TaxPaymentsProps) {
           <div className="modal-card" style={{ maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header"><h2>Confirmar exclusão</h2></div>
             <div className="modal-body">
-              <p>Deseja remover este lançamento? Esta ação não pode ser desfeita.</p>
+              <p>
+                Excluir esta guia? Ela deixa de aparecer em Contas a Pagar e no DRE. A exclusão fica
+                registrada na Auditoria, de onde a guia pode ser restaurada.
+              </p>
             </div>
             <div className="modal-footer">
               <button type="button" className="secondary-button" onClick={() => setDeleteConfirmId(null)}>Cancelar</button>
