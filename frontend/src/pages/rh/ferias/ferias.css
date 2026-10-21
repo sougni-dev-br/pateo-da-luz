@@ -98,3 +98,7 @@
 @media (prefers-reduced-motion: reduce) {
   .fe-filtro, .fe-linha { transition: none; }
 }
+
+/* Pedido do colaborador na lista */
+.fe-pedido-linha { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; font-size: var(--fs-xs); }
+.fe-pedido-linha b { color: var(--ink); }

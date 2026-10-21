@@ -8423,11 +8423,19 @@ export type ProgramacaoFerias = {
   /** Quando a pessoa foi avisada por escrito das datas; vazio = ainda não avisada. */
   avisadoEm?: string | null;
 };
+/** O que o colaborador pediu para um período aquisitivo; a empresa decide pela programação. */
+export type SolicitacaoFerias = {
+  id: string; inicio: string; fim: string; dias: number; diasAbono: number; observacao: string | null;
+  /** ISO de quando o pedido foi registrado. */
+  registradaEm: string;
+};
 export type PeriodoFerias = {
   aquisitivoInicio: string; aquisitivoFim: string; limiteInicioGozo: string; fimConcessivo: string;
   diasDireito: number; diasGozados: number; diasProgramados: number; diasAbono: number; diasPendentes: number;
   situacao: SituacaoFerias; nivel: NivelFerias; diasParaLimite: number | null; diasParaCompletar: number | null;
   foraDoPrazo: boolean; doHistorico: boolean; programacoes: ProgramacaoFerias[];
+  /** O pedido do colaborador para este período, se houver. */
+  solicitacao?: SolicitacaoFerias | null;
 };
 export type PessoaFerias = {
   employeeId: string; nome: string; empresa: string | null; setor: string | null;
@@ -8459,6 +8467,14 @@ export function marcarFeriasGozadas(employeeId: string, aquisitivoInicio: string
 }
 export function atualizarFerias(id: string, mudanca: Partial<Omit<PedidoFerias, "aquisitivoInicio">>) {
   return request<{ id: string }>(`/payroll/ferias/${encodeURIComponent(id)}`, json("PATCH", mudanca));
+}
+export type PedidoDoColaborador = { employeeId: string; aquisitivoInicio: string; inicio: string; dias: number; diasAbono: number; observacao?: string };
+/** Registra (ou troca) o pedido do colaborador para um período; a empresa decide depois, pela programação. */
+export function salvarSolicitacaoFerias(pedido: PedidoDoColaborador) {
+  return request<{ id: string }>("/payroll/ferias/solicitacao", json("PUT", pedido));
+}
+export function removerSolicitacaoFerias(id: string) {
+  return request<{ ok: boolean }>(`/payroll/ferias/solicitacao/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 /** Registra (ou desfaz) que a pessoa foi avisada por escrito das datas das férias. */
 export function marcarFeriasAvisado(id: string, avisado: boolean) {

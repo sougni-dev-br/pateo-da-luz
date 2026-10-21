@@ -39,7 +39,7 @@
 /* ── Quadro rolável ────────────────────────────────────────────────── */
 .fe-tl {
   --nome: 208px;
-  --altura: 54px;
+  --altura: 62px;
   position: relative; overflow: auto; max-height: min(74vh, 780px);
   border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--paper);
   overscroll-behavior: contain;
@@ -115,19 +115,19 @@
 .fe-tl-pista--ativa { cursor: crosshair; }
 .fe-tl-pista--ativa:hover { background: color-mix(in srgb, var(--gold) 6%, transparent); }
 
-.fe-tl-zona { position: absolute; top: 10px; height: 34px; border-radius: 4px; }
+.fe-tl-zona { position: absolute; top: 12px; height: 34px; border-radius: 4px; }
 .fe-tl-zona--seguro { border-top-left-radius: 8px; border-bottom-left-radius: 8px; }
-.fe-tl-limite { position: absolute; top: 5px; transform: translateX(-100%); display: grid; place-items: center; width: 16px; height: 16px; color: var(--danger); pointer-events: none; }
+.fe-tl-limite { position: absolute; top: 0; transform: translateX(-100%); display: grid; place-items: center; width: 16px; height: 16px; color: var(--danger); pointer-events: none; }
 .fe-tl-limite svg { fill: currentColor; }
 .fe-tl-aquisicao {
-  position: absolute; top: 18px; height: 18px; display: flex; align-items: center; padding: 0 8px; overflow: hidden; white-space: nowrap;
+  position: absolute; top: 20px; height: 18px; display: flex; align-items: center; padding: 0 8px; overflow: hidden; white-space: nowrap;
   border: 1.5px dashed var(--line-strong); border-radius: 9px; font-size: var(--fs-2xs); color: var(--muted);
   background: repeating-linear-gradient(135deg, transparent 0 5px, color-mix(in srgb, var(--line) 55%, transparent) 5px 6px);
 }
 
 /* Barras de férias */
 .fe-tl-barra {
-  position: absolute; top: 14px; height: 26px; z-index: 2; display: inline-flex; align-items: center; justify-content: center; gap: 3px;
+  position: absolute; top: 16px; height: 26px; z-index: 2; display: inline-flex; align-items: center; justify-content: center; gap: 3px;
   padding: 0 4px; border: 0; border-radius: 7px; color: var(--paper); font: inherit; font-size: var(--fs-xs); font-weight: var(--fw-semibold);
   box-shadow: 0 2px 6px color-mix(in srgb, var(--ink) 25%, transparent); cursor: pointer; overflow: hidden;
   transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
@@ -140,7 +140,7 @@
 
 /* Fantasmas: arrasto, prévia do formulário e sugestão */
 .fe-tl-fantasma {
-  position: absolute; top: 12px; height: 30px; z-index: 4; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  position: absolute; top: 14px; height: 30px; z-index: 4; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   padding: 0 6px; border-radius: 8px; font: inherit; font-size: var(--fs-xs); font-weight: var(--fw-semibold); white-space: nowrap; overflow: hidden;
   border: 2px solid var(--gold-dark); color: var(--gold-dark);
 }
@@ -203,7 +203,7 @@ button.fe-tl-fantasma { cursor: pointer; }
 .fe-empresa select { font: inherit; padding: 5px 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--paper); color: var(--ink); max-width: 100%; }
 
 /* Dias em que as férias não podem começar: tracinho no pé da linha */
-.fe-tl-vedado { position: absolute; bottom: 3px; height: 4px; border-radius: 2px; background: var(--danger); opacity: 0.45; pointer-events: none; }
+.fe-tl-vedado { position: absolute; bottom: 0; height: 4px; border-radius: 2px; background: var(--danger); opacity: 0.45; pointer-events: none; }
 .fe-tl-barra--movendo { opacity: 0.35; box-shadow: none; }
 .fe-tl-barra--programada { touch-action: pan-y; }
 .fe-tl-fantasma--mover { background: color-mix(in srgb, var(--info) 35%, var(--paper)); border-color: var(--info); color: var(--ink); pointer-events: none; }
@@ -215,3 +215,35 @@ button.fe-tl-fantasma { cursor: pointer; }
   .fe-tl-dica-mouse { display: none; }
   .fe-tl-dica-toque { display: inline; }
 }
+
+/* ── Pedido do colaborador × o que a empresa quer × prazo limite ───── */
+/* Faixa do pedido no pé da linha, abaixo da programação (a barra azul) e do prazo (bandeira e tag no alto). */
+.fe-tl-pedido {
+  position: absolute; top: 47px; height: 11px; z-index: 2; padding: 0 4px; display: inline-flex; align-items: center; overflow: hidden; white-space: nowrap;
+  border: 1.5px dashed var(--ink); border-radius: 6px; background: color-mix(in srgb, var(--paper) 90%, transparent); color: var(--ink);
+  font: inherit; font-size: var(--fs-2xs); font-weight: var(--fw-semibold); line-height: 1; cursor: pointer;
+}
+.fe-tl-pedido:hover { background: var(--gold-tint); }
+.fe-tl-pedido--atendido { border-style: solid; border-color: var(--success); color: var(--success); }
+.fe-tl-pedido--diferente { border-color: var(--warning); color: var(--warning); }
+.fe-tl-fantasma--pedido { top: 45px; height: 15px; padding: 0 5px; border-style: dashed; border-color: var(--ink); background: var(--paper); color: var(--ink); font-size: var(--fs-2xs); pointer-events: none; }
+.fe-tl-limite-tag {
+  position: absolute; top: 0; transform: translateX(-100%); margin-left: -16px; padding: 0 4px; border-radius: 3px; background: var(--paper); color: var(--danger);
+  font-size: var(--fs-2xs); font-weight: var(--fw-semibold); line-height: 12px; white-space: nowrap; pointer-events: none;
+}
+.fe-tl-amostra--pedido { height: 8px; border: 1.5px dashed var(--ink); background: var(--paper); }
+.fe-tl-amostra--limite { width: 10px; height: 10px; border: 0; background: var(--danger); clip-path: polygon(0 0, 100% 50%, 0 100%); }
+
+/* Ficha de três linhas na coluna do nome: o que pediu, o que a empresa quer e o prazo */
+.fe-tl-ficha { list-style: none; margin: 3px 0 2px; padding: 0; display: grid; gap: 1px; font-size: var(--fs-2xs); line-height: 1.25; color: var(--ink-soft); }
+.fe-tl-ficha b { display: inline-block; min-width: 4.6em; font-weight: var(--fw-semibold); }
+.fe-tl-ficha--pedido b { color: var(--ink); }
+.fe-tl-ficha--empresa b { color: var(--info); }
+.fe-tl-ficha--limite b { color: var(--danger); }
+.fe-tl-situacao { display: inline-block; padding: 0 6px; border-radius: var(--radius-pill); background: var(--paper-soft); color: var(--ink-soft); font-weight: var(--fw-semibold); }
+.fe-tl-situacao--atendido { background: var(--tint-success); color: var(--success); }
+.fe-tl-situacao--diferente { background: var(--tint-warning); color: var(--warning); }
+.fe-tl-situacao--aguardando { background: var(--tint-info); color: var(--info); }
+.fe-tl-situacao--prazo { margin-left: 4px; background: var(--tint-danger); color: var(--danger); }
+.fe-tl-programar--pedido { margin-right: 4px; }
+.fe-form-explica { margin: 0; font-size: var(--fs-sm); }

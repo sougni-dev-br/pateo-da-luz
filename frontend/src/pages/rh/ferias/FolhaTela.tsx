@@ -16,7 +16,7 @@ type PropsLinha = Comum & { pessoas: PessoaFerias[]; eixo: Eixo; ausencias: Ause
 
 const LEGENDA: Array<[string, string]> = [
   ["seguro", "No prazo"], ["atencao", "Menos de 90 dias"], ["urgente", "Menos de 30 dias"], ["estouro", "Passou do prazo"],
-  ["programada", "Programada"], ["gozada", "Gozada"],
+  ["programada", "Programada (a empresa quer)"], ["pedido", "Pedido do colaborador"], ["limite", "Prazo limite"], ["gozada", "Gozada"],
 ];
 
 export function FolhaTelaLinhaDoTempo(props: PropsLinha) {
@@ -96,6 +96,10 @@ export function FolhaTelaLinhaDoTempo(props: PropsLinha) {
                   <div className="fe-ti-pista" style={{ width: eixo.largura }}>
                     {grade}
                     {pessoa.periodos.map((p) => <Janela key={p.aquisitivoInicio} eixo={eixo} periodo={p} />)}
+                    {pessoa.periodos.map((p) => {
+                      const r = p.solicitacao ? retangulo(eixo, p.solicitacao.inicio, p.solicitacao.fim) : null;
+                      return r && <span key={`pedido-${p.aquisitivoInicio}`} className="fe-ti-pedido" style={{ left: r.x, width: Math.max(r.largura, 3) }} />;
+                    })}
                     {pessoa.periodos.flatMap((p) => p.programacoes.map((g) => {
                       if (!g.gozoInicio || !g.gozoFim) return null;
                       const r = retangulo(eixo, g.gozoInicio, g.gozoFim);
@@ -129,12 +133,14 @@ function Janela({ eixo, periodo: p }: { eixo: Eixo; periodo: PeriodoFerias }) {
     const r = retangulo(eixo, p.aquisitivoInicio, p.aquisitivoFim);
     return r ? <span className="fe-ti-aquisicao" style={{ left: r.x, width: r.largura }} /> : null;
   }
+  const limite = p.diasPendentes > 0 && !p.doHistorico ? retangulo(eixo, p.limiteInicioGozo, p.limiteInicioGozo) : null;
   return (
     <>
       {zonasDaJanela(p).map((z) => {
         const r = retangulo(eixo, z.inicio, z.fim);
         return r ? <span key={z.tom} className={`fe-ti-zona fe-ti-zona--${z.tom}`} style={{ left: r.x, width: r.largura }} /> : null;
       })}
+      {limite && <span className="fe-ti-limite" style={{ left: limite.x + limite.largura }} title={`Prazo limite para começar: ${dataBr(p.limiteInicioGozo)}`} />}
     </>
   );
 }

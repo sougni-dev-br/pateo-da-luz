@@ -4,6 +4,7 @@ import { Alert, Button, TextField } from "../../../design-system";
 import { dataBr, fimEVolta, plural, ultimoDiaParaComecar } from "./feriasFormato";
 import { DIAS_DE_AVISO, type Feriados, MAX_PARTES, dataValida, MIN_DIAS_PARTE_MAIOR, motivoInicioVedado, nomeDoDia, prazoParaPagar, proximoInicioValido, repousosPorExtenso } from "./regrasFerias";
 import { diasEntre } from "./eixoDoTempo";
+import { diferencaEmPalavras, resumoDoPedido } from "./pedido";
 
 // Espelham as regras do servidor (ferias.routes.ts), que é quem decide; aqui só evitam a ida e volta.
 const DIAS_ABONO = 10;
@@ -16,7 +17,7 @@ type Props = {
   /** Presente ao editar uma programação já gravada. */
   inicial?: ProgramacaoFerias;
   /** Datas já escolhidas na linha do tempo (arrasto, clique ou sugestão); o formulário só confirma. */
-  sugestao?: { inicio: string; dias: number; /** Data que a pessoa escolheu antes do ajuste para um dia permitido. */ ajustadoDe?: string };
+  sugestao?: { inicio: string; dias: number; diasAbono?: number; /** Data que a pessoa escolheu antes do ajuste para um dia permitido. */ ajustadoDe?: string };
   /** Hoje e os feriados: a data de início não pode cair em dia vedado e a lei pede aviso com 30 dias. */
   regras?: { hoje: string; feriados: Feriados; repousos: number[]; repousoPelaEscala: boolean };
   /** Quem já estará fora em parte desse período (sem a própria pessoa), com os colegas do mesmo setor à parte. */
@@ -36,7 +37,7 @@ export function FormularioFerias({ nome, periodo, inicial, sugestao, regras, con
   const abonoJaVendido = periodo.diasAbono - (inicial?.diasAbono ?? 0);
   const podeVender = saldo > DIAS_ABONO && abonoJaVendido === 0;
   const [inicio, setInicio] = useState(sugestao?.inicio ?? inicial?.gozoInicio ?? "");
-  const [vendeAbono, setVendeAbono] = useState((inicial?.diasAbono ?? 0) > 0);
+  const [vendeAbono, setVendeAbono] = useState((inicial?.diasAbono ?? sugestao?.diasAbono ?? 0) > 0);
   const diasDoAbono = vendeAbono ? DIAS_ABONO : 0;
   const maximoSemAbono = Math.min(MAX_DIAS, Math.max(1, saldo - diasDoAbono));
   const [dias, setDias] = useState(String(sugestao ? Math.min(sugestao.dias, maximoSemAbono) : inicial?.dias ?? maximoSemAbono));
@@ -88,6 +89,11 @@ export function FormularioFerias({ nome, periodo, inicial, sugestao, regras, con
   }, [desenhavel, inicio, diasNum, onPrevia]);
   useEffect(() => () => onPrevia?.(null), [onPrevia]);
 
+  // O pedido do colaborador ao lado do que a empresa está programando.
+  const pedido = periodo.solicitacao ?? null;
+  const diferencaDoPedido = pedido && valido ? diasEntre(pedido.inicio, inicio) : null;
+  const igualAoPedido = pedido !== null && valido && inicio === pedido.inicio && diasNum === pedido.dias && diasDoAbono === pedido.diasAbono;
+
   const alternarAbono = (marcado: boolean) => {
     setVendeAbono(marcado);
     if (!inicial) setDias(String(Math.min(MAX_DIAS, Math.max(1, saldo - (marcado ? DIAS_ABONO : 0)))));
@@ -138,6 +144,14 @@ export function FormularioFerias({ nome, periodo, inicial, sugestao, regras, con
           <Button type="button" size="sm" variant="secondary" onClick={() => setInicio(proximoValido)}>Usar esse dia</Button>
         </p>
       )}
+      {pedido && (
+        <p className="fe-sugerir">
+          Pedido do colaborador: <strong>{resumoDoPedido(pedido)}</strong>{" "}
+          {!igualAoPedido && (
+            <Button type="button" size="sm" variant="secondary" onClick={() => { setInicio(pedido.inicio); setVendeAbono(pedido.diasAbono > 0); setDias(String(pedido.dias)); }}>Usar o pedido</Button>
+          )}
+        </p>
+      )}
       <div aria-live="polite" aria-atomic="true" className="fe-previa-area">
         {datas && !erroInicio && !erroDias && (
           <p className="fe-previa">
@@ -174,6 +188,12 @@ export function FormularioFerias({ nome, periodo, inicial, sugestao, regras, con
       {partesDemais && (
         <Alert tone="warning" role={undefined}>As férias de um período podem ser divididas em no máximo {MAX_PARTES} partes.</Alert>
       )}
+      {pedido && valido && !igualAoPedido && (
+        <Alert tone="info" role={undefined}>
+          Diferente do pedido do colaborador ({dataBr(pedido.inicio)}, {pedido.dias} {plural(pedido.dias, "dia", "dias")}){diferencaEmPalavras(diferencaDoPedido) ? `: começa ${diferencaEmPalavras(diferencaDoPedido)}` : ""}. Avise a pessoa.
+        </Alert>
+      )}
+      {pedido && igualAoPedido && <Alert tone="success" role={undefined}>É exatamente o que o colaborador pediu.</Alert>}
       {depoisDoLimite && (
         <Alert tone="warning" role={undefined}>Essas férias terminariam depois do fim do prazo ({dataBr(periodo.fimConcessivo)}): o período fica vencido e as férias são pagas em dobro.</Alert>
       )}

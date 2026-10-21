@@ -5,9 +5,10 @@
 import { CalendarRange, List, Maximize2, Minimize2, Printer, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { type ListaFerias, type PedidoFerias, type PeriodoFerias, type PessoaFerias, type ProgramacaoFerias, atualizarFerias, cancelarFerias, getFerias, marcarFeriasAvisado, marcarFeriasGozadas, programarFerias } from "../../api/client";
+import { type ListaFerias, type PedidoFerias, type PeriodoFerias, type PessoaFerias, type ProgramacaoFerias, atualizarFerias, cancelarFerias, getFerias, marcarFeriasAvisado, marcarFeriasGozadas, programarFerias, removerSolicitacaoFerias, salvarSolicitacaoFerias } from "../../api/client";
 import { Alert, Button, EmptyState } from "../../design-system";
 import { FormularioFerias } from "./ferias/FormularioFerias";
+import { type DadosDoPedido, PedidoDoColaborador } from "./ferias/PedidoDoColaborador";
 import { ImpressaoFerias } from "./ferias/ImpressaoFerias";
 import { ImpressaoTela } from "./ferias/ImpressaoTela";
 import { LinhaDoTempo } from "./ferias/LinhaDoTempo";
@@ -17,14 +18,15 @@ import {
   FILTROS, type FiltroFerias, type LinhaFerias, contarPorFiltro, dataBr, linhasDaLista, pertenceAoFiltro, plural, resumoProgramacao, somaDias,
 } from "./ferias/feriasFormato";
 import { ausenciasDaLista, colegasFora } from "./ferias/eixoDoTempo";
+import { resumoDoPedido } from "./ferias/pedido";
 import { motivoInicioVedado, proximoInicioValido } from "./ferias/regrasFerias";
 import "./ferias/ferias.css";
 import "./ferias/linhaDoTempo.css";
 import "./ferias/planejamento.css";
 
-type Aberto = { chave: string; programacao?: ProgramacaoFerias; sugestao?: { inicio: string; dias: number; ajustadoDe?: string } };
+type Aberto = { chave: string; programacao?: ProgramacaoFerias; sugestao?: { inicio: string; dias: number; diasAbono?: number; ajustadoDe?: string }; /** Abre o pedido do colaborador em vez da programação. */ pedido?: boolean };
 type Visao = "linha" | "lista";
-type Previa = { inicio: string; dias: number };
+type Previa = { inicio: string; dias: number; /** Desenho do pedido do colaborador (faixa no pé da linha), e não da programação. */ pedido?: boolean };
 const chaveDe = (l: LinhaFerias) => `${l.pessoa.employeeId}|${l.periodo.aquisitivoInicio}`;
 // Na linha do tempo quem já está todo programado também precisa aparecer (é ele que pesa na cobertura);
 // na lista o que interessa é o que falta programar.
@@ -51,8 +53,9 @@ export function Ferias() {
   const [previa, setPrevia] = useState<Previa | null>(null);
   const [cheia, setCheia] = useState(false);
   const atualizarPrevia = useCallback((p: Previa | null) => {
-    setPrevia((atual) => (atual?.inicio === p?.inicio && atual?.dias === p?.dias ? atual : p));
+    setPrevia((atual) => (atual?.inicio === p?.inicio && atual?.dias === p?.dias && atual?.pedido === p?.pedido ? atual : p));
   }, []);
+  const atualizarPreviaDoPedido = useCallback((p: { inicio: string; dias: number } | null) => atualizarPrevia(p ? { ...p, pedido: true } : null), [atualizarPrevia]);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -163,6 +166,17 @@ export function Ferias() {
     }
   };
 
+  const salvarPedido = (l: LinhaFerias, dados: DadosDoPedido) =>
+    executar(() => salvarSolicitacaoFerias({ employeeId: l.pessoa.employeeId, aquisitivoInicio: l.periodo.aquisitivoInicio, ...dados }), true,
+      `Pedido de ${l.pessoa.nome} registrado: ${dataBr(dados.inicio)} (${dados.dias} ${plural(dados.dias, "dia", "dias")}).`);
+  const retirarPedido = (l: LinhaFerias) => {
+    const pedido = l.periodo.solicitacao;
+    if (pedido && window.confirm(`Retirar o pedido de ${l.pessoa.nome} (${resumoDoPedido(pedido)})? A programação não muda.`)) {
+      void executar(() => removerSolicitacaoFerias(pedido.id), true, `Pedido de ${l.pessoa.nome} retirado.`);
+    }
+  };
+  const abrirPedido = (pessoa: PessoaFerias, periodo: PeriodoFerias) => abrir({ chave: `${pessoa.employeeId}|${periodo.aquisitivoInicio}`, pedido: true });
+
   const ausencias = useMemo(() => (lista ? ausenciasDaLista(lista) : []), [lista]);
   const conflitosDe = (pessoa: PessoaFerias) => (inicio: string, dias: number) =>
     ({ ...colegasFora(ausencias, inicio, somaDias(inicio, dias - 1), pessoa.employeeId, pessoa.setor), setor: pessoa.setor });
@@ -171,11 +185,18 @@ export function Ferias() {
     return visiveis.flatMap((l) => (vistos.has(l.pessoa.employeeId) ? [] : (vistos.add(l.pessoa.employeeId), [l.pessoa])));
   }, [visiveis]);
 
-  const formulario = (l: LinhaFerias, ab: Aberto) => (
+  const regrasDa = (pessoa: PessoaFerias) => (lista ? { hoje: lista.hoje, feriados: lista.feriados, repousos: pessoa.repousoSemanal, repousoPelaEscala: pessoa.repousoPelaEscala } : undefined);
+  const formulario = (l: LinhaFerias, ab: Aberto) => (ab.pedido ? (
+    <PedidoDoColaborador key={`pedido-${l.periodo.solicitacao?.id ?? "novo"}`} nome={l.pessoa.nome} periodo={l.periodo} regras={regrasDa(l.pessoa)} conflitos={conflitosDe(l.pessoa)}
+      onPrevia={atualizarPreviaDoPedido} salvando={salvando} erro={erroForm} onCancelar={fechar}
+      onSalvar={(dados) => void salvarPedido(l, dados)}
+      onRetirar={l.periodo.solicitacao ? () => retirarPedido(l) : undefined}
+      onAtender={(dados) => abrir({ chave: chaveDe(l), sugestao: { inicio: dados.inicio, dias: dados.dias, diasAbono: dados.diasAbono } })} />
+  ) : (
     <FormularioFerias key={`${ab.programacao?.id ?? "nova"}-${ab.sugestao?.inicio ?? ""}`} nome={l.pessoa.nome} periodo={l.periodo} inicial={ab.programacao}
       sugestao={ab.sugestao} regras={lista ? { hoje: lista.hoje, feriados: lista.feriados, repousos: l.pessoa.repousoSemanal, repousoPelaEscala: l.pessoa.repousoPelaEscala } : undefined} conflitos={conflitosDe(l.pessoa)} onPrevia={atualizarPrevia}
       salvando={salvando} erro={erroForm} onSalvar={(pedido) => void salvar(l, pedido, ab.programacao)} onCancelar={fechar} />
-  );
+  ));
   const formularioDaPessoa = (pessoa: PessoaFerias) => {
     if (!aberto?.chave.startsWith(`${pessoa.employeeId}|`)) return null;
     const periodo = pessoa.periodos.find((p) => `${pessoa.employeeId}|${p.aquisitivoInicio}` === aberto.chave);
@@ -303,14 +324,14 @@ export function Ferias() {
           formularioDe={formularioDaPessoa}
           onProgramar={programarPelaLinha}
           onEditar={(pessoa, periodo, g) => abrir({ chave: `${pessoa.employeeId}|${periodo.aquisitivoInicio}`, programacao: g })}
-          onCancelar={cancelar} onConfirmar={(l, g) => void confirmarGozo(l, g)} onDesfazer={desfazer} onMover={moverBarra} />
+          onCancelar={cancelar} onConfirmar={(l, g) => void confirmarGozo(l, g)} onDesfazer={desfazer} onMover={moverBarra} onPedido={abrirPedido} />
       )}
       {visiveis.length > 0 && visao === "lista" && (
         <ul className="fe-lista" role="list" aria-label="Períodos de férias">
           {visiveis.map((l) => {
             const chave = chaveDe(l);
             return (
-              <LinhaPeriodo key={chave} linha={l} ocupado={salvando}
+              <LinhaPeriodo key={chave} linha={l} ocupado={salvando} onPedido={() => abrirPedido(l.pessoa, l.periodo)}
                 onProgramar={() => abrir({ chave })}
                 onJaGozou={() => jaGozou(l)}
                 onEditar={(g) => abrir({ chave, programacao: g })}

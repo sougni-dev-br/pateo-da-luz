@@ -8,6 +8,7 @@ vi.mock("../../../config/database.js", () => {
   const prisma: Record<string, unknown> = {
     employee: { findMany: vi.fn(), findFirst: vi.fn() },
     feriasProgramacao: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn(), delete: vi.fn() },
+    feriasSolicitacao: { findUnique: vi.fn(), upsert: vi.fn(), delete: vi.fn() },
     $queryRaw: vi.fn(async () => []),
   };
   // A transação roda o callback com o mesmo banco de mentira (o FOR UPDATE é só uma consulta).
@@ -390,5 +391,77 @@ describe("aviso por escrito das datas (avisado)", () => {
     db.employee.findMany.mockResolvedValue([eliana({ feriasProgramadas: [avisada] })]);
     const r = await request(app).get("/payroll/ferias");
     expect(r.body.pessoas[0].periodos[0].programacoes[0].avisadoEm).toBe("2026-10-01T12:00:00.000Z");
+  });
+});
+
+describe("pedido do colaborador (solicitação)", () => {
+  const pedido = { employeeId: "e1", aquisitivoInicio: "2025-03-01", inicio: "2026-12-14", dias: 15, diasAbono: 0, observacao: "  quer passar o Natal em família  " };
+  const gravado = { id: "s1", employeeId: "e1", aquisitivoInicio: d("2025-03-01"), inicio: d("2026-12-14"), dias: 15, diasAbono: 0, observacao: "quer passar o Natal em família", createdAt: new Date("2026-10-20T12:00:00.000Z") };
+
+  beforeEach(() => {
+    db.feriasSolicitacao.findUnique.mockResolvedValue(null);
+    db.feriasSolicitacao.upsert.mockResolvedValue(gravado);
+  });
+
+  test("registra o pedido (201), limpa a observação e audita", async () => {
+    const r = await request(app).put("/payroll/ferias/solicitacao").send(pedido);
+    expect(r.status).toBe(201);
+    const arg = db.feriasSolicitacao.upsert.mock.calls[0][0];
+    expect(arg.create).toMatchObject({ employeeId: "e1", dias: 15, diasAbono: 0, observacao: "quer passar o Natal em família", createdById: "u1" });
+    expect(arg.where.employeeId_aquisitivoInicio.employeeId).toBe("e1");
+    expect(auditLog).toHaveBeenCalledWith(expect.objectContaining({ action: "REGISTER_VACATION_REQUEST", entityId: "s1" }));
+  });
+
+  test("trocar um pedido que já existe devolve 200 e audita a mudança com o valor anterior", async () => {
+    db.feriasSolicitacao.findUnique.mockResolvedValue(gravado);
+    const r = await request(app).put("/payroll/ferias/solicitacao").send({ ...pedido, inicio: "2027-01-11" });
+    expect(r.status).toBe(200);
+    expect(auditLog).toHaveBeenCalledWith(expect.objectContaining({ action: "UPDATE_VACATION_REQUEST", previousValue: expect.objectContaining({ inicio: "2026-12-14" }) }));
+  });
+
+  test("o pedido não passa pela regra de dia vedado: sábado, só o que a pessoa pediu", async () => {
+    const r = await request(app).put("/payroll/ferias/solicitacao").send({ ...pedido, inicio: "2026-12-12" }); // sábado
+    expect(r.status).toBe(201);
+  });
+
+  test("recusa pedido antes do fim do aquisitivo, período em aquisição, 31 dias, abono demais e data inválida", async () => {
+    const manda = (extra: Record<string, unknown>) => request(app).put("/payroll/ferias/solicitacao").send({ ...pedido, ...extra });
+    expect((await manda({ inicio: "2026-02-01" })).status).toBe(400);
+    expect((await manda({ aquisitivoInicio: "2026-03-01" })).status).toBe(400); // período ainda em aquisição ou inexistente
+    expect((await manda({ dias: 31 })).status).toBe(400);
+    expect((await manda({ dias: 25, diasAbono: 10 })).status).toBe(400); // 35 dias no total
+    expect((await manda({ diasAbono: 11 })).status).toBe(400);
+    expect((await manda({ inicio: "2026-02-31" })).status).toBe(400);
+    expect((await manda({ inicio: "9999-12-31" })).status).toBe(400);
+    expect(db.feriasSolicitacao.upsert).not.toHaveBeenCalled();
+  });
+
+  test("sem sessão é 401 e sem funcionário é 400", async () => {
+    expect((await request(app).put("/payroll/ferias/solicitacao").send({ ...pedido, employeeId: "" })).status).toBe(400);
+    (getSessionUser as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    expect((await request(app).put("/payroll/ferias/solicitacao").send(pedido)).status).toBe(401);
+  });
+
+  test("retirar o pedido remove e audita; pedido inexistente é 404", async () => {
+    db.feriasSolicitacao.findUnique.mockResolvedValue(gravado);
+    const r = await request(app).delete("/payroll/ferias/solicitacao/s1");
+    expect(r.status).toBe(200);
+    expect(db.feriasSolicitacao.delete).toHaveBeenCalledWith({ where: { id: "s1" } });
+    expect(auditLog).toHaveBeenCalledWith(expect.objectContaining({ action: "CANCEL_VACATION_REQUEST" }));
+    db.feriasSolicitacao.findUnique.mockResolvedValue(null);
+    expect((await request(app).delete("/payroll/ferias/solicitacao/zz")).status).toBe(404);
+  });
+
+  test("a lista devolve o pedido dentro do período certo, com o último dia", async () => {
+    db.employee.findMany.mockResolvedValue([eliana({ feriasSolicitadas: [gravado] })]);
+    const r = await request(app).get("/payroll/ferias");
+    expect(r.body.pessoas[0].periodos[0].solicitacao).toEqual({
+      id: "s1", inicio: "2026-12-14", fim: "2026-12-28", dias: 15, diasAbono: 0, observacao: "quer passar o Natal em família", registradaEm: "2026-10-20T12:00:00.000Z",
+    });
+  });
+
+  test("período sem pedido vem com solicitacao nula", async () => {
+    const r = await request(app).get("/payroll/ferias");
+    expect(r.body.pessoas[0].periodos[0].solicitacao).toBeNull();
   });
 });

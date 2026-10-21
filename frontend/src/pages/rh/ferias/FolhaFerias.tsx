@@ -40,13 +40,14 @@ function TabelaConversa({ linhas }: { linhas: LinhaConversa[] }) {
         <strong>Começar até</strong> é o último dia para as férias começarem sem vencer (depois disso são pagas em dobro).
         Anote a data combinada, o número de dias e se a pessoa vai vender o abono (10 dias), e peça o ciente.
       </p>
-      <table className="fe-folha-tabela">
+      <table className="fe-folha-tabela fe-folha-tabela--conversa">
         <thead>
           <tr>
             <th className="c-nome">Funcionário</th>
             <th className="c-periodo">Período aquisitivo</th>
             <th className="c-limite">Começar até</th>
             <th className="c-dias">Dias a<br />programar</th>
+            <th className="c-pedido">Pedido do colaborador</th>
             <th className="c-combinado">Data combinada</th>
             <th className="c-visto">Ciente</th>
           </tr>
@@ -65,6 +66,7 @@ function TabelaConversa({ linhas }: { linhas: LinhaConversa[] }) {
                 <small className={l.urgente ? "fe-folha-urgente" : undefined}>{l.prazo}</small>
               </td>
               <td className="c-dias">{l.diasAProgramar}</td>
+              <td className="c-pedido">{l.pedido ?? "—"}</td>
               <td className="c-combinado">
                 <div className="fe-combinado">
                   <span className="fe-campo">Início <i className="fe-risco fe-risco--data" /></span>

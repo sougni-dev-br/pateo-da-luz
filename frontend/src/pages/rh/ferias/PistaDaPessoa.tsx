@@ -3,13 +3,14 @@ import { useRef, useState } from "react";
 import type { PessoaFerias, PeriodoFerias, ProgramacaoFerias } from "../../../api/client";
 import { type Ausencia, type Eixo, type Sugestao, diasEntre, diaDoX, quemEstaFora, retangulo, trechosVedados, zonasDaJanela } from "./eixoDoTempo";
 import { dataBr, fimEVolta, plural, somaDias } from "./feriasFormato";
+import { ROTULO_DA_SITUACAO_DO_PEDIDO, compararPedido, resumoDoPedido } from "./pedido";
 import { type Feriados, motivoInicioVedado } from "./regrasFerias";
 
 const MAX_DIAS = 30;
 const MIN_DIAS_GOZO = 5;
 
 /** O que está sendo desenhado por cima da linha: o arrasto, a prévia do formulário, a sugestão ou a barra sendo movida. */
-export type Fantasma = { tipo: "arrasto" | "previa" | "sugestao" | "mover"; inicio: string; dias: number };
+export type Fantasma = { tipo: "arrasto" | "previa" | "sugestao" | "mover" | "pedido"; inicio: string; dias: number };
 
 type Movendo = { g: ProgramacaoFerias; periodo: PeriodoFerias; /** dias entre o início da barra e o ponto que foi agarrado */ offset: number; inicio: string };
 
@@ -23,7 +24,7 @@ type Props = {
   dosOutros: Ausencia[];
   sugestao: Sugestao | null;
   /** Prévia do formulário aberto nesta pessoa, se houver. */
-  previa: { inicio: string; dias: number } | null;
+  previa: { inicio: string; dias: number; pedido?: boolean } | null;
   /** Formulário aberto nesta pessoa: some a sugestão para não competir com a prévia. */
   editando: boolean;
   /** Ocupado gravando: nada de começar arrasto novo. */
@@ -33,12 +34,14 @@ type Props = {
   onSelecionar: (programacao: ProgramacaoFerias) => void;
   /** Soltou uma barra programada em outro dia. */
   onMover: (periodo: PeriodoFerias, programacao: ProgramacaoFerias, inicio: string) => void;
+  /** Clicou na faixa do pedido do colaborador. */
+  onPedido: (periodo: PeriodoFerias) => void;
 };
 
 const rotuloBarra = (nome: string, g: ProgramacaoFerias) =>
   `${g.status === "GOZADA" ? "Férias gozadas" : "Férias programadas"} de ${nome}: ${dataBr(g.gozoInicio)} a ${dataBr(g.gozoFim)}, ${g.dias} ${plural(g.dias, "dia", "dias")}`;
 
-export function PistaDaPessoa({ eixo, feriados, pessoa, alvo, dosOutros, sugestao, previa, editando, ocupado, selecionadaId, onEscolher, onSelecionar, onMover }: Props) {
+export function PistaDaPessoa({ eixo, feriados, pessoa, alvo, dosOutros, sugestao, previa, editando, ocupado, selecionadaId, onEscolher, onSelecionar, onMover, onPedido }: Props) {
   const [arrasto, setArrasto] = useState<{ de: string; ate: string } | null>(null);
   const [movendo, setMovendo] = useState<Movendo | null>(null);
   const pista = useRef<HTMLDivElement>(null);
@@ -54,7 +57,7 @@ export function PistaDaPessoa({ eixo, feriados, pessoa, alvo, dosOutros, sugesta
   const fantasma: Fantasma | null = movendo
     ? { tipo: "mover", inicio: movendo.inicio, dias: movendo.g.dias }
     : arrasto ? { tipo: "arrasto", ...intervaloDoArrasto(arrasto) }
-      : previa ? { tipo: "previa", ...previa }
+      : previa ? { tipo: previa.pedido ? "pedido" : "previa", inicio: previa.inicio, dias: previa.dias }
         : sugestao && !editando ? { tipo: "sugestao", inicio: sugestao.inicio, dias: sugestao.dias } : null;
   const periodoDoFantasma = movendo ? movendo.periodo : alvo;
 
@@ -118,6 +121,9 @@ export function PistaDaPessoa({ eixo, feriados, pessoa, alvo, dosOutros, sugesta
           onPointerDown={(e) => comecarMover(e, p, g)} onPointerMove={andarComBarra} onPointerUp={soltarBarra}
           onLostPointerCapture={() => setMovendo(null)} />
       )))}
+      {pessoa.periodos.map((p) => p.solicitacao && (
+        <PedidoNaPista key={`pedido-${p.aquisitivoInicio}`} eixo={eixo} nome={pessoa.nome} periodo={p} escondido={fantasma?.tipo === "pedido"} onAbrir={() => onPedido(p)} />
+      ))}
       {fantasma && periodoDoFantasma && (
         <FantasmaDeFerias eixo={eixo} feriados={feriados} repousos={pessoa.repousoSemanal} fantasma={fantasma} alvo={periodoDoFantasma}
           colegas={quemEstaFora(dosOutros, fantasma.inicio, somaDias(fantasma.inicio, fantasma.dias - 1)).length}
@@ -162,6 +168,9 @@ function JanelaDoPeriodo({ eixo, periodo: p }: { eixo: Eixo; periodo: PeriodoFer
         <span className="fe-tl-limite" style={{ left: limite.x + limite.largura }} title={`Último dia para começar sem vencer: ${dataBr(p.limiteInicioGozo)}`}>
           <Flag size={12} aria-hidden="true" />
         </span>
+      )}
+      {limite && (
+        <span className="fe-tl-limite-tag" style={{ left: limite.x + limite.largura }} aria-hidden="true">limite {dataBr(p.limiteInicioGozo).slice(0, 5)}</span>
       )}
     </>
   );
@@ -211,8 +220,8 @@ function FantasmaDeFerias({ eixo, feriados, repousos, fantasma, alvo, colegas, o
   const r = retangulo(eixo, fantasma.inicio, datas.fim);
   if (!r) return null;
   const passaDoPrazo = datas.fim > alvo.fimConcessivo;
-  const curto = fantasma.tipo !== "mover" && fantasma.dias < MIN_DIAS_GOZO && fantasma.dias < alvo.diasPendentes;
-  const rotulo = fantasma.tipo === "sugestao" ? "Sugestão" : `${fantasma.dias} ${plural(fantasma.dias, "dia", "dias")}`;
+  const curto = fantasma.tipo !== "mover" && fantasma.tipo !== "pedido" && fantasma.dias < MIN_DIAS_GOZO && fantasma.dias < alvo.diasPendentes;
+  const rotulo = fantasma.tipo === "sugestao" ? "Sugestão" : fantasma.tipo === "pedido" ? `Pedido · ${fantasma.dias}d` : `${fantasma.dias} ${plural(fantasma.dias, "dia", "dias")}`;
   const largo = r.largura >= 120;
   const vedado = fantasma.tipo === "sugestao" ? null : motivoInicioVedado(fantasma.inicio, feriados, repousos);
   const aviso = [
@@ -234,4 +243,20 @@ function FantasmaDeFerias({ eixo, feriados, repousos, fantasma, alvo, colegas, o
     ? <button type="button" tabIndex={-1} className={classe} style={{ left: r.x, width: r.largura }} title={`${titulo}. Clique para usar`}
       onPointerDown={(e) => e.stopPropagation()} onClick={onUsar}>{conteudo}</button>
     : <div className={classe} style={{ left: r.x, width: r.largura }} title={titulo}>{conteudo}</div>;
+}
+
+/** O que o colaborador pediu: uma faixa tracejada no pé da linha, ao lado da programação (a barra azul). */
+function PedidoNaPista({ eixo, nome, periodo, escondido, onAbrir }: { eixo: Eixo; nome: string; periodo: PeriodoFerias; escondido: boolean; onAbrir: () => void }) {
+  const pedido = periodo.solicitacao;
+  if (!pedido || escondido) return null;
+  const r = retangulo(eixo, pedido.inicio, pedido.fim);
+  if (!r) return null;
+  const comparacao = compararPedido(periodo);
+  const texto = `Pedido de ${nome}: ${resumoDoPedido(pedido)}${comparacao ? ` — ${ROTULO_DA_SITUACAO_DO_PEDIDO[comparacao.situacao].toLowerCase()}` : ""}`;
+  return (
+    <button type="button" className={`fe-tl-pedido fe-tl-pedido--${(comparacao?.situacao ?? "AGUARDANDO").toLowerCase()}`} style={{ left: r.x, width: Math.max(r.largura, 8) }}
+      aria-label={`${texto}. Abrir o pedido`} title={texto} onPointerDown={(e) => e.stopPropagation()} onClick={onAbrir}>
+      {r.largura >= 74 && <span>Pediu {dataBr(pedido.inicio).slice(0, 5)}–{dataBr(pedido.fim).slice(0, 5)}</span>}
+    </button>
+  );
 }
