@@ -82,6 +82,16 @@ export function descricaoDosItens(itens: ReadonlyArray<Pick<ItemGuia, "descripti
 
 export type NumeroDoDocumento = { ok: true; valor: string | null } | { ok: false };
 
+export type QuantidadeDeTrabalhadores = { ok: true; valor: number | null } | { ok: false };
+
+// Quantidade de trabalhadores do FGTS Digital: inteiro de 0 a 100000; vazio = não informado.
+export function lerQuantidadeDeTrabalhadores(bruto: unknown): QuantidadeDeTrabalhadores {
+  if (bruto == null || bruto === "") return { ok: true, valor: null };
+  const n = typeof bruto === "number" ? bruto : typeof bruto === "string" && /^\d{1,6}$/.test(bruto.trim()) ? Number(bruto.trim()) : NaN;
+  if (!Number.isInteger(n) || n < 0 || n > 100000) return { ok: false };
+  return { ok: true, valor: n };
+}
+
 // Número do documento do DAS/DARF ("07.20.26290.7165263-2") ou identificador do FGTS: texto livre curto.
 export function lerNumeroDoDocumento(bruto: unknown): NumeroDoDocumento {
   if (bruto == null) return { ok: true, valor: null };

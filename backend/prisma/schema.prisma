@@ -2118,6 +2118,8 @@ model TaxPayment {
   // ATENÇÃO: existe um índice único parcial por expressão no banco (migration 20261026100100_impostos_documento_unico),
   // que o Prisma não representa neste schema: ao gerar migrations novas, conferir que não venha um DROP INDEX dele.
   documentNumber String?
+  // FGTS Digital: quantidade de trabalhadores que a guia informa (opcional).
+  workersCount   Int?
   attachments    TaxPaymentAttachment[]
   items          TaxPaymentItem[]
   createdAt      DateTime               @default(now())

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { descricaoDosItens, lerNumeroDoDocumento, MAXIMO_DE_LINHAS, normalizarItens, totalDaLinha } from "../tax-payment-items.js";
+import { descricaoDosItens, lerNumeroDoDocumento, lerQuantidadeDeTrabalhadores, MAXIMO_DE_LINHAS, normalizarItens, totalDaLinha } from "../tax-payment-items.js";
 
 // Composição do DAS de exemplo (valores fictícios): o total tem de ser a soma das linhas, ao centavo.
 const das = [
@@ -113,5 +113,21 @@ describe("lerNumeroDoDocumento", () => {
   test("recusa o que não é texto e o muito longo", () => {
     expect(lerNumeroDoDocumento({})).toEqual({ ok: false });
     expect(lerNumeroDoDocumento("1".repeat(61))).toEqual({ ok: false });
+  });
+});
+
+describe("lerQuantidadeDeTrabalhadores", () => {
+  test("inteiro (número ou texto) é aceito; vazio é 'não informado'", () => {
+    expect(lerQuantidadeDeTrabalhadores(12)).toEqual({ ok: true, valor: 12 });
+    expect(lerQuantidadeDeTrabalhadores(" 7 ")).toEqual({ ok: true, valor: 7 });
+    expect(lerQuantidadeDeTrabalhadores("")).toEqual({ ok: true, valor: null });
+    expect(lerQuantidadeDeTrabalhadores(null)).toEqual({ ok: true, valor: null });
+    expect(lerQuantidadeDeTrabalhadores(0)).toEqual({ ok: true, valor: 0 });
+  });
+
+  test("rejeita decimal, negativo, texto e valor absurdo", () => {
+    for (const ruim of [1.5, -1, "abc", "1,5", "12a", 100001, "1000000", {}, true]) {
+      expect(lerQuantidadeDeTrabalhadores(ruim)).toEqual({ ok: false });
+    }
   });
 });

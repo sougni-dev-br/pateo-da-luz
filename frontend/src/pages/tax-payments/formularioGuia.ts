@@ -35,6 +35,8 @@ export type FormGuia = {
   legalName: string;
   tradeName: string;
   documentNumber: string;
+  /** FGTS: quantidade de trabalhadores (texto do campo; vazio = não informado). */
+  workersCount: string;
   dreCategoryId: string;
   comments: string;
   cancelada: boolean;
@@ -50,7 +52,7 @@ export function novaLinha(parcial: Partial<LinhaForm> = {}): LinhaForm {
 }
 
 export const FORM_VAZIO: FormGuia = {
-  documentType: "", mes: "", dueDate: "", companyId: "", cnpj: "", legalName: "", tradeName: "", documentNumber: "",
+  documentType: "", mes: "", dueDate: "", companyId: "", cnpj: "", legalName: "", tradeName: "", documentNumber: "", workersCount: "",
   dreCategoryId: "", comments: "", cancelada: false, totalDoPapel: "", linhas: [],
 };
 
@@ -102,6 +104,7 @@ export function formDaGuia(d: TaxPaymentDetail): FormGuia {
     legalName: d.legalName ?? "",
     tradeName: d.tradeName ?? "",
     documentNumber: d.documentNumber ?? "",
+    workersCount: d.workersCount != null ? String(d.workersCount) : "",
     dreCategoryId: d.dreCategoryId ?? "",
     comments: d.comments ?? "",
     cancelada: d.status === "CANCELED",
@@ -112,7 +115,7 @@ export function formDaGuia(d: TaxPaymentDetail): FormGuia {
 
 // Duplicar copia a guia e deixa em branco o que muda a cada emissão (competência, vencimento e número do documento).
 export function formDuplicado(d: TaxPaymentDetail): FormGuia {
-  return { ...formDaGuia(d), mes: "", dueDate: "", documentNumber: "", cancelada: false, totalDoPapel: "" };
+  return { ...formDaGuia(d), mes: "", dueDate: "", documentNumber: "", workersCount: "", cancelada: false, totalDoPapel: "" };
 }
 
 // Competência sugerida (mês anterior ao vencimento) só para os tipos que seguem essa regra.
@@ -182,6 +185,9 @@ export function pendenciasDaGuia(f: FormGuia, ctx: ContextoDasPendencias): Pende
       p.push({ campo: "numero", texto: `Informe o ${modelo.rotuloDocumento.toLowerCase()} (está no documento).` });
     }
   }
+  if (!ctx.emEdicao && f.documentType && modeloDoTipo(f.documentType).pedeTrabalhadores && !f.workersCount.trim()) {
+    p.push({ campo: "trabalhadores", texto: "Informe a quantidade de trabalhadores (está no documento)." });
+  }
   if (ctx.numeroRepetido) p.push({ campo: "numero", texto: `Já existe a guia nº ${ctx.numeroRepetido}. Edite a existente em vez de lançar outra.` });
 
   if (!ctx.valoresFixos) {
@@ -227,6 +233,7 @@ export function payloadDaGuia(f: FormGuia, emEdicao: boolean, categoriaEscolhida
     tradeName: f.tradeName || null,
     documentType: f.documentType,
     documentNumber: f.documentNumber.trim() || null,
+    workersCount: modeloDoTipo(f.documentType).pedeTrabalhadores && f.workersCount.trim() ? Number(f.workersCount) : null,
     competenceDate: competenciaDoMes(f.mes) || null,
     dueDate: f.dueDate,
     comments: f.comments || null,

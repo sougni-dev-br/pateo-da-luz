@@ -5520,6 +5520,8 @@ export type TaxPayment = {
   description: string | null;
   /** Número do documento (DAS/DARF) ou identificador (FGTS). */
   documentNumber: string | null;
+  /** FGTS Digital: quantidade de trabalhadores informada na guia. */
+  workersCount?: number | null;
   /** Quantas linhas tem a composição da guia (a lista traz só a contagem; as linhas vêm no detalhe). */
   itemsCount?: number;
   competenceDate: string | null;

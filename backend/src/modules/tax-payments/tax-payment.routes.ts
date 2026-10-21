@@ -11,7 +11,7 @@ import { categoriaIdPorNome, sugerirCategoriaImposto } from "./categoria-imposto
 import { userHasPermission } from "../security/menu-permissions.js";
 import type { SessionUser } from "../security/security-utils.js";
 import { montarPanorama } from "./tax-payment-panorama.js";
-import { descricaoDosItens, lerNumeroDoDocumento, normalizarItens, type ItemGuia } from "./tax-payment-items.js";
+import { descricaoDosItens, lerNumeroDoDocumento, lerQuantidadeDeTrabalhadores, normalizarItens, type ItemGuia } from "./tax-payment-items.js";
 import { aplicarCatalogoDeCodigos } from "./tax-code-catalog.js";
 import { diaIso, hojeBrasilia, lerData, parseValorGuia, resolverUploadImportacao, statusDaGuia } from "./tax-payment-rules.js";
 
@@ -313,7 +313,7 @@ taxPaymentRouter.post("/", async (request, response) => {
 
   const {
     companyId, cnpj, legalName, tradeName, documentType, description,
-    competenceDate, dueDate, amount, paymentDate, paidAmount, comments, dreCategoryId, documentNumber, items,
+    competenceDate, dueDate, amount, paymentDate, paidAmount, comments, dreCategoryId, documentNumber, workersCount, items,
   } = request.body as Record<string, unknown>;
 
   if (!documentType || typeof documentType !== "string" || !documentType.trim()) {
@@ -342,6 +342,8 @@ taxPaymentRouter.post("/", async (request, response) => {
     const repetida = await guiaComEsteNumero(numero.valor);
     if (repetida) return response.status(409).json({ message: mensagemDeGuiaRepetida(repetida, numero.valor), code: "DUPLICATE_DOCUMENT" });
   }
+  const trabalhadores = lerQuantidadeDeTrabalhadores(workersCount);
+  if (!trabalhadores.ok) return response.status(400).json({ message: "Quantidade de trabalhadores inválida (número inteiro, de 0 a 100000)." });
   const descricao = typeof description === "string" && description.trim() ? description.trim() : itens ? descricaoDosItens(itens) : null;
 
   // Sem competência a guia não entra em DRE nenhum: é o que a tela promete ao lançar um imposto.
@@ -379,6 +381,7 @@ taxPaymentRouter.post("/", async (request, response) => {
       documentType: String(documentType).trim(),
       description: descricao,
       documentNumber: numero.valor,
+      workersCount: trabalhadores.valor,
       competenceDate: competencia.data,
       dueDate: dataDeVencimento,
       amount: valor,
@@ -423,7 +426,7 @@ taxPaymentRouter.put("/:id", async (request, response) => {
 
   const {
     companyId, cnpj, legalName, tradeName, documentType, description,
-    competenceDate, dueDate, amount, paymentDate, paidAmount, comments, dreCategoryId, status, documentNumber, items,
+    competenceDate, dueDate, amount, paymentDate, paidAmount, comments, dreCategoryId, status, documentNumber, workersCount, items,
   } = request.body as Record<string, unknown>;
 
   const pagoAnterior = existing.paidAmount == null ? null : Number(existing.paidAmount);
@@ -462,6 +465,13 @@ taxPaymentRouter.put("/:id", async (request, response) => {
     valor = amount != null && amount !== "" ? parseValorGuia(amount) : Number(existing.amount);
   }
   if (valor == null) return response.status(400).json({ message: "Valor deve ser maior que zero." });
+
+  let trabalhadoresDaGuia = existing.workersCount;
+  if (workersCount !== undefined) {
+    const lido = lerQuantidadeDeTrabalhadores(workersCount);
+    if (!lido.ok) return response.status(400).json({ message: "Quantidade de trabalhadores inválida (número inteiro, de 0 a 100000)." });
+    trabalhadoresDaGuia = lido.valor;
+  }
 
   let numeroDoDocumento = existing.documentNumber;
   if (documentNumber !== undefined) {
@@ -516,6 +526,7 @@ taxPaymentRouter.put("/:id", async (request, response) => {
         ? descricaoDosItens(itens)
         : description !== undefined ? ((description as string) || null) : existing.description,
       documentNumber: numeroDoDocumento,
+      workersCount: trabalhadoresDaGuia,
       competenceDate: competencia.data,
       dueDate: dataDeVencimento,
       amount: valor,

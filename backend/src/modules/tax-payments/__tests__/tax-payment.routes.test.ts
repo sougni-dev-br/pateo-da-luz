@@ -309,6 +309,16 @@ describe("discriminação da guia (linhas) e total somado", () => {
     db.$queryRawUnsafe.mockResolvedValue([]);
   });
 
+  test("quantidade de trabalhadores (FGTS) é gravada; inválida é 400 e não grava", async () => {
+    const ok = await request(app).post("/tax-payments").send({ ...guia, items: das, workersCount: "12" });
+    expect(ok.status).toBe(201);
+    expect(db.taxPayment.create.mock.calls.at(-1)?.[0].data.workersCount).toBe(12);
+    const antes = db.taxPayment.create.mock.calls.length;
+    const ruim = await request(app).post("/tax-payments").send({ ...guia, items: das, workersCount: "doze" });
+    expect(ruim.status).toBe(400);
+    expect(db.taxPayment.create.mock.calls.length).toBe(antes);
+  });
+
   test("o valor da guia é a soma das linhas e as linhas são gravadas junto, na mesma operação", async () => {
     const r = await request(app).post("/tax-payments").send({ ...guia, items: das, amount: 1 });
     expect(r.status).toBe(201);

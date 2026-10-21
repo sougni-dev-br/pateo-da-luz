@@ -233,7 +233,7 @@ describe("ModalGuia: tipo, modelos e confirmações", () => {
     abrir();
     fireEvent.click(screen.getByRole("radio", { name: "FGTS" }));
     expect(screen.getByLabelText(/Identificador/)).toBeTruthy();
-    expect(screen.getByText(/quantidade de trabalhadores/i)).toBeTruthy();
+    expect(screen.getByLabelText(/quantidade de trabalhadores/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: /Informe o identificador/ })).toBeTruthy();
   });
 
