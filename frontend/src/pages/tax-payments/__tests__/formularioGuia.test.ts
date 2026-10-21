@@ -52,6 +52,11 @@ describe("modelos de guia", () => {
     expect(linhas[4].description).toBe("INSS - SIMPLES NACIONAL");
   });
 
+  test("FGTS pede a quantidade de trabalhadores; DAS não", () => {
+    expect(modeloDoTipo("FGTS").pedeTrabalhadores).toBe(true);
+    expect(modeloDoTipo("Simples Nacional / DAS").pedeTrabalhadores).toBeFalsy();
+  });
+
   test("FGTS traz as quatro colunas da guia, sem código", () => {
     const linhas = linhasDoModelo("FGTS");
     expect(linhas.map((l) => l.description)).toEqual(["FGTS Mensal", "FGTS Rescisório", "Indenização Compensatória", "Encargos FGTS"]);
@@ -97,6 +102,15 @@ const guiaCompleta = (): FormGuia => ({ ...guiaDas(), documentNumber: "07.20.262
 describe("pendenciasDaGuia (a guia só conclui com tudo resolvido)", () => {
   test("guia completa não tem pendência", () => {
     expect(pendenciasDaGuia(guiaCompleta(), ctx())).toEqual([]);
+  });
+
+  test("FGTS novo sem a quantidade de trabalhadores é pendência; informada, resolve; edição não exige", () => {
+    const fgts = { ...FORM_VAZIO, documentType: "FGTS", mes: "2026-07", dueDate: "2026-08-20", documentNumber: "123", linhas: [novaLinha({ description: "FGTS Mensal", principal: "10,00" })] };
+    expect(pendenciasDaGuia(fgts, ctx({ catalogo: [] })).map((x) => x.campo)).toContain("trabalhadores");
+    expect(pendenciasDaGuia({ ...fgts, workersCount: "12" }, ctx({ catalogo: [] })).map((x) => x.campo)).not.toContain("trabalhadores");
+    expect(pendenciasDaGuia(fgts, ctx({ catalogo: [], emEdicao: true })).map((x) => x.campo)).not.toContain("trabalhadores");
+    expect(payloadDaGuia({ ...fgts, workersCount: "12" }, false, false, false).workersCount).toBe(12);
+    expect(payloadDaGuia({ ...guiaDas(), workersCount: "12" }, false, false, false).workersCount).toBeNull();
   });
 
   test("sem competência não lança: a pendência diz por quê", () => {

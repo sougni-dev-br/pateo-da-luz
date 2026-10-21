@@ -324,6 +324,14 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
                   onChange={(e) => campo("documentNumber", e.target.value)} />
               </FormField>
             </div>
+            {modelo.pedeTrabalhadores && (
+              <div data-pend="trabalhadores">
+                <FormField label="Quantidade de trabalhadores" required={!emEdicao} hint="Como está na guia.">
+                  <TextField inputMode="numeric" value={form.workersCount} disabled={!editavel} placeholder="Ex.: 12"
+                    onChange={(e) => campo("workersCount", e.target.value.replace(/\D/g, "").slice(0, 6))} />
+                </FormField>
+              </div>
+            )}
           </FormGrid>
         </FormSection>
 

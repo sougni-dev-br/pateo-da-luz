@@ -89,11 +89,13 @@ function BotaoPagar({ g, a, urgente }: { g: TaxPayment; a: AcoesDaGuia; urgente:
 // Subtítulo da guia: número do documento e quantas linhas tem (no lugar da lista de denominações, igual em todo DAS).
 function SubtituloDaGuia({ g, aberta, onAlternar }: { g: TaxPayment; aberta: boolean; onAlternar: () => void }) {
   const linhas = g.itemsCount ?? 0;
-  if (!g.documentNumber && linhas === 0) return g.description ? <span className="ip-guia-desc" title={g.description}>{g.description}</span> : null;
+  const trabalhadores = g.workersCount ?? null;
+  if (!g.documentNumber && linhas === 0 && trabalhadores == null) return g.description ? <span className="ip-guia-desc" title={g.description}>{g.description}</span> : null;
   return (
     <span className="ip-guia-desc">
       {g.documentNumber && <span title="Número do documento">nº {g.documentNumber}</span>}
-      {g.documentNumber && linhas > 0 && " · "}
+      {g.documentNumber && (linhas > 0 || trabalhadores != null) && " · "}
+      {trabalhadores != null && <span title="Quantidade de trabalhadores">{trabalhadores} {trabalhadores === 1 ? "trabalhador" : "trabalhadores"}{linhas > 0 && " · "}</span>}
       {linhas > 0 && (
         <button type="button" className="ip-linhas-link" aria-expanded={aberta} onClick={onAlternar}>
           {aberta ? <ChevronDown size={12} aria-hidden="true" /> : <ChevronRight size={12} aria-hidden="true" />}

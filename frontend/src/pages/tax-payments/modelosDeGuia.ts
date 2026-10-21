@@ -8,6 +8,8 @@ export type ModeloDeGuia = {
   rotuloDocumento: string;
   /** O documento sempre traz o número (DAS, DARF, FGTS): lançar sem ele é pendência. */
   numeroObrigatorio: boolean;
+  /** O documento traz a quantidade de trabalhadores (FGTS Digital): campo próprio, obrigatório ao lançar. */
+  pedeTrabalhadores?: boolean;
   /** O que costuma ir em Observações neste tipo (o documento traz, mas não tem campo próprio). */
   dicaObservacoes: string;
   /** Linhas que já aparecem ao escolher o tipo (as que ficarem sem valor são ignoradas ao salvar). */
@@ -47,7 +49,7 @@ export function modeloDoTipo(tipo: string): ModeloDeGuia {
     case "Simples Nacional / DAS":
       return { numeroObrigatorio: true, rotuloDocumento: "Número do documento", dicaObservacoes: "", linhas: DAS, sugestoes: [] };
     case "FGTS":
-      return { numeroObrigatorio: true, rotuloDocumento: "Identificador", dicaObservacoes: "Ex.: quantidade de trabalhadores informada na guia.", linhas: FGTS, sugestoes: [] };
+      return { numeroObrigatorio: true, pedeTrabalhadores: true, rotuloDocumento: "Identificador", dicaObservacoes: "Ex.: mês de referência de uma rescisão.", linhas: FGTS, sugestoes: [] };
     case "DARF":
       return { numeroObrigatorio: true, rotuloDocumento: "Número do documento", dicaObservacoes: "Ex.: Nº do recibo da declaração, que vem no campo Observações da guia.", linhas: DARF_PREVIDENCIARIO, sugestoes: [IRRF] };
     case "DARF IR":
