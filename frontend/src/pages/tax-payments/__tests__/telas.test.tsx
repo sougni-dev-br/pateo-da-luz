@@ -208,6 +208,18 @@ describe("LinhasDaGuia", () => {
     expect((screen.getByLabelText("Denominação da linha 1") as HTMLInputElement).value).toBe("ICMS - SIMPLES NACIONAL SP");
   });
 
+  test("documento sem código (FGTS): a coluna de código some e as linhas do modelo seguem travadas", () => {
+    const { container } = render(<Editor tipo="FGTS" />);
+    expect(container.querySelector(".ip-linhas--sem-codigo")).toBeTruthy();
+    expect(screen.getByText(/Informe o valor de cada linha como está no documento/)).toBeTruthy();
+    expect((screen.getByLabelText("Denominação da linha 2") as HTMLInputElement).value).toBe("FGTS Rescisório");
+  });
+
+  test("documento com código (DAS): a coluna de código continua", () => {
+    const { container } = render(<Editor />);
+    expect(container.querySelector(".ip-linhas--sem-codigo")).toBeNull();
+  });
+
   test("tipo sem catálogo (IPTU): a denominação é digitada, sem código", () => {
     render(<Editor tipo="IPTU" />);
     const nome = screen.getByLabelText("Denominação da linha 1") as HTMLInputElement;

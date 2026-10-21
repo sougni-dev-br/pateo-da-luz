@@ -3,7 +3,7 @@ import { useEffect, useId, useRef, useState, type ClipboardEvent, type KeyboardE
 import type { TaxCode } from "../../api/client";
 import { Button, IconButton, Money } from "../../design-system";
 import { maskMoney } from "../../utils/format";
-import { descricaoDoCodigo, estadoDaDenominacao, novaLinha, totalDaGuia, totalDaLinha, valorColado, type LinhaForm } from "./formularioGuia";
+import { descricaoDoCodigo, estadoDaDenominacao, novaLinha, tipoSemCatalogo, totalDaGuia, totalDaLinha, valorColado, type LinhaForm } from "./formularioGuia";
 import "./tax-payments.css";
 
 type Props = {
@@ -83,10 +83,12 @@ export function LinhasDaGuia({
     mudar(chave, campo, valorColado(texto));
   }
 
+  // FGTS Digital, IPTU e afins não trazem código no documento: sem a coluna, só denominação e valor.
+  const semCodigo = tipoSemCatalogo(tipo, catalogo);
   const campos = mostrarMultaJuros ? (["principal", "fine", "interest"] as const) : (["principal"] as const);
 
   return (
-    <div className={`ip-linhas${mostrarMultaJuros ? "" : " ip-linhas--simples"}`} role="group" aria-label="Composição da guia">
+    <div className={`ip-linhas${mostrarMultaJuros ? "" : " ip-linhas--simples"}${semCodigo ? " ip-linhas--sem-codigo" : ""}`} role="group" aria-label="Composição da guia">
       <div className="ip-linhas-cab" aria-hidden="true">
         <span>Código</span><span>Denominação</span>
         {campos.map((c) => <span key={c}>{ROTULO[c]}</span>)}
@@ -152,7 +154,7 @@ export function LinhasDaGuia({
         {catalogo.map((c) => <option key={c.code} value={c.code}>{c.description}</option>)}
       </datalist>
 
-      {!somenteLeitura && <small className="ip-dica-linhas">Digite o código: a denominação vem sozinha. Linhas sem valor são ignoradas ao salvar. Enter passa para o valor.</small>}
+      {!somenteLeitura && <small className="ip-dica-linhas">{semCodigo ? "Informe o valor de cada linha como está no documento. " : "Digite o código: a denominação vem sozinha. "}Linhas sem valor são ignoradas ao salvar. Enter passa para o valor.</small>}
 
       <div className="ip-linhas-rodape">
         {somenteLeitura ? <span /> : (

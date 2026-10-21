@@ -321,6 +321,14 @@
 .ip-linhas--simples .ip-linhas-cab,
 .ip-linhas--simples .ip-linha-form { grid-template-columns: 78px minmax(0, 1fr) 140px 120px 34px; }
 
+/* Documento sem código (FGTS Digital, IPTU): a coluna some e a denominação ocupa o lugar. */
+.ip-linhas--sem-codigo .ip-linhas-cab > :first-child,
+.ip-linhas--sem-codigo .ip-in-codigo { display: none; }
+.ip-linhas--sem-codigo .ip-linhas-cab,
+.ip-linhas--sem-codigo .ip-linha-form { grid-template-columns: minmax(0, 1fr) 118px 100px 100px 112px 34px; }
+.ip-linhas--sem-codigo.ip-linhas--simples .ip-linhas-cab,
+.ip-linhas--sem-codigo.ip-linhas--simples .ip-linha-form { grid-template-columns: minmax(0, 1fr) 140px 120px 34px; }
+
 .ip-dica-linhas { color: var(--muted); font-size: var(--fs-xs); }
 
 .ip-totais { display: flex; align-items: flex-end; gap: 28px; flex-wrap: wrap; justify-content: flex-end; }
@@ -391,6 +399,8 @@
   .ip-linhas--simples .ip-linha-form > :nth-child(3) { grid-area: pri; }
   .ip-linhas--simples .ip-linha-form > :nth-child(4) { grid-area: tot; }
   .ip-linhas--simples .ip-linha-form > :nth-child(5) { grid-area: rem; justify-self: end; }
+  .ip-linhas--sem-codigo .ip-linha-form { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-areas: "nome nome nome" "pri mul jur" "tot tot rem"; }
+  .ip-linhas--sem-codigo.ip-linhas--simples .ip-linha-form { grid-template-areas: "nome nome nome" "pri tot rem"; }
   .ip-totais { justify-content: flex-start; }
   .ip-linha-form > :nth-child(7) { justify-self: end; }
 }
