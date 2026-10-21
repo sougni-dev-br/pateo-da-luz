@@ -180,6 +180,8 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
   }, [form.documentNumber, editId]);
 
   const modelo = modeloDoTipo(form.documentType);
+  // FGTS não separa multa e juros: o que há de encargos é uma linha própria. Guia antiga que já tenha esses valores mantém as colunas.
+  const tipoSemMultaEJuros = form.documentType === "FGTS" && !form.linhas.some((l) => l.fine.trim() || l.interest.trim());
   const diferenca = diferencaComOPapel(form);
 
   // O que ainda impede de lançar: a guia só conclui com tudo resolvido.
@@ -374,8 +376,9 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
           title="Composição da guia"
           description={valoresFixos
             ? "Esta guia já foi paga em Contas a Pagar: para mudar os valores, estorne o pagamento lá."
-            : "Digite o código de cada linha do documento: a denominação vem dele. O valor da guia é a soma das linhas."}
-          actions={editavel && !valoresFixos ? (
+            : tipoSemMultaEJuros ? "Informe o valor de cada linha como está no documento. O valor da guia é a soma das linhas."
+              : "Digite o código de cada linha do documento: a denominação vem dele. O valor da guia é a soma das linhas."}
+          actions={editavel && !valoresFixos && !tipoSemMultaEJuros ? (
             <div className="ip-multa-juros">
               <Switch label="Guia com multa e juros" checked={mostrarMultaJuros} onChange={setMostrarMultaJuros} />
               <span>Com multa e juros</span>
@@ -389,7 +392,7 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
               catalogo={catalogo}
               onChange={mudarLinhas}
               somenteLeitura={!editavel || valoresFixos}
-              mostrarMultaJuros={mostrarMultaJuros}
+              mostrarMultaJuros={mostrarMultaJuros && !tipoSemMultaEJuros}
               totalDoPapel={form.totalDoPapel}
               onTotalDoPapel={(t) => campo("totalDoPapel", t)}
               diferenca={diferenca}

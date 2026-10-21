@@ -288,6 +288,14 @@ describe("ModalGuia: tipo, modelos e confirmações", () => {
     expect(screen.getAllByLabelText(/^Principal da linha/)).toHaveLength(4);
   });
 
+  test("FGTS não tem multa e juros separados: sem interruptor e sem as colunas (encargos é uma linha)", () => {
+    abrir();
+    fireEvent.click(screen.getByRole("radio", { name: "FGTS" }));
+    expect(screen.queryByRole("switch", { name: "Guia com multa e juros" })).toBeNull();
+    expect(screen.queryByLabelText("Multa da linha 1")).toBeNull();
+    expect(screen.getByLabelText("Denominação da linha 4")).toBeTruthy();
+  });
+
   test("multa e juros começam recolhidos e abrem pelo interruptor", () => {
     abrir();
     fireEvent.click(screen.getByRole("radio", { name: "Simples Nacional / DAS" }));
