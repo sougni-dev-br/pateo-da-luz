@@ -24,13 +24,15 @@
 .fe-tl-amostra { width: 18px; height: 10px; border-radius: 3px; display: inline-block; border: 1px solid transparent; }
 
 /* Cores compartilhadas entre legenda, faixas e barras. */
-.fe-tl-amostra--seguro, .fe-tl-zona--seguro { background: color-mix(in srgb, var(--tint-success-border) 62%, var(--paper)); }
-.fe-tl-amostra--atencao, .fe-tl-zona--atencao { background: color-mix(in srgb, var(--tint-warning-border) 88%, var(--paper)); }
-.fe-tl-amostra--urgente, .fe-tl-zona--urgente { background: color-mix(in srgb, var(--danger) 42%, var(--paper)); }
+/* Faixas do período: cores bem separadas (verde, âmbar, vermelho e vermelho hachurado) e com contorno, para ler de longe. */
+.fe-tl-amostra--seguro, .fe-tl-zona--seguro { background: color-mix(in srgb, var(--success) 42%, var(--paper)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--success) 70%, var(--paper)); }
+.fe-tl-amostra--atencao, .fe-tl-zona--atencao { background: color-mix(in srgb, var(--gold) 70%, var(--warning)); box-shadow: inset 0 0 0 1px var(--warning); }
+.fe-tl-amostra--urgente, .fe-tl-zona--urgente { background: color-mix(in srgb, var(--danger) 88%, var(--paper)); box-shadow: inset 0 0 0 1px var(--danger); }
 .fe-tl-amostra--estouro, .fe-tl-zona--estouro {
-  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--danger) 60%, var(--paper)) 0 3px, color-mix(in srgb, var(--danger) 20%, var(--paper)) 3px 7px);
+  background: repeating-linear-gradient(135deg, var(--danger) 0 3px, color-mix(in srgb, var(--danger) 25%, var(--paper)) 3px 7px);
+  box-shadow: inset 0 0 0 1px var(--danger);
 }
-.fe-tl-zona--neutro { background: var(--paper-soft); }
+.fe-tl-zona--neutro { background: color-mix(in srgb, var(--ink) 9%, var(--paper)); box-shadow: inset 0 0 0 1px var(--line-strong); }
 .fe-tl-amostra--programada { background: var(--info); }
 .fe-tl-amostra--gozada { background: var(--success); }
 .fe-tl-amostra--vedado { height: 4px; background: var(--danger); opacity: 0.6; }
@@ -119,6 +121,8 @@
 .fe-tl-zona--seguro { border-top-left-radius: 8px; border-bottom-left-radius: 8px; }
 .fe-tl-limite { position: absolute; top: 0; transform: translateX(-100%); display: grid; place-items: center; width: 16px; height: 16px; color: var(--danger); pointer-events: none; }
 .fe-tl-limite svg { fill: currentColor; }
+/* Traço do prazo limite por toda a faixa do período, não só a bandeira no alto */
+.fe-tl-limite::after { content: ""; position: absolute; right: -1px; top: 14px; height: 34px; border-right: 2px solid var(--danger); }
 .fe-tl-aquisicao {
   position: absolute; top: 20px; height: 18px; display: flex; align-items: center; padding: 0 8px; overflow: hidden; white-space: nowrap;
   border: 1.5px dashed var(--line-strong); border-radius: 9px; font-size: var(--fs-2xs); color: var(--muted);
@@ -134,8 +138,8 @@
 }
 .fe-tl-barra:hover { transform: translateY(-1px); box-shadow: 0 5px 12px color-mix(in srgb, var(--ink) 30%, transparent); }
 .fe-tl-barra[aria-pressed="true"] { outline: 2px solid var(--ink); outline-offset: 2px; }
-.fe-tl-barra--programada { background: linear-gradient(180deg, color-mix(in srgb, var(--info) 88%, var(--paper)), var(--info)); }
-.fe-tl-barra--gozada { background: linear-gradient(180deg, color-mix(in srgb, var(--success) 88%, var(--paper)), var(--success)); }
+.fe-tl-barra--programada { background: var(--info); box-shadow: 0 0 0 1.5px var(--paper), 0 2px 6px color-mix(in srgb, var(--ink) 30%, transparent); }
+.fe-tl-barra--gozada { background: var(--success); box-shadow: 0 0 0 1.5px var(--paper), 0 2px 6px color-mix(in srgb, var(--ink) 30%, transparent); }
 .fe-tl-barra--risco { box-shadow: 0 0 0 2px var(--paper), 0 0 0 4px var(--danger); }
 
 /* Fantasmas: arrasto, prévia do formulário e sugestão */
@@ -219,20 +223,21 @@ button.fe-tl-fantasma { cursor: pointer; }
 /* ── Pedido do colaborador × o que a empresa quer × prazo limite ───── */
 /* Faixa do pedido no pé da linha, abaixo da programação (a barra azul) e do prazo (bandeira e tag no alto). */
 .fe-tl-pedido {
-  position: absolute; top: 47px; height: 11px; z-index: 2; padding: 0 4px; display: inline-flex; align-items: center; overflow: hidden; white-space: nowrap;
-  border: 1.5px dashed var(--ink); border-radius: 6px; background: color-mix(in srgb, var(--paper) 90%, transparent); color: var(--ink);
+  position: absolute; top: 46px; height: 13px; z-index: 2; padding: 0 4px; display: inline-flex; align-items: center; overflow: hidden; white-space: nowrap;
+  border: 2px dashed var(--ink); border-radius: 6px; background: var(--paper); color: var(--ink);
   font: inherit; font-size: var(--fs-2xs); font-weight: var(--fw-semibold); line-height: 1; cursor: pointer;
 }
 .fe-tl-pedido:hover { background: var(--gold-tint); }
 .fe-tl-pedido--atendido { border-style: solid; border-color: var(--success); color: var(--success); }
 .fe-tl-pedido--diferente { border-color: var(--warning); color: var(--warning); }
+.fe-tl-pedido--atendido, .fe-tl-pedido--diferente { background: var(--paper); }
 .fe-tl-fantasma--pedido { top: 45px; height: 15px; padding: 0 5px; border-style: dashed; border-color: var(--ink); background: var(--paper); color: var(--ink); font-size: var(--fs-2xs); pointer-events: none; }
 .fe-tl-limite-tag {
   position: absolute; top: 0; transform: translateX(-100%); margin-left: -16px; padding: 0 4px; border-radius: 3px; background: var(--paper); color: var(--danger);
   font-size: var(--fs-2xs); font-weight: var(--fw-semibold); line-height: 12px; white-space: nowrap; pointer-events: none;
 }
 .fe-tl-amostra--pedido { height: 8px; border: 1.5px dashed var(--ink); background: var(--paper); }
-.fe-tl-amostra--limite { width: 10px; height: 10px; border: 0; background: var(--danger); clip-path: polygon(0 0, 100% 50%, 0 100%); }
+.fe-tl-amostra--limite { width: 10px; height: 10px; border: 0; background: var(--danger); clip-path: polygon(0 0, 100% 50%, 0 100%); box-shadow: none; }
 
 /* Ficha de três linhas na coluna do nome: o que pediu, o que a empresa quer e o prazo */
 .fe-tl-ficha { list-style: none; margin: 3px 0 2px; padding: 0; display: grid; gap: 1px; font-size: var(--fs-2xs); line-height: 1.25; color: var(--ink-soft); }
