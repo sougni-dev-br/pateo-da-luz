@@ -18,11 +18,13 @@ type Props = {
   enviando?: boolean;
   onCancelar: () => void;
   onConfirmar: (motivo: string) => void;
+  /** Conferência em vez de justificativa: o texto diz o que foi conferido. */
+  conferencia?: boolean;
 };
 
 const MINIMO = 10;
 
-export function JustificarDialog({ aberto, pendencia, enviando, onCancelar, onConfirmar }: Props) {
+export function JustificarDialog({ aberto, pendencia, enviando, onCancelar, onConfirmar, conferencia }: Props) {
   const [motivo, setMotivo] = useState("");
 
   // Limpar ao abrir, não ao fechar: fechar e reabrir na mesma pendência deve
@@ -39,8 +41,10 @@ export function JustificarDialog({ aberto, pendencia, enviando, onCancelar, onCo
     <Dialog
       open={aberto}
       onOpenChange={(v) => { if (!v) onCancelar(); }}
-      title="Justificar pendência"
-      description="O motivo fica registrado na auditoria do fechamento."
+      title={conferencia ? "Registrar conferência" : "Justificar pendência"}
+      description={conferencia
+        ? "A conferência fica registrada na auditoria do fechamento."
+        : "O motivo fica registrado na auditoria do fechamento."}
       size="md"
     >
       <div className="just-dialog">
@@ -52,13 +56,15 @@ export function JustificarDialog({ aberto, pendencia, enviando, onCancelar, onCo
         )}
 
         <label className="just-dialog-campo">
-          <span>Motivo</span>
+          <span>{conferencia ? "O que foi conferido" : "Motivo"}</span>
           <textarea
             value={motivo}
             onChange={(e) => setMotivo(e.target.value)}
             rows={4}
             autoFocus
-            placeholder="Ex.: nota do condomínio ainda não emitida pelo shopping; será lançada em julho."
+            placeholder={conferencia
+              ? "Ex.: conferi a agenda de eventos do mês; os 3 eventos estão lançados."
+              : "Ex.: nota do condomínio ainda não emitida pelo shopping; será lançada em julho."}
             aria-invalid={curto || undefined}
           />
         </label>
@@ -72,7 +78,7 @@ export function JustificarDialog({ aberto, pendencia, enviando, onCancelar, onCo
         <div className="just-dialog-acoes">
           <Button variant="secondary" onClick={onCancelar} disabled={enviando}>Cancelar</Button>
           <Button onClick={() => onConfirmar(limpo)} disabled={!podeEnviar}>
-            {enviando ? "Registrando…" : "Registrar justificativa"}
+            {enviando ? "Registrando…" : conferencia ? "Registrar conferência" : "Registrar justificativa"}
           </Button>
         </div>
       </div>

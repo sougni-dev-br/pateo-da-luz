@@ -4310,6 +4310,8 @@ export type MonthlyClosureState = {
     ifood: { grossAmount: number; count: number };
     noventaNove: { grossAmount: number; count: number };
     outrosDelivery: { grossAmount: number; count: number; plataformas: string[] };
+    /** Eventos/empreitada lançados em Faturamento (não passam pelo Agile); lançamento obrigatório no fechamento. */
+    eventos: { lancamentos: number; valor: number };
     /** Total do mes, lido do razao. Nunca some as parcelas acima — elas saem dele. */
     total: { grossAmount: number; netAmount: number };
   };
@@ -4320,6 +4322,11 @@ export type MonthlyClosureState = {
   };
   requiredSuppliers: MonthlyClosureRequiredSupplier[];
   taxes: MonthlyClosureTax[];
+  /** Cartões ativos e a fatura da competência de cada um (conferência obrigatória). */
+  cards: {
+    cartoes: Array<{ id: string; name: string; last4Digits: string }>;
+    faturas: Array<{ creditCardId: string; status: string; itensComDivergencia: number }>;
+  };
   finalInventory: MonthlyClosureFinalInventory;
   cmvAttribution: { total: number; breakdown: MonthlyClosureCmvContribution[] };
   justifications: MonthlyClosureJustification[];

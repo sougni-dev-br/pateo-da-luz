@@ -23,6 +23,13 @@ export type PendenciaDoFechamento = {
   label: string;
 };
 
+/** Pendências que saem por conferência registrada, não por justificativa de ausência. */
+const CHAVES_DE_CONFERENCIA = new Set(["block:eventRevenue"]);
+
+export function ehConferencia(key: string): boolean {
+  return CHAVES_DE_CONFERENCIA.has(key);
+}
+
 export type NaturezaDaPendencia = "AGUARDANDO" | "ATENCAO";
 
 export type PendenciaClassificada = PendenciaDoFechamento & {
@@ -39,13 +46,22 @@ export type PendenciaClassificada = PendenciaDoFechamento & {
 const SO_NO_FIM_DO_MES = new Set([
   "block:taxes",
   "block:finalInventory",
-  "block:revenue"
+  "block:revenue",
+  "block:eventRevenue",
+  "block:payrollNotLaunched",
+  "block:tipsNotClosed"
 ]);
 
 const PREFIXO_FORNECEDOR = "supplier:";
+// A conferência da fatura contra o extrato só fecha depois que a fatura vem.
+const PREFIXO_CARTAO = "card:";
+// Canal de delivery sem faturamento: importações e repasses chegam depois do mês.
+const PREFIXO_DELIVERY = "delivery:";
+
+const PREFIXOS_DE_FIM_DE_MES = [PREFIXO_FORNECEDOR, PREFIXO_CARTAO, PREFIXO_DELIVERY];
 
 function soAconteceNoFim(key: string): boolean {
-  return SO_NO_FIM_DO_MES.has(key) || key.startsWith(PREFIXO_FORNECEDOR);
+  return SO_NO_FIM_DO_MES.has(key) || PREFIXOS_DE_FIM_DE_MES.some((prefixo) => key.startsWith(prefixo));
 }
 
 /**

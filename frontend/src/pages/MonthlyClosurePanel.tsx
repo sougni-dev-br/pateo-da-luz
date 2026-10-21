@@ -31,7 +31,7 @@ import { JustificarDialog } from "../components/fechamento/JustificarDialog";
 import { ConfirmDialog } from "../components/ui";
 import { Alert, Button, Money, StatusBadge } from "../design-system";
 import { hasPermission } from "../lib/permissions";
-import { progressoDoMes, resumirFechamento } from "../lib/fechamento-pendencias";
+import { ehConferencia, progressoDoMes, resumirFechamento } from "../lib/fechamento-pendencias";
 import { formatDate } from "../utils/format";
 import "./MonthlyClosurePanel.css";
 
@@ -66,6 +66,14 @@ function frequencyLabel(freq: string): string {
   if (freq === "QUARTERLY") return "Trimestral";
   if (freq === "ANNUAL") return "Anual";
   return freq;
+}
+
+function statusDaFatura(status: string): string {
+  if (status === "OPEN") return "Aberta (não conferida)";
+  if (status === "CHECKED") return "Conferida";
+  if (status === "CLOSED") return "Fechada";
+  if (status === "PAID") return "Paga";
+  return status;
 }
 
 function percentual(valor: number | null | undefined): string {
@@ -209,6 +217,13 @@ export function MonthlyClosurePanel({ user }: { user: AppUser }) {
     }
     return map;
   }, [state]);
+
+  // Pendências que o backend ainda acusa (as justificadas já saíram da lista dele).
+  // O bloco de cartões usa isto para saber quais estão em aberto.
+  const pendenciasDoMes = useMemo(
+    () => new Set((state?.summary.pending ?? []).map((p) => p.key)),
+    [state]
+  );
 
   const resumo = useMemo(
     () => state ? resumirFechamento(state.summary.pending, state.monthEnd) : null,
@@ -365,7 +380,7 @@ export function MonthlyClosurePanel({ user }: { user: AppUser }) {
                 <span>{p.label}</span>
                 {canEdit && !isClosed && !justificationByKey.has(p.key) && (
                   <button className="link-btn" onClick={() => setJustificando({ key: p.key, label: p.label })} disabled={busy}>
-                    Justificar
+                    {ehConferencia(p.key) ? "Registrar conferência" : "Justificar"}
                   </button>
                 )}
               </li>
@@ -423,6 +438,8 @@ export function MonthlyClosurePanel({ user }: { user: AppUser }) {
               <Indicador rotulo="Outros delivery" valor={<Money value={state.revenue.outrosDelivery.grossAmount} />}
                 apoio={state.revenue.outrosDelivery.plataformas.join(" · ")} />
             )}
+            <Indicador rotulo="Eventos / empreitada" valor={<Money value={state.revenue.eventos.valor} />}
+              apoio={`${state.revenue.eventos.lancamentos} lançamentos (fora do Agile)`} />
             <Indicador rotulo="Líquido do mês" valor={<Money value={state.revenue.total.netAmount} />} />
           </div>
           {state.summary.pending.some((p) => p.key === "block:revenue") &&
@@ -524,6 +541,86 @@ export function MonthlyClosurePanel({ user }: { user: AppUser }) {
 
         <BlocoDoFechamento
           numero={4}
+          titulo="Cartões de crédito"
+          estado={(() => {
+            const pendentes = state.cards.cartoes.filter((c) => {
+              const chave = `card:${c.id}`;
+              return pendenciasDoMes.has(chave) && !justificationByKey.has(chave);
+            });
+            if (pendentes.length === 0) return "OK";
+            return pendentes.some((c) => resumo.aguardando.some((p) => p.key === `card:${c.id}`))
+              ? "AGUARDANDO" : "ATENCAO";
+          })()}
+          resumo={`${state.cards.cartoes.filter((c) => !pendenciasDoMes.has(`card:${c.id}`) && !justificationByKey.has(`card:${c.id}`)).length} de ${state.cards.cartoes.length} conferidos`}
+        >
+          {state.cards.cartoes.length === 0 ? (
+            <p className="muted">
+              Nenhum cartão ativo cadastrado.{" "}
+              <a href="/financeiro/cartoes">Cadastrar em Financeiro → Cartões</a>.
+            </p>
+          ) : (
+            <>
+              <p className="fm-nota">
+                Não se fecha o mês sem conferir a fatura de cada cartão contra o extrato.
+                Marque a fatura como <strong>Conferida</strong> em Cartões; cartão que não foi usado no mês exige justificativa.
+              </p>
+              <table className="data-table fm-tabela">
+                <thead>
+                  <tr><th>Cartão</th><th>Fatura do mês</th><th>Situação</th><th /></tr>
+                </thead>
+                <tbody>
+                  {state.cards.cartoes.map((c) => {
+                    const chave = `card:${c.id}`;
+                    const fatura = state.cards.faturas.find((f) => f.creditCardId === c.id && f.status !== "CANCELLED");
+                    const just = justificationByKey.get(chave);
+                    const pendente = pendenciasDoMes.has(chave);
+                    // O backend tira a pendência justificada da lista: justificado e
+                    // pendente nunca coexistem, então a justificativa vem primeiro.
+                    const tone = pendente ? "danger" : just ? "warning" : "success";
+                    const texto = pendente ? "Pendente" : just ? "Justificado" : "Conferido";
+                    return (
+                      <tr key={c.id}>
+                        <td>{c.name} <small className="muted">final {c.last4Digits}</small></td>
+                        <td>
+                          {fatura ? statusDaFatura(fatura.status) : "Sem fatura"}
+                          {fatura && fatura.itensComDivergencia > 0 && ` · ${fatura.itensComDivergencia} com divergência`}
+                        </td>
+                        <td><StatusBadge tone={tone}>{texto}</StatusBadge></td>
+                        <td className="num">
+                          {pendente && (
+                            <a href="/financeiro/cartoes" className="link-btn">
+                              <ExternalLink size={12} /> Abrir Cartões
+                            </a>
+                          )}
+                          {canEdit && !isClosed && pendente && !just && (
+                            <button className="link-btn" disabled={busy}
+                              onClick={() => setJustificando({ key: chave, label: `Cartão ${c.name} (final ${c.last4Digits})` })}>
+                              Justificar
+                            </button>
+                          )}
+                          {canEdit && !isClosed && just && (
+                            <button className="link-btn" title={just.reason} disabled={busy}
+                              onClick={() => removeJustification(chave)}>
+                              <X size={12} /> remover
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {state.cards.cartoes.filter((c) => justificationByKey.has(`card:${c.id}`)).map((c) => (
+                <p key={c.id} className="fm-justificada">
+                  <span><strong>{c.name}:</strong> <em>{justificationByKey.get(`card:${c.id}`)?.reason}</em></span>
+                </p>
+              ))}
+            </>
+          )}
+        </BlocoDoFechamento>
+
+        <BlocoDoFechamento
+          numero={5}
           titulo="Impostos e taxas"
           estado={estadoDoBloco("block:taxes", state.taxes.length > 0)}
           resumo={state.taxes.length > 0 ? `${state.taxes.length} lançamentos` : "nenhum"}
@@ -558,7 +655,7 @@ export function MonthlyClosurePanel({ user }: { user: AppUser }) {
         </BlocoDoFechamento>
 
         <BlocoDoFechamento
-          numero={5}
+          numero={6}
           titulo="Inventário final"
           estado={estadoDoBloco("block:finalInventory", state.finalInventory.hasSnapshot)}
           resumo={state.finalInventory.hasSnapshot
@@ -583,7 +680,7 @@ export function MonthlyClosurePanel({ user }: { user: AppUser }) {
         </BlocoDoFechamento>
 
         <BlocoDoFechamento
-          numero={6}
+          numero={7}
           titulo="CMV atribuído ao mês"
           estado="OK"
           resumo={state.cmvAttribution.breakdown.length > 0
@@ -636,6 +733,7 @@ export function MonthlyClosurePanel({ user }: { user: AppUser }) {
 
       <JustificarDialog
         aberto={justificando != null}
+        conferencia={justificando != null && ehConferencia(justificando.key)}
         pendencia={justificando?.label ?? null}
         enviando={busy}
         onCancelar={() => setJustificando(null)}

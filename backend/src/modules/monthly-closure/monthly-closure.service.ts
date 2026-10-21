@@ -9,7 +9,16 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 import crypto from "node:crypto";
+import { REVENUE_CHANNEL_EVENTS } from "../monthly/revenue-channels.js";
 import { excludeAggregatorsSql } from "../purchases/purchase-aggregators.js";
+import { avaliarCartoesDoMes, type CartaoDoMes, type FaturaDoMes } from "./cartoes-do-fechamento.js";
+import {
+  avaliarCanaisDeDelivery,
+  avaliarFaturamentoDeEventos,
+  avaliarFolhaLancada,
+  avaliarGorjetaDoMes,
+  CANAIS_DE_DELIVERY
+} from "./pendencias-do-mes.js";
 
 export type ClosingBlockKey =
   | `supplier:${string}`
@@ -132,6 +141,7 @@ async function getRevenueSummary(year: number, month: number) {
     FROM "RevenueEntry"
     WHERE "status" <> 'CANCELLED'
       AND "channel" <> 'Salão'
+      AND "channel" <> ${REVENUE_CHANNEL_EVENTS}
       AND "date" >= ${start} AND "date" <= ${end}
     GROUP BY "sourcePlatform"
   `;
@@ -397,6 +407,96 @@ async function getRequiredSuppliersStatus(year: number, month: number) {
   });
 }
 
+// Cartões ativos (existentes até o fim do mês) e a fatura de cada um na competência.
+// A competência da fatura é o mês da data de fechamento (ver getCardStatementPeriod).
+async function getCardsStatus(year: number, month: number) {
+  const { end } = monthRange(year, month);
+  const cartoes = await prisma.$queryRaw<CartaoDoMes[]>`
+    SELECT cc."id" AS "id", cc."name" AS "name", cc."last4Digits" AS "last4Digits"
+    FROM "CreditCard" cc
+    WHERE cc."isActive" = true
+      AND (
+        cc."createdAt" <= ${end}
+        -- Cartao cadastrado depois do mes, mas com fatura dele (carga de historico):
+        -- a fatura existe e precisa ser conferida.
+        OR EXISTS (
+          SELECT 1 FROM "CreditCardStatement" cs
+          WHERE cs."creditCardId" = cc."id"
+            AND cs."competenceYear" = ${year} AND cs."competenceMonth" = ${month}
+        )
+      )
+    ORDER BY cc."name" ASC
+  `;
+  const faturas = await prisma.$queryRaw<Array<{ creditCardId: string; status: string; itensComDivergencia: any }>>`
+    SELECT cs."creditCardId" AS "creditCardId",
+           cs."status"::text AS "status",
+           COUNT(i."id") FILTER (WHERE i."hasDivergence" = true) AS "itensComDivergencia"
+    FROM "CreditCardStatement" cs
+    LEFT JOIN "CreditCardStatementItem" i ON i."statementId" = cs."id"
+    WHERE cs."competenceYear" = ${year} AND cs."competenceMonth" = ${month}
+    GROUP BY cs."id"
+  `;
+  return {
+    cartoes,
+    faturas: faturas.map((f): FaturaDoMes => ({
+      creditCardId: f.creditCardId,
+      status: f.status,
+      itensComDivergencia: toNumber(f.itensComDivergencia)
+    }))
+  };
+}
+
+async function contarSalariosLancados(year: number, month: number): Promise<number> {
+  const [row] = await prisma.$queryRaw<Array<{ total: any }>>`
+    SELECT COUNT(*) AS "total"
+    FROM "PayrollItem"
+    WHERE "competenceYear" = ${year} AND "competenceMonth" = ${month}
+      AND "type" = 'SALARIO' AND "deletedAt" IS NULL AND "status" <> 'CANCELED'
+  `;
+  return toNumber(row?.total);
+}
+
+async function contarApuracoesDeGorjeta(year: number, month: number) {
+  const [row] = await prisma.$queryRaw<Array<{ total: any; abertas: any }>>`
+    SELECT COUNT(*) AS "total",
+           COUNT(*) FILTER (WHERE "status" = 'OPEN') AS "abertas"
+    FROM "TipPeriod"
+    WHERE "competenceYear" = ${year} AND "competenceMonth" = ${month}
+  `;
+  return { total: toNumber(row?.total), abertas: toNumber(row?.abertas) };
+}
+
+// Evento/empreitada nao passa pelo Agile: a rotina "Lancar evento", em Faturamento,
+// grava um RevenueEntry no canal "Eventos / Empreitada" (sourcePlatform = tipo do evento).
+async function faturamentoDeEventos(year: number, month: number) {
+  const { start, end } = monthRange(year, month);
+  const [row] = await prisma.$queryRaw<Array<{ lancamentos: any; valor: any }>>`
+    SELECT COUNT(*) AS "lancamentos", COALESCE(SUM("grossAmount"), 0) AS "valor"
+    FROM "RevenueEntry"
+    WHERE "status" <> 'CANCELLED'
+      AND "date" >= ${start} AND "date" <= ${end}
+      AND "channel" = ${REVENUE_CHANNEL_EVENTS}
+  `;
+  return { lancamentos: toNumber(row?.lancamentos), valor: toNumber(row?.valor) };
+}
+
+// Origem e canal do razao aparecem com grafias diferentes (iFood/IFOOD, Keeta/KEETA),
+// entao compara em maiusculas nos dois campos.
+async function canaisDeDeliveryComVenda(year: number, month: number): Promise<string[]> {
+  const { start, end } = monthRange(year, month);
+  const linhas = await prisma.$queryRaw<Array<{ origem: string | null; canal: string | null }>>`
+    SELECT DISTINCT UPPER("sourcePlatform") AS "origem", UPPER("channel") AS "canal"
+    FROM "RevenueEntry"
+    WHERE "status" <> 'CANCELLED'
+      AND "date" >= ${start} AND "date" <= ${end}
+  `;
+  const vistos = new Set<string>();
+  for (const l of linhas) {
+    for (const v of [l.origem, l.canal]) if (v) vistos.add(v);
+  }
+  return CANAIS_DE_DELIVERY.map((c) => c.id).filter((id) => vistos.has(id));
+}
+
 async function getTaxesStatus(year: number, month: number) {
   const { start, end } = monthRange(year, month);
   const taxes = await prisma.$queryRaw<Array<{
@@ -471,7 +571,7 @@ function parseJustifications(raw: any): ClosureJustification[] {
 
 export async function getMonthlyClosure(year: number, month: number) {
   const { start: monthStart, end: monthEnd } = monthRange(year, month);
-  const [revenue, purchases, requiredSuppliers, taxes, finalInventory, cmvAttribution, monthlyCmv] = await Promise.all([
+  const [revenue, purchases, requiredSuppliers, taxes, finalInventory, cmvAttribution, monthlyCmv, cards] = await Promise.all([
     getRevenueSummary(year, month),
     getPurchasesSummary(year, month),
     getRequiredSuppliersStatus(year, month),
@@ -479,6 +579,7 @@ export async function getMonthlyClosure(year: number, month: number) {
     getFinalInventoryStatus(year, month),
     getCmvAttributedToMonth(year, month),
     getMonthlyCmvRow(year, month),
+    getCardsStatus(year, month),
   ]);
 
   const justifications = parseJustifications(monthlyCmv?.justifications);
@@ -494,6 +595,26 @@ export async function getMonthlyClosure(year: number, month: number) {
     if (s.present) continue;
     if (justificationByKey.has(`supplier:${s.id}`)) continue;
     pending.push({ key: `supplier:${s.id}`, label: `Fornecedor: ${s.name}` });
+  }
+
+  // Cartao de credito: nao se fecha o mes sem conferir a fatura de cada cartao ativo
+  // contra o extrato. A saida de quem nao usou o cartao e a justificativa.
+  const [salarios, gorjeta, canaisComVenda, eventos] = await Promise.all([
+    contarSalariosLancados(year, month),
+    contarApuracoesDeGorjeta(year, month),
+    canaisDeDeliveryComVenda(year, month),
+    faturamentoDeEventos(year, month),
+  ]);
+  const regrasDoMes = [
+    ...avaliarCartoesDoMes(cards.cartoes, cards.faturas),
+    ...avaliarFaturamentoDeEventos(eventos),
+    ...avaliarFolhaLancada(salarios),
+    ...avaliarGorjetaDoMes(gorjeta),
+    ...avaliarCanaisDeDelivery(canaisComVenda),
+  ];
+  for (const p of regrasDoMes) {
+    if (justificationByKey.has(p.key)) continue;
+    pending.push(p);
   }
 
   // Impostos: soft-warn (nao gera pending se ausente — cada operacao tem impostos diferentes)
@@ -582,10 +703,11 @@ export async function getMonthlyClosure(year: number, month: number) {
     closedAt: monthlyCmv?.closedAt?.toISOString() ?? null,
     closedByUserId: monthlyCmv?.closedByUserId ?? null,
     reopenReason: monthlyCmv?.reopenReason ?? null,
-    revenue,
+    revenue: { ...revenue, eventos },
     purchases,
     requiredSuppliers,
     taxes,
+    cards,
     finalInventory,
     cmvAttribution: {
       total: cmvAttribution.total,
