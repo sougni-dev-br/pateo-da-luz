@@ -1288,7 +1288,7 @@ model PurchaseOrderItem {
   createdAt              DateTime      @default(now())
   updatedAt              DateTime      @updatedAt
 
-  notaLinks              PurchaseOrderItemLink[]
+  notaLinks PurchaseOrderItemLink[]
 
   @@index([purchaseOrderId])
   @@index([productId])
@@ -2114,7 +2114,12 @@ model TaxPayment {
   updatedById    String?
   deletedAt      DateTime?
   deletedById    String?
+  // Número do documento (DAS/DARF) ou identificador (GFD do FGTS): a chave que impede lançar a mesma guia duas vezes.
+  // ATENÇÃO: existe um índice único parcial por expressão no banco (migration 20261026100100_impostos_documento_unico),
+  // que o Prisma não representa neste schema: ao gerar migrations novas, conferir que não venha um DROP INDEX dele.
+  documentNumber String?
   attachments    TaxPaymentAttachment[]
+  items          TaxPaymentItem[]
   createdAt      DateTime               @default(now())
   updatedAt      DateTime               @updatedAt
 
@@ -2123,11 +2128,41 @@ model TaxPayment {
   @@index([paymentDate])
   @@index([status])
   @@index([companyId])
+  @@index([documentNumber])
   @@index([documentType])
   @@index([dreCategoryId])
   @@index([deletedAt])
   @@index([importBatchId])
   @@index([createdAt])
+}
+
+// Discriminação da guia (a "Composição do Documento de Arrecadação"): cada código com principal, multa e juros.
+// O valor da guia é a soma destas linhas; guias antigas e importadas por planilha não têm linhas.
+model TaxPaymentItem {
+  id           String     @id @default(cuid())
+  taxPaymentId String
+  taxPayment   TaxPayment @relation(fields: [taxPaymentId], references: [id], onDelete: Cascade)
+  position     Int
+  code         String?
+  description  String
+  principal    Decimal    @db.Decimal(12, 2)
+  fine         Decimal    @default(0) @db.Decimal(12, 2)
+  interest     Decimal    @default(0) @db.Decimal(12, 2)
+  createdAt    DateTime   @default(now())
+
+  @@index([taxPaymentId])
+}
+
+// Catálogo de códigos das guias (DAS, DARF...): o código digitado traz a denominação, que a tela não deixa alterar.
+// Começa com os códigos conhecidos e aprende os novos ao lançar uma guia.
+model TaxCodeCatalog {
+  id           String   @id @default(cuid())
+  documentType String
+  code         String
+  description  String
+  createdAt    DateTime @default(now())
+
+  @@unique([documentType, code])
 }
 
 model TaxPaymentAttachment {

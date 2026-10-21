@@ -5,12 +5,13 @@ import {
   composicaoAPagar, lacunasPorImposto, montarGrade, rotuloMes,
   type CelulaGrade, type EstadoCelula,
 } from "./regras";
+import { tipoDoGrupo } from "./formularioGuia";
 import "./tax-payments.css";
 
 type Props = {
   panorama: TaxPanorama;
   podeLancar: boolean;
-  onLancar: () => void;
+  onLancar: (inicial?: { tipo?: string; mes?: string }) => void;
   onVerSituacao: (situacao: "OVERDUE") => void;
   onVerMes: (mes: string) => void;
 };
@@ -79,7 +80,7 @@ export function ResumoImpostos({ panorama, podeLancar, onLancar, onVerSituacao, 
 type Alerta = { chave: string; tom: "danger" | "warning" | "success"; titulo: string; texto: React.ReactNode; acao?: React.ReactNode };
 
 function Atencao({ panorama, lacunas, podeLancar, onLancar, onVerSituacao }: {
-  panorama: TaxPanorama; lacunas: ReturnType<typeof lacunasPorImposto>; podeLancar: boolean; onLancar: () => void; onVerSituacao: Props["onVerSituacao"];
+  panorama: TaxPanorama; lacunas: ReturnType<typeof lacunasPorImposto>; podeLancar: boolean; onLancar: Props["onLancar"]; onVerSituacao: Props["onVerSituacao"];
 }) {
   const alertas: Alerta[] = [];
   const vencido = panorama.aPagar.vencido;
@@ -101,7 +102,15 @@ function Atencao({ panorama, lacunas, podeLancar, onLancar, onVerSituacao }: {
       tom: "warning",
       titulo: lacunas.length === 1 ? `Falta lançar guia de ${lacunas[0].grupo}` : `Falta lançar guias de ${lacunas.length} impostos`,
       texto: `${detalhe}${lacunas.length > 4 ? " · …" : ""}. Guia não lançada não entra no DRE nem nos alertas de vencimento.`,
-      acao: podeLancar ? <Button size="sm" variant="secondary" leadingIcon={<Plus size={14} />} onClick={onLancar}>Lançar guia</Button> : undefined,
+      // Falta de um imposto só: o modal já abre com o tipo e o primeiro mês em falta.
+      acao: podeLancar ? (
+        <Button
+          size="sm" variant="secondary" leadingIcon={<Plus size={14} />}
+          onClick={() => onLancar(lacunas.length === 1 ? { tipo: tipoDoGrupo(lacunas[0].grupo) ?? undefined, mes: lacunas[0].meses[0] } : undefined)}
+        >
+          {lacunas.length === 1 ? `Lançar ${lacunas[0].grupo} de ${rotuloMes(lacunas[0].meses[0])}` : "Lançar guia"}
+        </Button>
+      ) : undefined,
     });
   }
 

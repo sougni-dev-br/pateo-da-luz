@@ -142,3 +142,17 @@ export function lacunasPorImposto(grade: LinhaGrade[]): LacunaDoImposto[] {
     .map((linha) => ({ grupo: linha.grupo, meses: linha.celulas.filter((c) => c.lacuna).map((c) => c.mes) }))
     .filter((l) => l.meses.length > 0);
 }
+
+// Link para a guia em Contas a Pagar, onde a baixa é registrada: filtra pelo número do documento (ou pelo tipo)
+// e pelo mês do vencimento, e abre em "Todos" para a guia aparecer aberta ou paga.
+export function linkContasAPagar(guia: { id: string; documentNumber: string | null; documentType: string; dueDate: string }): string {
+  const mes = mesDaData(guia.dueDate);
+  // titulo + abrir=baixa: Contas a Pagar abre direto a baixa desta guia (a busca por texto fica de reserva);
+  // origem=impostos mostra o caminho de volta.
+  const params = new URLSearchParams({ busca: guia.documentNumber?.trim() || guia.documentType, aba: "todos", titulo: guia.id, abrir: "baixa", origem: "impostos" });
+  if (mes) {
+    params.set("de", `${mes}-01`);
+    params.set("ate", ultimoDiaDoMes(mes));
+  }
+  return `/financeiro/contas-a-pagar?${params.toString()}`;
+}

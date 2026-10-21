@@ -293,7 +293,8 @@ export function detalhesDoTitulo(p: Payable): string[] {
     return [
       p.taxCompanyName ?? "",
       p.taxDescription ?? "",
-      p.taxCompetenceDate ? `Comp. ${competencia(p.taxCompetenceDate)}` : ""
+      p.taxCompetenceDate ? `Comp. ${competencia(p.taxCompetenceDate)}` : "",
+      p.taxDocumentNumber ? `Doc. ${p.taxDocumentNumber}` : ""
     ].filter(Boolean);
   }
   if (isPayroll(p) || isExtra(p) || isFolhaLote(p)) {
@@ -453,5 +454,35 @@ export function composicaoAPagar(t: { overdue: number; open: number; next7: numb
     fatias: base.map(([chave, rotulo, valor]) => ({
       chave, rotulo, valor: Number(valor.toFixed(2)), pct: total > 0 ? Math.round((valor / total) * 100) : 0
     }))
+  };
+}
+
+// Filtros que vêm no link (ex.: "Pagar" na tela de Impostos): busca por texto, intervalo de vencimento e aba.
+export type FiltroDaUrl = {
+  /** Id do título a abrir (a guia de imposto, vinda da tela de Impostos). */
+  titulo: string | null;
+  /** Abrir direto a janela de baixa do título. */
+  abrirBaixa: boolean;
+  /** De onde veio o link, para oferecer o caminho de volta. */
+  origem: "impostos" | null;
+  busca: string;
+  aba: "open" | "paid" | "all" | null;
+  periodo: { startDate: string; endDate: string } | null;
+};
+
+const DIA = /^\d{4}-\d{2}-\d{2}$/;
+
+export function filtroDaUrl(search: string): FiltroDaUrl {
+  const p = new URLSearchParams(search);
+  const de = p.get("de") ?? "";
+  const ate = p.get("ate") ?? "";
+  const aba = p.get("aba");
+  return {
+    titulo: (p.get("titulo") ?? "").slice(0, 60) || null,
+    abrirBaixa: p.get("abrir") === "baixa",
+    origem: p.get("origem") === "impostos" ? "impostos" : null,
+    busca: (p.get("busca") ?? "").slice(0, 80),
+    aba: aba === "todos" ? "all" : aba === "pagos" ? "paid" : aba === "abertos" ? "open" : null,
+    periodo: DIA.test(de) && DIA.test(ate) && de <= ate ? { startDate: de, endDate: ate } : null,
   };
 }

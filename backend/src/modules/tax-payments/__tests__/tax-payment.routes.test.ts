@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import "express-async-errors";
 import express from "express";
 import request from "supertest";
 import { beforeEach, describe, expect, test, vi } from "vitest";
@@ -12,6 +13,7 @@ vi.mock("../../../config/database.js", () => {
     dRECategory: { findMany: vi.fn() },
     $transaction: vi.fn(),
     $queryRawUnsafe: vi.fn(),
+    taxCodeCatalog: { findMany: vi.fn(), createMany: vi.fn() },
   };
   return { prisma };
 });
@@ -124,7 +126,7 @@ describe("importação da planilha", () => {
     fs.writeFileSync(path.join("uploads", importFileId), "x");
     const linha = {
       valid: true, isDuplicate: false, cnpj: "00000000000100", legalName: "Empresa Exemplo Ltda", tradeName: null,
-      description: null, competenceDate: new Date("2026-09-01T00:00:00Z"), dueDate: new Date("2026-10-20T00:00:00Z"),
+      description: null, competenceDate: new Date("2026-09-01T00:00:00Z"), dueDate: new Date("2099-12-20T00:00:00Z"),
       amount: 100, paymentDate: null, comments: null,
     };
     vi.mocked(previewTaxImport).mockResolvedValue({
@@ -204,7 +206,7 @@ describe("lançamento manual: validações", () => {
 describe("edição", () => {
   const existente = {
     id: "g1", documentType: "FGTS", description: null, cnpj: null, legalName: null, tradeName: null, companyId: null,
-    competenceDate: new Date("2026-09-01T00:00:00Z"), dueDate: new Date("2026-10-20T00:00:00Z"),
+    competenceDate: new Date("2026-09-01T00:00:00Z"), dueDate: new Date("2099-12-20T00:00:00Z"),
     amount: 1500, paymentDate: null, paidAmount: null, status: "PENDING", comments: null, dreCategoryId: "cat-fgts",
   };
 
@@ -289,11 +291,268 @@ describe("edição", () => {
   });
 });
 
+describe("discriminação da guia (linhas) e total somado", () => {
+  const das = [
+    { code: "1001", description: "IRPJ - SIMPLES NACIONAL", principal: 469.71 },
+    { code: "1002", description: "CSLL - SIMPLES NACIONAL", principal: 298.9 },
+    { code: "1004", description: "COFINS - SIMPLES NACIONAL", principal: 1088.03 },
+    { code: "1005", description: "PIS - SIMPLES NACIONAL", principal: 235.71 },
+    { code: "1006", description: "INSS - SIMPLES NACIONAL", principal: 3586.89 },
+    { code: "1007", description: "ICMS - SIMPLES NACIONAL SP", principal: 2060.87 },
+  ];
+  const guia = { documentType: "Simples Nacional / DAS", dueDate: "2099-12-20", competenceDate: "2099-11-01", documentNumber: "07.20.26290.7165263-2" };
+
+  // Testes anteriores deixam findFirst/$queryRawUnsafe com respostas prontas: aqui, por padrão, não existe guia repetida.
+  beforeEach(() => {
+    db.taxPayment.findFirst.mockReset();
+    db.$queryRawUnsafe.mockReset();
+    db.$queryRawUnsafe.mockResolvedValue([]);
+  });
+
+  test("o valor da guia é a soma das linhas e as linhas são gravadas junto, na mesma operação", async () => {
+    const r = await request(app).post("/tax-payments").send({ ...guia, items: das, amount: 1 });
+    expect(r.status).toBe(201);
+    const data = db.taxPayment.create.mock.calls[0][0].data;
+    expect(data.amount).toBe(7740.11);
+    expect(data.documentNumber).toBe("07.20.26290.7165263-2");
+    expect(data.items.create).toHaveLength(6);
+    expect(data.items.create[0]).toEqual({ position: 0, code: "1001", description: "IRPJ - SIMPLES NACIONAL", principal: 469.71, fine: 0, interest: 0 });
+    expect(data.items.create[5].position).toBe(5);
+  });
+
+  test("sem descrição digitada, a descrição vem das denominações (e a categoria é sugerida por ela)", async () => {
+    await request(app).post("/tax-payments").send({ ...guia, items: das });
+    const data = db.taxPayment.create.mock.calls[0][0].data;
+    expect(data.description).toBe(das.map((i) => i.description).join(" · "));
+    expect(data.dreCategoryId).toBe("cat-simples");
+  });
+
+  test("DARF: as denominações separam INSS de IRRF na categoria", async () => {
+    await request(app).post("/tax-payments").send({
+      documentType: "DARF", dueDate: "2099-12-20", competenceDate: "2099-11-01",
+      items: [
+        { code: "1082", description: "CONTR PREV DESCONTA SEGURADO-EMPREGADO/AVULSO", principal: 3665.53 },
+        { code: "1099", description: "CP DESCONTADA SEGURADO - CONTRIB INDIVIDUAL", principal: 550 },
+      ],
+    });
+    const data = db.taxPayment.create.mock.calls[0][0].data;
+    expect(data.amount).toBe(4215.53);
+    expect(data.dreCategoryId).toBe("cat-inss");
+  });
+
+  test("FGTS com linhas sem código", async () => {
+    await request(app).post("/tax-payments").send({
+      documentType: "FGTS", dueDate: "2099-12-20", competenceDate: "2099-11-01",
+      items: [{ description: "FGTS Mensal", principal: 1383.57 }],
+    });
+    const data = db.taxPayment.create.mock.calls[0][0].data;
+    expect(data.amount).toBe(1383.57);
+    expect(data.items.create[0].code).toBeNull();
+  });
+
+  test.each([
+    ["lista vazia", []],
+    ["linha sem valor", [{ description: "IRPJ", principal: 0 }]],
+    ["linha sem denominação", [{ description: "", principal: 10 }]],
+  ])("recusa discriminação inválida (%s) e não grava", async (_n, items) => {
+    const r = await request(app).post("/tax-payments").send({ ...guia, items });
+    expect(r.status).toBe(400);
+    expect(db.taxPayment.create).not.toHaveBeenCalled();
+  });
+
+  test("o mesmo número de documento não entra duas vezes", async () => {
+    db.$queryRawUnsafe.mockResolvedValueOnce([{ id: "g9", documentType: "Simples Nacional / DAS", competenceDate: new Date("2099-11-01T00:00:00Z") }]);
+    const r = await request(app).post("/tax-payments").send({ ...guia, items: das });
+    expect(r.status).toBe(409);
+    expect(r.body.code).toBe("DUPLICATE_DOCUMENT");
+    expect(r.body.message).toContain("07.20.26290.7165263-2");
+    expect(r.body.message).toContain("11/2099");
+    expect(db.taxPayment.create).not.toHaveBeenCalled();
+    // A comparação é pelo número só com letras e dígitos, igual ao índice único do banco.
+    const [sql, chave] = db.$queryRawUnsafe.mock.calls[0];
+    expect(chave).toBe("07202629071652632");
+    expect(sql).toContain(`"deletedAt" IS NULL AND "status" <> 'CANCELED'`);
+  });
+
+  test("o mesmo número escrito sem pontuação ou em minúsculas é o mesmo número", async () => {
+    await request(app).post("/tax-payments").send({ ...guia, items: das, documentNumber: "ab-12.3" });
+    expect(db.$queryRawUnsafe.mock.calls[0][1]).toBe("AB123");
+  });
+
+  test("duas gravações ao mesmo tempo: quem perde a corrida bate no índice único e recebe 409, não 500", async () => {
+    db.taxPayment.create.mockRejectedValueOnce(Object.assign(new Error("Unique constraint failed"), { code: "P2002" }));
+    const r = await request(app).post("/tax-payments").send({ ...guia, items: das });
+    expect(r.status).toBe(409);
+    expect(r.body.code).toBe("DUPLICATE_DOCUMENT");
+  });
+
+  test("outros erros do banco seguem como erro, não viram 409", async () => {
+    db.taxPayment.create.mockRejectedValueOnce(new Error("conexão caiu"));
+    const r = await request(app).post("/tax-payments").send({ ...guia, items: das });
+    expect(r.status).toBe(500);
+  });
+
+  test.each([
+    ["milhar brasileiro", "1.234"],
+    ["hexadecimal", "0x10"],
+    ["booleano", true],
+    ["lista", [5]],
+  ])("recusa valor em formato ambíguo (%s) em vez de gravar um valor errado", async (_n, principal) => {
+    const r = await request(app).post("/tax-payments").send({ ...guia, items: [{ description: "IRPJ", principal }] });
+    expect(r.status).toBe(400);
+    expect(db.taxPayment.create).not.toHaveBeenCalled();
+  });
+
+  test("a soma das linhas não pode passar do limite do banco", async () => {
+    const r = await request(app).post("/tax-payments").send({
+      ...guia, items: [{ description: "A", principal: 9999999999.99 }, { description: "B", principal: 9999999999.99 }],
+    });
+    expect(r.status).toBe(400);
+    expect(r.body.message).toMatch(/valor máximo/);
+  });
+
+  test("guia sem linhas (formato antigo) continua valendo pelo valor informado", async () => {
+    await request(app).post("/tax-payments").send({ documentType: "FGTS", dueDate: "2099-12-20", competenceDate: "2099-11-01", amount: 1500 });
+    const data = db.taxPayment.create.mock.calls[0][0].data;
+    expect(data.amount).toBe(1500);
+    expect(data.items).toBeUndefined();
+  });
+
+  test("o detalhe da guia traz as linhas na ordem", async () => {
+    db.taxPayment.findFirst.mockResolvedValue({ id: "g1" });
+    await request(app).get("/tax-payments/g1");
+    expect(db.taxPayment.findFirst.mock.calls[0][0].include.items).toEqual({ orderBy: { position: "asc" } });
+  });
+
+  test("o catálogo manda na denominação: código conhecido grava a do catálogo, não a que veio do cliente", async () => {
+    db.taxCodeCatalog.findMany.mockResolvedValueOnce([{ code: "1001", description: "IRPJ - SIMPLES NACIONAL" }]);
+    await request(app).post("/tax-payments").send({ ...guia, items: [{ code: "1001", description: "qualquer coisa", principal: 10 }] });
+    expect(db.taxPayment.create.mock.calls[0][0].data.items.create[0].description).toBe("IRPJ - SIMPLES NACIONAL");
+  });
+
+  test("código novo é guardado no catálogo para as próximas guias", async () => {
+    db.taxCodeCatalog.findMany.mockResolvedValueOnce([]);
+    await request(app).post("/tax-payments").send({ ...guia, items: [{ code: "7777", description: "CODIGO NOVO", principal: 10 }] });
+    expect(db.taxCodeCatalog.createMany).toHaveBeenCalledWith({
+      data: [{ documentType: "Simples Nacional / DAS", code: "7777", description: "CODIGO NOVO" }],
+      skipDuplicates: true,
+    });
+  });
+
+  test("GET /codigos devolve o catálogo do tipo, sem cair no detalhe da guia", async () => {
+    db.taxCodeCatalog.findMany.mockResolvedValueOnce([{ code: "1001", description: "IRPJ - SIMPLES NACIONAL" }]);
+    const r = await request(app).get("/tax-payments/codigos").query({ tipo: "Simples Nacional / DAS" });
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual([{ code: "1001", description: "IRPJ - SIMPLES NACIONAL" }]);
+    expect(db.taxCodeCatalog.findMany.mock.calls.at(-1)?.[0].where).toEqual({ documentType: "Simples Nacional / DAS" });
+    expect(db.taxPayment.findFirst).not.toHaveBeenCalled();
+  });
+
+  describe("edição das linhas", () => {
+    const existente = {
+      id: "g1", documentType: "Simples Nacional / DAS", description: "antiga", cnpj: null, legalName: null, tradeName: null, companyId: null,
+      competenceDate: new Date("2099-11-01T00:00:00Z"), dueDate: new Date("2099-12-20T00:00:00Z"), documentNumber: "A-1",
+      amount: 100, paymentDate: null, paidAmount: null, status: "PENDING", comments: null, dreCategoryId: "cat-simples",
+    };
+    const paga = { ...existente, status: "PAID", paymentDate: new Date("2099-12-19T00:00:00Z"), paidAmount: 100 };
+
+    beforeEach(() => {
+      db.taxPayment.findFirst.mockResolvedValue(existente);
+      db.taxPayment.update.mockImplementation(async ({ data }: { data: object }) => ({ ...existente, ...data }));
+    });
+
+    test("regrava todas as linhas e o total na mesma atualização", async () => {
+      const r = await request(app).put("/tax-payments/g1").send({ items: das });
+      expect(r.status).toBe(200);
+      const data = db.taxPayment.update.mock.calls[0][0].data;
+      expect(data.amount).toBe(7740.11);
+      expect(data.items.deleteMany).toEqual({});
+      expect(data.items.create).toHaveLength(6);
+    });
+
+    test("guia paga não aceita mudar linhas nem valor: estornar em Contas a Pagar primeiro", async () => {
+      db.taxPayment.findFirst.mockResolvedValue(paga);
+      const r = await request(app).put("/tax-payments/g1").send({ items: das });
+      expect(r.status).toBe(409);
+      expect(r.body.message).toContain("Contas a Pagar");
+      const r2 = await request(app).put("/tax-payments/g1").send({ amount: 999 });
+      expect(r2.status).toBe(409);
+      expect(db.taxPayment.update).not.toHaveBeenCalled();
+    });
+
+    test("guia paga ainda aceita editar texto", async () => {
+      db.taxPayment.findFirst.mockResolvedValue(paga);
+      const r = await request(app).put("/tax-payments/g1").send({ comments: "conferida", paymentDate: "2099-12-19", paidAmount: 100 });
+      expect(r.status).toBe(200);
+    });
+
+    test("trocar para um número de documento que já existe em outra guia é recusado", async () => {
+      db.$queryRawUnsafe.mockResolvedValueOnce([{ id: "g2", documentType: "FGTS", competenceDate: null }]);
+      const r = await request(app).put("/tax-payments/g1").send({ documentNumber: "B-2" });
+      expect(r.status).toBe(409);
+      expect(db.$queryRawUnsafe.mock.calls[0].slice(1)).toEqual(["B2", "g1"]);
+    });
+
+    test("manter o mesmo número não conta como repetido", async () => {
+      const r = await request(app).put("/tax-payments/g1").send({ documentNumber: "A-1", description: "texto" });
+      expect(r.status).toBe(200);
+      expect(db.$queryRawUnsafe).not.toHaveBeenCalled();
+    });
+
+    test("reativar uma guia cancelada cujo número foi lançado de novo é recusado", async () => {
+      db.taxPayment.findFirst.mockResolvedValue({ ...existente, status: "CANCELED" });
+      db.$queryRawUnsafe.mockResolvedValueOnce([{ id: "g2", documentType: "Simples Nacional / DAS", competenceDate: null }]);
+      const r = await request(app).put("/tax-payments/g1").send({ status: "PENDING" });
+      expect(r.status).toBe(409);
+      expect(r.body.code).toBe("DUPLICATE_DOCUMENT");
+      expect(db.taxPayment.update).not.toHaveBeenCalled();
+    });
+
+    test("perder a corrida do índice único na edição também vira 409", async () => {
+      db.taxPayment.update.mockRejectedValueOnce(Object.assign(new Error("Unique constraint failed"), { code: "P2002" }));
+      const r = await request(app).put("/tax-payments/g1").send({ documentNumber: "C-3" });
+      expect(r.status).toBe(409);
+    });
+
+    test("guia com composição não aceita mudar só o valor: o total é a soma das linhas", async () => {
+      db.taxPayment.findFirst.mockResolvedValue({ ...existente, items: [{ id: "i1", position: 0, description: "IRPJ", principal: 100, fine: 0, interest: 0 }] });
+      const r = await request(app).put("/tax-payments/g1").send({ amount: 999 });
+      expect(r.status).toBe(400);
+      expect(r.body.message).toMatch(/linhas/);
+      expect(db.taxPayment.update).not.toHaveBeenCalled();
+    });
+
+    test("guia antiga, sem linhas, ainda aceita mudar só o valor", async () => {
+      const r = await request(app).put("/tax-payments/g1").send({ amount: 999 });
+      expect(r.status).toBe(200);
+      expect(db.taxPayment.update.mock.calls[0][0].data.amount).toBe(999);
+    });
+
+    test("a auditoria guarda as linhas anteriores (previousValue)", async () => {
+      const anteriores = [{ id: "i1", position: 0, description: "IRPJ", principal: 100, fine: 0, interest: 0 }];
+      db.taxPayment.findFirst.mockResolvedValue({ ...existente, items: anteriores });
+      await request(app).put("/tax-payments/g1").send({ items: das });
+      expect(db.taxPayment.findFirst.mock.calls[0][0].include.items).toEqual({ orderBy: { position: "asc" } });
+      const { auditLog } = await import("../../security/security-utils.js");
+      const chamadas = vi.mocked(auditLog).mock.calls;
+      expect(chamadas[chamadas.length - 1][0].previousValue).toMatchObject({ items: anteriores });
+    });
+
+    test("restaurar uma guia excluída cujo número foi lançado de novo é recusado", async () => {
+      db.taxPayment.findFirst.mockResolvedValue({ ...existente, deletedAt: new Date("2099-12-01T00:00:00Z") });
+      db.$queryRawUnsafe.mockResolvedValueOnce([{ id: "g2", documentType: "Simples Nacional / DAS", competenceDate: null }]);
+      const r = await request(app).patch("/tax-payments/g1/restore").send({});
+      expect(r.status).toBe(409);
+      expect(db.taxPayment.update).not.toHaveBeenCalled();
+    });
+  });
+});
+
 describe("cancelar e estornar", () => {
   const paga = {
     id: "g1", documentType: "FGTS", amount: 1500, status: "PAID", paidAmount: 1500,
     paymentDate: new Date("2026-10-10T00:00:00Z"),
-    competenceDate: new Date("2026-09-01T00:00:00Z"), dueDate: new Date("2026-10-20T00:00:00Z"),
+    competenceDate: new Date("2026-09-01T00:00:00Z"), dueDate: new Date("2099-12-20T00:00:00Z"),
   };
 
   test("não deixa cancelar uma guia paga: o desembolso sumiria do DRE com o pagamento gravado", async () => {
@@ -359,7 +618,7 @@ describe("lista e totais da tela de impostos", () => {
 describe("pagar e excluir", () => {
   const base = {
     id: "g1", amount: 1500, status: "PENDING", paymentDate: null,
-    competenceDate: new Date("2026-09-01T00:00:00Z"), dueDate: new Date("2026-10-20T00:00:00Z"),
+    competenceDate: new Date("2026-09-01T00:00:00Z"), dueDate: new Date("2099-12-20T00:00:00Z"),
   };
 
   test("guia cancelada não pode ser paga", async () => {
