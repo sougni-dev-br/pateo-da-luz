@@ -87,6 +87,7 @@
 
 @media print {
   body.imprimindo-ferias > *:not(.fe-area-impressao) { display: none !important; }
+  html:has(body.imprimindo-ferias) { background: #fff !important; }
   body.imprimindo-ferias { margin: 0 !important; background: #fff !important; }
   body.imprimindo-ferias .fe-area-impressao { position: static; left: auto; visibility: visible; }
   body.imprimindo-ferias .fe-folha { padding-top: 0; break-after: page; page-break-after: always; }

@@ -114,7 +114,7 @@ export function FolhaTelaLinhaDoTempo(props: PropsLinha) {
                     {pessoa.periodos.map((p) => <Janela key={p.aquisitivoInicio} eixo={eixo} periodo={p} dm={dm} />)}
                     {pessoa.periodos.map((p) => {
                       const r = p.solicitacao ? retangulo(eixo, p.solicitacao.inicio, p.solicitacao.fim) : null;
-                      return r && <span key={`pedido-${p.aquisitivoInicio}`} className="fe-ti-pedido" style={{ left: r.x, width: Math.max(r.largura, 3) }} />;
+                      return r && <span key={`pedido-${p.aquisitivoInicio}`} className="fe-ti-pedido" style={{ left: r.x, width: Math.max(r.largura, 3) }}>{r.largura >= 56 ? "pediu" : ""}</span>;
                     })}
                     {pessoa.periodos.flatMap((p) => p.programacoes.map((g) => {
                       if (!g.gozoInicio || !g.gozoFim) return null;

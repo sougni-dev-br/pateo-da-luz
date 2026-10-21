@@ -19,7 +19,7 @@
 .fe-tl-dica { margin: 0; display: flex; align-items: center; gap: 6px; font-size: var(--fs-xs); color: var(--muted); }
 .fe-tl-dica svg { color: var(--gold-dark); flex: none; }
 
-.fe-tl-legenda { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: var(--fs-xs); color: var(--ink-soft); }
+.fe-tl-legenda { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--ink-soft); }
 .fe-tl-legenda li { display: inline-flex; align-items: center; gap: 6px; }
 .fe-tl-amostra { width: 18px; height: 10px; border-radius: 3px; display: inline-block; border: 1px solid transparent; }
 
@@ -40,8 +40,11 @@
 
 /* ── Quadro rolável ────────────────────────────────────────────────── */
 .fe-tl {
-  --nome: 208px;
-  --altura: 62px;
+  --nome: 244px;
+  --altura: 72px;
+  --fs-2xs: 13px;
+  --fs-xs: 13px;
+  --fs-sm: 14px;
   position: relative; overflow: auto; max-height: min(74vh, 780px);
   border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--paper);
   overscroll-behavior: contain;
@@ -53,18 +56,18 @@
 
 /* Cabeçalho: meses (fica no topo ao rolar para baixo) */
 .fe-tl-cab { position: sticky; top: 0; z-index: 8; background: var(--paper); border-bottom: 1px solid var(--line-strong); }
-.fe-tl-meses { position: relative; height: 42px; }
+.fe-tl-meses { position: relative; height: 48px; }
 .fe-tl-mes { position: absolute; top: 0; bottom: 0; display: flex; align-items: flex-end; padding: 0 0 6px 6px; border-left: 1px solid var(--line); font-size: var(--fs-xs); color: var(--ink-soft); overflow: hidden; white-space: nowrap; }
 .fe-tl-mes span { display: inline-flex; align-items: baseline; gap: 5px; text-transform: uppercase; letter-spacing: var(--ls-eyebrow); font-size: var(--fs-2xs); font-weight: var(--fw-semibold); }
 .fe-tl-mes b { font-weight: var(--fw-semibold); color: var(--gold-dark); }
 .fe-tl-mes--ano { border-left: 2px solid var(--gold); }
 .fe-tl-hoje-rotulo {
-  position: absolute; top: 4px; transform: translateX(-50%); padding: 1px 7px; border-radius: var(--radius-pill);
+  position: absolute; top: 3px; transform: translateX(-50%); padding: 1px 8px; border-radius: var(--radius-pill);
   background: var(--ink); color: var(--paper); font-size: var(--fs-2xs); letter-spacing: var(--ls-eyebrow); text-transform: uppercase;
 }
 
 /* Faixa "Quem está fora" (mapa de calor) */
-.fe-tl-cob { position: sticky; top: 42px; z-index: 7; background: var(--paper-soft); border-bottom: 1px solid var(--line); }
+.fe-tl-cob { position: sticky; top: 48px; z-index: 7; background: var(--paper-soft); border-bottom: 1px solid var(--line); }
 .fe-tl-canto--cob { display: grid; align-content: center; gap: 1px; padding: 6px 12px; background: var(--paper-soft); font-size: var(--fs-xs); }
 .fe-tl-faixa { position: relative; height: 40px; cursor: crosshair; }
 .fe-tl-calor {
@@ -106,7 +109,7 @@
 .fe-tl-prazo--atencao { color: var(--warning); }
 .fe-tl-prazo--perigo { color: var(--danger); }
 .fe-tl-programar {
-  margin-top: 3px; display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border: 1px solid var(--line-strong);
+  margin-top: 4px; display: inline-flex; align-items: center; gap: 5px; min-height: 28px; padding: 3px 12px; border: 1px solid var(--line-strong);
   border-radius: var(--radius-pill); background: var(--paper); color: var(--gold-dark); font: inherit; font-size: var(--fs-xs); cursor: pointer;
   transition: background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
 }
@@ -223,7 +226,7 @@ button.fe-tl-fantasma { cursor: pointer; }
 /* ── Pedido do colaborador × o que a empresa quer × prazo limite ───── */
 /* Faixa do pedido no pé da linha, abaixo da programação (a barra azul) e do prazo (bandeira e tag no alto). */
 .fe-tl-pedido {
-  position: absolute; top: 46px; height: 13px; z-index: 2; padding: 0 4px; display: inline-flex; align-items: center; overflow: hidden; white-space: nowrap;
+  position: absolute; top: 49px; height: 19px; z-index: 2; padding: 0 6px; display: inline-flex; align-items: center; overflow: hidden; white-space: nowrap;
   border: 2px dashed var(--ink); border-radius: 6px; background: var(--paper); color: var(--ink);
   font: inherit; font-size: var(--fs-2xs); font-weight: var(--fw-semibold); line-height: 1; cursor: pointer;
 }
@@ -231,10 +234,10 @@ button.fe-tl-fantasma { cursor: pointer; }
 .fe-tl-pedido--atendido { border-style: solid; border-color: var(--success); color: var(--success); }
 .fe-tl-pedido--diferente { border-color: var(--warning); color: var(--warning); }
 .fe-tl-pedido--atendido, .fe-tl-pedido--diferente { background: var(--paper); }
-.fe-tl-fantasma--pedido { top: 45px; height: 15px; padding: 0 5px; border-style: dashed; border-color: var(--ink); background: var(--paper); color: var(--ink); font-size: var(--fs-2xs); pointer-events: none; }
+.fe-tl-fantasma--pedido { top: 48px; height: 21px; padding: 0 5px; border-style: dashed; border-color: var(--ink); background: var(--paper); color: var(--ink); font-size: var(--fs-2xs); pointer-events: none; }
 .fe-tl-limite-tag {
   position: absolute; top: 0; transform: translateX(-100%); margin-left: -16px; padding: 0 4px; border-radius: 3px; background: var(--paper); color: var(--danger);
-  font-size: var(--fs-2xs); font-weight: var(--fw-semibold); line-height: 12px; white-space: nowrap; pointer-events: none;
+  font-size: var(--fs-2xs); font-weight: var(--fw-semibold); line-height: 15px; white-space: nowrap; pointer-events: none;
 }
 .fe-tl-amostra--pedido { height: 8px; border: 1.5px dashed var(--ink); background: var(--paper); }
 .fe-tl-amostra--limite { width: 10px; height: 10px; border: 0; background: var(--danger); clip-path: polygon(0 0, 100% 50%, 0 100%); box-shadow: none; }

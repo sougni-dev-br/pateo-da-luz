@@ -26,7 +26,7 @@ const PAPEIS_MM: Record<Papel, { largura: number; altura: number }> = { A4: { la
 const MARGEM_MM = 10;
 const PX_POR_MM = 96 / 25.4;
 /** Largura da coluna com o nome, na folha (px a 96 dpi). */
-export const NOME_NA_FOLHA_PX = 214;
+export const NOME_NA_FOLHA_PX = 262;
 
 /** Largura útil da folha (sem as margens), em px a 96 dpi: é onde a linha do tempo precisa caber. */
 export function larguraUtilPx({ papel, orientacao }: Pick<OpcoesTela, "papel" | "orientacao">): number {

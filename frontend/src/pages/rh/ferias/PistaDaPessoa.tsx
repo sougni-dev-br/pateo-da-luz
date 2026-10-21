@@ -222,7 +222,8 @@ function FantasmaDeFerias({ eixo, feriados, repousos, fantasma, alvo, colegas, o
   const passaDoPrazo = datas.fim > alvo.fimConcessivo;
   const curto = fantasma.tipo !== "mover" && fantasma.tipo !== "pedido" && fantasma.dias < MIN_DIAS_GOZO && fantasma.dias < alvo.diasPendentes;
   const rotulo = fantasma.tipo === "sugestao" ? (fantasma.origem === "pedido" ? "Pedido" : fantasma.motivoDoPedido ? "Alternativa" : "Sugestão") : fantasma.tipo === "pedido" ? `Pedido · ${fantasma.dias}d` : `${fantasma.dias} ${plural(fantasma.dias, "dia", "dias")}`;
-  const largo = r.largura >= 120;
+  const comData = r.largura >= 190;
+  const largo = r.largura >= 84;
   const vedado = fantasma.tipo === "sugestao" ? null : motivoInicioVedado(fantasma.inicio, feriados, repousos);
   const aviso = [
     vedado && `não pode começar aqui: ${vedado}`,
@@ -234,7 +235,7 @@ function FantasmaDeFerias({ eixo, feriados, repousos, fantasma, alvo, colegas, o
   const titulo = `${rotulo}: ${dataBr(fantasma.inicio)} a ${dataBr(datas.fim)}${fantasma.origem === "pedido" ? " — é o que o colaborador pediu e serve" : ""}${fantasma.motivoDoPedido ? ` — o pedido não serve: ${fantasma.motivoDoPedido}` : ""}${aviso ? ` — ${aviso}` : ""}`;
   const conteudo = (
     <>
-      {largo && <span>{rotulo} · {dataBr(fantasma.inicio)}</span>}
+      {largo && <span>{comData ? `${rotulo} · ${dataBr(fantasma.inicio)}` : rotulo}</span>}
       {colegas > 0 && <em aria-hidden="true">{colegas}</em>}
     </>
   );
