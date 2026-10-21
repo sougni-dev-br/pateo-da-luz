@@ -3,7 +3,7 @@ import type { TaxPaymentDetail } from "../../../api/client";
 import {
   FORM_VAZIO, codigoDaDenominacao, descricaoDasLinhas, formDaGuia, formDuplicado, linhasComValor, linhasDoModelo, mesSugerido, novaLinha,
   payloadDaGuia, totalDaGuia, totalDaLinha, type FormGuia,
-  chaveDoNumero, descricaoDoCodigo, diferencaComOPapel, estadoDaDenominacao, pendenciasDaGuia, tipoDoGrupo, tipoSemCatalogo, valorColado,
+  chaveDoNumero, descricaoDoCodigo, diferencaComOPapel, estadoDaDenominacao, pendenciasDaGuia, temVerbaDeRescisao, tipoDoGrupo, tipoSemCatalogo, valorColado,
   type ContextoDasPendencias,
 } from "../formularioGuia";
 import { modeloDoTipo, sugestoesDoTipo } from "../modelosDeGuia";
@@ -111,6 +111,27 @@ describe("pendenciasDaGuia (a guia só conclui com tudo resolvido)", () => {
     expect(pendenciasDaGuia(fgts, ctx({ catalogo: [], emEdicao: true })).map((x) => x.campo)).not.toContain("trabalhadores");
     expect(payloadDaGuia({ ...fgts, workersCount: "12" }, false, false, false).workersCount).toBe(12);
     expect(payloadDaGuia({ ...guiaDas(), workersCount: "12" }, false, false, false).workersCount).toBeNull();
+  });
+
+  test("FGTS com verba de rescisão pede o funcionário desligado (só quem pode vincular); mensal não", () => {
+    const base = { ...FORM_VAZIO, documentType: "FGTS", mes: "2026-07", dueDate: "2026-08-20", documentNumber: "123", workersCount: "1" };
+    const rescisao = { ...base, linhas: [novaLinha({ description: "FGTS Rescisório", principal: "900,00" })] };
+    const mensal = { ...base, linhas: [novaLinha({ description: "FGTS Mensal", principal: "900,00" })] };
+    const c = ctx({ catalogo: [], podeVincularFuncionario: true });
+    expect(pendenciasDaGuia(rescisao, c).map((x) => x.campo)).toContain("funcionario");
+    expect(pendenciasDaGuia({ ...rescisao, employeeId: "e1" }, c).map((x) => x.campo)).not.toContain("funcionario");
+    expect(pendenciasDaGuia(mensal, c).map((x) => x.campo)).not.toContain("funcionario");
+    expect(pendenciasDaGuia(rescisao, ctx({ catalogo: [] })).map((x) => x.campo)).not.toContain("funcionario");
+    expect(pendenciasDaGuia(rescisao, { ...c, emEdicao: true }).map((x) => x.campo)).not.toContain("funcionario");
+    expect(temVerbaDeRescisao(rescisao)).toBe(true);
+    expect(temVerbaDeRescisao({ ...rescisao, linhas: [novaLinha({ description: "FGTS Rescisório" })] })).toBe(false);
+  });
+
+  test("o funcionário só vai no payload do FGTS", () => {
+    const fgts = { ...FORM_VAZIO, documentType: "FGTS", mes: "2026-07", dueDate: "2026-08-20", employeeId: "e1", linhas: [novaLinha({ description: "FGTS Rescisório", principal: "10,00" })] };
+    expect(payloadDaGuia(fgts, false, false, false).employeeId).toBe("e1");
+    expect(payloadDaGuia({ ...guiaDas(), employeeId: "e1" }, false, false, false).employeeId).toBeNull();
+    expect(payloadDaGuia({ ...fgts, employeeId: "" }, false, false, false).employeeId).toBeNull();
   });
 
   test("sem competência não lança: a pendência diz por quê", () => {

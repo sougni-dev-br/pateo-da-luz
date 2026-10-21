@@ -18,6 +18,7 @@ vi.mock("../../../api/client", async (importOriginal) => ({
   createTaxPayment: vi.fn(async () => ({ id: "novo" })),
   updateTaxPayment: vi.fn(async () => ({ id: "g1" })),
   getCompanies: vi.fn(async () => []),
+  getEmployees: vi.fn(async () => []),
   getTaxDreCategories: vi.fn(async () => [{ id: "cat-simples", name: "Simples Nacional", dreGroup: "IMPOSTOS" }, { id: "cat-outra", name: "Taxas Municipais", dreGroup: "DESPESAS_GERAIS" }]),
   // Tipos com regra devolvem categoria; IPTU não tem categoria automática.
   getTaxCategorySuggestion: vi.fn(async (tipo: string) => (tipo === "IPTU" ? { dreCategoryId: null, nome: null } : { dreCategoryId: "cat-simples", nome: "Simples Nacional" })),
@@ -26,7 +27,7 @@ vi.mock("../../../api/client", async (importOriginal) => ({
   getTaxPayment: vi.fn(),
 }));
 
-import { createTaxPayment, getCompanies, getTaxPayment, getTaxPayments } from "../../../api/client";
+import { createTaxPayment, getCompanies, getEmployees, getTaxPayment, getTaxPayments } from "../../../api/client";
 import { ModalGuia } from "../ModalGuia";
 
 const VALORES_DAS = ["46971", "29890", "108803", "23571", "358689", "206087"];
@@ -237,6 +238,29 @@ describe("ModalGuia: tipo, modelos e confirmações", () => {
     expect(screen.getByRole("button", { name: /Informe o identificador/ })).toBeTruthy();
   });
 
+  test("FGTS de rescisão: lista só funcionários desligados e exige a escolha quando há verba de rescisão", async () => {
+    vi.mocked(getEmployees).mockResolvedValue([
+      { id: "ativo", firstName: "Ana", lastName: "Ativa", displayName: null, terminationDate: null, isActive: true },
+      { id: "saiu", firstName: "Bruno", lastName: "Saiu", displayName: null, terminationDate: "2026-09-03T00:00:00.000Z", isActive: false },
+    ] as never);
+    abrir({ podeVerFuncionarios: true });
+    fireEvent.click(screen.getByRole("radio", { name: "FGTS" }));
+    const campo = await screen.findByLabelText(/Funcionário desligado/);
+    await waitFor(() => expect(screen.getByRole("option", { name: /Bruno Saiu — saiu em 03\/09\/2026/ })).toBeTruthy());
+    expect(screen.queryByRole("option", { name: /Ana Ativa/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /escolha o funcionário desligado/i })).toBeNull();
+    fireEvent.change(screen.getByLabelText("Principal da linha 2"), { target: { value: "90000" } });
+    expect(screen.getByRole("button", { name: /escolha o funcionário desligado/i })).toBeTruthy();
+    fireEvent.change(campo, { target: { value: "saiu" } });
+    expect(screen.queryByRole("button", { name: /escolha o funcionário desligado/i })).toBeNull();
+  });
+
+  test("sem permissão para ver Funcionários o campo não aparece", () => {
+    abrir();
+    fireEvent.click(screen.getByRole("radio", { name: "FGTS" }));
+    expect(screen.queryByLabelText(/Funcionário desligado/)).toBeNull();
+  });
+
   test("trocar o tipo depois de digitar valores pede confirmação antes de apagar", async () => {
     abrir();
     await preencherDas();
@@ -262,6 +286,14 @@ describe("ModalGuia: tipo, modelos e confirmações", () => {
     expect((screen.getByLabelText(/Competência/) as HTMLInputElement).value).toBe("2026-08");
     expect((screen.getByLabelText(/Vencimento/) as HTMLInputElement).value).toBe("2026-09-20");
     expect(screen.getAllByLabelText(/^Principal da linha/)).toHaveLength(4);
+  });
+
+  test("FGTS não tem multa e juros separados: sem interruptor e sem as colunas (encargos é uma linha)", () => {
+    abrir();
+    fireEvent.click(screen.getByRole("radio", { name: "FGTS" }));
+    expect(screen.queryByRole("switch", { name: "Guia com multa e juros" })).toBeNull();
+    expect(screen.queryByLabelText("Multa da linha 1")).toBeNull();
+    expect(screen.getByLabelText("Denominação da linha 4")).toBeTruthy();
   });
 
   test("multa e juros começam recolhidos e abrem pelo interruptor", () => {

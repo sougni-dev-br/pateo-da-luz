@@ -37,6 +37,8 @@ export type FormGuia = {
   documentNumber: string;
   /** FGTS: quantidade de trabalhadores (texto do campo; vazio = não informado). */
   workersCount: string;
+  /** FGTS de rescisão: o funcionário desligado (vazio = guia sem vínculo). */
+  employeeId: string;
   dreCategoryId: string;
   comments: string;
   cancelada: boolean;
@@ -52,7 +54,7 @@ export function novaLinha(parcial: Partial<LinhaForm> = {}): LinhaForm {
 }
 
 export const FORM_VAZIO: FormGuia = {
-  documentType: "", mes: "", dueDate: "", companyId: "", cnpj: "", legalName: "", tradeName: "", documentNumber: "", workersCount: "",
+  documentType: "", mes: "", dueDate: "", companyId: "", cnpj: "", legalName: "", tradeName: "", documentNumber: "", workersCount: "", employeeId: "",
   dreCategoryId: "", comments: "", cancelada: false, totalDoPapel: "", linhas: [],
 };
 
@@ -105,6 +107,7 @@ export function formDaGuia(d: TaxPaymentDetail): FormGuia {
     tradeName: d.tradeName ?? "",
     documentNumber: d.documentNumber ?? "",
     workersCount: d.workersCount != null ? String(d.workersCount) : "",
+    employeeId: d.employeeId ?? "",
     dreCategoryId: d.dreCategoryId ?? "",
     comments: d.comments ?? "",
     cancelada: d.status === "CANCELED",
@@ -115,7 +118,7 @@ export function formDaGuia(d: TaxPaymentDetail): FormGuia {
 
 // Duplicar copia a guia e deixa em branco o que muda a cada emissão (competência, vencimento e número do documento).
 export function formDuplicado(d: TaxPaymentDetail): FormGuia {
-  return { ...formDaGuia(d), mes: "", dueDate: "", documentNumber: "", workersCount: "", cancelada: false, totalDoPapel: "" };
+  return { ...formDaGuia(d), mes: "", dueDate: "", documentNumber: "", workersCount: "", employeeId: "", cancelada: false, totalDoPapel: "" };
 }
 
 // Competência sugerida (mês anterior ao vencimento) só para os tipos que seguem essa regra.
@@ -151,6 +154,11 @@ export function estadoDaDenominacao(l: LinhaForm, tipo: string, catalogo: Readon
   return tipoSemCatalogo(tipo, catalogo) ? "livre" : "aguardaCodigo";
 }
 
+// FGTS com valor em "Rescisório" ou "Indenização compensatória": a guia é de um funcionário que saiu.
+export function temVerbaDeRescisao(f: Pick<FormGuia, "documentType" | "linhas">): boolean {
+  return f.documentType === "FGTS" && f.linhas.some((l) => /rescis|indeniza/i.test(l.description) && totalDaLinha(l) > 0);
+}
+
 // ─── pendências: o que ainda impede de lançar a guia ───────────────────────────────────────────────────────────
 export type Pendencia = {
   /** Qual campo resolve: tipo, empresa, vencimento, competencia, numero, linhas, categoria, papel ou linha:<chave>. */
@@ -169,6 +177,8 @@ export type ContextoDasPendencias = {
   catalogo: ReadonlyArray<TaxCode>;
   /** Já existe guia ativa com o mesmo número de documento. */
   numeroRepetido: string | null;
+  /** Quem lança pode ver Funcionários: a guia com verba de rescisão precisa de um funcionário desligado. */
+  podeVincularFuncionario?: boolean;
 };
 
 const dinheiro = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -187,6 +197,9 @@ export function pendenciasDaGuia(f: FormGuia, ctx: ContextoDasPendencias): Pende
   }
   if (!ctx.emEdicao && f.documentType && modeloDoTipo(f.documentType).pedeTrabalhadores && !f.workersCount.trim()) {
     p.push({ campo: "trabalhadores", texto: "Informe a quantidade de trabalhadores (está no documento)." });
+  }
+  if (!ctx.emEdicao && ctx.podeVincularFuncionario && temVerbaDeRescisao(f) && !f.employeeId) {
+    p.push({ campo: "funcionario", texto: "Guia com verba de rescisão: escolha o funcionário desligado a que ela se refere." });
   }
   if (ctx.numeroRepetido) p.push({ campo: "numero", texto: `Já existe a guia nº ${ctx.numeroRepetido}. Edite a existente em vez de lançar outra.` });
 
@@ -233,6 +246,7 @@ export function payloadDaGuia(f: FormGuia, emEdicao: boolean, categoriaEscolhida
     tradeName: f.tradeName || null,
     documentType: f.documentType,
     documentNumber: f.documentNumber.trim() || null,
+    employeeId: f.documentType === "FGTS" && f.employeeId ? f.employeeId : null,
     workersCount: modeloDoTipo(f.documentType).pedeTrabalhadores && f.workersCount.trim() ? Number(f.workersCount) : null,
     competenceDate: competenciaDoMes(f.mes) || null,
     dueDate: f.dueDate,

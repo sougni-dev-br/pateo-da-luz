@@ -1,8 +1,8 @@
 import { CheckCircle2, CircleAlert, ExternalLink, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import {
-  createTaxPayment, getCompanies, getTaxCategorySuggestion, getTaxCodes, getTaxDreCategories, getTaxPayment, getTaxPayments, updateTaxPayment,
-  type Company, type TaxCode, type TaxDreCategory, type TaxPayment, type TaxPaymentDetail,
+  createTaxPayment, getCompanies, getEmployees, getTaxCategorySuggestion, getTaxCodes, getTaxDreCategories, getTaxPayment, getTaxPayments, updateTaxPayment,
+  type Company, type Employee, type TaxCode, type TaxDreCategory, type TaxPayment, type TaxPaymentDetail,
 } from "../../api/client";
 import { DRE_GROUPS, dreGroupLabel } from "../../components/DRECategoryOptions";
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
@@ -11,7 +11,7 @@ import { formatarDiaDaGuia, resumoDaGuia } from "../../lib/guia-imposto";
 import { Janela } from "../payables/Janela";
 import {
   FORM_VAZIO, TIPOS_DE_GUIA, TIPOS_EM_DESTAQUE, chaveDoNumero, descricaoDasLinhas, diferencaComOPapel, formDaGuia, formDuplicado,
-  linhasComValor, linhasDoModelo, mesSugerido, payloadDaGuia, pendenciasDaGuia, totalDaGuia, type FormGuia, type LinhaForm,
+  linhasComValor, linhasDoModelo, mesSugerido, payloadDaGuia, pendenciasDaGuia, temVerbaDeRescisao, totalDaGuia, type FormGuia, type LinhaForm,
 } from "./formularioGuia";
 import { LinhasDaGuia } from "./LinhasDaGuia";
 import { modeloDoTipo } from "./modelosDeGuia";
@@ -32,6 +32,8 @@ type Props = {
   /** Tipo, competência e vencimento já escolhidos (ex.: vindos do alerta "falta lançar guia de FGTS"). */
   inicial?: InicialDaGuia;
   podeEditar: boolean;
+  /** Pode ver Funcionários: sem isso a lista de desligados não carrega e o vínculo não é exigido. */
+  podeVerFuncionarios?: boolean;
   /** Cancelar ou reativar a guia pede a permissão de excluir. */
   podeCancelar: boolean;
   /** Atalho para a guia em Contas a Pagar (onde se estorna um pagamento); omitido para quem não vê essa tela. */
@@ -61,13 +63,14 @@ function formInicial(inicial?: InicialDaGuia): FormGuia {
   return inicial?.tipo ? { ...base, documentType: inicial.tipo, linhas: linhasDoModelo(inicial.tipo) } : base;
 }
 
-export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, podeCancelar, onContasAPagar, onFechar, onSalvo }: Props) {
+export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, podeVerFuncionarios = false, podeCancelar, onContasAPagar, onFechar, onSalvo }: Props) {
   const emEdicao = editId != null;
   const [form, setForm] = useState<FormGuia>(() => formInicial(inicial));
   const [detalhe, setDetalhe] = useState<TaxPaymentDetail | null>(null);
   const [carregando, setCarregando] = useState(emEdicao || duplicarDe != null);
   const [categorias, setCategorias] = useState<TaxDreCategory[]>([]);
   const [empresas, setEmpresas] = useState<Company[]>([]);
+  const [desligados, setDesligados] = useState<Employee[]>([]);
   const [catalogo, setCatalogo] = useState<TaxCode[]>([]);
   const [categoriaEscolhida, setCategoriaEscolhida] = useState(false);
   // A categoria vem do tipo e das linhas: true = veio automática (campo travado); false = não há regra para esta guia
@@ -96,6 +99,16 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
     // Quem lança guia nem sempre pode ver Empresas: sem a lista, a empresa fica em campo livre.
     getCompanies().then(setEmpresas).catch(() => setEmpresas([]));
   }, []);
+
+  // FGTS de rescisão: só quem já saiu entra na lista (e quem a guia já tinha, para a edição mostrar o nome).
+  useEffect(() => {
+    if (!podeVerFuncionarios) return;
+    let descartada = false;
+    getEmployees({ includeInactive: true })
+      .then((todos) => { if (!descartada) setDesligados(todos.filter((e) => e.terminationDate || !e.isActive)); })
+      .catch(() => { if (!descartada) setDesligados([]); });
+    return () => { descartada = true; };
+  }, [podeVerFuncionarios]);
 
   useEffect(() => {
     const origem = editId ?? duplicarDe;
@@ -167,13 +180,15 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
   }, [form.documentNumber, editId]);
 
   const modelo = modeloDoTipo(form.documentType);
+  // FGTS não separa multa e juros: o que há de encargos é uma linha própria. Guia antiga que já tenha esses valores mantém as colunas.
+  const tipoSemMultaEJuros = form.documentType === "FGTS" && !form.linhas.some((l) => l.fine.trim() || l.interest.trim());
   const diferenca = diferencaComOPapel(form);
 
   // O que ainda impede de lançar: a guia só conclui com tudo resolvido.
   const pendencias = useMemo(() => (podeEditar ? pendenciasDaGuia(form, {
     emEdicao, valoresFixos, exigeEmpresa: empresas.length > 0, exigeCategoria: categoriaAuto === false, catalogo,
-    numeroRepetido: repetida?.documentNumber ?? null,
-  }) : []), [podeEditar, form, emEdicao, valoresFixos, empresas.length, categoriaAuto, catalogo, repetida]);
+    numeroRepetido: repetida?.documentNumber ?? null, podeVincularFuncionario: podeVerFuncionarios,
+  }) : []), [podeEditar, form, emEdicao, valoresFixos, empresas.length, categoriaAuto, catalogo, repetida, podeVerFuncionarios]);
   const linhasPendentes = pendencias.filter((p) => p.campo.startsWith("linha:")).map((p) => p.campo.slice(6));
 
   function aplicarTipo(tipo: string, refazerLinhas: boolean) {
@@ -333,6 +348,20 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
               </div>
             )}
           </FormGrid>
+          {form.documentType === "FGTS" && podeVerFuncionarios && (
+            <div data-pend="funcionario">
+              <FormField
+                label="Funcionário desligado (rescisão)" required={!emEdicao && temVerbaDeRescisao(form)}
+                hint="Guia de rescisão fica atrelada ao funcionário. Deixe em branco no FGTS mensal."
+              >
+                <Select
+                  placeholder="Nenhum (FGTS mensal)" value={form.employeeId} disabled={!editavel}
+                  onChange={(e) => campo("employeeId", e.target.value)}
+                  options={desligados.map((e) => ({ value: e.id, label: `${e.displayName || `${e.firstName} ${e.lastName}`}${e.terminationDate ? ` — saiu em ${e.terminationDate.slice(8, 10)}/${e.terminationDate.slice(5, 7)}/${e.terminationDate.slice(0, 4)}` : ""}` }))}
+                />
+              </FormField>
+            </div>
+          )}
         </FormSection>
 
         {duplicarDe && (
@@ -347,8 +376,9 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
           title="Composição da guia"
           description={valoresFixos
             ? "Esta guia já foi paga em Contas a Pagar: para mudar os valores, estorne o pagamento lá."
-            : "Digite o código de cada linha do documento: a denominação vem dele. O valor da guia é a soma das linhas."}
-          actions={editavel && !valoresFixos ? (
+            : tipoSemMultaEJuros ? "Informe o valor de cada linha como está no documento. O valor da guia é a soma das linhas."
+              : "Digite o código de cada linha do documento: a denominação vem dele. O valor da guia é a soma das linhas."}
+          actions={editavel && !valoresFixos && !tipoSemMultaEJuros ? (
             <div className="ip-multa-juros">
               <Switch label="Guia com multa e juros" checked={mostrarMultaJuros} onChange={setMostrarMultaJuros} />
               <span>Com multa e juros</span>
@@ -362,7 +392,7 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
               catalogo={catalogo}
               onChange={mudarLinhas}
               somenteLeitura={!editavel || valoresFixos}
-              mostrarMultaJuros={mostrarMultaJuros}
+              mostrarMultaJuros={mostrarMultaJuros && !tipoSemMultaEJuros}
               totalDoPapel={form.totalDoPapel}
               onTotalDoPapel={(t) => campo("totalDoPapel", t)}
               diferenca={diferenca}
