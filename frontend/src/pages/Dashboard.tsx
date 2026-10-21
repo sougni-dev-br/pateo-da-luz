@@ -13,7 +13,7 @@ import { useSession } from "../context/SessionContext";
 import { Alert, Button, useFormatCurrency } from "../design-system";
 import { AttentionList, type AttentionItem } from "./dashboard/AttentionList";
 import { PeriodBar } from "./dashboard/PeriodBar";
-import { CmvStrip, ResultPanel, RevenueHero, TicketPanel } from "./dashboard/Panels";
+import { CmvStrip, FullResultPanel, ResultPanel, RevenueHero, TicketPanel } from "./dashboard/Panels";
 import { PurchasesPanel, RecentPurchases } from "./dashboard/Purchases";
 import { RitmoDoMes } from "./dashboard/RitmoDoMes";
 import {
@@ -315,6 +315,18 @@ function DashboardContent({ loaded, info, navigate, pathAllowed, canAccessSectio
                 smallExpenses={summary.smallExpenses.total}
                 result={summary.estimatedResult.value}
                 margin={summary.estimatedResult.marginPercent}
+              />
+            )}
+            {summary?.fullResult && (
+              <FullResultPanel
+                net={net}
+                purchases={summary.fullResult.purchases}
+                smallExpenses={summary.fullResult.smallExpenses}
+                payroll={summary.fullResult.payroll}
+                taxes={summary.fullResult.taxes}
+                occupancy={summary.fullResult.occupancy}
+                result={summary.fullResult.value}
+                margin={summary.fullResult.marginPercent}
               />
             )}
           </div>
