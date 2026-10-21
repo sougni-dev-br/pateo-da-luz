@@ -3175,6 +3175,16 @@ export type DashboardSummaryData = {
     value: number;
     marginPercent: number | null;
   };
+  // Opcional: um backend anterior a este campo não o manda.
+  fullResult?: {
+    purchases: number;
+    smallExpenses: number;
+    payroll: number;
+    taxes: number;
+    occupancy: number;
+    value: number;
+    marginPercent: number | null;
+  };
 };
 
 export function getDashboardSummary(year: number, month: number) {
