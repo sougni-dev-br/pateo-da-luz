@@ -5522,6 +5522,9 @@ export type TaxPayment = {
   documentNumber: string | null;
   /** FGTS Digital: quantidade de trabalhadores informada na guia. */
   workersCount?: number | null;
+  /** FGTS de rescisão: o funcionário desligado a que a guia se refere. */
+  employeeId?: string | null;
+  employeeName?: string | null;
   /** Quantas linhas tem a composição da guia (a lista traz só a contagem; as linhas vêm no detalhe). */
   itemsCount?: number;
   competenceDate: string | null;

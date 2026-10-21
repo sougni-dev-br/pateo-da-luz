@@ -36,6 +36,7 @@ export function TaxPayments({ user }: Props) {
   // Confirmar a importação é "approve" no servidor: sem isso o botão só levaria a um 403 depois de conferir tudo.
   const podeImportar = hasPermission(user, "tax-payments", "approve");
   const podeVerContasAPagar = hasPermission(user, "payables", "view");
+  const podeVerFuncionarios = hasPermission(user, "employees", "view");
   const navigate = useNavigate();
   const topoDaLista = useRef<HTMLDivElement>(null);
 
@@ -281,6 +282,7 @@ export function TaxPayments({ user }: Props) {
           inicial={janela.inicial}
           onContasAPagar={podeVerContasAPagar ? (g) => navigate(linkContasAPagar(g)) : undefined}
           podeEditar={janela.editId ? podeEditar : podeLancar}
+          podeVerFuncionarios={podeVerFuncionarios}
           podeCancelar={podeExcluir}
           onFechar={() => setJanela(null)}
           onSalvo={aposAcao}

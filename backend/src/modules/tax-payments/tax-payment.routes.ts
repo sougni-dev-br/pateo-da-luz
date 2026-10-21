@@ -13,6 +13,7 @@ import type { SessionUser } from "../security/security-utils.js";
 import { montarPanorama } from "./tax-payment-panorama.js";
 import { descricaoDosItens, lerNumeroDoDocumento, lerQuantidadeDeTrabalhadores, normalizarItens, type ItemGuia } from "./tax-payment-items.js";
 import { aplicarCatalogoDeCodigos } from "./tax-code-catalog.js";
+import { lerFuncionarioDaGuia } from "./tax-payment-employee.js";
 import { diaIso, hojeBrasilia, lerData, parseValorGuia, resolverUploadImportacao, statusDaGuia } from "./tax-payment-rules.js";
 
 export const taxPaymentRouter = Router();
@@ -74,6 +75,7 @@ type TaxPaymentRow = {
   importBatchId: string | null;
   dreCategoryId: string | null;
   dreCategoryName: string | null;
+  employeeName: string | null;
   itemsCount: number;
   createdById: string;
   updatedById: string | null;
@@ -155,9 +157,11 @@ taxPaymentRouter.get("/", async (request, response) => {
       SELECT
         tp.*,
         dc.name AS "dreCategoryName",
+        COALESCE(NULLIF(TRIM(e."displayName"), ''), e."firstName" || ' ' || e."lastName") AS "employeeName",
         (SELECT COUNT(*)::int FROM "TaxPaymentItem" ti WHERE ti."taxPaymentId" = tp.id) AS "itemsCount"
       FROM "TaxPayment" tp
       LEFT JOIN "DRECategory" dc ON dc.id = tp."dreCategoryId"
+      LEFT JOIN "Employee" e ON e.id = tp."employeeId"
       WHERE ${where}
       ORDER BY
         (tp."paymentDate" IS NOT NULL OR tp."status" = 'CANCELED') ASC,
@@ -234,6 +238,7 @@ taxPaymentRouter.get("/:id", async (request, response) => {
     include: {
       company: { select: { id: true, tradeName: true, legalName: true, cnpj: true } },
       dreCategory: { select: { id: true, name: true, dreGroup: true } },
+      employee: { select: { id: true, firstName: true, lastName: true, displayName: true, terminationDate: true } },
       items: { orderBy: { position: "asc" } },
     },
   });
@@ -313,7 +318,7 @@ taxPaymentRouter.post("/", async (request, response) => {
 
   const {
     companyId, cnpj, legalName, tradeName, documentType, description,
-    competenceDate, dueDate, amount, paymentDate, paidAmount, comments, dreCategoryId, documentNumber, workersCount, items,
+    competenceDate, dueDate, amount, paymentDate, paidAmount, comments, dreCategoryId, documentNumber, workersCount, employeeId, items,
   } = request.body as Record<string, unknown>;
 
   if (!documentType || typeof documentType !== "string" || !documentType.trim()) {
@@ -344,6 +349,8 @@ taxPaymentRouter.post("/", async (request, response) => {
   }
   const trabalhadores = lerQuantidadeDeTrabalhadores(workersCount);
   if (!trabalhadores.ok) return response.status(400).json({ message: "Quantidade de trabalhadores inválida (número inteiro, de 0 a 100000)." });
+  const funcionario = await lerFuncionarioDaGuia(employeeId, documentType);
+  if (!funcionario.ok) return response.status(400).json({ message: funcionario.message });
   const descricao = typeof description === "string" && description.trim() ? description.trim() : itens ? descricaoDosItens(itens) : null;
 
   // Sem competência a guia não entra em DRE nenhum: é o que a tela promete ao lançar um imposto.
@@ -382,6 +389,7 @@ taxPaymentRouter.post("/", async (request, response) => {
       description: descricao,
       documentNumber: numero.valor,
       workersCount: trabalhadores.valor,
+      employeeId: funcionario.id,
       competenceDate: competencia.data,
       dueDate: dataDeVencimento,
       amount: valor,
@@ -426,7 +434,7 @@ taxPaymentRouter.put("/:id", async (request, response) => {
 
   const {
     companyId, cnpj, legalName, tradeName, documentType, description,
-    competenceDate, dueDate, amount, paymentDate, paidAmount, comments, dreCategoryId, status, documentNumber, workersCount, items,
+    competenceDate, dueDate, amount, paymentDate, paidAmount, comments, dreCategoryId, status, documentNumber, workersCount, employeeId, items,
   } = request.body as Record<string, unknown>;
 
   const pagoAnterior = existing.paidAmount == null ? null : Number(existing.paidAmount);
@@ -471,6 +479,16 @@ taxPaymentRouter.put("/:id", async (request, response) => {
     const lido = lerQuantidadeDeTrabalhadores(workersCount);
     if (!lido.ok) return response.status(400).json({ message: "Quantidade de trabalhadores inválida (número inteiro, de 0 a 100000)." });
     trabalhadoresDaGuia = lido.valor;
+  }
+
+  const tipoFinal = documentType ? String(documentType).trim() : existing.documentType;
+  let funcionarioDaGuia = existing.employeeId;
+  if (employeeId !== undefined) {
+    const lido = await lerFuncionarioDaGuia(employeeId, tipoFinal);
+    if (!lido.ok) return response.status(400).json({ message: lido.message });
+    funcionarioDaGuia = lido.id;
+  } else if (tipoFinal !== "FGTS") {
+    funcionarioDaGuia = null; // mudou de tipo: o vínculo com o funcionário não vale mais
   }
 
   let numeroDoDocumento = existing.documentNumber;
@@ -527,6 +545,7 @@ taxPaymentRouter.put("/:id", async (request, response) => {
         : description !== undefined ? ((description as string) || null) : existing.description,
       documentNumber: numeroDoDocumento,
       workersCount: trabalhadoresDaGuia,
+      employeeId: funcionarioDaGuia,
       competenceDate: competencia.data,
       dueDate: dataDeVencimento,
       amount: valor,

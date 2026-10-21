@@ -90,10 +90,11 @@ function BotaoPagar({ g, a, urgente }: { g: TaxPayment; a: AcoesDaGuia; urgente:
 function SubtituloDaGuia({ g, aberta, onAlternar }: { g: TaxPayment; aberta: boolean; onAlternar: () => void }) {
   const linhas = g.itemsCount ?? 0;
   const trabalhadores = g.workersCount ?? null;
-  if (!g.documentNumber && linhas === 0 && trabalhadores == null) return g.description ? <span className="ip-guia-desc" title={g.description}>{g.description}</span> : null;
+  if (!g.documentNumber && linhas === 0 && trabalhadores == null && !g.employeeName) return g.description ? <span className="ip-guia-desc" title={g.description}>{g.description}</span> : null;
   return (
     <span className="ip-guia-desc">
       {g.documentNumber && <span title="Número do documento">nº {g.documentNumber}</span>}
+      {g.employeeName && <span title="Funcionário desligado a que a guia se refere">Rescisão: {g.employeeName}{(g.documentNumber || trabalhadores != null || linhas > 0) && " · "}</span>}
       {g.documentNumber && (linhas > 0 || trabalhadores != null) && " · "}
       {trabalhadores != null && <span title="Quantidade de trabalhadores">{trabalhadores} {trabalhadores === 1 ? "trabalhador" : "trabalhadores"}{linhas > 0 && " · "}</span>}
       {linhas > 0 && (

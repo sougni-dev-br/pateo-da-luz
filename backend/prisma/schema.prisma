@@ -2120,6 +2120,9 @@ model TaxPayment {
   documentNumber String?
   // FGTS Digital: quantidade de trabalhadores que a guia informa (opcional).
   workersCount   Int?
+  // FGTS de rescisão: o funcionário desligado a que a guia se refere (opcional).
+  employeeId     String?
+  employee       Employee?              @relation(fields: [employeeId], references: [id], onDelete: SetNull)
   attachments    TaxPaymentAttachment[]
   items          TaxPaymentItem[]
   createdAt      DateTime               @default(now())
@@ -2131,6 +2134,7 @@ model TaxPayment {
   @@index([status])
   @@index([companyId])
   @@index([documentNumber])
+  @@index([employeeId])
   @@index([documentType])
   @@index([dreCategoryId])
   @@index([deletedAt])
@@ -2863,6 +2867,7 @@ model Employee {
   // Desligamento
   terminationDate        DateTime?
   terminationReason      String?
+  taxPayments            TaxPayment[]
   isActive               Boolean                    @default(true)
   notes                  String?
   holidayCompBalance     Int                        @default(0)
