@@ -1,8 +1,8 @@
 // Contas da linha do tempo de férias: eixo de datas, quem está fora a cada dia e a sugestão
 // de quando começar. Tudo em "AAAA-MM-DD" (UTC), como o resto do módulo: o fuso não pode mudar o dia.
 import type { ListaFerias, PeriodoFerias, PessoaFerias } from "../../../api/client";
-import { somaDias } from "./feriasFormato";
-import { DIAS_DE_AVISO, type Feriados, diaDaSemana, motivoInicioVedado } from "./regrasFerias";
+import { dataBr, somaDias } from "./feriasFormato";
+import { DIAS_DE_AVISO, type Feriados, diaDaSemana, motivoInicioVedado, nomeDoDia } from "./regrasFerias";
 
 const DIA_MS = 86_400_000;
 const emMs = (iso: string) => Date.parse(`${iso}T00:00:00.000Z`);
@@ -194,10 +194,23 @@ export function quemEstaFora(ausencias: Ausencia[], inicio: string, fim: string,
 
 // ── Sugestão de datas ──────────────────────────────────────────────────────────────
 
-export type Sugestao = { inicio: string; fim: string; dias: number; pico: number; picoSetor: number };
+/** Onde a sugestão nasceu: do pedido do colaborador (quando ele serve) ou do cálculo da casa. */
+export type OrigemDaSugestao = "pedido" | "calculada";
+export type Sugestao = {
+  inicio: string; fim: string; dias: number; pico: number; picoSetor: number;
+  origem: OrigemDaSugestao;
+  /** Dias de abono do pedido, quando a sugestão é o próprio pedido. */
+  diasAbono: number;
+  /** Por que o pedido não serve como está (a sugestão é a data mais próxima que serve). Só existe quando há pedido e ele não serve. */
+  motivoDoPedido?: string;
+};
 
 /** Quando o prazo já passou, procura só nesta janela (o quanto antes, mas com folga para avisar a pessoa). */
 const PROCURA_SE_VENCIDA_DIAS = 60;
+/** Colegas do mesmo setor fora ao mesmo tempo a partir dos quais o setor "lota" e o pedido deixa de servir. */
+export const COLEGAS_DO_SETOR_QUE_LOTAM = 2;
+
+export type PedidoParaSugerir = { inicio: string; dias: number; diasAbono: number };
 
 export type ContextoSugestao = {
   feriados: Feriados;
@@ -209,20 +222,30 @@ export type ContextoSugestao = {
   dosOutros: Ausencia[];
   /** Férias já marcadas da própria pessoa: a sugestão não pode bater nelas. */
   proprias: Ausencia[];
+  /** O que o colaborador pediu para este período: se serve, a sugestão é ele; se não, a data mais próxima que serve. */
+  pedido?: PedidoParaSugerir | null;
 };
 
-type Medida = { i: number; picoSetor: number; pico: number; somaSetor: number; soma: number; naoSegunda: number };
-const melhorQue = (a: Medida, b: Medida | null) => {
+type Medida = { i: number; excede: number; distancia: number; picoSetor: number; pico: number; somaSetor: number; soma: number; naoSegunda: number };
+const ORDEM_SEM_PEDIDO = ["picoSetor", "pico", "somaSetor", "soma", "naoSegunda"] as const;
+// Com pedido: primeiro o que não lota o setor, depois o mais perto do que foi pedido.
+const ORDEM_COM_PEDIDO = ["excede", "distancia", "picoSetor", "pico", "somaSetor", "soma", "naoSegunda"] as const;
+const melhorQue = (a: Medida, b: Medida | null, ordem: readonly (keyof Medida)[]) => {
   if (!b) return true;
-  for (const k of ["picoSetor", "pico", "somaSetor", "soma", "naoSegunda"] as const) if (a[k] !== b[k]) return a[k] < b[k];
+  for (const k of ordem) if (a[k] !== b[k]) return a[k] < b[k];
   return false;
 };
 
 /**
- * Acha onde encaixar `dias` de férias respeitando a lei e a casa: nunca começa em dia vedado
- * (feriado, repouso e os 2 dias antes), respeita o aviso de 30 dias quando o prazo permite, não
- * bate nas férias da própria pessoa e, entre as opções, prefere menos colegas do mesmo setor fora,
- * depois menos gente fora na casa toda, depois começar numa segunda-feira, depois o dia mais cedo.
+ * Acha onde encaixar `dias` de férias respeitando a lei e a casa.
+ *
+ * Com pedido do colaborador, parte dele: se o pedido serve (começa em dia permitido, termina dentro do prazo, não
+ * bate nas férias da própria pessoa, não lota o setor e cabe no saldo), a sugestão é o próprio pedido. Se não serve,
+ * sugere a data mais próxima do pedido que serve e diz por que o pedido não serve (`motivoDoPedido`).
+ *
+ * Sem pedido (ou para achar a alternativa): nunca começa em dia vedado, respeita o aviso de 30 dias quando o prazo
+ * permite, não bate nas férias da própria pessoa e prefere menos colegas do mesmo setor fora, depois menos gente
+ * fora na casa toda, depois começar numa segunda-feira, depois o dia mais cedo.
  */
 export function sugerirInicio(eixo: Eixo, p: PeriodoFerias, hoje: string, dias: number, ctx: ContextoSugestao): Sugestao | null {
   if (dias < 1) return null;
@@ -231,7 +254,38 @@ export function sugerirInicio(eixo: Eixo, p: PeriodoFerias, hoje: string, dias: 
   const propria = coberturaPorDia(eixo, ctx.proprias);
   const abertura = somaDias(p.aquisitivoFim, 1);
   const maior = (a: string, b: string) => (a > b ? a : b);
+  const em = (cobertura: number[], k: number) => cobertura[k] ?? 0; // fora do eixo não há dado: conta como livre
 
+  const pedido = ctx.pedido ?? null;
+  const idxPedido = pedido ? indiceDoDia(eixo, pedido.inicio) : 0;
+  let motivoDoPedido: string | undefined;
+
+  if (pedido) {
+    const fim = somaDias(pedido.inicio, pedido.dias - 1);
+    let pico = 0;
+    let picoSetor = 0;
+    let bate = false;
+    for (let k = idxPedido; k < idxPedido + pedido.dias; k++) {
+      pico = Math.max(pico, em(geral, k));
+      picoSetor = Math.max(picoSetor, em(doSetor, k));
+      if (em(propria, k) > 0) bate = true;
+    }
+    const vedado = motivoInicioVedado(pedido.inicio, ctx.feriados, ctx.repousos);
+    const motivos = [
+      pedido.inicio <= p.aquisitivoFim && "começa antes de completar o período aquisitivo",
+      pedido.inicio > p.aquisitivoFim && pedido.inicio <= hoje && "essa data já passou",
+      vedado && `não pode começar em ${nomeDoDia(pedido.inicio)}: ${vedado}`,
+      fim > p.fimConcessivo && `termina depois do prazo (${dataBr(p.fimConcessivo)}): férias pagas em dobro`,
+      bate && "bate em férias já programadas dele",
+      picoSetor >= COLEGAS_DO_SETOR_QUE_LOTAM && `${picoSetor} colegas do setor ${ctx.setor} já estarão fora`,
+      pedido.dias > dias && `pede ${pedido.dias} dias e restam ${dias} a programar`,
+    ].filter(Boolean) as string[];
+    if (motivos.length === 0) return { inicio: pedido.inicio, fim, dias: pedido.dias, pico, picoSetor, origem: "pedido", diasAbono: pedido.diasAbono };
+    motivoDoPedido = motivos.join("; ");
+    dias = Math.min(dias, pedido.dias); // a alternativa mantém os dias pedidos (até o que resta)
+  }
+
+  const ordem = pedido ? ORDEM_COM_PEDIDO : ORDEM_SEM_PEDIDO;
   const procurar = (primeiro: string, ultimo: string): Medida | null => {
     let melhor: Medida | null = null;
     const de = Math.max(0, indiceDoDia(eixo, primeiro));
@@ -239,7 +293,7 @@ export function sugerirInicio(eixo: Eixo, p: PeriodoFerias, hoje: string, dias: 
     for (let i = de; i <= ate; i++) {
       const inicio = somaDias(eixo.inicio, i);
       if (motivoInicioVedado(inicio, ctx.feriados, ctx.repousos)) continue;
-      const m: Medida = { i, picoSetor: 0, pico: 0, somaSetor: 0, soma: 0, naoSegunda: diaDaSemana(inicio) === 1 ? 0 : 1 };
+      const m: Medida = { i, excede: 0, distancia: Math.abs(i - idxPedido), picoSetor: 0, pico: 0, somaSetor: 0, soma: 0, naoSegunda: diaDaSemana(inicio) === 1 ? 0 : 1 };
       let bate = false;
       for (let k = i; k < i + dias; k++) {
         if (propria[k] > 0) { bate = true; break; }
@@ -248,7 +302,8 @@ export function sugerirInicio(eixo: Eixo, p: PeriodoFerias, hoje: string, dias: 
         m.soma += geral[k];
         m.somaSetor += doSetor[k];
       }
-      if (!bate && melhorQue(m, melhor)) melhor = m;
+      m.excede = m.picoSetor >= COLEGAS_DO_SETOR_QUE_LOTAM ? 1 : 0;
+      if (!bate && melhorQue(m, melhor, ordem)) melhor = m;
     }
     return melhor;
   };
@@ -262,7 +317,7 @@ export function sugerirInicio(eixo: Eixo, p: PeriodoFerias, hoje: string, dias: 
   }
   if (!achada) return null;
   const inicio = somaDias(eixo.inicio, achada.i);
-  return { inicio, fim: somaDias(inicio, dias - 1), dias, pico: achada.pico, picoSetor: achada.picoSetor };
+  return { inicio, fim: somaDias(inicio, dias - 1), dias, pico: achada.pico, picoSetor: achada.picoSetor, origem: "calculada", diasAbono: 0, ...(motivoDoPedido ? { motivoDoPedido } : {}) };
 }
 
 /** O período em que um clique na linha da pessoa vai programar: o mais antigo que ainda tem o que programar. */

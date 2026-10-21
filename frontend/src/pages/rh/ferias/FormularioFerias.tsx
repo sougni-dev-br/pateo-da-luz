@@ -17,7 +17,7 @@ type Props = {
   /** Presente ao editar uma programação já gravada. */
   inicial?: ProgramacaoFerias;
   /** Datas já escolhidas na linha do tempo (arrasto, clique ou sugestão); o formulário só confirma. */
-  sugestao?: { inicio: string; dias: number; diasAbono?: number; /** Data que a pessoa escolheu antes do ajuste para um dia permitido. */ ajustadoDe?: string };
+  sugestao?: { inicio: string; dias: number; diasAbono?: number; /** Data que a pessoa escolheu antes do ajuste para um dia permitido. */ ajustadoDe?: string; /** Por que o pedido do colaborador não serviu e esta é a alternativa. */ motivoDoPedido?: string };
   /** Hoje e os feriados: a data de início não pode cair em dia vedado e a lei pede aviso com 30 dias. */
   regras?: { hoje: string; feriados: Feriados; repousos: number[]; repousoPelaEscala: boolean };
   /** Quem já estará fora em parte desse período (sem a própria pessoa), com os colegas do mesmo setor à parte. */
@@ -160,6 +160,11 @@ export function FormularioFerias({ nome, periodo, inicial, sugestao, regras, con
           </p>
         )}
       </div>
+      {sugestao?.motivoDoPedido && pedido && (
+        <Alert tone="info" role={undefined}>
+          O pedido do colaborador ({dataBr(pedido.inicio)}) não serve como está: {sugestao.motivoDoPedido}. Esta é a data mais próxima do pedido que serve; avise a pessoa.
+        </Alert>
+      )}
       {sugestao?.ajustadoDe && sugestao.ajustadoDe !== inicio && (
         <Alert tone="info" role={undefined}>
           Mudei o início de {dataBr(sugestao.ajustadoDe)} para {dataBr(inicio)}: férias não podem começar em dia de repouso, feriado nem nos 2 dias antes.

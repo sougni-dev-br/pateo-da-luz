@@ -10,7 +10,7 @@ const MAX_DIAS = 30;
 const MIN_DIAS_GOZO = 5;
 
 /** O que está sendo desenhado por cima da linha: o arrasto, a prévia do formulário, a sugestão ou a barra sendo movida. */
-export type Fantasma = { tipo: "arrasto" | "previa" | "sugestao" | "mover" | "pedido"; inicio: string; dias: number };
+export type Fantasma = { tipo: "arrasto" | "previa" | "sugestao" | "mover" | "pedido"; inicio: string; dias: number; origem?: "pedido" | "calculada"; motivoDoPedido?: string };
 
 type Movendo = { g: ProgramacaoFerias; periodo: PeriodoFerias; /** dias entre o início da barra e o ponto que foi agarrado */ offset: number; inicio: string };
 
@@ -30,7 +30,7 @@ type Props = {
   /** Ocupado gravando: nada de começar arrasto novo. */
   ocupado: boolean;
   selecionadaId: string | null;
-  onEscolher: (periodo: PeriodoFerias, inicio: string, dias: number) => void;
+  onEscolher: (periodo: PeriodoFerias, inicio: string, dias: number, extra?: { diasAbono?: number; motivoDoPedido?: string }) => void;
   onSelecionar: (programacao: ProgramacaoFerias) => void;
   /** Soltou uma barra programada em outro dia. */
   onMover: (periodo: PeriodoFerias, programacao: ProgramacaoFerias, inicio: string) => void;
@@ -58,7 +58,7 @@ export function PistaDaPessoa({ eixo, feriados, pessoa, alvo, dosOutros, sugesta
     ? { tipo: "mover", inicio: movendo.inicio, dias: movendo.g.dias }
     : arrasto ? { tipo: "arrasto", ...intervaloDoArrasto(arrasto) }
       : previa ? { tipo: previa.pedido ? "pedido" : "previa", inicio: previa.inicio, dias: previa.dias }
-        : sugestao && !editando ? { tipo: "sugestao", inicio: sugestao.inicio, dias: sugestao.dias } : null;
+        : sugestao && !editando ? { tipo: "sugestao", inicio: sugestao.inicio, dias: sugestao.dias, origem: sugestao.origem, motivoDoPedido: sugestao.motivoDoPedido } : null;
   const periodoDoFantasma = movendo ? movendo.periodo : alvo;
 
   const diaDoPonteiro = (clientX: number) => diaDoX(eixo, clientX - (pista.current?.getBoundingClientRect().left ?? 0));
@@ -127,7 +127,7 @@ export function PistaDaPessoa({ eixo, feriados, pessoa, alvo, dosOutros, sugesta
       {fantasma && periodoDoFantasma && (
         <FantasmaDeFerias eixo={eixo} feriados={feriados} repousos={pessoa.repousoSemanal} fantasma={fantasma} alvo={periodoDoFantasma}
           colegas={quemEstaFora(dosOutros, fantasma.inicio, somaDias(fantasma.inicio, fantasma.dias - 1)).length}
-          onUsar={fantasma.tipo === "sugestao" && alvo ? () => onEscolher(alvo, fantasma.inicio, fantasma.dias) : undefined} />
+          onUsar={fantasma.tipo === "sugestao" && alvo ? () => onEscolher(alvo, fantasma.inicio, fantasma.dias, { diasAbono: sugestao?.diasAbono, motivoDoPedido: fantasma.motivoDoPedido }) : undefined} />
       )}
     </div>
   );
@@ -221,7 +221,7 @@ function FantasmaDeFerias({ eixo, feriados, repousos, fantasma, alvo, colegas, o
   if (!r) return null;
   const passaDoPrazo = datas.fim > alvo.fimConcessivo;
   const curto = fantasma.tipo !== "mover" && fantasma.tipo !== "pedido" && fantasma.dias < MIN_DIAS_GOZO && fantasma.dias < alvo.diasPendentes;
-  const rotulo = fantasma.tipo === "sugestao" ? "Sugestão" : fantasma.tipo === "pedido" ? `Pedido · ${fantasma.dias}d` : `${fantasma.dias} ${plural(fantasma.dias, "dia", "dias")}`;
+  const rotulo = fantasma.tipo === "sugestao" ? (fantasma.origem === "pedido" ? "Pedido" : fantasma.motivoDoPedido ? "Alternativa" : "Sugestão") : fantasma.tipo === "pedido" ? `Pedido · ${fantasma.dias}d` : `${fantasma.dias} ${plural(fantasma.dias, "dia", "dias")}`;
   const largo = r.largura >= 120;
   const vedado = fantasma.tipo === "sugestao" ? null : motivoInicioVedado(fantasma.inicio, feriados, repousos);
   const aviso = [
@@ -231,7 +231,7 @@ function FantasmaDeFerias({ eixo, feriados, repousos, fantasma, alvo, colegas, o
     colegas > 0 && `${colegas} ${plural(colegas, "colega fora", "colegas fora")} nesse período`,
   ].filter(Boolean).join(" · ");
   const classe = `fe-tl-fantasma fe-tl-fantasma--${fantasma.tipo}${passaDoPrazo || curto || vedado ? " fe-tl-fantasma--risco" : ""}`;
-  const titulo = `${rotulo}: ${dataBr(fantasma.inicio)} a ${dataBr(datas.fim)}${aviso ? ` — ${aviso}` : ""}`;
+  const titulo = `${rotulo}: ${dataBr(fantasma.inicio)} a ${dataBr(datas.fim)}${fantasma.origem === "pedido" ? " — é o que o colaborador pediu e serve" : ""}${fantasma.motivoDoPedido ? ` — o pedido não serve: ${fantasma.motivoDoPedido}` : ""}${aviso ? ` — ${aviso}` : ""}`;
   const conteudo = (
     <>
       {largo && <span>{rotulo} · {dataBr(fantasma.inicio)}</span>}

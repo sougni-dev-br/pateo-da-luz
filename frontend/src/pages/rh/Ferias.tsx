@@ -24,7 +24,7 @@ import "./ferias/ferias.css";
 import "./ferias/linhaDoTempo.css";
 import "./ferias/planejamento.css";
 
-type Aberto = { chave: string; programacao?: ProgramacaoFerias; sugestao?: { inicio: string; dias: number; diasAbono?: number; ajustadoDe?: string }; /** Abre o pedido do colaborador em vez da programação. */ pedido?: boolean };
+type Aberto = { chave: string; programacao?: ProgramacaoFerias; sugestao?: { inicio: string; dias: number; diasAbono?: number; ajustadoDe?: string; motivoDoPedido?: string }; /** Abre o pedido do colaborador em vez da programação. */ pedido?: boolean };
 type Visao = "linha" | "lista";
 type Previa = { inicio: string; dias: number; /** Desenho do pedido do colaborador (faixa no pé da linha), e não da programação. */ pedido?: boolean };
 const chaveDe = (l: LinhaFerias) => `${l.pessoa.employeeId}|${l.periodo.aquisitivoInicio}`;
@@ -203,12 +203,12 @@ export function Ferias() {
     return periodo ? formulario({ pessoa, periodo }, aberto) : null;
   };
   // Quem clica ou arrasta num dia vedado (sábado, domingo, feriado, 2 dias antes) cai no próximo dia permitido, e o formulário avisa.
-  const programarPelaLinha = (pessoa: PessoaFerias, periodo: PeriodoFerias, inicio?: string, dias?: number) => {
+  const programarPelaLinha = (pessoa: PessoaFerias, periodo: PeriodoFerias, inicio?: string, dias?: number, extra?: { diasAbono?: number; motivoDoPedido?: string }) => {
     const feriados = lista?.feriados ?? {};
     const ajustado = inicio && motivoInicioVedado(inicio, feriados, pessoa.repousoSemanal) ? proximoInicioValido(inicio, feriados, pessoa.repousoSemanal) : inicio;
     abrir({
       chave: `${pessoa.employeeId}|${periodo.aquisitivoInicio}`,
-      sugestao: ajustado && dias ? { inicio: ajustado, dias, ajustadoDe: ajustado !== inicio ? inicio : undefined } : undefined,
+      sugestao: ajustado && dias ? { inicio: ajustado, dias, diasAbono: extra?.diasAbono || undefined, motivoDoPedido: extra?.motivoDoPedido, ajustadoDe: ajustado !== inicio ? inicio : undefined } : undefined,
     });
   };
 

@@ -11,12 +11,18 @@ import {
 } from "./eixoDoTempo";
 
 const MAX_DIAS = 30;
+
+/** O pedido só guia a sugestão enquanto a empresa não respondeu com uma programação; depois, o que resta é sugerido sem ele. */
+const pedidoParaSugerir = (periodo: PeriodoFerias) => {
+  const pedido = periodo.solicitacao;
+  return pedido && compararPedido(periodo)?.situacao === "AGUARDANDO" ? { inicio: pedido.inicio, dias: pedido.dias, diasAbono: pedido.diasAbono } : null;
+};
 const AJUDA = "Arraste sobre a linha de uma pessoa para escolher os dias, ou clique na faixa tracejada (menos colegas fora). Arraste uma barra azul para mudar a data. Esc sai da tela cheia.";
 /** Largura da coluna do nome (a mesma de --nome no CSS, na tela larga). */
 const NOME_PX = 208;
 
 export type AcoesDaLinha = {
-  onProgramar: (pessoa: PessoaFerias, periodo: PeriodoFerias, inicio?: string, dias?: number) => void;
+  onProgramar: (pessoa: PessoaFerias, periodo: PeriodoFerias, inicio?: string, dias?: number, extra?: { diasAbono?: number; motivoDoPedido?: string }) => void;
   onEditar: (pessoa: PessoaFerias, periodo: PeriodoFerias, g: ProgramacaoFerias) => void;
   onCancelar: (l: LinhaFerias, g: ProgramacaoFerias) => void;
   onConfirmar: (l: LinhaFerias, g: ProgramacaoFerias) => void;
@@ -183,7 +189,7 @@ function LinhaDaPessoa({ eixo, lista, pessoa, ausencias, ocupado, aberto, previa
   const saldo = alvo ? Math.min(MAX_DIAS, alvo.diasPendentes) : 0;
   const proprias = useMemo(() => ausencias.filter((a) => a.employeeId === pessoa.employeeId), [ausencias, pessoa.employeeId]);
   const sugestao = useMemo(
-    () => (alvo && saldo > 0 ? sugerirInicio(eixo, alvo, lista.hoje, saldo, { feriados: lista.feriados, repousos: pessoa.repousoSemanal, setor: pessoa.setor, dosOutros, proprias }) : null),
+    () => (alvo && saldo > 0 ? sugerirInicio(eixo, alvo, lista.hoje, saldo, { feriados: lista.feriados, repousos: pessoa.repousoSemanal, setor: pessoa.setor, dosOutros, proprias, pedido: pedidoParaSugerir(alvo) }) : null),
     [alvo, dosOutros, proprias, eixo, lista.hoje, lista.feriados, pessoa.repousoSemanal, pessoa.setor, saldo]);
 
   const pior = pessoa.periodos.reduce<PeriodoFerias | null>((p, atual) => (atual.nivel !== "ok" && (!p || atual.nivel === "perigo") ? atual : p), null);
@@ -207,6 +213,7 @@ function LinhaDaPessoa({ eixo, lista, pessoa, ausencias, ocupado, aberto, previa
             <li className="fe-tl-ficha--pedido"><b>Pediu</b> {resumoDoPedido(ficha.periodo.solicitacao as NonNullable<PeriodoFerias["solicitacao"]>)}</li>
             <li className="fe-tl-ficha--empresa"><b>Empresa quer</b> {ficha.comparacao.programacao ? resumoProgramacao(ficha.comparacao.programacao) : "ainda sem data"}</li>
             <li className="fe-tl-ficha--limite"><b>Limite</b> começar até {dataBr(ficha.periodo.limiteInicioGozo)}</li>
+            {sugestao?.motivoDoPedido && alvo?.solicitacao && <li className="fe-tl-ficha--aviso"><b>Pedido não serve</b> {sugestao.motivoDoPedido}</li>}
             <li><span className={`fe-tl-situacao fe-tl-situacao--${ficha.comparacao.situacao.toLowerCase()}`}>{ROTULO_DA_SITUACAO_DO_PEDIDO[ficha.comparacao.situacao]}</span>
               {ficha.comparacao.situacao === "DIFERENTE" && diferencaEmPalavras(ficha.comparacao.diferencaEmDias) ? <span className="fe-sub"> · {diferencaEmPalavras(ficha.comparacao.diferencaEmDias)}</span> : null}
               {ficha.comparacao.passaDoPrazo && <span className="fe-tl-situacao fe-tl-situacao--prazo">pedido passa do prazo</span>}
@@ -222,7 +229,7 @@ function LinhaDaPessoa({ eixo, lista, pessoa, ausencias, ocupado, aberto, previa
         )}
         {alvo && !aberto && (
           <button type="button" className="fe-tl-programar" aria-disabled={ocupado} aria-label={`Programar férias de ${pessoa.nome}`}
-            onClick={guarda(() => acoes.onProgramar(pessoa, alvo, sugestao?.inicio, sugestao?.dias))}>
+            onClick={guarda(() => acoes.onProgramar(pessoa, alvo, sugestao?.inicio, sugestao?.dias, { diasAbono: sugestao?.diasAbono, motivoDoPedido: sugestao?.motivoDoPedido }))}>
             <CalendarPlus size={13} aria-hidden="true" /> Programar
           </button>
         )}
@@ -230,7 +237,7 @@ function LinhaDaPessoa({ eixo, lista, pessoa, ausencias, ocupado, aberto, previa
       <PistaDaPessoa eixo={eixo} feriados={lista.feriados} pessoa={pessoa} alvo={alvo} dosOutros={dosOutros} sugestao={sugestao} previa={previa} editando={aberto}
         selecionadaId={selecionadaId} onSelecionar={onSelecionar} ocupado={ocupado} onPedido={(periodo) => acoes.onPedido(pessoa, periodo)}
         onMover={(periodo, g, inicio) => acoes.onMover(pessoa, periodo, g, inicio)}
-        onEscolher={(periodo, inicio, dias) => { if (!ocupado) acoes.onProgramar(pessoa, periodo, inicio, dias); }} />
+        onEscolher={(periodo, inicio, dias, extra) => { if (!ocupado) acoes.onProgramar(pessoa, periodo, inicio, dias, extra); }} />
       {(formulario || escolhida) && (
         <div className="fe-tl-extra">
           {formulario}

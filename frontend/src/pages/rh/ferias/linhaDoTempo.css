@@ -252,3 +252,5 @@ button.fe-tl-fantasma { cursor: pointer; }
 .fe-tl-situacao--prazo { margin-left: 4px; background: var(--tint-danger); color: var(--danger); }
 .fe-tl-programar--pedido { margin-right: 4px; }
 .fe-form-explica { margin: 0; font-size: var(--fs-sm); }
+.fe-tl-ficha--aviso { color: var(--danger); }
+.fe-tl-ficha--aviso b { color: var(--danger); min-width: 0; margin-right: 3px; }

@@ -227,6 +227,37 @@ describe("Férias — linha do tempo", () => {
     await waitFor(() => expect(removerSolicitacaoFerias).toHaveBeenCalledWith("s1"));
   });
 
+  test("Programar parte do pedido: se serve, vem o pedido; se não serve, a data mais próxima e o motivo", async () => {
+    const pedidoEm = (inicio: string, fim: string) => ({ id: "s1", inicio, fim, dias: 15, diasAbono: 0, observacao: null, registradaEm: "2026-10-20T12:00:00.000Z" });
+    vi.mocked(getFerias).mockResolvedValue(lista([pessoa("e1", "Ana Souza", [periodo({ solicitacao: pedidoEm("2026-12-14", "2026-12-28") })])]));
+    const primeira = render(<Ferias />);
+    fireEvent.click(await screen.findByRole("button", { name: "Programar férias de Ana Souza" }));
+    let form = screen.getByRole("form", { name: "Programar férias de Ana Souza" });
+    expect(within(form).getByLabelText(/^Início das férias/)).toHaveValue("2026-12-14");
+    expect(within(form).getByText("É exatamente o que o colaborador pediu.")).toBeInTheDocument();
+    primeira.unmount();
+
+    vi.mocked(getFerias).mockResolvedValue(lista([pessoa("e1", "Ana Souza", [periodo({ solicitacao: pedidoEm("2026-12-12", "2026-12-26") })])])); // sábado
+    render(<Ferias />);
+    fireEvent.click(await screen.findByRole("button", { name: "Programar férias de Ana Souza" }));
+    form = screen.getByRole("form", { name: "Programar férias de Ana Souza" });
+    expect(within(form).getByLabelText(/^Início das férias/)).toHaveValue("2026-12-14");
+    expect(within(form).getByText(/não serve como está: não pode começar em sábado/)).toBeInTheDocument();
+  });
+
+  test("pedido já respondido pela empresa não guia a sugestão do que resta", async () => {
+    const respondido = periodo({
+      diasPendentes: 15,
+      solicitacao: { id: "s1", inicio: "2026-12-12", fim: "2026-12-26", dias: 15, diasAbono: 0, observacao: null, registradaEm: "2026-10-20T12:00:00.000Z" }, // sábado: não serviria
+      programacoes: [{ id: "g1", aquisitivoInicio: "2025-03-01", gozoInicio: "2026-12-14", gozoFim: "2026-12-28", dias: 15, diasAbono: 0, status: "PROGRAMADA", observacao: null, passouDaData: false }],
+    });
+    vi.mocked(getFerias).mockResolvedValue(lista([pessoa("e1", "Ana Souza", [respondido])]));
+    render(<Ferias />);
+    fireEvent.click(await screen.findByRole("button", { name: "Programar férias de Ana Souza" }));
+    const form = screen.getByRole("form", { name: "Programar férias de Ana Souza" });
+    expect(within(form).queryByText(/não serve como está/)).toBeNull();
+  });
+
   test("clicar na barra mostra as opções e cancelar a programação chama o servidor", async () => {
     vi.mocked(getFerias).mockResolvedValue(lista([bruno]));
     render(<Ferias />);
