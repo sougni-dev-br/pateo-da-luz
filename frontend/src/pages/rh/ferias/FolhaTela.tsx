@@ -3,8 +3,8 @@ import type { ListaFerias, PeriodoFerias, PessoaFerias } from "../../../api/clie
 import { type Ausencia, type Eixo, coberturaPorDia, mesesDoEixo, quemEstaFora, retangulo, rotulosDosMeses, segundasDoEixo, trechosDeCobertura, xDoDia, zonasDaJanela } from "./eixoDoTempo";
 import { type LinhaFerias, dataBr, plural, resumoProgramacao, rotuloDaSituacao, somaDias, textoPrazo } from "./feriasFormato";
 import { ROTULO_DA_SITUACAO_DO_PEDIDO, compararPedido, diferencaEmPalavras } from "./pedido";
-import { periodoDaFicha, proximoPasso } from "./proximoPasso";
-import { NOME_NA_FOLHA_PX, type OpcoesTela, larguraUtilPx, tituloDaFolha } from "./opcoesDaFolha";
+import { type ItemDoResumo, ordenarPorUrgencia, periodoDaFicha, proximoPasso, resumoDoQueFazer } from "./proximoPasso";
+import { type OpcoesTela, escalaDaLetra, larguraUtilPx, nomeNaFolhaPx, tituloDaFolha } from "./opcoesDaFolha";
 
 type Comum = { lista: ListaFerias; opcoes: OpcoesTela; filtroRotulo: string; empresaDaTela: string };
 
@@ -21,8 +21,34 @@ const LEGENDA: Array<[string, string]> = [
   ["programada", "Programada (a empresa quer)"], ["pedido", "Pedido do colaborador"], ["limite", "Prazo limite"], ["gozada", "Gozada"],
 ];
 
+const ROTULO_DO_RESUMO: Record<ItemDoResumo["tipo"], (n: number) => string> = {
+  vencido: (n) => `${n} ${plural(n, "prazo vencido", "prazos vencidos")}, definir a data já`,
+  responder: (n) => `${n} ${plural(n, "pedido para responder", "pedidos para responder")}`,
+  definir: (n) => `${n} ${plural(n, "pessoa para definir a data", "pessoas para definir a data")}`,
+  avisar: (n) => `${n} ${plural(n, "aviso a fazer", "avisos a fazer")}`,
+  confirmar: (n) => `${n} ${plural(n, "gozo para confirmar", "gozos para confirmar")}`,
+};
+
+/** O que fazer: as providências da folha somadas por tipo, com os nomes. */
+function ResumoDoQueFazer({ pessoas, hoje }: { pessoas: PessoaFerias[]; hoje: string }) {
+  const itens = resumoDoQueFazer(pessoas, hoje);
+  return (
+    <section className="fe-ti-resumo" aria-label="O que fazer">
+      <h3>O que fazer</h3>
+      {itens.length === 0 ? <p>Nada a decidir agora.</p> : (
+        <ul>
+          {itens.map((i) => (
+            <li key={i.tipo} className={i.urgente ? "fe-ti-resumo--urgente" : undefined}><b>{ROTULO_DO_RESUMO[i.tipo](i.nomes.length)}:</b> {i.nomes.join(", ")}</li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 export function FolhaTelaLinhaDoTempo(props: PropsLinha) {
-  const { pessoas, eixo, ausencias, opcoes, lista } = props;
+  const { eixo, ausencias, opcoes, lista } = props;
+  const pessoas = ordenarPorUrgencia(props.pessoas, lista.hoje);
   const util = larguraUtilPx(opcoes);
   const meses = mesesDoEixo(eixo);
   const rotulos = rotulosDosMeses(meses);
@@ -47,11 +73,12 @@ export function FolhaTelaLinhaDoTempo(props: PropsLinha) {
   );
 
   return (
-    <div className="fe-ti" style={{ width: util }}>
+    <div className="fe-ti" style={{ width: util, "--e": escalaDaLetra(opcoes.letra) } as React.CSSProperties}>
       <header className="fe-ti-topo">
         <h2>{tituloDaFolha("linha")}</h2>
         <p>{resumoDoTopo(props)}</p>
       </header>
+      <ResumoDoQueFazer pessoas={pessoas} hoje={lista.hoje} />
       {opcoes.legenda && (
         <ul className="fe-ti-legenda" aria-label="Legenda">
           {LEGENDA.map(([tom, rotulo]) => <li key={tom}><i className={`fe-ti-amostra fe-ti-amostra--${tom}`} />{rotulo}</li>)}
@@ -59,7 +86,7 @@ export function FolhaTelaLinhaDoTempo(props: PropsLinha) {
         </ul>
       )}
       <table className="fe-ti-tabela" style={{ width: util }}>
-        <colgroup><col style={{ width: NOME_NA_FOLHA_PX }} /><col style={{ width: eixo.largura }} /></colgroup>
+        <colgroup><col style={{ width: nomeNaFolhaPx(opcoes) }} /><col style={{ width: eixo.largura }} /></colgroup>
         <thead>
           <tr>
             <th className="fe-ti-nome">Funcionário</th>
@@ -102,7 +129,7 @@ export function FolhaTelaLinhaDoTempo(props: PropsLinha) {
               {agrupar && (i === 0 || semEmpresa(pessoas[i - 1]) !== semEmpresa(pessoa)) && (
                 <tr className="fe-ti-grupo"><td colSpan={2}>{semEmpresa(pessoa)}</td></tr>
               )}
-              <tr className="fe-ti-linha">
+              <tr className={`fe-ti-linha${periodoDaFicha(pessoa) ? "" : " fe-ti-linha--vazia"}`}>
                 <td className="fe-ti-nome">
                   <strong>{pessoa.nome}</strong>
                   <small>{[pessoa.setor, prazoDaPessoa(pessoa)].filter(Boolean).join(" · ")}</small>
@@ -167,7 +194,7 @@ export function FolhaTelaLista(props: PropsLista) {
   const { linhas, opcoes } = props;
   const util = larguraUtilPx(opcoes);
   return (
-    <div className="fe-ti" style={{ width: util }}>
+    <div className="fe-ti" style={{ width: util, "--e": escalaDaLetra(opcoes.letra) } as React.CSSProperties}>
       <header className="fe-ti-topo">
         <h2>{tituloDaFolha("lista")}</h2>
         <p>{resumoDoTopo(props)}</p>

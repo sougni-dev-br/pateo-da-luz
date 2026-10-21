@@ -4,41 +4,41 @@
 ═══════════════════════════════════════════════════════════════════ */
 
 /* ── Folha ─────────────────────────────────────────────────────────── */
-.fe-ti { color: #111; background: #fff; font-family: Arial, Helvetica, sans-serif; font-size: 10pt; line-height: 1.3; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.fe-ti { color: #111; background: #fff; font-family: Arial, Helvetica, sans-serif; font-size: calc(10pt * var(--e, 1)); line-height: 1.3; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 .fe-ti-topo { display: flex; align-items: baseline; justify-content: space-between; gap: 6mm; padding-bottom: 2mm; border-bottom: 0.5mm solid #111; margin-bottom: 2mm; }
-.fe-ti-topo h2 { margin: 0; font-size: 17pt; font-weight: 700; }
-.fe-ti-topo p { margin: 0; font-size: 10pt; color: #333; }
-.fe-ti-legenda { list-style: none; margin: 0 0 2mm; padding: 0; display: flex; flex-wrap: wrap; gap: 1mm 3.5mm; font-size: 9pt; }
+.fe-ti-topo h2 { margin: 0; font-size: calc(17pt * var(--e, 1)); font-weight: 700; }
+.fe-ti-topo p { margin: 0; font-size: calc(10pt * var(--e, 1)); color: #333; }
+.fe-ti-legenda { list-style: none; margin: 0 0 2mm; padding: 0; display: flex; flex-wrap: wrap; gap: 1mm 3.5mm; font-size: calc(9pt * var(--e, 1)); }
 .fe-ti-legenda li { display: inline-flex; align-items: center; gap: 1.5mm; }
 .fe-ti-amostra { display: inline-block; width: 7mm; height: 3.4mm; border: 0.2mm solid #888; }
-.fe-ti-rodape { margin-top: 2mm; font-size: 9pt; color: #444; }
+.fe-ti-rodape { margin-top: 2mm; font-size: calc(9pt * var(--e, 1)); color: #444; }
 
 .fe-ti-tabela { border-collapse: collapse; table-layout: fixed; }
 .fe-ti-tabela thead { display: table-header-group; }
 .fe-ti-tabela tr { break-inside: avoid; page-break-inside: avoid; }
-.fe-ti .fe-ti-tabela th { padding: 1.2mm 2mm; text-align: left; font-size: 9pt; font-weight: 700; color: #111; text-transform: uppercase; letter-spacing: 0.03em; background: #e6e6e6; border: 0.25mm solid #111; }
+.fe-ti .fe-ti-tabela th { padding: 1.2mm 2mm; text-align: left; font-size: calc(9pt * var(--e, 1)); font-weight: 700; color: #111; text-transform: uppercase; letter-spacing: 0.03em; background: #e6e6e6; border: 0.25mm solid #111; }
 .fe-ti-tabela .fe-ti-trilha { padding: 0; }
 .fe-ti .fe-ti-tabela th.fe-ti-trilha { padding: 0; }
 .fe-ti-nome { padding: 1.2mm 2mm; border: 0.2mm solid #888; overflow: hidden; }
-.fe-ti-nome strong { display: block; font-size: 11pt; line-height: 1.2; }
-.fe-ti-nome small, .fe-ti-tabela--lista small { display: block; font-size: 8.5pt; color: #333; }
+.fe-ti-nome strong { display: block; font-size: calc(11pt * var(--e, 1)); line-height: 1.2; }
+.fe-ti-nome small, .fe-ti-tabela--lista small { display: block; font-size: calc(8.5pt * var(--e, 1)); color: #333; }
 .fe-ti-linha td { border-bottom: 0.2mm solid #999; vertical-align: middle; }
 .fe-ti-grupo { break-after: avoid; page-break-after: avoid; }
-.fe-ti-grupo td { padding: 1.2mm 2mm; font-size: 9.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; background: #f0f0f0; border: 0.2mm solid #888; }
+.fe-ti-grupo td { padding: 1.2mm 2mm; font-size: calc(9.5pt * var(--e, 1)); font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; background: #f0f0f0; border: 0.2mm solid #888; }
 
 /* Pista: tudo posicionado em px; a largura já foi calculada para caber no papel. */
 .fe-ti-meses { position: relative; height: 6.5mm; }
-.fe-ti-meses span { position: absolute; top: 0; bottom: 0; padding: 1.2mm 0 0 1mm; border-left: 0.2mm solid #888; overflow: hidden; white-space: nowrap; font-size: 9pt; font-weight: 700; text-transform: uppercase; box-sizing: border-box; }
-.fe-ti-pista { position: relative; height: 48px; overflow: hidden; }
+.fe-ti-meses span { position: absolute; top: 0; bottom: 0; padding: 1.2mm 0 0 1mm; border-left: 0.2mm solid #888; overflow: hidden; white-space: nowrap; font-size: calc(9pt * var(--e, 1)); font-weight: 700; text-transform: uppercase; box-sizing: border-box; }
+.fe-ti-pista { position: relative; height: calc(48px * var(--e, 1)); overflow: hidden; }
 .fe-ti-grade { position: absolute; top: 0; bottom: 0; width: 0; border-left: 0.2mm solid #ccc; }
 .fe-ti-grade--ano { border-left: 0.35mm solid #888; }
 .fe-ti-hoje { position: absolute; top: 0; bottom: 0; width: 0; border-left: 0.5mm solid #111; z-index: 3; }
-.fe-ti-zona { position: absolute; top: 13px; height: 18px; }
-.fe-ti-aquisicao { position: absolute; top: 7px; height: 8px; border: 0.25mm dashed #444; background: none; }
-.fe-ti-barra { position: absolute; top: 11px; height: 22px; z-index: 2; box-sizing: border-box; overflow: hidden; white-space: nowrap; text-align: center; line-height: 22px; font-size: 9pt; font-weight: 700; color: #fff; border-radius: 2px; }
+.fe-ti-zona { position: absolute; top: calc(13px * var(--e, 1)); height: calc(18px * var(--e, 1)); }
+.fe-ti-aquisicao { position: absolute; top: calc(7px * var(--e, 1)); height: calc(8px * var(--e, 1)); border: 0.25mm dashed #444; background: none; }
+.fe-ti-barra { position: absolute; top: calc(11px * var(--e, 1)); height: calc(22px * var(--e, 1)); z-index: 2; box-sizing: border-box; overflow: hidden; white-space: nowrap; text-align: center; line-height: calc(22px * var(--e, 1)); font-size: calc(9pt * var(--e, 1)); font-weight: 700; color: #fff; border-radius: 2px; }
 .fe-ti-barra--programada { background: #2f5f98; }
 .fe-ti-barra--gozada { background: #276749; }
-.fe-ti-calor { position: absolute; top: 5px; height: 22px; text-align: center; line-height: 22px; font-size: 9pt; font-weight: 700; color: #111; }
+.fe-ti-calor { position: absolute; top: calc(5px * var(--e, 1)); height: calc(22px * var(--e, 1)); text-align: center; line-height: calc(22px * var(--e, 1)); font-size: calc(9pt * var(--e, 1)); font-weight: 700; color: #111; }
 .fe-ti-calor--1 { background: #ead9b0; }
 .fe-ti-calor--2 { background: #cfae63; }
 .fe-ti-calor--3 { background: #6f5523; color: #fff; }
@@ -55,7 +55,7 @@
 
 /* Lista */
 .fe-ti-tabela--lista td { padding: 1.2mm 2mm; vertical-align: top; border: 0.2mm solid #888; }
-.fe-ti-tabela--lista { font-size: 10pt; }
+.fe-ti-tabela--lista { font-size: calc(10pt * var(--e, 1)); }
 .fe-ti-prog { display: block; }
 
 /* ── Janela de opções ──────────────────────────────────────────────── */
@@ -72,10 +72,10 @@
 /* Trimestre: marcas por semana (segundas-feiras) na grade e o dia do mês embaixo do nome do mês */
 .fe-ti-semana { position: absolute; top: 0; bottom: 0; width: 0; border-left: 0.15mm dotted #aaa; }
 .fe-ti-meses--semanas { height: 10mm; }
-.fe-ti-seg { position: absolute; bottom: 0.4mm; padding-left: 0.6mm; font-style: normal; font-size: 7.5pt; color: #333; }
+.fe-ti-seg { position: absolute; bottom: 0.4mm; padding-left: 0.6mm; font-style: normal; font-size: calc(7.5pt * var(--e, 1)); color: #333; }
 
 /* Pedido do colaborador: faixa tracejada fina embaixo da programação (azul) */
-.fe-ti-pedido { position: absolute; top: 33px; height: 13px; z-index: 2; box-sizing: border-box; overflow: hidden; white-space: nowrap; text-align: center; line-height: 11px; font-size: 7.5pt; font-weight: 700; color: #111; border: 0.35mm dashed #111; border-radius: 1px; background: #fff; }
+.fe-ti-pedido { position: absolute; top: calc(33px * var(--e, 1)); height: calc(13px * var(--e, 1)); z-index: 2; box-sizing: border-box; overflow: hidden; white-space: nowrap; text-align: center; line-height: calc(11px * var(--e, 1)); font-size: calc(7.5pt * var(--e, 1)); font-weight: 700; color: #111; border: 0.35mm dashed #111; border-radius: 1px; background: #fff; }
 .fe-ti-amostra--pedido { height: 2.2mm; border: 0.3mm dashed #111; background: #fff; }
 
 /* Prazo limite para começar: traço vermelho escuro de ponta a ponta da linha */
@@ -83,11 +83,11 @@
 .fe-ti-amostra--limite { width: 0; height: 3mm; border: 0; border-left: 0.5mm solid #7a1f1f; margin: 0 3mm; }
 
 /* Data do prazo limite escrita ao lado do traço, na faixa livre no alto da linha */
-.fe-ti-limite-tag { position: absolute; top: 0; z-index: 4; transform: translateX(-100%); padding: 0 1.2mm 0 0.5mm; background: #fff; color: #7a1f1f; font-size: 8pt; font-weight: 700; line-height: 11px; white-space: nowrap; }
+.fe-ti-limite-tag { position: absolute; top: 0; z-index: 4; transform: translateX(-100%); padding: 0 1.2mm 0 0.5mm; background: #fff; color: #7a1f1f; font-size: calc(8pt * var(--e, 1)); font-weight: 700; line-height: calc(11px * var(--e, 1)); white-space: nowrap; }
 
 /* Ficha na coluna do nome: pediu / empresa quer / limite / situação / próximo passo */
-.fe-ti-ficha { list-style: none; margin: 0.6mm 0 0; padding: 0; display: grid; gap: 0.4mm; font-size: 8.5pt; line-height: 1.25; color: #111; }
-.fe-ti-ficha li { display: grid; grid-template-columns: 21mm minmax(0, 1fr); column-gap: 1mm; }
+.fe-ti-ficha { list-style: none; margin: 0.6mm 0 0; padding: 0; display: grid; gap: 0.4mm; font-size: calc(8.5pt * var(--e, 1)); line-height: 1.25; color: #111; }
+.fe-ti-ficha li { display: grid; grid-template-columns: calc(21mm * var(--e, 1)) minmax(0, 1fr); column-gap: 1mm; }
 .fe-ti-ficha li.fe-ti-situacao, .fe-ti-ficha li.fe-ti-passo { display: block; }
 .fe-ti-ficha b { font-weight: 700; color: #111; }
 .fe-ti-mudo { color: #666; font-style: italic; }
@@ -99,7 +99,21 @@
 .fe-ti-passo--urgente { color: #7a1f1f; }
 
 /* Quem está fora no pior momento: os nomes por trás do número da faixa */
-.fe-ti-pico td { padding: 1.2mm 2mm; font-size: 9pt; background: #fafafa; border: 0.2mm solid #888; }
+.fe-ti-pico td { padding: 1.2mm 2mm; font-size: calc(9pt * var(--e, 1)); background: #fafafa; border: 0.2mm solid #888; }
 
 /* Limite colado na borda esquerda: a data vai para a direita do traço, senão sai da folha */
 .fe-ti-limite-tag--direita { transform: none; padding: 0 0.5mm 0 1.2mm; }
+
+/* Linha sem nada a decidir: uma faixa baixa, nome e setor na mesma linha */
+.fe-ti-linha--vazia .fe-ti-nome strong, .fe-ti-linha--vazia .fe-ti-nome small { display: inline; }
+.fe-ti-linha--vazia .fe-ti-nome small { margin-left: 2mm; }
+.fe-ti-linha--vazia .fe-ti-pista { height: calc(26px * var(--e, 1)); }
+.fe-ti-linha--vazia .fe-ti-barra { top: calc(3px * var(--e, 1)); }
+
+/* O que fazer: resumo das providências no topo da folha */
+.fe-ti-resumo { margin: 0 0 2mm; padding: 1.5mm 2.5mm; border: 0.4mm solid #111; background: #fafafa; font-size: calc(10pt * var(--e, 1)); line-height: 1.3; }
+.fe-ti-resumo h3 { margin: 0 0 0.8mm; font-size: calc(10pt * var(--e, 1)); font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
+.fe-ti-resumo ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.6mm; }
+.fe-ti-resumo li b { font-weight: 700; }
+.fe-ti-resumo li.fe-ti-resumo--urgente { color: #7a1f1f; }
+.fe-ti-resumo li.fe-ti-resumo--urgente b::before { content: "! "; }

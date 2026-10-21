@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { MESES_OPCOES, OPCOES_PADRAO, eixoDaFolha, estiloDePagina, larguraUtilPx, nomeDoArquivo } from "../opcoesDaFolha";
+import { MESES_OPCOES, OPCOES_PADRAO, eixoDaFolha, escalaDaLetra, nomeNaFolhaPx, estiloDePagina, larguraUtilPx, nomeDoArquivo } from "../opcoesDaFolha";
 
 describe("papel e largura útil", () => {
   test("A4 deitado com margem de 10 mm dá ~1046 px; em pé ~718 px; A3 deitado ~1511 px", () => {
@@ -36,5 +36,11 @@ describe("período da folha", () => {
 describe("nome do arquivo", () => {
   test("usa a visão e a data de hoje", () => {
     expect(nomeDoArquivo("linha", { hoje: "2026-10-15" })).toBe("Ferias - Linha do tempo - 2026-10-15");
+  });
+
+  test("a letra maior alarga a coluna do nome e estreita a linha do tempo; o padrão é a escala 1", () => {
+    expect(escalaDaLetra(undefined)).toBe(1);
+    expect(nomeNaFolhaPx({ letra: "extra" })).toBeGreaterThan(nomeNaFolhaPx({ letra: "normal" }));
+    expect(eixoDaFolha("2026-10-15", { ...OPCOES_PADRAO, letra: "extra" }).largura).toBeLessThan(eixoDaFolha("2026-10-15", OPCOES_PADRAO).largura);
   });
 });

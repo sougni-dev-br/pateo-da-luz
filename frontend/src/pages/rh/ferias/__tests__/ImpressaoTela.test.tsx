@@ -131,10 +131,21 @@ describe("ImpressaoTela", () => {
   test("a folha da linha do tempo traz as barras e a faixa de cobertura", () => {
     abrir("linha");
     const d = screen.getByRole("dialog");
-    expect(within(d).getByText("Caio Reis")).toBeInTheDocument();
+    expect(within(d).getAllByText("Caio Reis").length).toBeGreaterThan(0);
     expect(within(d).getByText("Quem está fora")).toBeInTheDocument();
     expect(d.querySelector(".fe-it-papel .fe-ti-barra")?.textContent).toMatch(/01\/12/); // a data da barra sempre escrita, mesmo estreita
     fireEvent.click(screen.getByRole("checkbox", { name: /Quem está fora/ }));
     expect(within(d).queryByText("Quem está fora")).toBeNull();
+  });
+
+  test("o resumo \"O que fazer\" aparece no topo da folha e a letra grande aumenta a escala e a coluna do nome", () => {
+    abrir("linha");
+    const d = screen.getByRole("dialog");
+    expect(within(d).getAllByLabelText("O que fazer").length).toBeGreaterThan(0);
+    const folha = () => d.querySelector(".fe-it-papel .fe-ti") as HTMLElement;
+    expect(folha().style.getPropertyValue("--e")).toBe("1");
+    fireEvent.click(screen.getByRole("radio", { name: "Extra grande" }));
+    expect(folha().style.getPropertyValue("--e")).toBe("1.4");
+    expect(d.querySelector(".fe-it-papel col")).toHaveStyle({ width: "367px" });
   });
 });

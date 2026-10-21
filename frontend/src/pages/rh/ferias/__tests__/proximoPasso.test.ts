@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { PeriodoFerias, PessoaFerias, ProgramacaoFerias, SolicitacaoFerias } from "../../../../api/client";
-import { periodoDaFicha, proximoPasso } from "../proximoPasso";
+import { ordenarPorUrgencia, periodoDaFicha, proximoPasso, resumoDoQueFazer } from "../proximoPasso";
 
 const HOJE = "2026-10-21";
 const periodo = (o: Partial<PeriodoFerias> = {}): PeriodoFerias => ({
@@ -19,11 +19,11 @@ const pessoa = (periodos: PeriodoFerias[]): PessoaFerias =>
 describe("próximo passo", () => {
   test("prazo vencido sem data: definir já", () => {
     const p = proximoPasso(periodo({ situacao: "VENCIDA", nivel: "perigo", limiteInicioGozo: "2026-10-01" }), HOJE);
-    expect(p).toEqual({ texto: "Definir a data já: o prazo venceu em 01/10/2026", urgente: true });
+    expect(p).toEqual({ texto: "Definir a data já: o prazo venceu em 01/10/2026", tipo: "vencido", urgente: true });
   });
 
   test("dias a programar: definir a data até o limite, e urgente quando o prazo aperta", () => {
-    expect(proximoPasso(periodo(), HOJE)).toEqual({ texto: "Definir a data até 30/01/2027", urgente: false });
+    expect(proximoPasso(periodo(), HOJE)).toEqual({ texto: "Definir a data até 30/01/2027", tipo: "definir", urgente: false });
     expect(proximoPasso(periodo({ nivel: "atencao", situacao: "A_VENCER" }), HOJE)?.urgente).toBe(true);
   });
 
@@ -43,9 +43,9 @@ describe("próximo passo", () => {
 
   test("programada sem aviso: avisar até 30 dias antes; passou do prazo de aviso fica urgente", () => {
     const longe = proximoPasso(periodo({ diasPendentes: 0, situacao: "PROGRAMADA", programacoes: [programada("2026-12-21", 30)] }), HOJE);
-    expect(longe).toEqual({ texto: "Avisar até 21/11/2026", urgente: false });
+    expect(longe).toEqual({ texto: "Avisar até 21/11/2026", tipo: "avisar", urgente: false });
     const tarde = proximoPasso(periodo({ diasPendentes: 0, situacao: "PROGRAMADA", programacoes: [programada("2026-11-10", 30)] }), HOJE);
-    expect(tarde).toEqual({ texto: "Avisar já: o prazo era 11/10/2026", urgente: true });
+    expect(tarde).toEqual({ texto: "Avisar já: o prazo era 11/10/2026", tipo: "avisar", urgente: true });
   });
 
   test("programada e já avisada não tem providência; a que já passou da data pede confirmar", () => {
@@ -70,5 +70,25 @@ describe("período da ficha", () => {
     const soProgramada = periodo({ diasPendentes: 0, situacao: "PROGRAMADA", programacoes: [programada("2026-12-21", 30)] });
     expect(periodoDaFicha(pessoa([soProgramada]))).toBe(soProgramada);
     expect(periodoDaFicha(pessoa([periodo({ situacao: "EM_AQUISICAO" })]))).toBeNull();
+  });
+});
+
+describe("urgência e resumo da folha", () => {
+  const nomeado = (nome: string, empresa: string | null, periodos: PeriodoFerias[]): PessoaFerias => ({ ...pessoa(periodos), employeeId: nome, nome, empresa });
+  const vencida = periodo({ situacao: "VENCIDA", nivel: "perigo", limiteInicioGozo: "2026-10-01" });
+  const comPedido = periodo({ solicitacao: pedido("2026-12-14") });
+  const nada = periodo({ situacao: "EM_AQUISICAO", diasPendentes: 0 });
+
+  test("dentro de cada empresa, prazo vencido, depois pedido, depois o resto, e quem não tem nada por último", () => {
+    const todas = [nomeado("Ana", "A", [nada]), nomeado("Bia", "A", [comPedido]), nomeado("Caio", "B", [nada]), nomeado("Duda", "A", [vencida]), nomeado("Edu", "B", [vencida])];
+    expect(ordenarPorUrgencia(todas, HOJE).map((p) => p.nome)).toEqual(["Duda", "Bia", "Ana", "Edu", "Caio"]);
+  });
+
+  test("o resumo junta as providências por tipo, com os nomes, e ignora quem não tem nada", () => {
+    const itens = resumoDoQueFazer([nomeado("Ana", null, [nada]), nomeado("Bia", null, [comPedido]), nomeado("Duda", null, [vencida]), nomeado("Edu", null, [vencida])], HOJE);
+    expect(itens).toEqual([
+      { tipo: "vencido", urgente: true, nomes: ["Duda", "Edu"] },
+      { tipo: "responder", urgente: false, nomes: ["Bia"] },
+    ]);
   });
 });
