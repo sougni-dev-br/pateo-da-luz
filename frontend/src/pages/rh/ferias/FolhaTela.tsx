@@ -3,7 +3,8 @@ import type { ListaFerias, PeriodoFerias, PessoaFerias } from "../../../api/clie
 import { type Ausencia, type Eixo, coberturaPorDia, mesesDoEixo, quemEstaFora, retangulo, rotulosDosMeses, segundasDoEixo, trechosDeCobertura, xDoDia, zonasDaJanela } from "./eixoDoTempo";
 import { type LinhaFerias, dataBr, plural, resumoProgramacao, rotuloDaSituacao, somaDias, textoPrazo } from "./feriasFormato";
 import { ROTULO_DA_SITUACAO_DO_PEDIDO, compararPedido, diferencaEmPalavras } from "./pedido";
-import { type ItemDoResumo, ordenarPorUrgencia, periodoDaFicha, proximoPasso, resumoDoQueFazer } from "./proximoPasso";
+import { ResumoDoQueFazer } from "./ResumoDoQueFazer";
+import { ordenarPorUrgencia, periodoDaFicha, proximoPasso } from "./proximoPasso";
 import { type OpcoesTela, escalaDaLetra, larguraUtilPx, nomeNaFolhaPx, tituloDaFolha } from "./opcoesDaFolha";
 
 type Comum = { lista: ListaFerias; opcoes: OpcoesTela; filtroRotulo: string; empresaDaTela: string };
@@ -20,31 +21,6 @@ const LEGENDA: Array<[string, string]> = [
   ["seguro", "No prazo"], ["atencao", "Menos de 90 dias"], ["urgente", "Menos de 30 dias"], ["estouro", "Passou do prazo"],
   ["programada", "Programada (a empresa quer)"], ["pedido", "Pedido do colaborador"], ["limite", "Prazo limite"], ["gozada", "Gozada"],
 ];
-
-const ROTULO_DO_RESUMO: Record<ItemDoResumo["tipo"], (n: number) => string> = {
-  vencido: (n) => `${n} ${plural(n, "prazo vencido", "prazos vencidos")}, definir a data já`,
-  responder: (n) => `${n} ${plural(n, "pedido para responder", "pedidos para responder")}`,
-  definir: (n) => `${n} ${plural(n, "pessoa para definir a data", "pessoas para definir a data")}`,
-  avisar: (n) => `${n} ${plural(n, "aviso a fazer", "avisos a fazer")}`,
-  confirmar: (n) => `${n} ${plural(n, "gozo para confirmar", "gozos para confirmar")}`,
-};
-
-/** O que fazer: as providências da folha somadas por tipo, com os nomes. */
-function ResumoDoQueFazer({ pessoas, hoje }: { pessoas: PessoaFerias[]; hoje: string }) {
-  const itens = resumoDoQueFazer(pessoas, hoje);
-  return (
-    <section className="fe-ti-resumo" aria-label="O que fazer">
-      <h3>O que fazer</h3>
-      {itens.length === 0 ? <p>Nada a decidir agora.</p> : (
-        <ul>
-          {itens.map((i) => (
-            <li key={i.tipo} className={i.urgente ? "fe-ti-resumo--urgente" : undefined}><b>{ROTULO_DO_RESUMO[i.tipo](i.nomes.length)}:</b> {i.nomes.join(", ")}</li>
-          ))}
-        </ul>
-      )}
-    </section>
-  );
-}
 
 export function FolhaTelaLinhaDoTempo(props: PropsLinha) {
   const { eixo, ausencias, opcoes, lista } = props;
@@ -78,7 +54,7 @@ export function FolhaTelaLinhaDoTempo(props: PropsLinha) {
         <h2>{tituloDaFolha("linha")}</h2>
         <p>{resumoDoTopo(props)}</p>
       </header>
-      <ResumoDoQueFazer pessoas={pessoas} hoje={lista.hoje} />
+      <ResumoDoQueFazer pessoas={pessoas} hoje={lista.hoje} classe="fe-ti-resumo" />
       {opcoes.legenda && (
         <ul className="fe-ti-legenda" aria-label="Legenda">
           {LEGENDA.map(([tom, rotulo]) => <li key={tom}><i className={`fe-ti-amostra fe-ti-amostra--${tom}`} />{rotulo}</li>)}
