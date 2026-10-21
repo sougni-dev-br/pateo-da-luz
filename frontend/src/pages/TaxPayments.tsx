@@ -1,4 +1,4 @@
-import { Plus, Search, Upload, X } from "lucide-react";
+import { CheckCircle2, Plus, Search, Upload, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -7,16 +7,15 @@ import {
 } from "../api/client";
 import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { Notice, useNotice } from "../components/Notice";
-import { Button, Select, TextField } from "../design-system";
+import { Button, IconButton, Select, TextField } from "../design-system";
 import { hojeIso } from "../lib/guia-imposto";
 import { hasPermission } from "../lib/permissions";
 import { ListaGuias } from "./tax-payments/ListaGuias";
-import { ModalGuia } from "./tax-payments/ModalGuia";
+import { ModalGuia, type GuiaSalva, type InicialDaGuia } from "./tax-payments/ModalGuia";
 import { ModalImportacao } from "./tax-payments/ModalImportacao";
-import { ModalPagar } from "./tax-payments/ModalPagar";
 import { ResumoImpostos } from "./tax-payments/ResumoImpostos";
 import { TIPOS_DE_GUIA } from "./tax-payments/formularioGuia";
-import { competenciaDoMes, rotuloMes, ultimoDiaDoMes } from "./tax-payments/regras";
+import { competenciaDoMes, linkContasAPagar, rotuloMes, ultimoDiaDoMes } from "./tax-payments/regras";
 import "./tax-payments/tax-payments.css";
 
 type Situacao = "" | "OVERDUE" | "PENDING" | "PAID" | "CANCELED";
@@ -24,8 +23,7 @@ type Situacao = "" | "OVERDUE" | "PENDING" | "PAID" | "CANCELED";
 const TAMANHO_PAGINA = 30;
 
 type JanelaAberta =
-  | { tipo: "guia"; editId: string | null; duplicarDe: string | null }
-  | { tipo: "pagar"; guia: TaxPayment }
+  | { tipo: "guia"; editId: string | null; duplicarDe: string | null; inicial?: InicialDaGuia }
   | { tipo: "importar" }
   | null;
 
@@ -37,6 +35,7 @@ export function TaxPayments({ user }: Props) {
   const podeExcluir = hasPermission(user, "tax-payments", "delete");
   // Confirmar a importação é "approve" no servidor: sem isso o botão só levaria a um 403 depois de conferir tudo.
   const podeImportar = hasPermission(user, "tax-payments", "approve");
+  const podeVerContasAPagar = hasPermission(user, "payables", "view");
   const navigate = useNavigate();
   const topoDaLista = useRef<HTMLDivElement>(null);
 
@@ -55,6 +54,8 @@ export function TaxPayments({ user }: Props) {
 
   const [janela, setJanela] = useState<JanelaAberta>(null);
   const [excluir, setExcluir] = useState<TaxPayment | null>(null);
+  // Guia recém-lançada: a faixa de sucesso oferece "Lançar outra guia" já com o vencimento e a competência dela.
+  const [sucesso, setSucesso] = useState<{ mensagem: string; guia: GuiaSalva } | null>(null);
 
   const hoje = panorama?.hoje ?? hojeIso();
 
@@ -111,10 +112,16 @@ export function TaxPayments({ user }: Props) {
 
   const recarregar = () => { carregarPanorama(); void carregarLista(); };
 
-  function aposAcao(mensagem: string) {
-    setJanela(null);
-    setNotice({ tone: "success", message: mensagem });
+  function aposAcao(mensagem: string, guia?: GuiaSalva) {
     recarregar();
+    setJanela(null);
+    if (guia) {
+      setNotice(null);
+      setSucesso({ mensagem, guia });
+      return;
+    }
+    setSucesso(null);
+    setNotice({ tone: "success", message: mensagem });
   }
 
   async function confirmarExclusao() {
@@ -162,7 +169,7 @@ export function TaxPayments({ user }: Props) {
 
       <div className="ip-cabecalho">
         <p className="ip-cabecalho-texto">
-          Guias de impostos e tributos. Cada guia lançada aparece em <b>Contas a Pagar</b> e entra no <b>DRE</b> pela competência.
+          Guias de impostos e tributos. Cada guia lançada aparece em <b>Contas a Pagar</b>, onde é feita a baixa, e entra no <b>DRE</b> pela competência.
         </p>
         {podeLancar && (
           <div className="ip-cabecalho-acoes">
@@ -172,11 +179,25 @@ export function TaxPayments({ user }: Props) {
         )}
       </div>
 
+      {sucesso && (
+        <div className="ip-sucesso" role="status">
+          <CheckCircle2 size={18} aria-hidden="true" />
+          <span>{sucesso.mensagem}</span>
+          {podeLancar && (
+            <Button size="sm" variant="secondary" leadingIcon={<Plus size={14} />}
+              onClick={() => setJanela({ tipo: "guia", editId: null, duplicarDe: null, inicial: { dueDate: sucesso.guia.dueDate, mes: sucesso.guia.mes } })}>
+              Lançar outra guia
+            </Button>
+          )}
+          <IconButton label="Dispensar aviso" icon={<X size={15} />} size="sm" onClick={() => setSucesso(null)} />
+        </div>
+      )}
+
       {panorama && (
         <ResumoImpostos
           panorama={panorama}
           podeLancar={podeLancar}
-          onLancar={() => setJanela({ tipo: "guia", editId: null, duplicarDe: null })}
+          onLancar={(inicial) => setJanela({ tipo: "guia", editId: null, duplicarDe: null, inicial })}
           onVerSituacao={(s) => { filtrar({ situacao: s }); topoDaLista.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }}
           onVerMes={verMes}
         />
@@ -204,7 +225,7 @@ export function TaxPayments({ user }: Props) {
             <input
               type="search"
               aria-label="Buscar guia"
-              placeholder="Buscar por empresa, descrição ou CNPJ"
+              placeholder="Buscar por empresa, nº do documento ou CNPJ"
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
             />
@@ -229,16 +250,16 @@ export function TaxPayments({ user }: Props) {
           hoje={hoje}
           carregando={carregando}
           podeEditar={podeEditar}
+          podeVerContasAPagar={podeVerContasAPagar}
           podeLancar={podeLancar}
           podeExcluir={podeExcluir}
           filtrando={filtrando}
           onLancar={podeLancar ? () => setJanela({ tipo: "guia", editId: null, duplicarDe: null }) : undefined}
           onLimparFiltros={limparFiltros}
-          onPagar={(g) => setJanela({ tipo: "pagar", guia: g })}
           onEditar={(g) => setJanela({ tipo: "guia", editId: g.id, duplicarDe: null })}
           onDuplicar={(g) => setJanela({ tipo: "guia", editId: null, duplicarDe: g.id })}
           onExcluir={setExcluir}
-          onContasAPagar={() => navigate("/financeiro/contas-a-pagar")}
+          onContasAPagar={(g) => navigate(linkContasAPagar(g))}
         />
 
         {paginacao.totalPages > 1 && (
@@ -257,14 +278,14 @@ export function TaxPayments({ user }: Props) {
         <ModalGuia
           editId={janela.editId}
           duplicarDe={janela.duplicarDe}
-          hoje={hoje}
+          inicial={janela.inicial}
+          onContasAPagar={podeVerContasAPagar ? (g) => navigate(linkContasAPagar(g)) : undefined}
           podeEditar={janela.editId ? podeEditar : podeLancar}
           podeCancelar={podeExcluir}
           onFechar={() => setJanela(null)}
           onSalvo={aposAcao}
         />
       )}
-      {janela?.tipo === "pagar" && <ModalPagar guia={janela.guia} hoje={hoje} onFechar={() => setJanela(null)} onPago={aposAcao} />}
       {janela?.tipo === "importar" && <ModalImportacao onFechar={() => setJanela(null)} onImportado={aposAcao} />}
 
       <ConfirmDialog

@@ -647,6 +647,7 @@ purchaseRouter.get("/payables", async (request, response) => {
           tp."description" AS "taxDescription",
           COALESCE(tp."tradeName", tp."legalName", tp."cnpj") AS "taxCompanyName",
           tp."cnpj" AS "taxCnpj",
+          tp."documentNumber" AS "taxDocumentNumber",
           tp."competenceDate" AS "taxCompetenceDate",
           dc."name" AS "taxDreCategoryName"
         FROM "TaxPayment" tp

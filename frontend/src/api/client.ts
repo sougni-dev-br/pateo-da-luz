@@ -1356,6 +1356,8 @@ export type Payable = {
   taxCompanyName?: string | null;
   taxCnpj?: string | null;
   taxCompetenceDate?: string | null;
+  /** Número do documento da guia de imposto (DAS/DARF) ou identificador (FGTS). */
+  taxDocumentNumber?: string | null;
   taxDreCategoryName?: string | null;
   /** Folha: salário de quem tem salário combinado (só para quem pode ver salários). */
   salarioComposicao?: SalarioComposicao | null;
@@ -5516,6 +5518,10 @@ export type TaxPayment = {
   tradeName: string | null;
   documentType: string;
   description: string | null;
+  /** Número do documento (DAS/DARF) ou identificador (FGTS). */
+  documentNumber: string | null;
+  /** Quantas linhas tem a composição da guia (a lista traz só a contagem; as linhas vêm no detalhe). */
+  itemsCount?: number;
   competenceDate: string | null;
   dueDate: string;
   amount: string;
@@ -5533,9 +5539,42 @@ export type TaxPayment = {
   updatedAt: string;
 };
 
+// Linha da discriminação da guia (a "Composição do Documento de Arrecadação").
+export type TaxPaymentItem = {
+  id: string;
+  position: number;
+  code: string | null;
+  description: string;
+  principal: string;
+  fine: string;
+  interest: string;
+};
+
+// Catálogo de códigos do tipo de guia: o código digitado traz a denominação.
+export type TaxCode = { code: string; description: string };
+
+export function getTaxCodes(tipo: string) {
+  return request<TaxCode[]>(`/tax-payments/codigos?${new URLSearchParams({ tipo })}`);
+}
+
+export type TaxPaymentItemInput = {
+  code: string | null;
+  description: string;
+  principal: number;
+  fine: number;
+  interest: number;
+};
+
 export type TaxPaymentDetail = TaxPayment & {
   company: { id: string; tradeName: string; legalName: string; cnpj: string } | null;
   dreCategory: { id: string; name: string; dreGroup: string } | null;
+  items: TaxPaymentItem[];
+};
+
+// Com `items`, o valor da guia é a soma das linhas (o servidor ignora `amount`).
+export type TaxPaymentPayload = Omit<Partial<TaxPayment>, "id" | "createdAt" | "updatedAt" | "dreCategoryName" | "amount"> & {
+  amount?: string;
+  items?: TaxPaymentItemInput[];
 };
 
 export type TaxPaymentSummary = {
@@ -5644,7 +5683,7 @@ export function getTaxPayment(id: string) {
   return request<TaxPaymentDetail>(`/tax-payments/${id}`);
 }
 
-export function createTaxPayment(payload: Omit<Partial<TaxPayment>, "id" | "createdAt" | "updatedAt" | "dreCategoryName" | "attachmentCount">) {
+export function createTaxPayment(payload: TaxPaymentPayload) {
   return request<TaxPayment>("/tax-payments", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -5652,7 +5691,7 @@ export function createTaxPayment(payload: Omit<Partial<TaxPayment>, "id" | "crea
   });
 }
 
-export function updateTaxPayment(id: string, payload: Partial<TaxPayment>) {
+export function updateTaxPayment(id: string, payload: TaxPaymentPayload) {
   return request<TaxPayment>(`/tax-payments/${id}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },

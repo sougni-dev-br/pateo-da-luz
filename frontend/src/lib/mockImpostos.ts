@@ -42,6 +42,20 @@ const GUIAS: Guia[] = [
 
 const MESES_FIXOS = [-11, -10, -9, -8, -7, -6, -5, -4, -3];
 
+// Composição dos documentos (valores fictícios): DAS com as seis linhas, FGTS e DARF previdenciário.
+function itensDe(g: Guia) {
+  const linha = (position: number, code: string | null, description: string, principal: number) =>
+    ({ id: `${g.id}-i${position}`, position, code, description, principal: principal.toFixed(2), fine: "0.00", interest: "0.00" });
+  if (g.documentType.startsWith("Simples")) {
+    const partes = [["1001", "IRPJ - SIMPLES NACIONAL", 0.0607], ["1002", "CSLL - SIMPLES NACIONAL", 0.0386], ["1004", "COFINS - SIMPLES NACIONAL", 0.1406], ["1005", "PIS - SIMPLES NACIONAL", 0.0305], ["1006", "INSS - SIMPLES NACIONAL", 0.4634]] as const;
+    const itens = partes.map(([c, d, p], i) => linha(i, c, d, Math.round(g.valor * p * 100) / 100));
+    const resto = Math.round((g.valor - itens.reduce((s, i) => s + Number(i.principal), 0)) * 100) / 100;
+    return [...itens, linha(5, "1007", "ICMS - SIMPLES NACIONAL SP", resto)];
+  }
+  if (g.documentType === "FGTS") return [linha(0, null, "FGTS Mensal", g.valor)];
+  return [linha(0, "1082", "CONTR PREV DESCONTA SEGURADO-EMPREGADO/AVULSO", g.valor)];
+}
+
 function detalhe(g: Guia) {
   return {
     id: g.id, companyId: null, cnpj: "00000000000100", legalName: "Empresa Exemplo Ltda", tradeName: "Exemplo",
@@ -52,6 +66,7 @@ function detalhe(g: Guia) {
     status: g.status ?? "PENDING", comments: null, source: "MANUAL", importBatchId: null,
     dreCategoryId: g.dre, dreCategoryName: CATEGORIAS.find((c) => c.id === g.dre)?.name ?? null,
     createdById: "u-1", deletedAt: null, createdAt: iso(-60), updatedAt: iso(-1), company: null, dreCategory: null,
+    documentNumber: g.id === "g-1" ? "07.20.26290.7165263-2" : null, items: itensDe(g), itemsCount: itensDe(g).length,
   };
 }
 
@@ -113,6 +128,21 @@ export function mockImpostos(url: string, method = "GET"): unknown | undefined {
   if (resto === "panorama") return panorama();
   if (resto === "categorias-dre") return CATEGORIAS;
   if (resto === "categoria-sugerida") return { dreCategoryId: "cat-simples", nome: "Simples Nacional" };
+  if (resto === "codigos") {
+    const tipo = params.get("tipo") ?? "";
+    const todos: Record<string, Array<{ code: string; description: string }>> = {
+      "Simples Nacional / DAS": [
+        { code: "1001", description: "IRPJ - SIMPLES NACIONAL" }, { code: "1002", description: "CSLL - SIMPLES NACIONAL" },
+        { code: "1004", description: "COFINS - SIMPLES NACIONAL" }, { code: "1005", description: "PIS - SIMPLES NACIONAL" },
+        { code: "1006", description: "INSS - SIMPLES NACIONAL" }, { code: "1007", description: "ICMS - SIMPLES NACIONAL SP" },
+      ],
+      DARF: [
+        { code: "0561", description: "IRRF - RENDIMENTO DO TRABALHO ASSALARIADO" },
+        { code: "1082", description: "CONTR PREV DESCONTA SEGURADO-EMPREGADO/AVULSO" }, { code: "1099", description: "CP DESCONTADA SEGURADO - CONTRIB INDIVIDUAL" },
+      ],
+    };
+    return todos[tipo] ?? [];
+  }
 
   if (resto) return detalhe(GUIAS.find((g) => g.id === resto) ?? GUIAS[0]);
 
