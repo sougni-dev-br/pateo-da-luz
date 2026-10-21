@@ -105,12 +105,35 @@ describe("ImpressaoTela", () => {
     expect(dias.slice(0, 3)).toEqual(["5", "12", "19"]); // out/2026: primeira segunda é 05/10
   });
 
+  test("a folha traz, ao lado do nome, o que pediu, o que a empresa quer, o limite e o próximo passo", () => {
+    abrir("linha");
+    const d = screen.getByRole("dialog");
+    const ficha = d.querySelector<HTMLElement>(".fe-it-papel .fe-ti-ficha");
+    expect(ficha).not.toBeNull();
+    const texto = d.querySelector(".fe-it-papel")?.textContent ?? "";
+    expect(texto).toContain("Empresa quer");
+    expect(texto).toContain("Limite");
+    expect(texto).toMatch(/→ Definir a data até 30\/01\/2027|→ Programar o resto|→ Responder ao pedido/);
+    expect(texto).toMatch(/limite 30\/01\/27/); // a data do limite escrita ao lado do traço
+    expect(d.querySelector(".fe-ti-aquisicao")).toBeNull(); // a faixa de "em aquisição" não é mais desenhada
+  });
+
+  test("a sobreposição maior diz quantos e quem estão fora", () => {
+    render(<ImpressaoTela lista={lista} visao="linha" pessoas={lista.pessoas} linhas={linhasDaLista(lista)} filtroRotulo="Todas" empresaDaTela=""
+      ausencias={[
+        { employeeId: "e1", nome: "Ana", setor: null, inicio: "2026-11-02", fim: "2026-11-10", gozada: false },
+        { employeeId: "e2", nome: "Bia", setor: null, inicio: "2026-11-05", fim: "2026-11-12", gozada: false },
+      ]} onClose={() => undefined} />);
+    const pico = within(screen.getByRole("dialog")).getByText(/Maior sobreposição:/).closest("td");
+    expect(pico).toHaveTextContent("2 pessoas fora ao mesmo tempo, de 05/11 a 10/11 — Ana, Bia.");
+  });
+
   test("a folha da linha do tempo traz as barras e a faixa de cobertura", () => {
     abrir("linha");
     const d = screen.getByRole("dialog");
     expect(within(d).getByText("Caio Reis")).toBeInTheDocument();
     expect(within(d).getByText("Quem está fora")).toBeInTheDocument();
-    expect(within(d).getByText(/01\/12–30\/12|30d/)).toBeInTheDocument();
+    expect(d.querySelector(".fe-it-papel .fe-ti-barra")?.textContent).toMatch(/01\/12/); // a data da barra sempre escrita, mesmo estreita
     fireEvent.click(screen.getByRole("checkbox", { name: /Quem está fora/ }));
     expect(within(d).queryByText("Quem está fora")).toBeNull();
   });

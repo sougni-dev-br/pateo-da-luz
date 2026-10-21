@@ -1,7 +1,9 @@
 import { Fragment } from "react";
 import type { ListaFerias, PeriodoFerias, PessoaFerias } from "../../../api/client";
-import { type Ausencia, type Eixo, coberturaPorDia, mesesDoEixo, retangulo, rotulosDosMeses, segundasDoEixo, trechosDeCobertura, xDoDia, zonasDaJanela } from "./eixoDoTempo";
-import { type LinhaFerias, dataBr, plural, resumoProgramacao, rotuloDaSituacao, textoPrazo } from "./feriasFormato";
+import { type Ausencia, type Eixo, coberturaPorDia, mesesDoEixo, quemEstaFora, retangulo, rotulosDosMeses, segundasDoEixo, trechosDeCobertura, xDoDia, zonasDaJanela } from "./eixoDoTempo";
+import { type LinhaFerias, dataBr, plural, resumoProgramacao, rotuloDaSituacao, somaDias, textoPrazo } from "./feriasFormato";
+import { ROTULO_DA_SITUACAO_DO_PEDIDO, compararPedido, diferencaEmPalavras } from "./pedido";
+import { periodoDaFicha, proximoPasso } from "./proximoPasso";
 import { NOME_NA_FOLHA_PX, type OpcoesTela, larguraUtilPx, tituloDaFolha } from "./opcoesDaFolha";
 
 type Comum = { lista: ListaFerias; opcoes: OpcoesTela; filtroRotulo: string; empresaDaTela: string };
@@ -27,6 +29,12 @@ export function FolhaTelaLinhaDoTempo(props: PropsLinha) {
   const trechos = opcoes.cobertura ? trechosDeCobertura(coberturaPorDia(eixo, ausencias)) : [];
   const xHoje = lista.hoje >= eixo.inicio ? xDoDia(eixo, lista.hoje) + eixo.pxPorDia / 2 : -1;
   const agrupar = new Set(pessoas.map(semEmpresa)).size > 1;
+  const maior = trechos.reduce<(typeof trechos)[number] | null>((m, t) => (!m || t.quantos > m.quantos ? t : m), null);
+  const sobreposicao = maior && maior.quantos >= 2
+    ? { quantos: maior.quantos, de: somaDias(eixo.inicio, maior.de), ate: somaDias(eixo.inicio, maior.ate), nomes: quemEstaFora(ausencias, somaDias(eixo.inicio, maior.de), somaDias(eixo.inicio, maior.ate)) }
+    : null;
+  const anoDeHoje = lista.hoje.slice(0, 4);
+  const dm = (iso: string) => (iso.slice(0, 4) === anoDeHoje ? dataBr(iso).slice(0, 5) : `${dataBr(iso).slice(0, 5)}/${iso.slice(2, 4)}`);
   // No trimestre cada dia pesa bastante: marcas por semana (segundas-feiras) ajudam a ler as datas.
   const semanas = opcoes.meses === 3 ? segundasDoEixo(eixo) : [];
 
@@ -82,6 +90,13 @@ export function FolhaTelaLinhaDoTempo(props: PropsLinha) {
               </td>
             </tr>
           )}
+          {opcoes.cobertura && sobreposicao && (
+            <tr className="fe-ti-pico">
+              <td colSpan={2}>
+                <b>Maior sobreposição:</b> {sobreposicao.quantos} pessoas fora ao mesmo tempo, de {dm(sobreposicao.de)} a {dm(sobreposicao.ate)} — {sobreposicao.nomes.join(", ")}.
+              </td>
+            </tr>
+          )}
           {pessoas.map((pessoa, i) => (
             <Fragment key={pessoa.employeeId}>
               {agrupar && (i === 0 || semEmpresa(pessoas[i - 1]) !== semEmpresa(pessoa)) && (
@@ -91,11 +106,12 @@ export function FolhaTelaLinhaDoTempo(props: PropsLinha) {
                 <td className="fe-ti-nome">
                   <strong>{pessoa.nome}</strong>
                   <small>{[pessoa.setor, prazoDaPessoa(pessoa)].filter(Boolean).join(" · ")}</small>
+                  <FichaImpressa pessoa={pessoa} hoje={lista.hoje} dm={dm} />
                 </td>
                 <td className="fe-ti-trilha">
                   <div className="fe-ti-pista" style={{ width: eixo.largura }}>
                     {grade}
-                    {pessoa.periodos.map((p) => <Janela key={p.aquisitivoInicio} eixo={eixo} periodo={p} />)}
+                    {pessoa.periodos.map((p) => <Janela key={p.aquisitivoInicio} eixo={eixo} periodo={p} dm={dm} />)}
                     {pessoa.periodos.map((p) => {
                       const r = p.solicitacao ? retangulo(eixo, p.solicitacao.inicio, p.solicitacao.fim) : null;
                       return r && <span key={`pedido-${p.aquisitivoInicio}`} className="fe-ti-pedido" style={{ left: r.x, width: Math.max(r.largura, 3) }} />;
@@ -105,7 +121,7 @@ export function FolhaTelaLinhaDoTempo(props: PropsLinha) {
                       const r = retangulo(eixo, g.gozoInicio, g.gozoFim);
                       if (!r) return null;
                       const gozada = g.status === "GOZADA";
-                      const texto = r.largura >= 78 ? `${dataBr(g.gozoInicio).slice(0, 5)}–${dataBr(g.gozoFim).slice(0, 5)}` : r.largura >= 24 ? `${g.dias}d` : "";
+                      const texto = r.largura >= 70 ? `${dm(g.gozoInicio)}–${dm(g.gozoFim)}` : r.largura >= 34 ? dm(g.gozoInicio) : r.largura >= 18 ? `${g.dias}d` : "";
                       return <span key={g.id} className={`fe-ti-barra fe-ti-barra--${gozada ? "gozada" : "programada"}`} style={{ left: r.x, width: Math.max(r.largura, 3) }}>{gozada && r.largura >= 40 ? "✓ " : ""}{texto || (gozada ? "✓" : "")}</span>;
                     }))}
                   </div>
@@ -127,12 +143,9 @@ function prazoDaPessoa(pessoa: PessoaFerias): string {
   return p ? textoPrazo(p) : "";
 }
 
-function Janela({ eixo, periodo: p }: { eixo: Eixo; periodo: PeriodoFerias }) {
-  if (p.situacao === "GOZADA") return null;
-  if (p.situacao === "EM_AQUISICAO") {
-    const r = retangulo(eixo, p.aquisitivoInicio, p.aquisitivoFim);
-    return r ? <span className="fe-ti-aquisicao" style={{ left: r.x, width: r.largura }} /> : null;
-  }
+function Janela({ eixo, periodo: p, dm }: { eixo: Eixo; periodo: PeriodoFerias; dm: (iso: string) => string }) {
+  // Em aquisição não tem o que decidir ainda: nada é desenhado (a faixa tracejada só atrapalhava a leitura).
+  if (p.situacao === "GOZADA" || p.situacao === "EM_AQUISICAO") return null;
   const limite = p.diasPendentes > 0 && !p.doHistorico ? retangulo(eixo, p.limiteInicioGozo, p.limiteInicioGozo) : null;
   return (
     <>
@@ -141,6 +154,7 @@ function Janela({ eixo, periodo: p }: { eixo: Eixo; periodo: PeriodoFerias }) {
         return r ? <span key={z.tom} className={`fe-ti-zona fe-ti-zona--${z.tom}`} style={{ left: r.x, width: r.largura }} /> : null;
       })}
       {limite && <span className="fe-ti-limite" style={{ left: limite.x + limite.largura }} title={`Prazo limite para começar: ${dataBr(p.limiteInicioGozo)}`} />}
+      {limite && <span className={`fe-ti-limite-tag${limite.x + limite.largura < 64 ? " fe-ti-limite-tag--direita" : ""}`} style={{ left: limite.x + limite.largura }}>limite {dm(p.limiteInicioGozo)}</span>}
     </>
   );
 }
@@ -176,5 +190,38 @@ export function FolhaTelaLista(props: PropsLista) {
       </table>
       <footer className="fe-ti-rodape">{linhas.length} {plural(linhas.length, "período", "períodos")}</footer>
     </div>
+  );
+}
+
+/** Pediu / Empresa quer / Limite / Próximo passo: o que falta para decidir, ao lado do nome. */
+function FichaImpressa({ pessoa, hoje, dm }: { pessoa: PessoaFerias; hoje: string; dm: (iso: string) => string }) {
+  const periodo = periodoDaFicha(pessoa);
+  if (!periodo) return null;
+  const pendente = periodo.diasPendentes > 0 && periodo.situacao !== "EM_AQUISICAO" && !periodo.doHistorico;
+  const pedido = periodo.solicitacao ?? null;
+  const comparacao = compararPedido(periodo);
+  const empresa = periodo.programacoes.filter((g) => g.gozoInicio !== null);
+  const passo = proximoPasso(periodo, hoje);
+  const trecho = (inicio: string, fim: string | null, dias: number, abono: number) => `${dm(inicio)} a ${dm(fim ?? inicio)} · ${dias} d${abono > 0 ? ` + abono ${abono}` : ""}`;
+  return (
+    <ul className="fe-ti-ficha">
+      {(pedido || pendente) && (
+        <li><b>Pediu</b> {pedido ? trecho(pedido.inicio, pedido.fim, pedido.dias, pedido.diasAbono) : <span className="fe-ti-mudo">sem pedido</span>}</li>
+      )}
+      {(empresa.length > 0 || pendente) && (
+        <li><b>Empresa quer</b> {empresa.length > 0
+          ? empresa.map((g) => `${g.status === "GOZADA" ? "✓ " : ""}${trecho(g.gozoInicio as string, g.gozoFim, g.dias, g.diasAbono)}`).join("; ")
+          : <span className="fe-ti-mudo">ainda sem data</span>}</li>
+      )}
+      {pendente && <li><b>Limite</b> começar até {dm(periodo.limiteInicioGozo)}</li>}
+      {comparacao && (
+        <li className={`fe-ti-situacao fe-ti-situacao--${comparacao.situacao.toLowerCase()}`}>
+          {ROTULO_DA_SITUACAO_DO_PEDIDO[comparacao.situacao]}
+          {comparacao.situacao === "DIFERENTE" && diferencaEmPalavras(comparacao.diferencaEmDias) ? ` (${diferencaEmPalavras(comparacao.diferencaEmDias)})` : ""}
+          {comparacao.passaDoPrazo ? " · passa do prazo" : ""}
+        </li>
+      )}
+      {passo && <li className={`fe-ti-passo${passo.urgente ? " fe-ti-passo--urgente" : ""}`}>→ {passo.texto}</li>}
+    </ul>
   );
 }

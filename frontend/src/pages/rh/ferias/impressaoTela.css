@@ -28,13 +28,13 @@
 /* Pista: tudo posicionado em px; a largura já foi calculada para caber no papel. */
 .fe-ti-meses { position: relative; height: 5mm; }
 .fe-ti-meses span { position: absolute; top: 0; bottom: 0; padding: 1mm 0 0 1mm; border-left: 0.2mm solid #888; overflow: hidden; white-space: nowrap; font-size: 7pt; font-weight: 700; text-transform: uppercase; box-sizing: border-box; }
-.fe-ti-pista { position: relative; height: 27px; overflow: hidden; }
+.fe-ti-pista { position: relative; height: 31px; overflow: hidden; }
 .fe-ti-grade { position: absolute; top: 0; bottom: 0; width: 0; border-left: 0.2mm solid #ccc; }
 .fe-ti-grade--ano { border-left: 0.35mm solid #888; }
 .fe-ti-hoje { position: absolute; top: 0; bottom: 0; width: 0; border-left: 0.5mm solid #111; z-index: 3; }
-.fe-ti-zona { position: absolute; top: 4px; height: 14px; }
+.fe-ti-zona { position: absolute; top: 9px; height: 14px; }
 .fe-ti-aquisicao { position: absolute; top: 7px; height: 8px; border: 0.25mm dashed #444; background: none; }
-.fe-ti-barra { position: absolute; top: 3px; height: 16px; z-index: 2; box-sizing: border-box; overflow: hidden; white-space: nowrap; text-align: center; line-height: 16px; font-size: 7pt; font-weight: 700; color: #fff; border-radius: 2px; }
+.fe-ti-barra { position: absolute; top: 8px; height: 16px; z-index: 2; box-sizing: border-box; overflow: hidden; white-space: nowrap; text-align: center; line-height: 16px; font-size: 7pt; font-weight: 700; color: #fff; border-radius: 2px; }
 .fe-ti-barra--programada { background: #2f5f98; }
 .fe-ti-barra--gozada { background: #276749; }
 .fe-ti-calor { position: absolute; top: 3px; height: 16px; text-align: center; line-height: 16px; font-size: 7pt; font-weight: 700; color: #111; }
@@ -74,9 +74,31 @@
 .fe-ti-seg { position: absolute; bottom: 0.4mm; padding-left: 0.6mm; font-style: normal; font-size: 6pt; color: #444; }
 
 /* Pedido do colaborador: faixa tracejada fina embaixo da programação (azul) */
-.fe-ti-pedido { position: absolute; top: 21px; height: 3px; z-index: 2; border: 0.3mm dashed #111; border-radius: 1px; background: #fff; }
+.fe-ti-pedido { position: absolute; top: 26px; height: 3px; z-index: 2; border: 0.3mm dashed #111; border-radius: 1px; background: #fff; }
 .fe-ti-amostra--pedido { height: 2.2mm; border: 0.3mm dashed #111; background: #fff; }
 
 /* Prazo limite para começar: traço vermelho escuro de ponta a ponta da linha */
-.fe-ti-limite { position: absolute; top: 0; bottom: 0; width: 0; z-index: 3; border-left: 0.5mm solid #7a1f1f; }
+.fe-ti-limite { position: absolute; top: 0; bottom: 0; width: 0; z-index: 3; border-left: 0.7mm solid #7a1f1f; }
 .fe-ti-amostra--limite { width: 0; height: 3mm; border: 0; border-left: 0.5mm solid #7a1f1f; margin: 0 3mm; }
+
+/* Data do prazo limite escrita ao lado do traço, na faixa livre no alto da linha */
+.fe-ti-limite-tag { position: absolute; top: 0; z-index: 4; transform: translateX(-100%); padding: 0 1.2mm 0 0.5mm; background: #fff; color: #7a1f1f; font-size: 6pt; font-weight: 700; line-height: 8px; white-space: nowrap; }
+
+/* Ficha na coluna do nome: pediu / empresa quer / limite / situação / próximo passo */
+.fe-ti-ficha { list-style: none; margin: 0.6mm 0 0; padding: 0; display: grid; gap: 0.2mm; font-size: 6.5pt; line-height: 1.2; color: #222; }
+.fe-ti-ficha li { display: grid; grid-template-columns: 16mm minmax(0, 1fr); column-gap: 1mm; }
+.fe-ti-ficha li.fe-ti-situacao, .fe-ti-ficha li.fe-ti-passo { display: block; }
+.fe-ti-ficha b { font-weight: 700; color: #111; }
+.fe-ti-mudo { color: #666; font-style: italic; }
+.fe-ti-situacao { font-weight: 700; }
+.fe-ti-situacao--atendido { color: #1b5e20; }
+.fe-ti-situacao--diferente { color: #8a5a00; }
+.fe-ti-situacao--aguardando { color: #1a4f8a; }
+.fe-ti-passo { margin-top: 0.3mm; padding-top: 0.3mm; border-top: 0.2mm solid #bbb; font-weight: 700; color: #111; }
+.fe-ti-passo--urgente { color: #7a1f1f; }
+
+/* Quem está fora no pior momento: os nomes por trás do número da faixa */
+.fe-ti-pico td { padding: 0.8mm 2mm; font-size: 7pt; background: #fafafa; border: 0.2mm solid #888; }
+
+/* Limite colado na borda esquerda: a data vai para a direita do traço, senão sai da folha */
+.fe-ti-limite-tag--direita { transform: none; padding: 0 0.5mm 0 1.2mm; }
