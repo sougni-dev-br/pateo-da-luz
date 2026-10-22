@@ -250,6 +250,23 @@
 
 .fm-aguardando .fpend-texto strong { font-weight: 550; color: var(--muted); }
 
+/* Destino (onde se resolve) + ação (justificar/conferir), lado a lado. */
+.fpend-lado { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
+
+.fpend-destino {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.78rem;
+  color: var(--muted);
+  white-space: nowrap;
+  text-decoration: none;
+  border-radius: 4px;
+}
+
+.fpend-destino:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+.fpend-destino:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
 .fpend-acao {
   flex-shrink: 0;
   padding: 6px 12px;
@@ -431,6 +448,19 @@
   color: var(--muted);
 }
 
+/* ── Erro ao carregar ───────────────────────────────────────────────────── */
+
+.fm-erro {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  border-left: 3px solid var(--danger);
+}
+
+.fm-erro > svg { color: var(--danger); flex-shrink: 0; margin-top: 2px; }
+.fm-erro h3 { margin: 0; font-size: 0.95rem; font-weight: 600; color: var(--ink); }
+.fm-erro p { margin: 4px 0 12px; font-size: 0.84rem; color: var(--muted); }
+
 /* ── Justificativas registradas ─────────────────────────────────────────── */
 
 .fm-justificativas h3 {
@@ -536,6 +566,8 @@
 
   /* Ação embaixo do texto, larga o bastante para o polegar. */
   .fpend-grupo li { flex-direction: column; align-items: stretch; gap: 8px; }
+  .fpend-lado { flex-direction: column-reverse; align-items: stretch; gap: 8px; }
+  .fpend-destino { min-height: 32px; }
   .fpend-acao { min-height: 40px; }
   .fm-justificativas li { flex-direction: column; gap: 6px; }
   .fm-just-lado { grid-auto-flow: column; justify-items: start; justify-content: space-between; align-items: center; width: 100%; }
@@ -543,7 +575,44 @@
   /* Tabela larga rola em vez de espremer a coluna do nome. */
   .fbloco-corpo { overflow-x: auto; }
   .fm-tabela { min-width: 420px; }
-  .fm-tabela-cartoes { min-width: 0; }
+
+  /* Tabela de poucas colunas vira lista de cartões: cada linha empilha seus
+     campos com o rótulo à esquerda, em vez de rolar na horizontal. */
+  .fm-tabela-empilhada { min-width: 0; }
+  .fm-tabela-empilhada thead { display: none; }
+  .fm-tabela-empilhada,
+  .fm-tabela-empilhada tbody { display: block; }
+  .fm-tabela-empilhada tr {
+    display: grid;
+    gap: 6px;
+    padding: 12px 0;
+    border-top: 1px solid var(--line);
+  }
+  .fm-tabela-empilhada tr:first-child { border-top: 0; }
+  .fm-tabela-empilhada td {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    padding: 0;
+    border: 0;
+    text-align: right;
+  }
+  .fm-tabela-empilhada td[data-label]::before {
+    content: attr(data-label);
+    flex-shrink: 0;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    text-align: left;
+  }
+  /* Célula sem rótulo = ações: alinhadas à direita, sem coluna fantasma. */
+  .fm-tabela-empilhada td:not([data-label]):empty { display: none; }
+  .fm-tabela-empilhada td:not([data-label]) { justify-content: flex-end; }
+  .fm-celula-situacao { align-items: flex-end; }
+  .fm-acoes-celula { justify-content: flex-end; }
 }
 
 /* Trocar de mês recarrega tudo. Em vez de sumir com a tela, ela esmaece e

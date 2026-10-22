@@ -95,6 +95,12 @@ function partirNoPrimeiro(texto: string, separador: string): [string, string] | 
 
 export function descreverPendencia(key: string, label: string): PendenciaDescrita {
   const grupo = grupoDaPendencia(key);
+
+  // "Fornecedor: Condomínio" — aqui o rótulo é a categoria e o que identifica é o
+  // nome; partir no dois-pontos deixaria "Fornecedor" como título e o nome apagado.
+  if (key.startsWith("supplier:")) {
+    return { grupo, titulo: label.replace(/^Fornecedor:\s*/, ""), detalhe: "Fornecedor obrigatório sem lançamento neste mês" };
+  }
   const iTravessao = label.indexOf(TRAVESSAO);
   const iDoisPontos = label.indexOf(": ");
 

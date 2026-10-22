@@ -13,6 +13,12 @@ describe("descreverPendencia", () => {
     expect(d.detalhe).toBe("fatura não conferida com o extrato");
   });
 
+  test("fornecedor: o nome é o título, não a palavra 'Fornecedor'", () => {
+    const d = descreverPendencia("supplier:s1", "Fornecedor: Condomínio do Shopping");
+    expect(d.titulo).toBe("Condomínio do Shopping");
+    expect(d.detalhe).toMatch(/sem lançamento/);
+  });
+
   test("sem dois-pontos, separa no travessão", () => {
     const d = descreverPendencia(
       "block:purchasesWithoutItems",
