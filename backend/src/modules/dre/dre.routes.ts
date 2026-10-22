@@ -7,6 +7,7 @@ import { FERIAS_CATEGORY, FOLHA_CATEGORY, RESCISAO_CATEGORY, VT_CATEGORY } from 
 import { custoExtrasSql } from "../payroll/extras-custo.js";
 import { createDrePdf, type DreSummary } from "./dre-pdf.js";
 import { suggestCategory } from "./sugestao-categoria.js";
+import { intervaloAnoAnterior, intervaloMesAnterior } from "./dre-periodo.js";
 import {
   CATEGORIAS_CMV_GERENCIAL,
   getCmvPurchaseTotalByCompetenceMonth,
@@ -178,22 +179,6 @@ function parseRange(query: Record<string, unknown>): { from: Date; to: Date; com
     return { from, to, competencia: null };
   }
   return null;
-}
-
-function prevMonth(from: Date, to: Date): { from: Date; to: Date } {
-  const d = new Date(from);
-  d.setMonth(d.getMonth() - 1);
-  const dTo = new Date(to);
-  dTo.setMonth(dTo.getMonth() - 1);
-  return { from: d, to: dTo };
-}
-
-function prevYear(from: Date, to: Date): { from: Date; to: Date } {
-  const d = new Date(from);
-  d.setFullYear(d.getFullYear() - 1);
-  const dTo = new Date(to);
-  dTo.setFullYear(dTo.getFullYear() - 1);
-  return { from: d, to: dTo };
 }
 
 // Importada de cmv-purchase-base, onde o predicado de CMV usa a MESMA lista. Os
@@ -659,8 +644,8 @@ dreRouter.get("/summary", async (request, response) => {
 
   const [current, prevM, prevY] = await Promise.all([
     calcDRE(range.from, range.to, range.competencia),
-    withComparatives ? calcDRE(prevMonth(range.from, range.to).from, prevMonth(range.from, range.to).to, competenciaMesAnterior(range.competencia)) : Promise.resolve(null),
-    withComparatives ? calcDRE(prevYear(range.from, range.to).from, prevYear(range.from, range.to).to, competenciaAnoAnterior(range.competencia)) : Promise.resolve(null)
+    withComparatives ? calcDRE(intervaloMesAnterior(range.from, range.to).from, intervaloMesAnterior(range.from, range.to).to, competenciaMesAnterior(range.competencia)) : Promise.resolve(null),
+    withComparatives ? calcDRE(intervaloAnoAnterior(range.from, range.to).from, intervaloAnoAnterior(range.from, range.to).to, competenciaAnoAnterior(range.competencia)) : Promise.resolve(null)
   ]);
 
   response.json({ current, prevMonth: prevM, prevYear: prevY });
