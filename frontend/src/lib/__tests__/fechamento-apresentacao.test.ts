@@ -19,6 +19,12 @@ describe("descreverPendencia", () => {
     expect(d.detalhe).toMatch(/sem lançamento/);
   });
 
+  test("lançamento obrigatório do fornecedor: título com o nome do lançamento", () => {
+    const d = descreverPendencia("supplier:s1:r2", "Fornecedor: Condomínio do Shopping — Parcelamento de dívida");
+    expect(d.titulo).toBe("Condomínio do Shopping — Parcelamento de dívida");
+    expect(d.detalhe).toMatch(/lançamento obrigatório/i);
+  });
+
   test("sem dois-pontos, separa no travessão", () => {
     const d = descreverPendencia(
       "block:purchasesWithoutItems",

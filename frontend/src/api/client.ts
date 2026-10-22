@@ -4271,6 +4271,20 @@ export type MonthlyClosureRequiredSupplier = {
   present: boolean;
   total: number;
   purchaseCount: number;
+  /** Lançamentos obrigatórios do fornecedor (ex.: condomínio do mês + parcela do acordo). */
+  requirements: MonthlyClosureRequirement[];
+  /** Há exigência ativa: o fornecedor é cobrado por lançamento, não por "qualquer compra". */
+  usaExigencias: boolean;
+};
+
+export type MonthlyClosureRequirement = {
+  id: string;
+  label: string;
+  productName: string;
+  quitada: boolean;
+  present: boolean;
+  total: number;
+  purchaseCount: number;
 };
 
 export type MonthlyClosureTax = {
@@ -4499,6 +4513,50 @@ export function setUnitStatus(id: string, isActive: boolean) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ isActive })
   });
+}
+
+export type SupplierClosingRequirement = {
+  id: string;
+  label: string;
+  productId: string;
+  productName: string;
+  /** Quando o acordo foi quitado; nulo = ainda cobrado todo mês. */
+  settledAt: string | null;
+};
+
+export function getSupplierClosingRequirements(supplierId: string) {
+  return request<SupplierClosingRequirement[]>(`/suppliers/${encodeURIComponent(supplierId)}/closing-requirements`);
+}
+
+export function createSupplierClosingRequirement(supplierId: string, payload: { label: string; productId: string }) {
+  return request<SupplierClosingRequirement>(`/suppliers/${encodeURIComponent(supplierId)}/closing-requirements`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function updateSupplierClosingRequirement(
+  supplierId: string, requirementId: string, payload: { label?: string; productId?: string }
+) {
+  return request<SupplierClosingRequirement>(
+    `/suppliers/${encodeURIComponent(supplierId)}/closing-requirements/${encodeURIComponent(requirementId)}`,
+    { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }
+  );
+}
+
+export function deleteSupplierClosingRequirement(supplierId: string, requirementId: string) {
+  return request<{ ok: boolean }>(
+    `/suppliers/${encodeURIComponent(supplierId)}/closing-requirements/${encodeURIComponent(requirementId)}`,
+    { method: "DELETE" }
+  );
+}
+
+export function settleSupplierClosingRequirement(supplierId: string, requirementId: string, settled: boolean) {
+  return request<SupplierClosingRequirement>(
+    `/suppliers/${encodeURIComponent(supplierId)}/closing-requirements/${encodeURIComponent(requirementId)}/settle`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ settled }) }
+  );
 }
 
 export function getExpenseTypes(search?: string) {

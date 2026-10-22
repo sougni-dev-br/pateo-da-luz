@@ -68,8 +68,12 @@ export function nomeDaJustificativa(
     return c ? `Cartão ${c.name} (final ${c.last4Digits})` : "Cartão";
   }
   if (chave.startsWith("supplier:")) {
-    const f = state.requiredSuppliers.find((x) => `supplier:${x.id}` === chave);
-    return f ? `Fornecedor ${f.name}` : "Fornecedor";
+    // supplier:<fornecedor> ou supplier:<fornecedor>:<lançamento obrigatório>
+    const [, fornecedorId, exigenciaId] = chave.split(":");
+    const f = state.requiredSuppliers.find((x) => x.id === fornecedorId);
+    if (!f) return "Fornecedor";
+    const lancamento = exigenciaId ? f.requirements?.find((r) => r.id === exigenciaId) : undefined;
+    return lancamento ? `Fornecedor ${f.name} — ${lancamento.label}` : `Fornecedor ${f.name}`;
   }
   return nomeDaChave(chave) ?? chave;
 }

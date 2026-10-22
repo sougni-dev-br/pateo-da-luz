@@ -178,6 +178,18 @@ describe("nomeDaJustificativa", () => {
     expect(nomeDaJustificativa("card:c1", s)).toBe("Cartão Visa (final 1234)");
     expect(nomeDaJustificativa("supplier:s1", s)).toBe("Fornecedor Condomínio");
   });
+  test("lançamento obrigatório do fornecedor traz o nome do fornecedor e do lançamento", () => {
+    const comExigencias = {
+      ...s,
+      requiredSuppliers: [{
+        id: "s1", name: "Condomínio", group: "Fixos", frequency: "MONTHLY", appliesThisMonth: true, present: false, total: 0, purchaseCount: 0,
+        usaExigencias: true,
+        requirements: [{ id: "r2", label: "Parcelamento de dívida", productName: "Parcelamento de dívida do condomínio", quitada: false, present: false, total: 0, purchaseCount: 0 }]
+      }]
+    } as unknown as MonthlyClosureState;
+    expect(nomeDaJustificativa("supplier:s1:r2", comExigencias)).toBe("Fornecedor Condomínio — Parcelamento de dívida");
+  });
+
   test("cadastro removido não quebra", () => {
     expect(nomeDaJustificativa("card:sumiu", s)).toBe("Cartão");
     expect(nomeDaJustificativa("supplier:sumiu", s)).toBe("Fornecedor");

@@ -31,6 +31,7 @@ import { BotaoImprimirResumo } from "../components/fechamento/BotaoImprimirResum
 import { CartoesDoFechamento } from "../components/fechamento/CartoesDoFechamento";
 import { HistoricoDoFechamento } from "../components/fechamento/HistoricoDoFechamento";
 import { JustificarDialog, type ModoDoDialog } from "../components/fechamento/JustificarDialog";
+import { LinhasDoFornecedor } from "../components/fechamento/LinhasDoFornecedor";
 import { PendenciasAgrupadas } from "../components/fechamento/PendenciasAgrupadas";
 import { ConfirmDialog } from "../components/ui";
 import { Alert, Button, Money, StatusBadge } from "../design-system";
@@ -64,13 +65,6 @@ function monthLabel(year: number, month: number): string {
 
 function toYearMonthParam(year: number, month: number): string {
   return `${year}-${String(month).padStart(2, "0")}`;
-}
-
-function frequencyLabel(freq: string): string {
-  if (freq === "MONTHLY") return "Mensal";
-  if (freq === "QUARTERLY") return "Trimestral";
-  if (freq === "ANNUAL") return "Anual";
-  return freq;
 }
 
 /** Por que "Travar mês" está desabilitado, em uma frase que cabe no celular. */
@@ -522,9 +516,9 @@ export function MonthlyClosurePanel({ user }: { user: AppUser }) {
           numero={3}
           titulo="Fornecedores obrigatórios"
           estado={(() => {
-            const pendentes = state.requiredSuppliers.filter(
-              (s) => s.appliesThisMonth && !s.present && !justificationByKey.has(`supplier:${s.id}`));
-            if (pendentes.length === 0) return "OK";
+            // O backend já tira as justificadas da lista: qualquer chave supplier:* que
+            // sobra é pendência de fornecedor — inclusive de lançamento obrigatório.
+            if (![...pendenciasDoMes].some((k) => k.startsWith("supplier:"))) return "OK";
             return resumo.aguardando.some((p) => p.key.startsWith("supplier:")) ? "AGUARDANDO" : "ATENCAO";
           })()}
           resumo={`${state.requiredSuppliers.filter((s) => s.present).length} de ${state.requiredSuppliers.filter((s) => s.appliesThisMonth).length} lançados`}
@@ -543,36 +537,17 @@ export function MonthlyClosurePanel({ user }: { user: AppUser }) {
                     <tr><th>Fornecedor</th><th>Frequência</th><th>Situação</th><th className="num">Total</th><th /></tr>
                   </thead>
                   <tbody>
-                    {suppliers.map((s) => {
-                      const blockKey = `supplier:${s.id}`;
-                      const just = justificationByKey.get(blockKey);
-                      const tone = !s.appliesThisMonth ? "neutral" : s.present ? "success" : just ? "warning" : "danger";
-                      const texto = !s.appliesThisMonth ? "Não aplica"
-                        : s.present ? `Lançado (${s.purchaseCount})`
-                        : just ? "Justificado" : "Pendente";
-                      return (
-                        <tr key={s.id}>
-                          <td data-label="Fornecedor">{s.name}</td>
-                          <td data-label="Frequência">{frequencyLabel(s.frequency)}</td>
-                          <td data-label="Situação"><StatusBadge tone={tone}>{texto}</StatusBadge></td>
-                          <td data-label="Total" className="num">{s.present ? <Money value={s.total} /> : "—"}</td>
-                          <td className="num">
-                            {canEdit && !isClosed && s.appliesThisMonth && !s.present && !just && (
-                              <button className="link-btn" disabled={busy}
-                                onClick={() => setJustificando({ key: blockKey, label: `Fornecedor: ${s.name}` })}>
-                                Justificar
-                              </button>
-                            )}
-                            {canEdit && !isClosed && just && (
-                              <button className="link-btn" title={just.reason} disabled={busy}
-                                onClick={() => removeJustification(blockKey)}>
-                                <X size={12} /> remover
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
+                    {suppliers.map((s) => (
+                      <LinhasDoFornecedor
+                        key={s.id}
+                        fornecedor={s}
+                        justificativas={justificationByKey}
+                        podeAgir={canEdit && !isClosed}
+                        ocupado={busy}
+                        onJustificar={(chave, rotulo) => setJustificando({ key: chave, label: rotulo })}
+                        onRemover={removeJustification}
+                      />
+                    ))}
                   </tbody>
                 </table>
                 {suppliers.filter((s) => justificationByKey.has(`supplier:${s.id}`)).map((s) => (

@@ -99,7 +99,14 @@ export function descreverPendencia(key: string, label: string): PendenciaDescrit
   // "Fornecedor: Condomínio" — aqui o rótulo é a categoria e o que identifica é o
   // nome; partir no dois-pontos deixaria "Fornecedor" como título e o nome apagado.
   if (key.startsWith("supplier:")) {
-    return { grupo, titulo: label.replace(/^Fornecedor:\s*/, ""), detalhe: "Fornecedor obrigatório sem lançamento neste mês" };
+    const porLancamento = key.split(":").length > 2; // supplier:<fornecedor>:<lançamento>
+    return {
+      grupo,
+      titulo: label.replace(/^Fornecedor:\s*/, ""),
+      detalhe: porLancamento
+        ? "Lançamento obrigatório do mês sem registro"
+        : "Fornecedor obrigatório sem lançamento neste mês"
+    };
   }
   const iTravessao = label.indexOf(TRAVESSAO);
   const iDoisPontos = label.indexOf(": ");

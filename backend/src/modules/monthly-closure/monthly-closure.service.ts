@@ -11,6 +11,14 @@ import { prisma } from "../../config/database.js";
 import crypto from "node:crypto";
 import { REVENUE_CHANNEL_EVENTS } from "../monthly/revenue-channels.js";
 import { excludeAggregatorsSql } from "../purchases/purchase-aggregators.js";
+import {
+  avaliarExigencias,
+  fornecedorPresenteComExigencias,
+  pendenciasDasExigencias,
+  type ExigenciaAvaliada,
+  type ExigenciaCadastrada,
+  type LancamentoDoProduto
+} from "./exigencias-do-fornecedor.js";
 import { anexarNomes } from "./justificativas-com-nome.js";
 import { avaliarCartoesDoMes, type CartaoDoMes, type FaturaDoMes } from "./cartoes-do-fechamento.js";
 import {
@@ -363,6 +371,47 @@ function frequencyRequiresThisMonth(freq: string, month: number): boolean {
   return true;
 }
 
+// Exigências mensais dos fornecedores obrigatórios (ex.: condomínio do mês + parcela
+// do acordo), cada uma reconhecida pelo PRODUTO dos itens das compras do mês — toda
+// compra manual tem itens com produto, então nenhuma tela de lançamento muda.
+async function getExigenciasAvaliadas(year: number, month: number, supplierIds: string[]) {
+  const resultado = new Map<string, ExigenciaAvaliada[]>();
+  if (supplierIds.length === 0) return resultado;
+
+  const cadastradas = await prisma.$queryRaw<Array<ExigenciaCadastrada & { supplierId: string }>>`
+    SELECT r."id" AS "id", r."supplierId" AS "supplierId", r."label" AS "label",
+           r."productId" AS "productId", pr."name" AS "productName",
+           r."settledAt" AS "settledAt"
+    FROM "SupplierClosingRequirement" r
+    JOIN "Product" pr ON pr."id" = r."productId"
+    WHERE r."supplierId" = ANY(${supplierIds})
+    ORDER BY r."createdAt" ASC
+  `;
+  if (cadastradas.length === 0) return resultado;
+
+  const lancados = await prisma.$queryRaw<Array<{ supplierId: string; productId: string; total: any; count: any }>>`
+    SELECT p."supplierId" AS "supplierId", pi."productId" AS "productId",
+           COALESCE(SUM(pi."totalPrice"), 0) AS "total", COUNT(DISTINCT p."id") AS "count"
+    FROM "Purchase" p
+    JOIN "PurchaseItem" pi ON pi."purchaseId" = p."id"
+    WHERE p."competenceYear" = ${year} AND p."competenceMonth" = ${month}
+      AND p."status" = 'ACTIVE'
+      AND p."supplierId" = ANY(${supplierIds})
+      AND pi."productId" IN (SELECT r."productId" FROM "SupplierClosingRequirement" r WHERE r."supplierId" = ANY(${supplierIds}))
+      AND ${excludeAggregatorsSql("p")}
+    GROUP BY p."supplierId", pi."productId"
+  `;
+
+  for (const supplierId of new Set(cadastradas.map((c) => c.supplierId))) {
+    const doFornecedor = cadastradas.filter((c) => c.supplierId === supplierId);
+    const lancamentos: LancamentoDoProduto[] = lancados
+      .filter((l) => l.supplierId === supplierId)
+      .map((l) => ({ productId: l.productId, total: toNumber(l.total), count: toNumber(l.count) }));
+    resultado.set(supplierId, avaliarExigencias(doFornecedor, lancamentos));
+  }
+  return resultado;
+}
+
 async function getRequiredSuppliersStatus(year: number, month: number) {
   const suppliers = await prisma.$queryRaw<Array<{
     id: string; name: string; group: string | null; frequency: string;
@@ -392,18 +441,26 @@ async function getRequiredSuppliersStatus(year: number, month: number) {
   const totalMap = new Map<string, { total: number; count: number }>();
   for (const t of totalsBySupplier) totalMap.set(t.supplierId, { total: toNumber(t.total), count: toNumber(t.count) });
 
+  const exigenciasPorFornecedor = await getExigenciasAvaliadas(year, month, suppliers.map((s) => s.id));
+
   return suppliers.map(s => {
     const appliesThisMonth = frequencyRequiresThisMonth(s.frequency, month);
     const t = totalMap.get(s.id);
+    const requirements = exigenciasPorFornecedor.get(s.id) ?? [];
+    // Com exigências ativas, "presente" = TODAS lançadas; sem elas, a regra antiga:
+    // qualquer compra do mês.
+    const presenteComExigencias = fornecedorPresenteComExigencias(requirements);
     return {
       id: s.id,
       name: s.name,
       group: s.group ?? "Outros",
       frequency: s.frequency,
       appliesThisMonth,
-      present: (t?.count ?? 0) > 0,
+      present: presenteComExigencias ?? (t?.count ?? 0) > 0,
       total: t?.total ?? 0,
       purchaseCount: t?.count ?? 0,
+      requirements,
+      usaExigencias: presenteComExigencias !== null,
     };
   });
 }
@@ -602,6 +659,15 @@ export async function getMonthlyClosure(year: number, month: number) {
 
   // Fornecedores obrigatorios pendentes
   for (const s of requiredSuppliers) {
+    // Fornecedor com exigências (ex.: condomínio): cada lançamento obrigatório é
+    // cobrado por si, em vez de bastar "qualquer compra do mês".
+    if (s.usaExigencias) {
+      const faltando = pendenciasDasExigencias({
+        supplierId: s.id, supplierName: s.name, aplicaNoMes: s.appliesThisMonth, exigencias: s.requirements
+      });
+      for (const p of faltando) if (!justificationByKey.has(p.key)) pending.push(p);
+      continue;
+    }
     if (!s.appliesThisMonth) continue;
     if (s.present) continue;
     if (justificationByKey.has(`supplier:${s.id}`)) continue;

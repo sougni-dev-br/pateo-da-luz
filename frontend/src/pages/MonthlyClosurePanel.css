@@ -410,6 +410,15 @@
 .fm-tabela .num { text-align: right; font-variant-numeric: tabular-nums; }
 .fm-tabela .num.forte { font-weight: 600; }
 
+/* Lançamentos obrigatórios de um fornecedor (ex.: condomínio do mês + parcela do acordo):
+   uma linha por lançamento, recuada sob o fornecedor. */
+.fm-exigencia td { padding-top: 4px; padding-bottom: 4px; background: var(--paper-soft); }
+.fm-exigencia-nome { padding-left: 22px !important; }
+.fm-exigencia-texto { display: grid; gap: 1px; }
+.fm-exigencia-texto small { font-size: 0.74rem; }
+/* Acordo quitado: o nome fica riscado; o produto, o selo e o total seguem legíveis. */
+.fm-exigencia-quitada .fm-exigencia-rotulo { color: var(--muted); text-decoration: line-through; }
+
 /* Cartões: os botões ficam sob o selo de situação, em vez de uma coluna só deles,
    que no celular estourava a largura e saía cortada. */
 .fm-celula-situacao { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
@@ -610,6 +619,18 @@
   }
   /* Célula sem rótulo = ações: alinhadas à direita, sem coluna fantasma. */
   .fm-tabela-empilhada td:not([data-label]):empty { display: none; }
+  /* Seletores com a especificidade de ".fm-tabela-empilhada td", senão o flex dela vence. */
+  .fm-tabela-empilhada td.fm-exigencia-vazio { display: none; }
+  .fm-tabela-empilhada td.fm-exigencia-nome { justify-content: flex-start; padding-left: 0 !important; text-align: left; }
+  .fm-tabela-empilhada td.fm-exigencia-nome::before { display: none; }
+  .fm-tabela-empilhada tr.fm-exigencia {
+    margin: 0 0 0 10px;
+    padding: 10px 12px;
+    background: var(--paper-soft);
+    border-left: 2px solid var(--line);
+    border-radius: 0 var(--radius-sm, 8px) var(--radius-sm, 8px) 0;
+  }
+  .fm-tabela-empilhada tr.fm-exigencia td { background: none; }
   .fm-tabela-empilhada td:not([data-label]) { justify-content: flex-end; }
   .fm-celula-situacao { align-items: flex-end; }
   .fm-acoes-celula { justify-content: flex-end; }
