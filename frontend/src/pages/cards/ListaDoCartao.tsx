@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowRightLeft, Check, CheckCircle2, Flag, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowRightLeft, Check, CheckCircle2, Circle, Flag, Trash2 } from "lucide-react";
 import type { CreditCardFinal, CreditCardStatementDetail, DivergenciaDoCartao, SubtotalDoCartao } from "../../api/client";
 import { Money, RowMenu, StatusBadge } from "../../design-system";
 import { formatDate } from "../../utils/format";
@@ -48,6 +48,7 @@ export function ListaDoCartao(props: Props) {
   const outros = finais.filter((outro) => outro.id !== final?.id);
   const classe = lista_unica ? "unica" : final === null ? "pendente" : final.kind === "VIRTUAL" ? "virtual" : "fisico";
   const idsDaLista = linhas.map((linha) => linha.id);
+  const conferidas = linhas.filter((linha) => linha.checked).length;
   const todasMarcadas = idsDaLista.length > 0 && idsDaLista.every((id) => props.selecionadas.has(id));
 
   return (
@@ -59,7 +60,10 @@ export function ListaDoCartao(props: Props) {
             {final && <code>·· {final.last4Digits}</code>}
             {final && !final.isActive && <StatusBadge tone="neutral">Inativo</StatusBadge>}
           </h3>
-          <span>{linhas.length} {linhas.length === 1 ? "lançamento" : "lançamentos"}</span>
+          <span>
+            {linhas.length} {linhas.length === 1 ? "lançamento" : "lançamentos"}
+            {linhas.length > 0 && <> · <strong className={conferidas === linhas.length ? "fatura-lista-conferidas completo" : "fatura-lista-conferidas"}>{conferidas} de {linhas.length} conferidos</strong></>}
+          </span>
         </div>
         <div className="fatura-lista-total">
           <strong><Money value={props.subtotal?.total ?? 0} /></strong>
@@ -126,7 +130,7 @@ export function ListaDoCartao(props: Props) {
               ...(!item.purchaseId ? [{ label: "Excluir linha", icon: <Trash2 size={15} />, tone: "danger" as const, onClick: () => props.acoes.onExcluir(item) }] : [])
             ];
             return (
-              <li key={item.id} className={`fatura-lista-linha${props.selecionadas.has(item.id) ? " selecionada" : ""}`}>
+              <li key={item.id} className={`fatura-lista-linha${props.selecionadas.has(item.id) ? " selecionada" : ""}${item.checked ? " conferida" : ""}${item.hasDivergence ? " divergente" : ""}`}>
                 {editavel && !props.semFinais && (
                   <input
                     type="checkbox"
@@ -175,14 +179,15 @@ export function ListaDoCartao(props: Props) {
                   ))}
                   <button
                     type="button"
-                    className={`fatura-icone${item.checked ? " ligado" : ""}`}
+                    className={`fatura-conferir${item.checked ? " ligado" : ""}`}
                     aria-pressed={item.checked}
                     aria-label={`Conferido: ${item.description}`}
-                    title={item.checked ? "Conferido (clique para desmarcar)" : "Marcar como conferido"}
+                    title={item.checked ? "Conferido com o extrato (clique para desmarcar)" : "Clique para marcar como conferido com o extrato"}
                     disabled={!editavel}
                     onClick={() => props.acoes.onConferida(item)}
                   >
-                    <CheckCircle2 size={20} />
+                    {item.checked ? <CheckCircle2 size={16} /> : <Circle size={16} />}
+                    {item.checked ? "Conferido" : "Conferir"}
                   </button>
                   <button
                     type="button"
