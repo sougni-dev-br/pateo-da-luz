@@ -358,11 +358,18 @@ cardsRouter.get("/statements", async (request, response) => {
     _count: { _all: true }
   });
   const semFinalPorFatura = new Map(semFinal.map((g) => [g.statementId, g._count._all]));
+  const conferidos = await prisma.creditCardStatementItem.groupBy({
+    by: ["statementId"],
+    where: { statementId: { in: statements.map((s) => s.id) }, checked: true },
+    _count: { _all: true }
+  });
+  const conferidosPorFatura = new Map(conferidos.map((g) => [g.statementId, g._count._all]));
 
   response.json(
     statements.map((statement) => ({
       ...statement,
-      itensSemCartao: semFinalPorFatura.get(statement.id) ?? 0
+      itensSemCartao: semFinalPorFatura.get(statement.id) ?? 0,
+      itensConferidos: conferidosPorFatura.get(statement.id) ?? 0
     }))
   );
 });

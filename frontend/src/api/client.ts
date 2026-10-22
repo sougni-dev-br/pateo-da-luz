@@ -1114,6 +1114,7 @@ export type CreditCardStatement = {
   updatedAt: string;
   creditCard?: CreditCard;
   itensSemCartao?: number;
+  itensConferidos?: number;
   _count?: { items: number };
 };
 

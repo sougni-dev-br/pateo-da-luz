@@ -55,3 +55,20 @@ export function buscarLinhas<T extends { description: string; supplierName: stri
     );
   });
 }
+
+/** Mais recente primeiro (sem data por último); empate resolvido pelo maior valor. Por valor: do maior para o menor. */
+export function ordenarLinhas<T extends { itemDate: string | null; value: string | number }>(
+  linhas: T[],
+  ordem: "data" | "valor"
+): T[] {
+  const porValor = (a: T, b: T) => Number(b.value) - Number(a.value);
+  return [...linhas].sort((a, b) => {
+    if (ordem === "valor") return porValor(a, b);
+    const da = a.itemDate ? a.itemDate.slice(0, 10) : "";
+    const db = b.itemDate ? b.itemDate.slice(0, 10) : "";
+    if (da === db) return porValor(a, b);
+    if (!da) return 1;
+    if (!db) return -1;
+    return db.localeCompare(da);
+  });
+}

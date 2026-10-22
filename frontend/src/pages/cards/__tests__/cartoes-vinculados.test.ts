@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buscarLinhas, filtrarLinhas, rotuloDoFinal, tipoDoFinal, transicaoDeSelecao } from "../cartoes-vinculados";
+import { buscarLinhas, filtrarLinhas, ordenarLinhas, rotuloDoFinal, tipoDoFinal, transicaoDeSelecao } from "../cartoes-vinculados";
 
 const finais = [
   { id: "f1", label: "Físico", last4Digits: "1111", kind: "PHYSICAL" },
@@ -63,5 +63,21 @@ describe("buscarLinhas", () => {
     expect(buscarLinhas(itens, "1.250,50")).toHaveLength(1);
     expect(buscarLinhas(itens, "320,00")).toHaveLength(1);
     expect(buscarLinhas(itens, "320")).toHaveLength(1);
+  });
+});
+
+describe("ordenarLinhas", () => {
+  const l = (id: string, itemDate: string | null, value: string) => ({ id, itemDate, value });
+  const base = [l("a", "2026-08-11T00:00:00.000Z", "50"), l("b", "2026-08-13T00:00:00.000Z", "20"), l("c", null, "90"), l("d", "2026-08-13T00:00:00.000Z", "70")];
+  it("por data, da mais recente para a mais antiga, sem data por último", () => {
+    expect(ordenarLinhas(base, "data").map((x) => x.id)).toEqual(["d", "b", "a", "c"]);
+  });
+  it("por valor, do maior para o menor", () => {
+    expect(ordenarLinhas(base, "valor").map((x) => x.id)).toEqual(["c", "d", "a", "b"]);
+  });
+  it("não altera a lista original", () => {
+    const copia = [...base];
+    ordenarLinhas(base, "data");
+    expect(base).toEqual(copia);
   });
 });

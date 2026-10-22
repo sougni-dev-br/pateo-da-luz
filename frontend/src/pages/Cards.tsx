@@ -1,6 +1,6 @@
 import { ArrowRightLeft, CheckCircle2, Eye, FileText, Pencil, Plus, RefreshCw, Save, WalletCards, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   AppUser,
   checkCardStatementItem,
@@ -23,11 +23,15 @@ import {
   setStatementItemsChecked,
   setStatementItemsFinal
 } from "../api/client";
+import { CartoesCadastrados } from "./cards/CartoesCadastrados";
 import { CartoesVinculadosEditor } from "./cards/CartoesVinculadosEditor";
+import { ListaDeFaturas } from "./cards/ListaDeFaturas";
+import { ResumoDosCartoes } from "./cards/ResumoDosCartoes";
+import { resumoDasFaturas, vencimentoRelativo } from "./cards/resumo-de-faturas";
 import { FaturaPorCartao } from "./cards/FaturaPorCartao";
 import { PeriodFilter } from "../components/PeriodFilter";
 import { Notice, useNotice } from "../components/Notice";
-import { Money, StatusBadge as DsStatusBadge } from "../design-system";
+import { Button, Money, StatusBadge as DsStatusBadge } from "../design-system";
 import type { StatusTone } from "../design-system";
 
 const CARDS_TONE_TO_DS: Record<string, StatusTone> = {
@@ -73,7 +77,6 @@ export function Cards({ user }: CardsProps) {
   const [cards, setCards] = useState<CreditCard[]>([]);
   const [statements, setStatements] = useState<CreditCardStatement[]>([]);
   const [statementDetail, setStatementDetail] = useState<CreditCardStatementDetail | null>(null);
-  const [cardSearch, setCardSearch] = useState("");
   const [statementFilters, setStatementFilters] = useState({ creditCardId: "", status: "" });
   const [period, setPeriod] = useState(periodForPreset("currentYear"));
   const [cardForm, setCardForm] = useState(emptyCard);
@@ -95,6 +98,10 @@ export function Cards({ user }: CardsProps) {
   const [reallocateTargets, setReallocateTargets] = useState<CreditCardStatement[]>([]);
   const [openStatementMode, setOpenStatementMode] = useState<"review" | null>(null);
   const itemsSectionRef = useRef<HTMLDivElement | null>(null);
+  // A conferência da fatura é uma tela própria (cabe tudo sem apertar); o id vai na URL
+  // para o botão Voltar do navegador e o F5 levarem ao lugar certo.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const faturaDaUrl = searchParams.get("fatura");
   const canManage = hasPermission(user, "cards", "edit");
   // Reabrir fatura fechada/paga e o inverso de fechar: o backend pede "Aprovar".
   const canReopenStatement = hasPermission(user, "cards", "approve");
@@ -102,7 +109,7 @@ export function Cards({ user }: CardsProps) {
   async function load() {
     try {
       const [cardRows, statementRows] = await Promise.all([
-        getCards(cardSearch || undefined),
+        getCards(),
         getCardStatements({
           creditCardId: statementFilters.creditCardId || undefined,
           status: statementFilters.status || undefined,
@@ -119,26 +126,9 @@ export function Cards({ user }: CardsProps) {
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [statementFilters.creditCardId, statementFilters.status, period.startDate, period.endDate]);
 
-  const summary = useMemo(
-    () => ({
-      open: statements.filter((statement) => statement.status === "OPEN").reduce((sum, statement) => sum + Number(statement.totalAmount ?? 0), 0),
-      checked: statements.filter((statement) => statement.status === "CHECKED").reduce((sum, statement) => sum + Number(statement.totalAmount ?? 0), 0),
-      closed: statements.filter((statement) => statement.status === "CLOSED").reduce((sum, statement) => sum + Number(statement.totalAmount ?? 0), 0),
-      paid: statements.filter((statement) => statement.status === "PAID").reduce((sum, statement) => sum + Number(statement.totalAmount ?? 0), 0)
-    }),
-    [statements]
-  );
-
-  const cardMetrics = useMemo(
-    () => ({
-      active: cards.filter((card) => card.isActive).length,
-      inactive: cards.filter((card) => !card.isActive).length,
-      statements: statements.length
-    }),
-    [cards, statements]
-  );
+  const resumo = useMemo(() => resumoDasFaturas(statements), [statements]);
 
   function resetCardEditor() {
     setCardForm(emptyCard);
@@ -221,8 +211,30 @@ export function Cards({ user }: CardsProps) {
     await load();
   }
 
+  function fecharDetalhe() {
+    setStatementDetail(null);
+    setSearchParams({});
+    void load();
+  }
+
+  useEffect(() => {
+    if (!faturaDaUrl) {
+      if (statementDetail) setStatementDetail(null);
+      return;
+    }
+    if (statementDetail?.id === faturaDaUrl) return;
+    getCardStatement(faturaDaUrl)
+      .then(setStatementDetail)
+      .catch((error) => {
+        setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao abrir fatura." });
+        setSearchParams({});
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [faturaDaUrl]);
+
   async function openStatement(statement: CreditCardStatement, opts?: { mode?: "review" }) {
     try {
+      setSearchParams({ fatura: statement.id });
       setStatementDetail(await getCardStatement(statement.id));
       if (opts?.mode === "review") setOpenStatementMode("review");
     } catch (error) {
@@ -398,106 +410,26 @@ export function Cards({ user }: CardsProps) {
   }
 
   return (
-    <div className="stack">
+    <div className="stack cartoes-pagina">
       <Notice notice={notice} />
 
-      <section className="panel">
-        <div className="section-heading">
-          <div>
-            <p>Módulo financeiro</p>
-            <h2>Cartões</h2>
-          </div>
-          <div className="actions-cell">
-            {canManage && (
-              <button className="primary-button" type="button" onClick={() => openCardEditor()}>
-                <Plus size={16} /> Novo cartão
-              </button>
-            )}
-            <button className="icon-button" type="button" onClick={load} aria-label="Atualizar cartões">
-              <RefreshCw size={18} />
-            </button>
-          </div>
-        </div>
+      {!statementDetail && (
+        <>
+      <div className="cartoes-pagina-acoes">
+        <button className="icon-button" type="button" onClick={load} aria-label="Atualizar cartões" title="Atualizar">
+          <RefreshCw size={18} />
+        </button>
+        {canManage && (
+          <Button variant="secondary" leadingIcon={<Plus size={16} />} onClick={openStatementEditor}>Nova fatura</Button>
+        )}
+        {canManage && (
+          <Button leadingIcon={<Plus size={16} />} onClick={() => openCardEditor()}>Novo cartão</Button>
+        )}
+      </div>
 
-        <div className="summary-grid dashboard-compact-grid">
-          <article className="summary-card compact-summary-card tone-warning">
-            <div>
-              <span>Faturas abertas</span>
-              <strong><Money value={summary.open} /></strong>
-              <small>Exigem acompanhamento e conferência.</small>
-            </div>
-            <WalletCards className="summary-card-icon" size={20} />
-          </article>
-          <article className="summary-card compact-summary-card tone-info">
-            <div>
-              <span>Faturas conferidas</span>
-              <strong><Money value={summary.checked} /></strong>
-              <small>Prontas para fechamento ou pagamento.</small>
-            </div>
-            <CheckCircle2 className="summary-card-icon" size={20} />
-          </article>
-          <article className="summary-card compact-summary-card tone-success">
-            <div>
-              <span>Cartões ativos</span>
-              <strong>{cardMetrics.active}</strong>
-              <small>{cardMetrics.statements} faturas no período filtrado.</small>
-            </div>
-            <Eye className="summary-card-icon" size={20} />
-          </article>
-          <article className="summary-card compact-summary-card">
-            <div>
-              <span>Cartões inativos</span>
-              <strong>{cardMetrics.inactive}</strong>
-              <small>Cadastros mantidos fora da operação.</small>
-            </div>
-            <FileText className="summary-card-icon" size={20} />
-          </article>
-        </div>
-      </section>
+      <ResumoDosCartoes resumo={resumo} temFinais={cards.some((card) => (card.finais ?? []).some((final) => final.isActive))} />
 
-      <section className="panel">
-        <div className="section-heading">
-          <div>
-            <p>Consulta operacional</p>
-            <h2>Resumo de faturas</h2>
-          </div>
-          <div className="actions-cell">
-            {canManage && (
-              <button className="secondary-button" type="button" onClick={openStatementEditor}>
-                <Plus size={16} /> Nova fatura
-              </button>
-            )}
-          </div>
-        </div>
-
-        <div className="filters-row">
-          <label>
-            Buscar cartão
-            <input value={cardSearch} onChange={(event) => setCardSearch(event.target.value)} />
-          </label>
-          <label>
-            Cartão
-            <select value={statementFilters.creditCardId} onChange={(event) => setStatementFilters({ ...statementFilters, creditCardId: event.target.value })}>
-              <option value="">Todos</option>
-              {cards.map((card) => <option key={card.id} value={card.id}>{card.name}</option>)}
-            </select>
-          </label>
-          <label>
-            Status
-            <select value={statementFilters.status} onChange={(event) => setStatementFilters({ ...statementFilters, status: event.target.value })}>
-              <option value="">Todos</option>
-              <option value="OPEN">Aberta</option>
-              <option value="CHECKED">Conferida</option>
-              <option value="CLOSED">Fechada</option>
-              <option value="PAID">Paga</option>
-              <option value="CANCELLED">Cancelada</option>
-            </select>
-          </label>
-          <PeriodFilter value={period} onChange={setPeriod} />
-          <button className="primary-button" type="button" onClick={load}>Filtrar</button>
-        </div>
-
-        {statementEditorOpen && canManage && (
+      {statementEditorOpen && canManage && (
           <div className="subsection compact-editor-shell">
             <div className="section-heading compact-heading">
               <div>
@@ -550,122 +482,34 @@ export function Cards({ user }: CardsProps) {
           </div>
         )}
 
-        <div className="table-wrap operational-table cards-table subsection">
-          <table>
-            <thead>
-              <tr>
-                <th>Cartão</th>
-                <th>Competência</th>
-                <th>Fechamento</th>
-                <th>Vencimento</th>
-                <th className="numeric-cell">Total</th>
-                <th>Status</th>
-                <th className="numeric-cell">Itens</th>
-                <th>Ações</th>
-              </tr>
-            </thead>
-            <tbody>
-              {statements.map((statement) => (
-                <tr key={statement.id}>
-                  <td className="cards-main-cell" title={statement.creditCard?.name ?? "-"}>
-                    <strong>{statement.creditCard?.name ?? "-"}</strong>
-                    <small>{statement.name || "Fatura do período"}</small>
-                    {(statement.itensSemCartao ?? 0) > 0 && (statement.creditCard?.finais ?? []).some((f) => f.isActive) && (
-                      <small className="fatura-sem-cartao">{statement.itensSemCartao} sem cartão definido</small>
-                    )}
-                  </td>
-                  <td>{String(statement.competenceMonth).padStart(2, "0")}/{statement.competenceYear}</td>
-                  <td>{formatDate(statement.closingDate)}</td>
-                  <td>{formatDate(statement.dueDate)}</td>
-                  <td className="numeric-cell nowrap-cell"><Money value={statement.totalAmount} /></td>
-                  <td><DsStatusBadge tone={CARDS_TONE_TO_DS[statementStatusTone(statement.status)] ?? "neutral"}>{statementStatusLabel(statement.status)}</DsStatusBadge></td>
-                  <td className="numeric-cell">{statement._count?.items ?? 0}</td>
-                  <td>
-                    <div className="actions-cell">
-                      <button type="button" onClick={() => openStatement(statement)}><Eye size={15} /> Ver</button>
-                      {canReopenStatement && (statement.status === "CLOSED" || statement.status === "PAID") && <button type="button" onClick={() => reopenStatement(statement)}>Reabrir</button>}
-                      {canManage && statement.status !== "CLOSED" && <button type="button" onClick={() => closeStatement(statement)}>Fechar</button>}
-                      <button type="button" onClick={() => pdf(statement)}><FileText size={15} /> PDF</button>
-                      {canManage && ["OPEN", "CHECKED"].includes(statement.status) && (
-                        <button type="button" onClick={() => void openStatement(statement, { mode: "review" })}>
-                          Conferir
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {statements.length === 0 && (
-                <tr>
-                  <td colSpan={8} className="empty-table-state">Nenhuma fatura encontrada no período.</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
 
-      <section className="panel">
-        <div className="section-heading">
-          <div>
-            <p>Cadastros operacionais</p>
-            <h2>Cartões cadastrados</h2>
-          </div>
-          <div className="actions-cell">
-            {canManage && (
-              <button className="primary-button" type="button" onClick={() => openCardEditor()}>
-                <Plus size={16} /> Novo cartão
-              </button>
-            )}
-          </div>
-        </div>
+      <ListaDeFaturas
+        faturas={statements}
+        contas={cards}
+        filtroStatus={statementFilters.status}
+        filtroConta={statementFilters.creditCardId}
+        periodo={period}
+        podeEditar={canManage}
+        podeReabrir={canReopenStatement}
+        onFiltroStatus={(status) => setStatementFilters((atual) => ({ ...atual, status }))}
+        onFiltroConta={(creditCardId) => setStatementFilters((atual) => ({ ...atual, creditCardId }))}
+        onPeriodo={setPeriod}
+        onAbrir={(fatura, conferir) => void openStatement(fatura, conferir ? { mode: "review" } : undefined)}
+        onFechar={(fatura) => void closeStatement(fatura)}
+        onReabrir={(fatura) => void reopenStatement(fatura)}
+        onPdf={(fatura) => void pdf(fatura)}
+        onNova={openStatementEditor}
+      />
 
-        <div className="table-wrap operational-table cards-table">
-          <table>
-            <thead>
-              <tr>
-                <th>Status</th>
-                <th>Nome</th>
-                <th>Instituição</th>
-                <th>Final</th>
-                <th className="numeric-cell">Fech.</th>
-                <th className="numeric-cell">Venc.</th>
-                <th className="numeric-cell">Faturas</th>
-                <th>Ações</th>
-              </tr>
-            </thead>
-            <tbody>
-              {cards.map((card) => (
-                <tr key={card.id}>
-                  <td><DsStatusBadge tone={card.isActive ? "success" : "neutral"}>{card.isActive ? "Ativo" : "Inativo"}</DsStatusBadge></td>
-                  <td className="cards-main-cell" title={card.name}>
-                    <strong>{card.name}</strong>
-                    {card.notes ? <small title={card.notes}>{card.notes}</small> : <small>Sem observações operacionais.</small>}
-                  </td>
-                  <td title={card.bankName}>{card.bankName}</td>
-                  <td>{(card.finais ?? []).filter((f) => f.isActive).length > 0
-                    ? (card.finais ?? []).filter((f) => f.isActive).map((f) => `${f.label} ${f.last4Digits}`).join(" · ")
-                    : card.last4Digits}</td>
-                  <td className="numeric-cell">{card.closingDay}</td>
-                  <td className="numeric-cell">{card.dueDay}</td>
-                  <td className="numeric-cell">{card._count?.statements ?? 0}</td>
-                  <td>
-                    <div className="actions-cell">
-                      <button type="button" onClick={() => openCardEditor(card)}><Pencil size={14} /> Editar</button>
-                      <button type="button" onClick={() => toggleCard(card)}>{card.isActive ? "Inativar" : "Reativar"}</button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {cards.length === 0 && (
-                <tr>
-                  <td colSpan={8} className="empty-table-state">Nenhum cartão cadastrado.</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <CartoesCadastrados
+        cartoes={cards}
+        podeEditar={canManage}
+        onNovo={() => openCardEditor()}
+        onEditar={openCardEditor}
+        onAlternar={(card) => void toggleCard(card)}
+      />
+        </>
+      )}
 
       {cardEditorOpen && canManage && (
         <div className="modal-backdrop">
@@ -733,56 +577,53 @@ export function Cards({ user }: CardsProps) {
       )}
 
       {statementDetail && (
-        <div className="modal-backdrop">
-          <section className="panel modal-panel wide-modal">
-            <div className="section-heading fatura-detalhe-topo">
-              <div>
-                <p>Detalhe da fatura</p>
-                <h2>{statementDetail.creditCard.name}</h2>
+        <>
+          <button type="button" className="fatura-voltar" onClick={fecharDetalhe}>← Voltar às faturas</button>
+          <section className="panel fatura-pagina">
+            <header className="fatura-detalhe-topo">
+              <div className="fatura-detalhe-titulo">
+                <p>{statementDetail.creditCard.name} · {statementDetail.creditCard.bankName}</p>
+                <h2>
+                  Fatura {String(statementDetail.competenceMonth).padStart(2, "0")}/{statementDetail.competenceYear}
+                  <DsStatusBadge tone={CARDS_TONE_TO_DS[statementStatusTone(statementDetail.status)] ?? "neutral"}>{statementStatusLabel(statementDetail.status)}</DsStatusBadge>
+                </h2>
+                <small>
+                  Fecha em {formatDate(statementDetail.closingDate)} · vence em {formatDate(statementDetail.dueDate)}
+                  {vencimentoRelativo(statementDetail.dueDate, statementDetail.status).texto
+                    ? ` (${vencimentoRelativo(statementDetail.dueDate, statementDetail.status).texto})`
+                    : ""}
+                </small>
               </div>
-              <div className="actions-cell">
+              <div className="fatura-detalhe-total">
+                <span>Total da fatura</span>
+                <strong><Money value={statementDetail.totalAmount} /></strong>
+                <small>{statementDetail.items.length} lançamento(s)</small>
+              </div>
+              <div className="fatura-detalhe-acoes">
                 {canManage && statementDetail.status === "OPEN" && (
-                  <button className="primary-button" type="button" onClick={() => void mudarStatusDaFatura("CHECKED")}>
-                    <CheckCircle2 size={16} /> Marcar como conferida
-                  </button>
+                  <Button leadingIcon={<CheckCircle2 size={16} />} onClick={() => void mudarStatusDaFatura("CHECKED")}>
+                    Marcar como conferida
+                  </Button>
                 )}
                 {canManage && statementDetail.status === "CHECKED" && (
-                  <button className="secondary-button" type="button" onClick={() => void mudarStatusDaFatura("OPEN")}>
-                    Voltar para aberta
-                  </button>
+                  <Button variant="secondary" onClick={() => void mudarStatusDaFatura("OPEN")}>Voltar para aberta</Button>
                 )}
-                <button className="secondary-button" type="button" onClick={() => setStatementDetail(null)}>Fechar</button>
+                <Button variant="secondary" onClick={fecharDetalhe}>Fechar</Button>
               </div>
-            </div>
-            <div className="summary-columns">
-              <div><h3>Cartão</h3><p>{statementDetail.creditCard.bankName}</p><p>Final {statementDetail.creditCard.last4Digits}</p></div>
-              <div><h3>Competência</h3><p>{String(statementDetail.competenceMonth).padStart(2, "0")}/{statementDetail.competenceYear}</p><p>Status {statementStatusLabel(statementDetail.status)}</p></div>
-              <div><h3>Resumo</h3><p>Total <Money value={statementDetail.totalAmount} /></p><p>{statementDetail.items.length} item(ns)</p></div>
-            </div>
-            <div ref={itemsSectionRef} className="subsection">
-              <h3>Itens</h3>
+            </header>
+            <div ref={itemsSectionRef}>
               <FaturaPorCartao
                 detalhe={statementDetail}
                 podeEditar={canManage}
                 onClassificar={classificarLinhas}
                 onTotalDoExtrato={gravarTotalDoExtrato}
                 onConferirLinhas={conferirLinhas}
-                renderAcoes={(item) =>
-                  canManage && ["OPEN", "CHECKED"].includes(statementDetail.status) ? (
-                    <>
-                      <button type="button" onClick={() => toggleItemCheck(item)}>{item.checked ? "Desmarcar" : "Conferir"}</button>
-                      <button type="button" onClick={() => toggleItemDivergence(item)}>Div.</button>
-                      <button type="button" className="secondary-button realocar-btn" onClick={() => void openReallocate(item)}>
-                        <ArrowRightLeft size={13} /> Realocar
-                      </button>
-                      {!item.purchaseId && (
-                        <button type="button" className="secondary-button" onClick={() => void removeLooseItem(item)}>Excluir</button>
-                      )}
-                    </>
-                  ) : (
-                    <span>-</span>
-                  )
-                }
+                acoes={{
+                  onConferida: (item) => void toggleItemCheck(item),
+                  onDivergencia: (item) => void toggleItemDivergence(item),
+                  onRealocar: (item) => void openReallocate(item),
+                  onExcluir: (item) => void removeLooseItem(item)
+                }}
               />
             </div>
             {canManage && ["OPEN", "CHECKED"].includes(statementDetail.status) && (
@@ -792,7 +633,7 @@ export function Cards({ user }: CardsProps) {
               </p>
             )}
           </section>
-        </div>
+        </>
       )}
 
       {reallocateItem && statementDetail && (
