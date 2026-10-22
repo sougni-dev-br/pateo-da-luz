@@ -103,3 +103,22 @@
     padding: 4px 0 8px;
   }
 }
+
+.fatura-cartoes-modo { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+.fatura-conciliar {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--surface);
+}
+.fatura-conciliar header { display: flex; justify-content: space-between; align-items: center; }
+.fatura-conciliar h3, .fatura-conciliar h4 { margin: 0; }
+.fatura-conciliar textarea { width: 100%; font-family: inherit; }
+.fatura-conciliar-resultado { display: flex; flex-direction: column; gap: 10px; }
+.fatura-conciliar-resultado ul { margin: 4px 0; padding-left: 18px; font-size: 13px; }
+.fatura-conciliar-resumo { display: flex; flex-wrap: wrap; gap: 12px; font-weight: 600; }
+.fatura-conciliar-resumo .ok { color: var(--success); display: inline-flex; align-items: center; gap: 4px; }
+.fatura-conciliar-resumo .alerta { color: var(--warning); }

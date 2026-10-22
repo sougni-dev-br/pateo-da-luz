@@ -174,3 +174,50 @@ describe("conferir a fatura contra o extrato de cada final", () => {
     expect(r.status).toBe(200);
   });
 });
+
+describe("marcar várias linhas como conferidas (conciliação do extrato)", () => {
+  beforeEach(() => {
+    tx.creditCardStatementItem.updateMany.mockResolvedValue({ count: 2 });
+  });
+
+  test("marca as linhas da fatura como conferidas de uma vez", async () => {
+    const r = await request(app).post("/cards/statements/s1/items-check").send({ itemIds: ["i1", "i2"], checked: true });
+    expect(r.status).toBe(200);
+    expect(r.body.atualizados).toBe(2);
+    expect(tx.creditCardStatementItem.updateMany).toHaveBeenCalledWith({
+      where: { statementId: "s1", id: { in: ["i1", "i2"] } },
+      data: { checked: true },
+    });
+  });
+
+  test("fatura fechada não aceita conferência de linhas", async () => {
+    db.creditCardStatement.findUnique.mockResolvedValue(fatura("PAID"));
+    const r = await request(app).post("/cards/statements/s1/items-check").send({ itemIds: ["i1"], checked: true });
+    expect(r.status).toBe(409);
+  });
+
+  test("recusa linha de outra fatura", async () => {
+    db.creditCardStatementItem.findMany.mockResolvedValue([{ id: "i1" }]);
+    const r = await request(app).post("/cards/statements/s1/items-check").send({ itemIds: ["i1", "alheio"], checked: true });
+    expect(r.status).toBe(404);
+    expect(tx.creditCardStatementItem.updateMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("sugerir o cartão pelo fornecedor", () => {
+  test("devolve o cartão da última compra classificada do mesmo fornecedor", async () => {
+    db.creditCardStatementItem.findFirst = vi.fn(async () => ({ cardFinalId: "f2" }));
+    const r = await request(app).get("/cards/c1/final-sugerido").query({ supplierName: "Loja Exemplo" });
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ cardFinalId: "f2" });
+    const where = db.creditCardStatementItem.findFirst.mock.calls[0][0].where;
+    expect(where.statement).toEqual({ creditCardId: "c1" });
+    expect(where.supplierName.equals).toBe("Loja Exemplo");
+  });
+
+  test("sem fornecedor ou sem histórico não sugere nada", async () => {
+    db.creditCardStatementItem.findFirst = vi.fn(async () => null);
+    expect((await request(app).get("/cards/c1/final-sugerido")).body).toEqual({ cardFinalId: null });
+    expect((await request(app).get("/cards/c1/final-sugerido").query({ supplierName: "Nova" })).body).toEqual({ cardFinalId: null });
+  });
+});

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Check, Layers } from "lucide-react";
+import { Check, Layers, ListChecks } from "lucide-react";
 import type { CreditCardFinal, CreditCardStatementDetail } from "../../api/client";
 import { Money, StatusBadge } from "../../design-system";
 import { formatDate } from "../../utils/format";
@@ -11,6 +11,7 @@ import {
   transicaoDeSelecao,
   type FiltroDeCartao
 } from "./cartoes-vinculados";
+import { ConciliarExtrato } from "./ConciliarExtrato";
 import "./cards-finais.css";
 
 type Linha = CreditCardStatementDetail["items"][number];
@@ -22,6 +23,8 @@ type Props = {
   onClassificar: (itemIds: string[], cardFinalId: string | null) => Promise<void>;
   /** Grava o total que o extrato traz para um cartão ("" apaga). */
   onTotalDoExtrato: (cardFinalId: string, valor: string) => Promise<boolean>;
+  /** Marca várias linhas como conferidas (conciliação com o extrato colado). */
+  onConferirLinhas: (itemIds: string[]) => Promise<void>;
   renderAcoes: (linha: Linha) => React.ReactNode;
 };
 
@@ -30,7 +33,7 @@ function totalDeclarado(detalhe: CreditCardStatementDetail, cardFinalId: string)
   return achado ? Number(achado.statedAmount).toFixed(2).replace(".", ",") : "";
 }
 
-export function FaturaPorCartao({ detalhe, podeEditar, onClassificar, onTotalDoExtrato, renderAcoes }: Props) {
+export function FaturaPorCartao({ detalhe, podeEditar, onClassificar, onTotalDoExtrato, onConferirLinhas, renderAcoes }: Props) {
   const finais: CreditCardFinal[] = (detalhe.creditCard.finais ?? []).filter((final) => final.isActive);
   const temFinais = finais.length > 0;
   const [filtro, setFiltro] = useState<FiltroDeCartao>("todos");
@@ -39,12 +42,19 @@ export function FaturaPorCartao({ detalhe, podeEditar, onClassificar, onTotalDoE
   const [rascunhos, setRascunhos] = useState<Record<string, string>>({});
   const [busca, setBusca] = useState("");
   const [gravadoId, setGravadoId] = useState<string | null>(null);
+  const [compacto, setCompacto] = useState(false);
+  const [ordem, setOrdem] = useState<"data" | "valor">("data");
+  const [conciliando, setConciliando] = useState(false);
   const editavel = podeEditar && ["OPEN", "CHECKED"].includes(detalhe.status);
 
-  const linhasVisiveis = useMemo(
-    () => buscarLinhas(filtrarLinhas(detalhe.items, filtro), busca),
-    [detalhe.items, filtro, busca]
-  );
+  const linhasVisiveis = useMemo(() => {
+    const filtradas = buscarLinhas(filtrarLinhas(detalhe.items, filtro), busca);
+    return [...filtradas].sort((a, b) =>
+      ordem === "valor"
+        ? Number(b.value) - Number(a.value)
+        : String(a.itemDate ?? "").localeCompare(String(b.itemDate ?? ""))
+    );
+  }, [detalhe.items, filtro, busca, ordem]);
   const semCartao = detalhe.items.filter((linha) => !linha.cardFinalId).length;
   const subtotais = detalhe.subtotaisPorCartao ?? [];
   const divergentes = new Map((detalhe.divergenciasPorCartao ?? []).map((d) => [d.cardFinalId, d]));
@@ -154,6 +164,19 @@ export function FaturaPorCartao({ detalhe, podeEditar, onClassificar, onTotalDoE
           aria-label="Buscar lançamentos da fatura"
           onChange={(event) => setBusca(event.target.value)}
         />
+        <select value={ordem} aria-label="Ordenar lançamentos" onChange={(event) => setOrdem(event.target.value as "data" | "valor")}>
+          <option value="data">Ordem do extrato (data)</option>
+          <option value="valor">Maior valor primeiro</option>
+        </select>
+        <label className="fatura-cartoes-modo">
+          <input type="checkbox" checked={compacto} onChange={(event) => setCompacto(event.target.checked)} />
+          Modo extrato (só data, descrição, cartão e valor)
+        </label>
+        {editavel && (
+          <button type="button" className="secondary-button" onClick={() => setConciliando(!conciliando)}>
+            <ListChecks size={14} /> Conciliar com o extrato
+          </button>
+        )}
         {temFinais && editavel && semCartao > 0 && (
           <button
             type="button"
@@ -168,6 +191,16 @@ export function FaturaPorCartao({ detalhe, podeEditar, onClassificar, onTotalDoE
           </button>
         )}
       </div>
+
+      {conciliando && editavel && (
+        <ConciliarExtrato
+          itens={detalhe.items}
+          onConferir={async (ids) => {
+            await onConferirLinhas(ids);
+          }}
+          onFechar={() => setConciliando(false)}
+        />
+      )}
 
       {temFinais && editavel && selecionadas.size > 0 && (
         <div className="fatura-cartoes-lote" role="region" aria-label="Ação em lote">
@@ -205,14 +238,14 @@ export function FaturaPorCartao({ detalhe, podeEditar, onClassificar, onTotalDoE
                 </th>
               )}
               <th>Data</th>
-              <th>Parcela</th>
+              {!compacto && <th>Parcela</th>}
               <th>Descrição</th>
-              <th>Fornecedor</th>
+              {!compacto && <th>Fornecedor</th>}
               {temFinais && <th>Cartão</th>}
               <th className="numeric-cell">Valor</th>
               <th>Conf.</th>
-              <th>Div.</th>
-              <th>Ação</th>
+              {!compacto && <th>Div.</th>}
+              {!compacto && <th>Ação</th>}
             </tr>
           </thead>
           <tbody>
@@ -234,12 +267,12 @@ export function FaturaPorCartao({ detalhe, podeEditar, onClassificar, onTotalDoE
                     </td>
                   )}
                   <td className="nowrap-cell" data-label="Data">{formatDate(item.itemDate)}</td>
-                  <td className="numeric-cell nowrap-cell" data-label="Parcela">{parcela}</td>
+                  {!compacto && <td className="numeric-cell nowrap-cell" data-label="Parcela">{parcela}</td>}
                   <td title={item.description} data-label="Descrição">
                     {item.description}
                     {!item.purchaseId && <> <StatusBadge tone="warning">sem compra</StatusBadge></>}
                   </td>
-                  <td title={fornecedor} data-label="Fornecedor">{fornecedor}</td>
+                  {!compacto && <td title={fornecedor} data-label="Fornecedor">{fornecedor}</td>}
                   {temFinais && (
                     <td data-label="Cartão">
                       <div className="fatura-troca" role="group" aria-label={`Cartão de ${item.description}`}>
@@ -262,8 +295,8 @@ export function FaturaPorCartao({ detalhe, podeEditar, onClassificar, onTotalDoE
                   )}
                   <td className="numeric-cell nowrap-cell" data-label="Valor"><Money value={item.value} /></td>
                   <td data-label="Conferida">{item.checked ? "✓" : "–"}</td>
-                  <td data-label="Divergência">{item.hasDivergence ? "⚠" : "–"}</td>
-                  <td className="actions-cell" data-label="Ação">{renderAcoes(item)}</td>
+                  {!compacto && <td data-label="Divergência">{item.hasDivergence ? "⚠" : "–"}</td>}
+                  {!compacto && <td className="actions-cell" data-label="Ação">{renderAcoes(item)}</td>}
                 </tr>
               );
             })}

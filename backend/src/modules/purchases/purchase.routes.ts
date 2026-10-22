@@ -1922,7 +1922,8 @@ purchaseRouter.post("/", async (request, response) => {
           totalAmount,
           numberOfInstallments,
           categoryName: firstItem?.rawCategory ?? null,
-          notes: paymentMethodName ?? null
+          notes: paymentMethodName ?? null,
+          cardFinalId: request.body.creditCardFinalId ? String(request.body.creditCardFinalId) : null
         });
       } else if (isSmallExpense) {
         await syncCardStatementItemForPurchase(tx, {
@@ -2639,7 +2640,8 @@ purchaseRouter.put("/:id", async (request, response) => {
           totalAmount,
           numberOfInstallments,
           categoryName: firstItem?.rawCategory ?? null,
-          notes: paymentMethodName ?? null
+          notes: paymentMethodName ?? null,
+          cardFinalId: request.body.creditCardFinalId ? String(request.body.creditCardFinalId) : null
         });
       } else if (isSmallExpense) {
         await syncCardStatementItemForPurchase(tx, {

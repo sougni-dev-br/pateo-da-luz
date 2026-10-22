@@ -72,3 +72,25 @@ describe("recriar a linha da fatura mantém o cartão vinculado", () => {
     expect(finais).toEqual(["f1", "f1"]);
   });
 });
+
+describe("escolher o cartão já no lançamento da compra", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("o final escolhido no lançamento vale mesmo sem linha anterior", async () => {
+    const tx = fakeTx([], true);
+    await syncCardStatementItemForPurchase(tx as never, { ...entrada, cardFinalId: "f1" });
+    expect(tx.creditCardStatementItem.create.mock.calls[0][0].data.cardFinalId).toBe("f1");
+  });
+
+  it("o escolhido vence o da linha anterior", async () => {
+    const tx = fakeTx([{ cardFinalId: "f0" }], true);
+    await syncCardStatementItemForPurchase(tx as never, { ...entrada, cardFinalId: "f1" });
+    expect(tx.creditCardFinal.findFirst.mock.calls[0][0].where.id).toBe("f1");
+  });
+
+  it("escolhido que não pertence ao cartão é ignorado (fica 'não definido')", async () => {
+    const tx = fakeTx([], false);
+    await syncCardStatementItemForPurchase(tx as never, { ...entrada, cardFinalId: "f9" });
+    expect(tx.creditCardStatementItem.create.mock.calls[0][0].data.cardFinalId).toBeNull();
+  });
+});

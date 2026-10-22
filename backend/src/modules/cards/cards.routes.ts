@@ -219,6 +219,30 @@ cardsRouter.post("/", async (request, response) => {
   response.status(request.body.id ? 200 : 201).json(card);
 });
 
+// Sugestao para o lancamento da compra: o cartao (fisico/virtual) que a ultima compra
+// classificada nesse fornecedor usou. So sugere; quem decide e o usuario.
+cardsRouter.get("/:id/final-sugerido", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "VISUALIZACAO"]);
+  if (!user) return;
+
+  const supplierName = String(request.query.supplierName ?? "").trim();
+  if (!supplierName) {
+    response.json({ cardFinalId: null });
+    return;
+  }
+  const ultimo = await prisma.creditCardStatementItem.findFirst({
+    where: {
+      cardFinalId: { not: null },
+      supplierName: { equals: supplierName, mode: "insensitive" },
+      statement: { creditCardId: request.params.id },
+      cardFinal: { isActive: true }
+    },
+    orderBy: [{ itemDate: "desc" }, { createdAt: "desc" }],
+    select: { cardFinalId: true }
+  });
+  response.json({ cardFinalId: ultimo?.cardFinalId ?? null });
+});
+
 const KINDS_DE_FINAL = ["PHYSICAL", "VIRTUAL"];
 
 cardsRouter.post("/:id/finais", async (request, response) => {
@@ -690,6 +714,58 @@ cardsRouter.post("/statements/:id/items-final", async (request, response) => {
     userAgent: String(request.headers["user-agent"] ?? "")
   });
   response.json({ atualizados, reabertaPorDivergencia });
+});
+
+// Conferencia em lote (conciliacao com o extrato colado): so marca o "conferido"
+// das linhas; a divergencia continua sendo decidida linha a linha.
+cardsRouter.post("/statements/:id/items-check", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  if (!user) return;
+
+  const itemIds: string[] = Array.isArray(request.body.itemIds)
+    ? [...new Set<string>(request.body.itemIds.map((id: unknown) => String(id)).filter(Boolean))]
+    : [];
+  if (itemIds.length === 0) {
+    response.status(400).json({ message: "Selecione ao menos uma linha da fatura." });
+    return;
+  }
+  const statement = await prisma.creditCardStatement.findUnique({ where: { id: request.params.id } });
+  if (!statement) {
+    response.status(404).json({ message: "Fatura nao encontrada." });
+    return;
+  }
+  if (!["OPEN", "CHECKED"].includes(statement.status)) {
+    response.status(409).json({ message: "Fatura fechada, paga ou cancelada nao pode ser conferida. Reabra a fatura antes." });
+    return;
+  }
+  const existentes = await prisma.creditCardStatementItem.findMany({
+    where: { statementId: statement.id, id: { in: itemIds } },
+    select: { id: true }
+  });
+  if (existentes.length !== itemIds.length) {
+    response.status(404).json({ message: "Alguma linha selecionada nao pertence a esta fatura." });
+    return;
+  }
+
+  const checked = Boolean(request.body.checked);
+  const atualizados = await prisma.$transaction(async (tx) => {
+    const resultado = await tx.creditCardStatementItem.updateMany({
+      where: { statementId: statement.id, id: { in: itemIds } },
+      data: { checked }
+    });
+    return resultado.count;
+  });
+
+  await auditLog({
+    userId: user.id,
+    action: "CHECK_CREDIT_CARD_STATEMENT_ITEMS_BATCH",
+    entity: "CreditCardStatement",
+    entityId: statement.id,
+    newValue: { itemIds, checked },
+    ipAddress: requestIp(request),
+    userAgent: String(request.headers["user-agent"] ?? "")
+  });
+  response.json({ atualizados });
 });
 
 cardsRouter.put("/statements/:id/final-totals/:finalId", async (request, response) => {

@@ -2958,6 +2958,18 @@ export function setStatementItemsFinal(statementId: string, itemIds: string[], c
   });
 }
 
+export function getCardFinalSugerido(cardId: string, supplierName: string) {
+  return request<{ cardFinalId: string | null }>(`/cards/${cardId}/final-sugerido${toQueryString({ supplierName })}`);
+}
+
+export function setStatementItemsChecked(statementId: string, itemIds: string[], checked: boolean) {
+  return request<{ atualizados: number }>(`/cards/statements/${statementId}/items-check`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ itemIds, checked })
+  });
+}
+
 export function setStatementFinalTotal(statementId: string, cardFinalId: string, statedAmount: string | null) {
   return request<{ ok: boolean; statedAmount: number | null }>(`/cards/statements/${statementId}/final-totals/${cardFinalId}`, {
     method: "PUT",

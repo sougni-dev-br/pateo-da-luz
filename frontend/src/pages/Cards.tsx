@@ -20,6 +20,7 @@ import {
   setCardStatementStatus,
   setCardStatus,
   setStatementFinalTotal,
+  setStatementItemsChecked,
   setStatementItemsFinal
 } from "../api/client";
 import { CartoesVinculadosEditor } from "./cards/CartoesVinculadosEditor";
@@ -286,6 +287,17 @@ export function Cards({ user }: CardsProps) {
       await load();
     } catch (error) {
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao trocar o cartão da linha." });
+    }
+  }
+
+  async function conferirLinhas(itemIds: string[]) {
+    if (!statementDetail) return;
+    try {
+      await setStatementItemsChecked(statementDetail.id, itemIds, true);
+      setStatementDetail(await getCardStatement(statementDetail.id));
+      setNotice({ tone: "success", message: `${itemIds.length} lançamento(s) marcados como conferidos.` });
+    } catch (error) {
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao conferir as linhas." });
     }
   }
 
@@ -754,6 +766,7 @@ export function Cards({ user }: CardsProps) {
                 podeEditar={canManage}
                 onClassificar={classificarLinhas}
                 onTotalDoExtrato={gravarTotalDoExtrato}
+                onConferirLinhas={conferirLinhas}
                 renderAcoes={(item) =>
                   canManage && ["OPEN", "CHECKED"].includes(statementDetail.status) ? (
                     <>
