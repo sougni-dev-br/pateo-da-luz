@@ -50,3 +50,12 @@ describe("resumoDasFaturas", () => {
     expect(resumoDasFaturas([fatura({ status: "PAID" })], hoje).proximoVencimento).toBeNull();
   });
 });
+
+describe("resumoDasFaturas: sem cartão só conta o que ainda pode ser classificado", () => {
+  const comFinais = { name: "A", finais: [{ isActive: true }] };
+  it("ignora fatura fechada, paga ou cancelada", () => {
+    const f = (status: string) => ({ status, totalAmount: "1", dueDate: "2026-09-25T00:00:00.000Z", itensSemCartao: 2, creditCard: comFinais });
+    const r = resumoDasFaturas([f("OPEN"), f("CHECKED"), f("CLOSED"), f("PAID"), f("CANCELLED")], hoje);
+    expect(r.semCartao).toBe(4);
+  });
+});

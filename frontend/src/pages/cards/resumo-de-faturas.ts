@@ -59,6 +59,7 @@ export function resumoDasFaturas(faturas: FaturaParaResumo[], hoje: Date = new D
   };
 
   const semCartao = faturas
+    .filter((f) => f.status === "OPEN" || f.status === "CHECKED")
     .filter((f) => (f.creditCard?.finais ?? []).some((final) => final.isActive))
     .reduce((total, f) => total + (f.itensSemCartao ?? 0), 0);
 

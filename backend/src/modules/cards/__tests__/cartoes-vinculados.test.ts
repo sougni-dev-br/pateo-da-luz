@@ -7,11 +7,13 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 
 const tx = {
   creditCardStatementItem: { updateMany: vi.fn() },
+  creditCardStatementFinalTotal: { upsert: vi.fn() },
+  creditCardStatement: { findUnique: vi.fn(async () => null), update: vi.fn() },
 };
 vi.mock("../../../config/database.js", () => ({
   prisma: {
     creditCard: { findUnique: vi.fn() },
-    creditCardFinal: { findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
+    creditCardFinal: { findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), count: vi.fn(async () => 0) },
     creditCardStatement: { findUnique: vi.fn(), update: vi.fn() },
     creditCardStatementItem: { findMany: vi.fn() },
     creditCardStatementFinalTotal: { upsert: vi.fn(), deleteMany: vi.fn() },
@@ -125,7 +127,7 @@ describe("total do extrato por final", () => {
   test("grava o total que o extrato traz para o final", async () => {
     const r = await request(app).put("/cards/statements/s1/final-totals/f1").send({ statedAmount: "1.234,56" });
     expect(r.status).toBe(200);
-    const args = db.creditCardStatementFinalTotal.upsert.mock.calls[0][0];
+    const args = tx.creditCardStatementFinalTotal.upsert.mock.calls[0][0];
     expect(args.where).toEqual({ statementId_cardFinalId: { statementId: "s1", cardFinalId: "f1" } });
     expect(Number(args.create.statedAmount)).toBe(1234.56);
   });

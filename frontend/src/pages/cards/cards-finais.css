@@ -187,3 +187,14 @@
   .fatura-conciliar-botao { flex: 1 1 100%; justify-content: center; }
   .fatura-barra select { flex: 1 1 100%; }
 }
+
+/* ---------- acessibilidade e toque (correções da auditoria) ---------- */
+.fatura-voltar { display: inline-flex; align-items: center; min-height: 40px; padding: 0 4px; }
+.fatura-icone { color: var(--muted); }
+.fatura-icone.ligado { color: var(--success); }
+.fatura-icone.alerta.ligado { color: var(--danger); }
+.fatura-lista-check { width: 20px; height: 20px; accent-color: var(--ink, #1a1a1a); cursor: pointer; }
+@media (max-width: 720px) {
+  .fatura-lista-check { width: 24px; height: 24px; }
+  .fatura-lista-desc strong, .fatura-lista-desc small { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+}

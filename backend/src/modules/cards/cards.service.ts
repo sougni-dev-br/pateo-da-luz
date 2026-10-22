@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 import { normalizeText } from "../../shared/utils/normalize-text.js";
 import { compraLevaDespesaAoDre } from "../purchases/purchase-aggregators.js";
+import { divergenciasDeExtrato, subtotaisPorFinal } from "./finais-da-fatura.js";
 
 export type CardRow = {
   id: string;
@@ -100,29 +101,69 @@ export async function findOrCreateStatementForPurchase(tx: Prisma.TransactionCli
   });
 }
 
+type LinhaAnterior = { statementId: string; cardFinalId: string | null; installment: number | null };
+
 // Editar a compra apaga e recria a linha dela na fatura. O cartao vinculado
-// (fisico/virtual) ja classificado precisa sobreviver: le o da linha anterior
-// antes do deleteMany e so o reaproveita se ainda for ativo e do mesmo cartao.
-async function finalDasLinhasAnteriores(
-  tx: Prisma.TransactionClient,
-  purchaseId: string,
-  cardId: string | null,
-  escolhido?: string | null
-) {
-  // O cartao escolhido no lancamento vale mais que o da linha anterior.
-  const anteriores = escolhido
-    ? []
-    : await tx.creditCardStatementItem.findMany({
-        where: { purchaseId, cardFinalId: { not: null } },
-        select: { cardFinalId: true }
-      });
-  const cardFinalId = escolhido || (anteriores[0]?.cardFinalId ?? null);
-  if (!cardFinalId || !cardId) return null;
+// (fisico/virtual) ja classificado precisa sobreviver: a leitura da linha anterior
+// acontece ANTES de qualquer apagamento e o final so e reaproveitado se ainda for
+// ativo e do mesmo cartao.
+async function lerLinhasAnteriores(tx: Prisma.TransactionClient, purchaseId: string): Promise<LinhaAnterior[]> {
+  const linhas = await tx.creditCardStatementItem.findMany({
+    where: { purchaseId },
+    select: { statementId: true, cardFinalId: true, installment: true },
+    orderBy: [{ installment: "asc" }, { createdAt: "asc" }]
+  });
+  return linhas as LinhaAnterior[];
+}
+
+async function finalValido(tx: Prisma.TransactionClient, candidato: string | null | undefined, cardId: string | null) {
+  if (!candidato || !cardId) return null;
   const valido = await tx.creditCardFinal.findFirst({
-    where: { id: cardFinalId, creditCardId: cardId, isActive: true },
+    where: { id: candidato, creditCardId: cardId, isActive: true },
     select: { id: true }
   });
-  return valido ? cardFinalId : null;
+  return valido ? candidato : null;
+}
+
+function primeiroFinal(anteriores: LinhaAnterior[]): string | null {
+  return anteriores.find((linha) => linha.cardFinalId)?.cardFinalId ?? null;
+}
+
+/**
+ * Uma fatura CONFERIDA com total do extrato informado so vale enquanto os subtotais por
+ * cartao batem com esse total. Qualquer caminho que mude as linhas (editar compra, realocar,
+ * reclassificar, mexer no total do extrato) chama isto: se deixou de bater, volta para Aberta.
+ */
+export async function reabrirSeDivergir(tx: Prisma.TransactionClient, statementId: string): Promise<boolean> {
+  const fatura = await tx.creditCardStatement.findUnique({
+    where: { id: statementId },
+    include: {
+      creditCard: { include: { finais: true } },
+      finalTotals: true,
+      items: { select: { cardFinalId: true, value: true } }
+    }
+  });
+  if (!fatura || fatura.status !== "CHECKED" || fatura.finalTotals.length === 0) return false;
+  const divergentes = divergenciasDeExtrato(
+    subtotaisPorFinal(fatura.items.map((item) => ({ cardFinalId: item.cardFinalId, value: item.value })), fatura.creditCard.finais),
+    fatura.finalTotals
+  );
+  if (divergentes.length === 0) return false;
+  await tx.creditCardStatement.update({ where: { id: statementId }, data: { status: "OPEN" } });
+  return true;
+}
+
+async function recalcularEReabrir(tx: Prisma.TransactionClient, statementIds: Iterable<string>) {
+  for (const statementId of new Set(statementIds)) {
+    const [sumRow] = await tx.$queryRaw<Array<{ total: Prisma.Decimal | number | string | null }>>`
+      SELECT COALESCE(SUM("value"), 0) AS "total" FROM "CreditCardStatementItem" WHERE "statementId" = ${statementId}
+    `;
+    await tx.creditCardStatement.update({
+      where: { id: statementId },
+      data: { totalAmount: new Prisma.Decimal(Number(sumRow?.total ?? 0)) }
+    });
+    await reabrirSeDivergir(tx, statementId);
+  }
 }
 
 export async function syncCardStatementItemForPurchase(tx: Prisma.TransactionClient, input: {
@@ -143,12 +184,15 @@ export async function syncCardStatementItemForPurchase(tx: Prisma.TransactionCli
   totalInstallments?: number | null;
   installment?: number | null;
 }) {
-  const cardFinalId = await finalDasLinhasAnteriores(tx, input.purchaseId, input.cardId, input.cardFinalId);
+  const anteriores = await lerLinhasAnteriores(tx, input.purchaseId);
+  const cardFinalId = await finalValido(tx, input.cardFinalId || primeiroFinal(anteriores), input.cardId);
   const removed = await tx.creditCardStatementItem.deleteMany({
     where: { purchaseId: input.purchaseId }
   });
+  const afetadas = new Set(anteriores.map((linha) => linha.statementId).filter(Boolean));
 
   if (!input.cardId || input.value <= 0) {
+    await recalcularEReabrir(tx, afetadas);
     return { removed: removed.count, itemId: null, statementId: null };
   }
 
@@ -159,6 +203,7 @@ export async function syncCardStatementItemForPurchase(tx: Prisma.TransactionCli
     LIMIT 1
   `;
   if (!card) {
+    await recalcularEReabrir(tx, afetadas);
     return { removed: removed.count, itemId: null, statementId: null };
   }
 
@@ -190,17 +235,8 @@ export async function syncCardStatementItemForPurchase(tx: Prisma.TransactionCli
     }
   });
 
-  const [sumRow] = await tx.$queryRaw<Array<{ total: Prisma.Decimal | number | string | null }>>`
-    SELECT COALESCE(SUM("value"), 0) AS "total"
-    FROM "CreditCardStatementItem"
-    WHERE "statementId" = ${statement.id}
-  `;
-  await tx.creditCardStatement.update({
-    where: { id: statement.id },
-    data: {
-      totalAmount: new Prisma.Decimal(Number(sumRow?.total ?? 0))
-    }
-  });
+  afetadas.add(statement.id);
+  await recalcularEReabrir(tx, afetadas);
 
   return { removed: removed.count, itemId: created.id, statementId: statement.id };
 }
@@ -270,13 +306,30 @@ export async function syncCardStatementItemsForPurchase(tx: Prisma.TransactionCl
   notes?: string | null;
   cardFinalId?: string | null;
 }) {
-  const cardFinalId = await finalDasLinhasAnteriores(tx, input.purchaseId, input.cardId, input.cardFinalId);
+  const anteriores = await lerLinhasAnteriores(tx, input.purchaseId);
+  const finalPadrao = await finalValido(tx, input.cardFinalId || primeiroFinal(anteriores), input.cardId);
+  // Cada parcela volta para o cartao em que estava (o usuario pode ter separado as parcelas).
+  const finalPorParcela = new Map<number, string>();
+  if (!input.cardFinalId) {
+    for (const linha of anteriores) {
+      if (linha.installment != null && linha.cardFinalId && (await finalValido(tx, linha.cardFinalId, input.cardId))) {
+        finalPorParcela.set(linha.installment, linha.cardFinalId);
+      }
+    }
+  }
   await tx.creditCardStatementItem.deleteMany({ where: { purchaseId: input.purchaseId } });
+  const anterioresIds = anteriores.map((linha) => linha.statementId).filter(Boolean);
 
-  if (input.totalAmount <= 0) return [];
+  if (input.totalAmount <= 0) {
+    await recalcularEReabrir(tx, anterioresIds);
+    return [];
+  }
 
   const card = await tx.creditCard.findUnique({ where: { id: input.cardId } });
-  if (!card) return [];
+  if (!card) {
+    await recalcularEReabrir(tx, anterioresIds);
+    return [];
+  }
 
   const n = Math.max(1, Math.floor(input.numberOfInstallments));
   const totalCents = Math.round(input.totalAmount * 100);
@@ -322,7 +375,7 @@ export async function syncCardStatementItemsForPurchase(tx: Prisma.TransactionCl
         value: new Prisma.Decimal(value),
         installment: n > 1 ? i + 1 : null,
         totalInstallments: n > 1 ? n : null,
-        cardFinalId,
+        cardFinalId: finalPorParcela.get(i + 1) ?? finalPadrao,
         categoryName: input.categoryName ?? null,
         notes: input.notes ?? null,
         checked: false,
@@ -334,15 +387,7 @@ export async function syncCardStatementItemsForPurchase(tx: Prisma.TransactionCl
     results.push({ statementId: statement.id, installment: i + 1, value });
   }
 
-  for (const statementId of affectedStatementIds) {
-    const [sumRow] = await tx.$queryRaw<Array<{ total: Prisma.Decimal | number | string | null }>>`
-      SELECT COALESCE(SUM("value"), 0) AS "total" FROM "CreditCardStatementItem" WHERE "statementId" = ${statementId}
-    `;
-    await tx.creditCardStatement.update({
-      where: { id: statementId },
-      data: { totalAmount: new Prisma.Decimal(Number(sumRow?.total ?? 0)) }
-    });
-  }
+  await recalcularEReabrir(tx, [...affectedStatementIds, ...anterioresIds]);
 
   return results;
 }
@@ -433,24 +478,17 @@ export async function createCardStatementPurchase(tx: Prisma.TransactionClient, 
   return purchase;
 }
 
-export async function removeCardStatementItemsForPurchase(purchaseId: string, client: Prisma.TransactionClient = prisma as Prisma.TransactionClient) {
-  const affectedStatements = await client.creditCardStatementItem.findMany({
-    where: { purchaseId },
-    select: { statementId: true }
-  });
+/**
+ * Apaga as linhas da compra nas faturas, recalcula os totais e devolve o cartao
+ * (fisico/virtual) que a primeira linha tinha: quem recria a linha em seguida (editar a
+ * compra) precisa dele, porque depois daqui ele nao existe mais.
+ */
+export async function removeCardStatementItemsForPurchase(
+  purchaseId: string,
+  client: Prisma.TransactionClient = prisma as Prisma.TransactionClient
+): Promise<{ cardFinalId: string | null }> {
+  const anteriores = await lerLinhasAnteriores(client, purchaseId);
   await client.creditCardStatementItem.deleteMany({ where: { purchaseId } });
-  const statementIds = [...new Set(affectedStatements.map((item) => item.statementId))];
-  for (const statementId of statementIds) {
-    const [sumRow] = await client.$queryRaw<Array<{ total: Prisma.Decimal | number | string | null }>>`
-      SELECT COALESCE(SUM("value"), 0) AS "total"
-      FROM "CreditCardStatementItem"
-      WHERE "statementId" = ${statementId}
-    `;
-    await client.creditCardStatement.update({
-      where: { id: statementId },
-      data: {
-        totalAmount: new Prisma.Decimal(Number(sumRow?.total ?? 0))
-      }
-    });
-  }
+  await recalcularEReabrir(client, anteriores.map((linha) => linha.statementId).filter(Boolean));
+  return { cardFinalId: primeiroFinal(anteriores) };
 }

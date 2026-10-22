@@ -97,3 +97,7 @@
   min-height: 36px; border-radius: 999px; padding: 0 14px; border: 1px solid var(--border);
   background: var(--surface); color: var(--text); font-size: 14px;
 }
+
+@media (max-width: 900px) {
+  .cartoes-chip { min-height: 40px; }
+}

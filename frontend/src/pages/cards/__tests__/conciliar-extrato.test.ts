@@ -70,3 +70,17 @@ describe("conciliarExtrato", () => {
     expect(r.pares).toHaveLength(1);
   });
 });
+
+describe("lerExtrato: hífen e sinais", () => {
+  it("hífen separando descrição e valor não vira negativo", () => {
+    expect(lerExtrato("21/08 LOJA X - 320,00")[0].valor).toBe(320);
+    expect(lerExtrato("LOJA X – 320,00")[0].valor).toBe(320);
+  });
+  it("estorno com sinal colado ao número continua negativo", () => {
+    expect(lerExtrato("22/08 ESTORNO LOJA -50,00")[0].valor).toBe(-50);
+    expect(lerExtrato("22/08 ESTORNO LOJA R$ -50,00")[0].valor).toBe(-50);
+  });
+  it("traço de data não atrapalha", () => {
+    expect(lerExtrato("21-08 LOJA 10,00")[0].valor).toBe(10);
+  });
+});
