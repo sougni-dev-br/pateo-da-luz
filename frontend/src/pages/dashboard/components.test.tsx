@@ -4,7 +4,7 @@ import { describe, expect, test, vi } from "vitest";
 import { SessionContext, type SessionContextValue } from "../../context/SessionContext";
 import { HideValuesProvider } from "../../design-system";
 import { AttentionList, type AttentionItem } from "./AttentionList";
-import { FullResultPanel, ResultPanel, RevenueHero } from "./Panels";
+import { FullResultPanel, ResultPanel, RevenueHero, TicketPanel } from "./Panels";
 import { PurchasesPanel } from "./Purchases";
 
 const sessao = (hidden: boolean) =>
@@ -56,6 +56,22 @@ describe("ResultPanel", () => {
   test("ocultar valores esconde o resultado", () => {
     const { container } = render(<ResultPanel net={1000} purchases={300} smallExpenses={0} result={700} margin={70} />, true);
     expect(container.textContent).not.toMatch(VALOR_VISIVEL);
+  });
+});
+
+describe("TicketPanel", () => {
+  test("avisa que o ticket é sobre o líquido do salão", () => {
+    render(<TicketPanel perTable={180} perPerson={90} tables={700} people={1400} deltaTable={null} deltaPerson={null} />);
+    expect(screen.getByText(/faturamento líquido do salão/i)).toBeInTheDocument();
+    expect(screen.getByText(/delivery fica de fora/i)).toBeInTheDocument();
+  });
+});
+
+describe("ResultPanel — legenda", () => {
+  test("não diz que ocupação, folha e imposto ficam de fora das compras", () => {
+    render(<ResultPanel net={1000} purchases={300} smallExpenses={0} result={700} margin={70} />);
+    expect(screen.getByText(/inclusive notas de ocupação, folha e imposto lançadas como compra/i)).toBeInTheDocument();
+    expect(screen.queryByText(/ficam de fora/i)).toBeNull();
   });
 });
 

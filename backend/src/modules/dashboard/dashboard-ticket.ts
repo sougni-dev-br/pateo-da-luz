@@ -9,11 +9,12 @@
  *     (a conta chegava a dar menos de uma pessoa por mesa).
  * A variação contra o mês anterior saía muito positiva com o ticket do salão estável.
  *
- * Ticket de mesa e de pessoa é conceito de salão: as duas contas usam só o canal Salão.
+ * Ticket de mesa e de pessoa é conceito de salão: as duas contas usam só o canal Salão, sobre o
+ * faturamento LÍQUIDO (sem serviço e deduções) — mesma base do ticket por canal da tela Faturamento.
  */
 
 export type BaseTicketSalao = {
-  grossAmount: number;
+  netAmount: number;
   tickets: number;
   peopleServed: number;
 };
@@ -27,8 +28,8 @@ const razao = (valor: number, divisor: number): number => (divisor > 0 ? valor /
 
 export function calcularTicketsSalao(base: BaseTicketSalao): TicketsSalao {
   return {
-    perTable: razao(base.grossAmount, base.tickets),
-    perPerson: razao(base.grossAmount, base.peopleServed),
+    perTable: razao(base.netAmount, base.tickets),
+    perPerson: razao(base.netAmount, base.peopleServed),
   };
 }
 

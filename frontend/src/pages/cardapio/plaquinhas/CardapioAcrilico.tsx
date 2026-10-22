@@ -278,7 +278,7 @@ export function CardapioAcrilico({ ativa, catalogo, cardapios, podeCriar, podeEd
     if (!ativa || confirmacao || cadastro) return undefined;
     const tecla = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
-      const k = e.key.toLowerCase();
+      const k = e.key?.toLowerCase() ?? "";
       if (k === "p" && secoes.length) { e.preventDefault(); if (!e.repeat) imprimir(); }
       if (k === "s" && podeSalvar && secoes.length) { e.preventDefault(); void salvarRef.current(false); }
     };

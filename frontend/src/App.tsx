@@ -352,7 +352,7 @@ export function App() {
   // Ignorado enquanto o foco esta num campo de texto, onde Ctrl+B pode ser negrito.
   useEffect(() => {
     function aoTeclar(evento: KeyboardEvent) {
-      if (evento.key.toLowerCase() !== "b" || !(evento.ctrlKey || evento.metaKey) || evento.altKey) return;
+      if (evento.key?.toLowerCase() !== "b" || !(evento.ctrlKey || evento.metaKey) || evento.altKey) return;
       const alvo = evento.target as HTMLElement | null;
       const editando = alvo?.isContentEditable
         || ["INPUT", "TEXTAREA", "SELECT"].includes(alvo?.tagName ?? "");

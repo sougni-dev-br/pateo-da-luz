@@ -44,6 +44,7 @@ export async function getRevenueCoverage(params: { year: number; month: number }
     SELECT to_char(MAX("date" AT TIME ZONE 'UTC'), 'YYYY-MM-DD') AS "date", "channel", "sourcePlatform"
     FROM "RevenueEntry"
     WHERE "status" <> 'CANCELLED'
+      AND "date" <= ${new Date(`${today}T23:59:59Z`)}
     GROUP BY "channel", "sourcePlatform"
   `;
 

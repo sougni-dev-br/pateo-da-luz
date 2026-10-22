@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import express, { Router } from "express";
@@ -140,12 +141,23 @@ describe("normalizarBarrasDuplas protege o portao global", () => {
   });
 });
 
-describe("prova de que o teste nao e vazio: SEM o normalizador a brecha existe", () => {
-  test("/integrations/agile//analise/... passa pelo portao e chega ao handler", async () => {
+// Express 4.22 passou a tratar "//" no roteamento: o portao ja barra sem o normalizador. Antes
+// disso (4.21 e anteriores) a brecha existia. O normalizador continua valendo nas duas versoes
+// (defesa em profundidade, testada acima); este teste so garante que a premissa documentada
+// acima bate com a versao instalada, e avisa se alguem trocar a versao do Express.
+const versaoDoExpress = (createRequire(import.meta.url)("express/package.json") as { version: string }).version;
+const [maiorExpress = 0, menorExpress = 0] = versaoDoExpress.split(".").map(Number);
+const expressTrataBarraDupla = maiorExpress > 4 || (maiorExpress === 4 && menorExpress >= 22);
+
+describe("premissa do Express sobre // (sem o normalizador)", () => {
+  test(`/integrations/agile//analise/... com Express ${versaoDoExpress}: ${expressTrataBarraDupla ? "o portao ja barra" : "passa pelo portao e chega ao handler"}`, async () => {
     const r = await request(montarApp({ comNormalizador: false })).get("/integrations/agile//analise/cancelamentos");
-    // Se o Express um dia passar a tratar "//" de outro jeito, este teste avisa que a premissa mudou.
-    expect(r.status).toBe(200);
-    expect(r.body.por).toBe("handler");
+    if (expressTrataBarraDupla) {
+      expect(r.status).toBe(401);
+    } else {
+      expect(r.status).toBe(200);
+      expect(r.body.por).toBe("handler");
+    }
   });
 
   test("o caminho normal e barrado pelo portao mesmo sem o normalizador (o portao funciona)", async () => {

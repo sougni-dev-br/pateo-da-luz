@@ -150,7 +150,7 @@ export function SidebarNav({ groups, activeId, favorites, onNavigate, onToggleFa
   useEffect(() => {
     if (collapsed) return;
     function handleKeyDown(event: globalThis.KeyboardEvent) {
-      if (event.key.toLowerCase() !== "k" || !(event.ctrlKey || event.metaKey) || event.altKey) return;
+      if (event.key?.toLowerCase() !== "k" || !(event.ctrlKey || event.metaKey) || event.altKey) return;
       event.preventDefault();
       searchRef.current?.focus();
       searchRef.current?.select();

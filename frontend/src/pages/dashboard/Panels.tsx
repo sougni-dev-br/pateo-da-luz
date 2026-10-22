@@ -105,6 +105,7 @@ export function TicketPanel({ perTable, perPerson, tables, people, deltaTable, d
           <DeltaChip delta={deltaPerson} />
         </div>
       </div>
+      <p className="dash-footnote">Sobre o faturamento líquido do salão (sem serviço e deduções); delivery fica de fora.</p>
     </section>
   );
 }
@@ -133,7 +134,7 @@ export function ResultPanel({ net, purchases, smallExpenses, result, margin }: R
           <dd><Money value={result} /></dd>
         </div>
       </dl>
-      <p className="dash-footnote">Conta de caixa do mês: compras lançadas, não o CMV. Folha, impostos e ocupação ficam de fora.</p>
+      <p className="dash-footnote">Conta de caixa do mês: todas as compras lançadas, inclusive notas de ocupação, folha e imposto lançadas como compra. Não é o CMV.</p>
     </section>
   );
 }
