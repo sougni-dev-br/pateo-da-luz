@@ -153,7 +153,7 @@ export async function reabrirSeDivergir(tx: Prisma.TransactionClient, statementI
   return true;
 }
 
-async function recalcularEReabrir(tx: Prisma.TransactionClient, statementIds: Iterable<string>) {
+export async function recalcularEReabrir(tx: Prisma.TransactionClient, statementIds: Iterable<string>) {
   for (const statementId of new Set(statementIds)) {
     const [sumRow] = await tx.$queryRaw<Array<{ total: Prisma.Decimal | number | string | null }>>`
       SELECT COALESCE(SUM("value"), 0) AS "total" FROM "CreditCardStatementItem" WHERE "statementId" = ${statementId}
@@ -239,6 +239,22 @@ export async function syncCardStatementItemForPurchase(tx: Prisma.TransactionCli
   await recalcularEReabrir(tx, afetadas);
 
   return { removed: removed.count, itemId: created.id, statementId: statement.id };
+}
+
+/** Competência (ano/mês) daqui a `meses` meses; negativo volta no tempo. */
+export function competenciaDepois(ano: number, mes: number, meses: number): { ano: number; mes: number } {
+  const total = ano * 12 + (mes - 1) + meses;
+  return { ano: Math.floor(total / 12), mes: (total % 12 + 12) % 12 + 1 };
+}
+
+/** Datas de fechamento e vencimento de uma competência, pelo cadastro do cartão (mesma regra da criação automática). */
+export function periodoDaCompetencia(card: { closingDay: number; dueDay: number }, ano: number, mes: number) {
+  const ultimoDoMes = new Date(ano, mes, 0).getDate();
+  const closingDate = new Date(ano, mes - 1, Math.min(card.closingDay, ultimoDoMes));
+  const proximo = new Date(ano, mes, 1);
+  const ultimoDoVencimento = new Date(proximo.getFullYear(), proximo.getMonth() + 1, 0).getDate();
+  const dueDate = new Date(proximo.getFullYear(), proximo.getMonth(), Math.min(card.dueDay, ultimoDoVencimento));
+  return { closingDate, dueDate };
 }
 
 export function getCardStatementPeriodForInstallment(card: CardRow, purchaseDate: Date, installmentIndex: number) {

@@ -3114,6 +3114,14 @@ export function reallocateCardStatementItem(itemId: string, payload: { targetSta
   });
 }
 
+export function shiftPurchaseInstallments(purchaseId: string, payload: { meses: number; reason: string }) {
+  return request<{ movidas: number; meses: number }>(`/cards/purchases/${purchaseId}/shift-installments`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
 export function getSmallExpenseReport(filters?: {
   startDate?: string;
   endDate?: string;
