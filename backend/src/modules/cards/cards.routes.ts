@@ -13,7 +13,10 @@ import {
   getCardStatementPeriod,
   getNextPurchaseNumber,
   linhasForaDoDre,
+  competenciaDepois,
+  periodoDaCompetencia,
   reabrirSeDivergir,
+  recalcularEReabrir,
   reconstruirLinhasDaCompra,
   syncCardStatementItemForPurchase
 } from "./cards.service.js";
@@ -1051,6 +1054,106 @@ cardsRouter.patch("/statements/:id/items/:itemId/check", async (request, respons
   response.json(item);
 });
 
+// A compra entrou na fatura errada (o banco a lancou so no mes seguinte): todas as parcelas andam
+// juntas, cada uma para a fatura `meses` meses a frente da que esta. Cria a fatura que faltar.
+cardsRouter.post("/purchases/:purchaseId/shift-installments", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  if (!user) return;
+
+  const meses = Number(request.body.meses ?? 1);
+  const reason = String(request.body.reason ?? "").trim();
+  if (!Number.isInteger(meses) || meses < 1 || meses > 3) {
+    response.status(400).json({ message: "Informe de 1 a 3 meses." });
+    return;
+  }
+  if (reason.length < 5) {
+    response.status(400).json({ message: "Motivo e obrigatorio (minimo 5 caracteres)." });
+    return;
+  }
+
+  const purchaseId = request.params.purchaseId;
+  const linhas = await prisma.creditCardStatementItem.findMany({
+    where: { purchaseId },
+    include: { statement: { include: { creditCard: true } } },
+    orderBy: [{ installment: "asc" }, { createdAt: "asc" }]
+  });
+  if (linhas.length === 0) {
+    response.status(404).json({ message: "Esta compra nao tem lancamentos em fatura de cartao." });
+    return;
+  }
+
+  const editavel = (status: string) => STATUS_EDITAVEIS.includes(status);
+  if (linhas.some((linha) => !editavel(linha.statement.status))) {
+    response.status(409).json({ message: "Alguma parcela esta em fatura fechada, paga ou cancelada. Reabra a fatura antes de mover a compra." });
+    return;
+  }
+
+  // Destino de cada linha, achado antes de gravar para recusar tudo ou nada.
+  type Destino = { ano: number; mes: number; cardId: string; existente: { id: string; status: string } | null };
+  const destinos = new Map<string, Destino>();
+  for (const linha of linhas) {
+    const { ano, mes } = competenciaDepois(linha.statement.competenceYear, linha.statement.competenceMonth, meses);
+    const chave = `${linha.statement.creditCardId}:${ano}:${mes}`;
+    if (destinos.has(chave)) continue;
+    const existente = await prisma.creditCardStatement.findFirst({
+      where: { creditCardId: linha.statement.creditCardId, competenceYear: ano, competenceMonth: mes },
+      orderBy: { createdAt: "asc" }
+    });
+    if (existente && !editavel(existente.status)) {
+      response.status(409).json({ message: `A fatura de ${String(mes).padStart(2, "0")}/${ano} esta fechada, paga ou cancelada. Reabra a fatura antes de mover a compra.` });
+      return;
+    }
+    destinos.set(chave, { ano, mes, cardId: linha.statement.creditCardId, existente: existente ? { id: existente.id, status: existente.status } : null });
+  }
+
+  const origens = new Set(linhas.map((linha) => linha.statementId));
+  const afetadas = new Set<string>(origens);
+  await prisma.$transaction(async (tx) => {
+    const idsDestino = new Map<string, string>();
+    for (const [chave, destino] of destinos) {
+      if (destino.existente) {
+        idsDestino.set(chave, destino.existente.id);
+        continue;
+      }
+      const cartao = linhas.find((linha) => linha.statement.creditCardId === destino.cardId)!.statement.creditCard;
+      const periodo = periodoDaCompetencia(cartao, destino.ano, destino.mes);
+      const criada = await tx.creditCardStatement.create({
+        data: {
+          id: crypto.randomUUID(),
+          creditCardId: destino.cardId,
+          competenceYear: destino.ano,
+          competenceMonth: destino.mes,
+          closingDate: periodo.closingDate,
+          dueDate: periodo.dueDate,
+          status: "OPEN",
+          name: `Fatura ${cartao.name} ${String(destino.mes).padStart(2, "0")}/${destino.ano}`
+        }
+      });
+      idsDestino.set(chave, criada.id);
+    }
+    for (const linha of linhas) {
+      const { ano, mes } = competenciaDepois(linha.statement.competenceYear, linha.statement.competenceMonth, meses);
+      const destinoId = idsDestino.get(`${linha.statement.creditCardId}:${ano}:${mes}`)!;
+      await tx.creditCardStatementItem.update({ where: { id: linha.id }, data: { statementId: destinoId } });
+      afetadas.add(destinoId);
+    }
+    // Totais das faturas mexidas; conferida que deixou de bater com o extrato volta para Aberta.
+    await recalcularEReabrir(tx, afetadas);
+  });
+
+  await auditLog({
+    userId: user.id,
+    action: "SHIFT_CREDIT_CARD_PURCHASE_INSTALLMENTS",
+    entity: "Purchase",
+    entityId: purchaseId,
+    newValue: { meses, reason, linhas: linhas.map((linha) => ({ id: linha.id, parcela: linha.installment, de: linha.statementId })) },
+    ipAddress: requestIp(request),
+    userAgent: String(request.headers["user-agent"] ?? "")
+  });
+
+  response.json({ movidas: linhas.length, meses });
+});
+
 cardsRouter.post("/statements/items/:itemId/reallocate", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
@@ -1084,10 +1187,8 @@ cardsRouter.post("/statements/items/:itemId/reallocate", async (request, respons
     response.status(400).json({ message: "Fatura de origem esta fechada, paga ou cancelada. Nao e possivel realocar." });
     return;
   }
-  if (sourceStatement.generatedPurchaseId) {
-    response.status(400).json({ message: "Esta fatura ja foi fechada e possui titulo a pagar gerado. Nao e possivel realocar itens diretamente." });
-    return;
-  }
+  // Fatura reaberta continua com o titulo da vez em que foi fechada, mas esta aberta de novo (a
+  // parcela do titulo foi cancelada) e refecha atualizando o valor: pode ceder e receber linhas.
   if (sourceStatement.id === targetStatementId) {
     response.status(400).json({ message: "Fatura de origem e destino sao iguais." });
     return;
@@ -1100,10 +1201,6 @@ cardsRouter.post("/statements/items/:itemId/reallocate", async (request, respons
   }
   if (BLOCKED_STATUSES.includes(targetStatement.status as CreditCardStatementStatus)) {
     response.status(400).json({ message: "Fatura de destino esta fechada, paga ou cancelada." });
-    return;
-  }
-  if (targetStatement.generatedPurchaseId) {
-    response.status(400).json({ message: "Fatura de destino ja possui titulo a pagar gerado. Nao e possivel receber novos itens." });
     return;
   }
   if (targetStatement.creditCardId !== sourceStatement.creditCardId) {

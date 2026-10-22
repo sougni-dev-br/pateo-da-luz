@@ -101,3 +101,10 @@
 @media (max-width: 900px) {
   .cartoes-chip { min-height: 40px; }
 }
+
+.realocar-modo { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; margin: 0 0 12px; }
+.realocar-modo legend { padding: 0 6px; font-weight: 600; }
+.realocar-modo label { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
+.realocar-modo label input { margin-top: 4px; }
+.realocar-modo label span { display: flex; flex-direction: column; gap: 2px; }
+.realocar-modo small { color: var(--muted); font-size: 12.5px; }

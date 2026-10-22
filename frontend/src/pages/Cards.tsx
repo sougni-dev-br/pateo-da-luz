@@ -15,6 +15,7 @@ import {
   getCards,
   reallocateCardStatementItem,
   reopenCardStatement,
+  shiftPurchaseInstallments,
   saveCardStatement,
   setCardStatementStatus,
   setCardStatus,
@@ -93,6 +94,8 @@ export function Cards({ user }: CardsProps) {
   const [reallocateItem, setReallocateItem] = useState<CreditCardStatementDetail["items"][number] | null>(null);
   const [reallocateTargetId, setReallocateTargetId] = useState("");
   const [reallocateReason, setReallocateReason] = useState("");
+  // Compra parcelada que entrou no mês errado: o mais comum é mover todas as parcelas juntas.
+  const [reallocateTodas, setReallocateTodas] = useState(false);
   const [reallocateTargets, setReallocateTargets] = useState<CreditCardStatement[] | null>(null);
   const [openStatementMode, setOpenStatementMode] = useState<"review" | null>(null);
   const itemsSectionRef = useRef<HTMLDivElement | null>(null);
@@ -411,6 +414,7 @@ export function Cards({ user }: CardsProps) {
     setReallocateItem(item);
     setReallocateTargetId("");
     setReallocateReason("");
+    setReallocateTodas(Boolean(item.purchaseId) && (item.totalInstallments ?? 1) > 1);
     setReallocateTargets(null);
     try {
       const all = await getCardStatements({ creditCardId: statementDetail.creditCardId });
@@ -418,7 +422,6 @@ export function Cards({ user }: CardsProps) {
         all.filter(
           (s) =>
             (s.status === "OPEN" || s.status === "CHECKED") &&
-            !s.generatedPurchaseId &&
             s.id !== statementDetail.id
         )
       );
@@ -428,17 +431,24 @@ export function Cards({ user }: CardsProps) {
   }
 
   async function submitReallocation() {
-    if (!reallocateItem || !reallocateTargetId || reallocateReason.trim().length < 5) return;
+    if (!reallocateItem || reallocateReason.trim().length < 5) return;
+    if (!reallocateTodas && !reallocateTargetId) return;
     try {
-      await reallocateCardStatementItem(reallocateItem.id, {
-        targetStatementId: reallocateTargetId,
-        reason: reallocateReason.trim()
-      });
+      let mensagem = "Item realocado com sucesso.";
+      if (reallocateTodas && reallocateItem.purchaseId) {
+        const resultado = await shiftPurchaseInstallments(reallocateItem.purchaseId, { meses: 1, reason: reallocateReason.trim() });
+        mensagem = `${resultado.movidas} parcela(s) da compra movida(s) para o mês seguinte.`;
+      } else {
+        await reallocateCardStatementItem(reallocateItem.id, {
+          targetStatementId: reallocateTargetId,
+          reason: reallocateReason.trim()
+        });
+      }
       if (statementDetail) setStatementDetail(await getCardStatement(statementDetail.id));
       setReallocateItem(null);
       setReallocateTargetId("");
       setReallocateReason("");
-      setNotice({ tone: "success", message: "Item realocado com sucesso." });
+      setNotice({ tone: "success", message: mensagem });
       await load();
     } catch (error) {
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao realocar item." });
@@ -679,8 +689,29 @@ export function Cards({ user }: CardsProps) {
               </div>
             </div>
 
+            {(reallocateItem.totalInstallments ?? 1) > 1 && reallocateItem.purchaseId && (
+              <fieldset className="subsection realocar-modo">
+                <legend>O que mover?</legend>
+                <label>
+                  <input type="radio" name="realocar-modo" checked={reallocateTodas} onChange={() => setReallocateTodas(true)} />
+                  <span>
+                    <strong>Todas as {reallocateItem.totalInstallments} parcelas da compra, 1 mês para frente</strong>
+                    <small>Cada parcela vai para a fatura do mês seguinte à que está hoje. A fatura que ainda não existir é criada.</small>
+                  </span>
+                </label>
+                <label>
+                  <input type="radio" name="realocar-modo" checked={!reallocateTodas} onChange={() => setReallocateTodas(false)} />
+                  <span>
+                    <strong>Só esta parcela ({reallocateItem.installment}/{reallocateItem.totalInstallments})</strong>
+                    <small>Escolha a fatura de destino.</small>
+                  </span>
+                </label>
+              </fieldset>
+            )}
+
             <div className="subsection">
               <div className="form-grid">
+                {!reallocateTodas && (
                 <label className="full-width">
                   Fatura de destino
                   {reallocateTargets === null ? (
@@ -700,6 +731,7 @@ export function Cards({ user }: CardsProps) {
                     </select>
                   )}
                 </label>
+                )}
                 <label className="full-width">
                   Motivo da realocação <span className="label-required">(obrigatório)</span>
                   <input
@@ -720,10 +752,10 @@ export function Cards({ user }: CardsProps) {
               <button
                 className="primary-button"
                 type="button"
-                disabled={!reallocateTargetId || reallocateReason.trim().length < 5}
+                disabled={(!reallocateTodas && !reallocateTargetId) || reallocateReason.trim().length < 5}
                 onClick={() => void submitReallocation()}
               >
-                <ArrowRightLeft size={16} /> Confirmar realocação
+                <ArrowRightLeft size={16} /> {reallocateTodas ? `Mover as ${reallocateItem.totalInstallments} parcelas` : "Confirmar realocação"}
               </button>
             </div>
           </div>
