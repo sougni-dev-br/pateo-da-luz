@@ -305,16 +305,20 @@ export async function syncCardStatementItemsForPurchase(tx: Prisma.TransactionCl
   categoryName?: string | null;
   notes?: string | null;
   cardFinalId?: string | null;
+  /** Cartão de cada parcela (número da parcela → final), p.ex. vindo do que foi guardado ao cancelar. */
+  finaisPorParcela?: Record<string, string | null | undefined>;
 }) {
   const anteriores = await lerLinhasAnteriores(tx, input.purchaseId);
   const finalPadrao = await finalValido(tx, input.cardFinalId || primeiroFinal(anteriores), input.cardId);
   // Cada parcela volta para o cartao em que estava (o usuario pode ter separado as parcelas).
   const finalPorParcela = new Map<number, string>();
   if (!input.cardFinalId) {
-    for (const linha of anteriores) {
-      if (linha.installment != null && linha.cardFinalId && (await finalValido(tx, linha.cardFinalId, input.cardId))) {
-        finalPorParcela.set(linha.installment, linha.cardFinalId);
-      }
+    const candidatos: Array<[number, string]> = [
+      ...anteriores.filter((linha) => linha.installment != null && linha.cardFinalId).map((linha): [number, string] => [linha.installment as number, linha.cardFinalId as string]),
+      ...Object.entries(input.finaisPorParcela ?? {}).filter(([, id]) => id).map(([parcela, id]): [number, string] => [Number(parcela), id as string])
+    ];
+    for (const [parcela, final] of candidatos) {
+      if (!finalPorParcela.has(parcela) && (await finalValido(tx, final, input.cardId))) finalPorParcela.set(parcela, final);
     }
   }
   await tx.creditCardStatementItem.deleteMany({ where: { purchaseId: input.purchaseId } });
@@ -375,7 +379,9 @@ export async function syncCardStatementItemsForPurchase(tx: Prisma.TransactionCl
         value: new Prisma.Decimal(value),
         installment: n > 1 ? i + 1 : null,
         totalInstallments: n > 1 ? n : null,
-        cardFinalId: finalPorParcela.get(i + 1) ?? finalPadrao,
+        // Com o cartao de cada parcela conhecido, parcela sem cartao continua sem cartao;
+        // so quando nao ha esse detalhe todas herdam o cartao padrao.
+        cardFinalId: finalPorParcela.size > 0 ? (finalPorParcela.get(i + 1) ?? null) : finalPadrao,
         categoryName: input.categoryName ?? null,
         notes: input.notes ?? null,
         checked: false,
@@ -476,6 +482,119 @@ export async function createCardStatementPurchase(tx: Prisma.TransactionClient, 
   });
 
   return purchase;
+}
+
+type LinhaCompleta = {
+  statementId: string;
+  cardFinalId: string | null;
+  installment: number | null;
+  totalInstallments: number | null;
+  description: string;
+  categoryName: string | null;
+  notes: string | null;
+  smallExpenseTypeId: string | null;
+};
+
+async function lerLinhasCompletas(tx: Prisma.TransactionClient, purchaseId: string): Promise<LinhaCompleta[]> {
+  const linhas = await tx.creditCardStatementItem.findMany({
+    where: { purchaseId },
+    orderBy: [{ installment: "asc" }, { createdAt: "asc" }]
+  });
+  return linhas as unknown as LinhaCompleta[];
+}
+
+export type SnapshotDasLinhas = {
+  parcelas: number;
+  tipo: "NORMAL" | "PEQUENO_GASTO";
+  descricao: string;
+  categoryName: string | null;
+  notes: string | null;
+  finaisPorParcela: Record<string, string>;
+};
+
+function snapshotDe(linhas: LinhaCompleta[]): SnapshotDasLinhas | null {
+  if (linhas.length === 0) return null;
+  const primeira = linhas[0];
+  const finaisPorParcela: Record<string, string> = {};
+  for (const linha of linhas) {
+    if (linha.cardFinalId) finaisPorParcela[String(linha.installment ?? 1)] = linha.cardFinalId;
+  }
+  return {
+    parcelas: Math.max(linhas.length, ...linhas.map((linha) => linha.totalInstallments ?? 1)),
+    tipo: linhas.some((linha) => linha.smallExpenseTypeId) ? "PEQUENO_GASTO" : "NORMAL",
+    descricao: primeira.description,
+    categoryName: primeira.categoryName ?? null,
+    notes: primeira.notes ?? null,
+    finaisPorParcela
+  };
+}
+
+/**
+ * Cancelar a compra apaga as linhas dela nas faturas. Antes disso, guarda na propria compra
+ * quantas parcelas eram, a descricao e o cartao (fisico/virtual) de cada parcela: e o que
+ * permite restaurar a compra como estava, em vez de uma linha so com o total.
+ */
+export async function guardarSnapshotDasLinhas(tx: Prisma.TransactionClient, purchaseId: string): Promise<void> {
+  const snapshot = snapshotDe(await lerLinhasCompletas(tx, purchaseId));
+  if (!snapshot) return;
+  await tx.$executeRaw`
+    UPDATE "Purchase"
+    SET "rawRow" = COALESCE("rawRow", '{}'::jsonb) || jsonb_build_object('cartaoSnapshot', ${JSON.stringify(snapshot)}::jsonb)
+    WHERE "id" = ${purchaseId}
+  `;
+}
+
+export type CompraParaReconstruir = {
+  id: string;
+  purchaseDate: Date;
+  creditCardId: string | null;
+  totalAmount: Prisma.Decimal | number | string;
+  supplierName: string;
+  invoiceNumber: string | null;
+  purchaseNumber: string | null;
+  smallExpenseTypeId: string | null;
+  smallExpenseResponsibleName: string | null;
+  smallExpenseNotes: string | null;
+  rawRow?: unknown;
+};
+
+/**
+ * Recria as linhas da compra na fatura do jeito que eram: as parcelas que ela ja tem na fatura
+ * (revincular) ou as que foram guardadas ao cancelar (restaurar). Sem nenhum dos dois — compra
+ * cancelada antes de existir o snapshot — volta a linha unica de sempre.
+ */
+export async function reconstruirLinhasDaCompra(tx: Prisma.TransactionClient, compra: CompraParaReconstruir): Promise<void> {
+  const guardado = (compra.rawRow as { cartaoSnapshot?: SnapshotDasLinhas } | null | undefined)?.cartaoSnapshot ?? null;
+  const fonte = snapshotDe(await lerLinhasCompletas(tx, compra.id)) ?? guardado;
+
+  if (fonte && fonte.tipo === "NORMAL" && compra.creditCardId && !compra.smallExpenseTypeId) {
+    await syncCardStatementItemsForPurchase(tx, {
+      purchaseId: compra.id,
+      cardId: compra.creditCardId,
+      purchaseDate: compra.purchaseDate,
+      description: fonte.descricao,
+      supplierName: compra.supplierName,
+      totalAmount: Number(compra.totalAmount),
+      numberOfInstallments: fonte.parcelas,
+      categoryName: fonte.categoryName,
+      notes: fonte.notes,
+      finaisPorParcela: fonte.finaisPorParcela
+    });
+    return;
+  }
+
+  await syncCardStatementItemForPurchase(tx, {
+    purchaseId: compra.id,
+    cardId: compra.creditCardId,
+    purchaseDate: compra.purchaseDate,
+    description: compra.invoiceNumber || compra.purchaseNumber || "Pequeno gasto no cartao",
+    supplierName: compra.supplierName,
+    value: Number(compra.totalAmount),
+    smallExpenseTypeId: compra.smallExpenseTypeId,
+    responsibleName: compra.smallExpenseResponsibleName,
+    notes: compra.smallExpenseNotes,
+    cardFinalId: fonte?.finaisPorParcela["1"] ?? null
+  });
 }
 
 /**

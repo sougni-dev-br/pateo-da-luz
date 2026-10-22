@@ -22,7 +22,7 @@ import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
 import { gravarConversaoDoItemDeCompra, recordPurchaseInventoryEntry } from "../inventory/inventory.routes.js";
 import { detectarEmbalagem, normalizarUnidade } from "../../shared/unidades/conversao.js";
 import { fatorSugeridoPeloPreco, linhasSuspeitas, pareceEmbalagem, precoDeReferencia, precoNaContagem, precoNormal, validarEmbalagem } from "./revisao-embalagem.js";
-import { removeCardStatementItemsForPurchase, syncCardStatementItemForPurchase, syncCardStatementItemsForPurchase } from "../cards/cards.service.js";
+import { guardarSnapshotDasLinhas, reconstruirLinhasDaCompra, removeCardStatementItemsForPurchase, syncCardStatementItemForPurchase, syncCardStatementItemsForPurchase } from "../cards/cards.service.js";
 import { addPurchaseToCycle, findOrCreateOpenCycle, updatePurchaseInCycle } from "../suppliers/supplier-billing-cycle.service.js";
 import { REIMBURSEMENT_PAYMENT_TYPE, REIMBURSEMENT_SOURCE, ReimbursementError, ehCategoriaFuncionario } from "../reimbursements/reimbursement-rules.js";
 import { fornecedorDoFuncionario, reabrirReembolsoDoAgregador, retirarCompraCancelada, sincronizarCompraNoReembolso, validarQuemPagou } from "../reimbursements/reimbursement.service.js";
@@ -2985,7 +2985,11 @@ purchaseRouter.patch("/:id/cancel", async (request, response) => {
   }
 
   await adjustStockForPurchase(request.params.id, -1);
-  await removeCardStatementItemsForPurchase(request.params.id);
+  // As linhas vao sumir da fatura: guarda antes quantas parcelas eram e em qual cartao, para a restauracao.
+  await prisma.$transaction(async (tx) => {
+    await guardarSnapshotDasLinhas(tx, request.params.id);
+    await removeCardStatementItemsForPurchase(request.params.id, tx);
+  });
 
   // Parcela paga sobrevive ao cancelamento de proposito (ver comentario acima),
   // mas isso deixa um buraco silencioso: o dinheiro saiu do banco e a despesa
@@ -3099,9 +3103,11 @@ purchaseRouter.patch("/:id/restore", async (request, response) => {
     supplierName: string;
     invoiceNumber: string | null;
     purchaseNumber: string | null;
+    rawRow: unknown;
   }>>`
     SELECT p."id", p."purchaseDate", p."creditCardId", p."smallExpenseMoneyOrigin", p."smallExpenseResponsibleName",
-           p."smallExpenseNotes", p."smallExpenseTypeId", p."totalAmount", s."name" AS "supplierName", p."invoiceNumber", p."purchaseNumber"
+           p."smallExpenseNotes", p."smallExpenseTypeId", p."totalAmount", s."name" AS "supplierName", p."invoiceNumber", p."purchaseNumber",
+           p."rawRow"
     FROM "Purchase" p
     JOIN "Supplier" s ON s."id" = p."supplierId"
     WHERE p."id" = ${request.params.id}
@@ -3109,17 +3115,7 @@ purchaseRouter.patch("/:id/restore", async (request, response) => {
   `;
   if (restored?.creditCardId) {
     await prisma.$transaction(async (tx) => {
-      await syncCardStatementItemForPurchase(tx, {
-        purchaseId: restored.id,
-        cardId: restored.creditCardId,
-        purchaseDate: restored.purchaseDate,
-        description: restored.invoiceNumber || restored.purchaseNumber || "Pequeno gasto no cartao",
-        supplierName: restored.supplierName,
-        value: Number(restored.totalAmount),
-        smallExpenseTypeId: restored.smallExpenseTypeId,
-        responsibleName: restored.smallExpenseResponsibleName,
-        notes: restored.smallExpenseNotes
-      });
+      await reconstruirLinhasDaCompra(tx, restored);
     });
   }
   await auditLog({

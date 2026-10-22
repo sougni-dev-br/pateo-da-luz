@@ -14,6 +14,7 @@ import {
   getNextPurchaseNumber,
   linhasForaDoDre,
   reabrirSeDivergir,
+  reconstruirLinhasDaCompra,
   syncCardStatementItemForPurchase
 } from "./cards.service.js";
 import { normalizeText } from "../../shared/utils/normalize-text.js";
@@ -1740,9 +1741,11 @@ cardsRouter.post("/link-purchase", async (request, response) => {
     supplierName: string;
     invoiceNumber: string | null;
     purchaseNumber: string | null;
+    rawRow: unknown;
   }>>`
     SELECT p."id", p."purchaseDate", p."creditCardId", p."smallExpenseMoneyOrigin", p."smallExpenseResponsibleName", p."smallExpenseAuthorizedBy",
-           p."smallExpenseNotes", p."smallExpenseTypeId", p."totalAmount", s."name" AS "supplierName", p."invoiceNumber", p."purchaseNumber"
+           p."smallExpenseNotes", p."smallExpenseTypeId", p."totalAmount", s."name" AS "supplierName", p."invoiceNumber", p."purchaseNumber",
+           p."rawRow"
     FROM "Purchase" p
     JOIN "Supplier" s ON s."id" = p."supplierId"
     WHERE p."id" = ${purchaseId}
@@ -1753,18 +1756,10 @@ cardsRouter.post("/link-purchase", async (request, response) => {
     return;
   }
 
+  // Revincular nao pode achatar uma compra parcelada numa linha so: as parcelas que a compra ja tem
+  // na fatura (ou as guardadas ao cancelar) sao refeitas, cada uma no seu cartao.
   await prisma.$transaction(async (tx) => {
-    await syncCardStatementItemForPurchase(tx, {
-      purchaseId: purchase.id,
-      cardId: purchase.creditCardId,
-      purchaseDate: purchase.purchaseDate,
-      description: purchase.invoiceNumber ?? purchase.purchaseNumber ?? "Lancamento de cartao",
-      supplierName: purchase.supplierName,
-      value: Number(purchase.totalAmount),
-      smallExpenseTypeId: purchase.smallExpenseTypeId,
-      responsibleName: purchase.smallExpenseResponsibleName,
-      notes: purchase.smallExpenseNotes
-    });
+    await reconstruirLinhasDaCompra(tx, purchase);
   });
 
   await auditLog({
