@@ -29,6 +29,7 @@ import { VerificacaoDoFechamento } from "../components/VerificacaoDoFechamento";
 import { BlocoDoFechamento, type EstadoDoBloco } from "../components/fechamento/BlocoDoFechamento";
 import { BotaoImprimirResumo } from "../components/fechamento/BotaoImprimirResumo";
 import { CartoesDoFechamento } from "../components/fechamento/CartoesDoFechamento";
+import { HistoricoDoFechamento } from "../components/fechamento/HistoricoDoFechamento";
 import { JustificarDialog, type ModoDoDialog } from "../components/fechamento/JustificarDialog";
 import { PendenciasAgrupadas } from "../components/fechamento/PendenciasAgrupadas";
 import { ConfirmDialog } from "../components/ui";
@@ -734,6 +735,8 @@ export function MonthlyClosurePanel({ user }: { user: AppUser }) {
           </ul>
         </section>
       )}
+
+      <HistoricoDoFechamento state={state} year={year} month={month} />
 
       <JustificarDialog
         aberto={justificando != null || reabrindo}

@@ -1,0 +1,109 @@
+/* Histórico do fechamento. Prefixo fhist-. Só tokens do sistema. */
+
+.fhist summary {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 0.95rem;
+  border-radius: var(--radius-sm, 8px);
+}
+
+.fhist summary::-webkit-details-marker { display: none; }
+.fhist summary:focus-visible { outline: 2px solid var(--gold); outline-offset: 4px; }
+
+/* Seta própria: a nativa some junto com o marcador. */
+.fhist summary::before {
+  content: "";
+  flex-shrink: 0;
+  align-self: center;
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(-45deg);
+  transition: transform 150ms ease;
+}
+
+.fhist[open] summary::before { transform: rotate(45deg); }
+
+.fhist-titulo { font-weight: 600; color: var(--ink); }
+.fhist-resumo { font-size: 0.78rem; color: var(--muted); }
+.fhist-erro { margin: 12px 0 0; font-size: 0.84rem; color: var(--danger); }
+
+.fhist-corpo { display: grid; gap: 22px; margin-top: 16px; }
+
+.fhist h4 {
+  margin: 0 0 8px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* Linha do tempo: trilho vertical com uma marca por evento. */
+.fhist-linha { list-style: none; margin: 0; padding: 0; }
+
+.fhist-evento {
+  position: relative;
+  display: flex;
+  gap: 12px;
+  padding: 0 0 14px;
+}
+
+.fhist-evento::before {
+  content: "";
+  position: absolute;
+  left: 13px;
+  top: 28px;
+  bottom: 0;
+  width: 1px;
+  background: var(--line);
+}
+
+.fhist-evento:last-child { padding-bottom: 0; }
+.fhist-evento:last-child::before { display: none; }
+
+.fhist-marca {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--paper-soft);
+  color: var(--muted);
+}
+
+.fhist-positivo .fhist-marca { background: var(--success); color: #fff; }
+.fhist-alerta .fhist-marca { background: var(--danger); color: #fff; }
+
+.fhist-evento p { margin: 0; }
+.fhist-titulo-evento { font-size: 0.86rem; color: var(--ink); line-height: 1.4; }
+.fhist-texto { margin-top: 2px !important; font-size: 0.82rem; color: var(--ink); line-height: 1.45; }
+.fhist-evento small { display: block; margin-top: 3px; font-size: 0.74rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.fhist-tabela { margin-top: 0; }
+.fhist-tabela small { color: var(--muted); font-size: 0.74rem; }
+.fhist-tabela .fhist-motivo { display: block; }
+.fhist-tabela a { color: var(--ink); font-weight: 550; text-underline-offset: 3px; }
+
+/* O mês que está aberto na tela. */
+.fhist-atual td { background: var(--row-hover); }
+.fhist-atual td:first-child { box-shadow: inset 3px 0 0 var(--gold); }
+
+.fhist-celula { display: block; }
+
+@media (max-width: 720px) {
+  .fhist-tabela .fhist-motivo { display: block; }
+  .fhist-celula { text-align: right; }
+  .fhist-atual td { background: none; }
+  .fhist-atual { background: var(--row-hover); }
+
+  /* O mês já é o título da linha: o rótulo "MÊS" só repete. */
+  .fhist-tabela td:first-child { justify-content: flex-start; font-size: 0.9rem; }
+  .fhist-tabela td:first-child::before { display: none; }
+}

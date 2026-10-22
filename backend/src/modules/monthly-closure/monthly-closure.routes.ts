@@ -7,6 +7,7 @@ import {
   lockMonthlyClosure,
   unlockMonthlyClosure,
 } from "./monthly-closure.service.js";
+import { getHistoricoDoMes, getVisaoDosMeses } from "./historico-do-mes.service.js";
 
 export const monthlyClosureRouter = Router();
 
@@ -17,6 +18,31 @@ function parseYearMonth(year: unknown, month: unknown): { year: number; month: n
   if (!Number.isInteger(m) || m < 1 || m > 12) return null;
   return { year: y, month: m };
 }
+
+// Situação de cada mês de relance (últimos 12 por padrão). Uma só barra, para não
+// colidir com "/:year/:month".
+monthlyClosureRouter.get("/overview", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "VISUALIZACAO"]);
+  if (!user) return;
+  try {
+    response.json(await getVisaoDosMeses(Number(request.query.limit)));
+  } catch (error) {
+    response.status(500).json({ message: error instanceof Error ? error.message : "Erro ao carregar histórico." });
+  }
+});
+
+// Linha do tempo de um mês: justificou, conferiu, removeu, travou, reabriu.
+monthlyClosureRouter.get("/:year/:month/history", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "VISUALIZACAO"]);
+  if (!user) return;
+  const parsed = parseYearMonth(request.params.year, request.params.month);
+  if (!parsed) { response.status(400).json({ message: "Ano/mes invalidos." }); return; }
+  try {
+    response.json(await getHistoricoDoMes(parsed.year, parsed.month));
+  } catch (error) {
+    response.status(500).json({ message: error instanceof Error ? error.message : "Erro ao carregar histórico." });
+  }
+});
 
 monthlyClosureRouter.get("/:year/:month", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "VISUALIZACAO"]);

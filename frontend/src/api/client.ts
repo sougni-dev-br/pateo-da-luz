@@ -4340,6 +4340,38 @@ export type MonthlyClosureState = {
   };
 };
 
+export type EventoDoHistorico = {
+  id: string;
+  /** Instante (ISO) em que aconteceu. */
+  em: string;
+  acao: "JUSTIFICOU" | "REMOVEU_JUSTIFICATIVA" | "TRAVOU" | "REABRIU";
+  porNome: string | null;
+  blockKey: string | null;
+  texto: string | null;
+};
+
+export type MesDoHistorico = {
+  ano: number;
+  mes: number;
+  travado: boolean;
+  travadoEm: string | null;
+  travadoPor: string | null;
+  reabertoEm: string | null;
+  reabertoPor: string | null;
+  motivoDaReabertura: string | null;
+  justificativas: number;
+  faturamentoBruto: number;
+  cmvAtribuido: number | null;
+};
+
+export function getMonthlyClosureHistory(year: number, month: number) {
+  return request<EventoDoHistorico[]>(`/monthly-closure/${year}/${month}/history`);
+}
+
+export function getMonthlyClosureOverview(limit = 12) {
+  return request<MesDoHistorico[]>(`/monthly-closure/overview?limit=${limit}`);
+}
+
 export function getMonthlyClosure(year: number, month: number) {
   return request<MonthlyClosureState>(`/monthly-closure/${year}/${month}`);
 }
