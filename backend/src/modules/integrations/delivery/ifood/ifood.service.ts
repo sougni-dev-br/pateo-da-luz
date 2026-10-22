@@ -174,7 +174,8 @@ async function readSummaryFromRevenue(store: IfoodStoreView, year: number, month
       totalFees: Number(row.totalFees),
       netAmount: Number(row.netAmount),
       paidAt: row.paidAt ? row.paidAt.toISOString().slice(0, 10) : null,
-      status: row.status
+      status: row.status,
+      storeLabel: store.nickname
     }))
   });
 }
@@ -260,7 +261,8 @@ async function readSummaryFromDb(store: IfoodStoreView, year: number, month: num
       totalFees: Number(row.totalFees),
       netAmount: Number(row.netAmount),
       paidAt: row.paidAt ? row.paidAt.toISOString().slice(0, 10) : null,
-      status: row.status
+      status: row.status,
+      storeLabel: store.nickname
     })),
     isMock: false
   };

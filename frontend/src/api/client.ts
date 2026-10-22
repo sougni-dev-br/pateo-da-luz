@@ -6481,6 +6481,7 @@ export type IfoodSettlementRow = {
   netAmount: number;
   paidAt: string | null;
   status: string;
+  storeLabel?: string;
 };
 
 export type IfoodPeriodSummary = {
@@ -6712,6 +6713,7 @@ export type NoventaNoveSettlementRow = {
   netAmount: number;
   paidAt: string | null;
   status: string;
+  storeLabel?: string;
 };
 
 export type NoventaNovePeriodSummary = {

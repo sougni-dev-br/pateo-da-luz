@@ -74,6 +74,8 @@ export type IfoodSettlementRow = {
   netAmount: number;
   paidAt: string | null;
   status: string;
+  /** Loja do repasse (apelido); a lista consolidada mostra uma linha por loja. */
+  storeLabel?: string;
 };
 
 export type IfoodPeriodSummary = {
