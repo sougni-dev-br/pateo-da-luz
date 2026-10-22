@@ -78,6 +78,10 @@ describe("nomeDaChave", () => {
     expect(nomeDaChave("delivery:KEETA")).toBe("Delivery Keeta");
   });
 
+  test("delivery por loja nomeia a plataforma", () => {
+    expect(nomeDaChave("delivery:NOVENTA_NOVE:abc123")).toBe("Delivery 99 Food (loja)");
+  });
+
   test("cartão e fornecedor dependem de cadastro: quem chama resolve", () => {
     expect(nomeDaChave("card:c1")).toBeNull();
     expect(nomeDaChave("supplier:s1")).toBeNull();

@@ -75,7 +75,7 @@ describe("ehConferencia", () => {
   });
 
   test("faturamento de qualquer plataforma de delivery pede conferência", () => {
-    for (const k of ["delivery:IFOOD", "delivery:KEETA", "delivery:NOVENTA_NOVE"]) {
+    for (const k of ["delivery:IFOOD", "delivery:KEETA", "delivery:NOVENTA_NOVE", "delivery:IFOOD:loja1"]) {
       expect(ehConferencia(k)).toBe(true);
     }
   });
