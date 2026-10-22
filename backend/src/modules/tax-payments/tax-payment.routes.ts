@@ -101,6 +101,7 @@ taxPaymentRouter.get("/", async (request, response) => {
     paymentEnd,
     search,
     dreCategoryId,
+    withoutCompetence,
     page = "1",
     pageSize = "50",
   } = request.query as Record<string, string>;
@@ -138,6 +139,7 @@ taxPaymentRouter.get("/", async (request, response) => {
     }
   }
 
+  if (withoutCompetence === "true") conditions.push(`tp."competenceDate" IS NULL`);
   if (competenceStart) conditions.push(`tp."competenceDate" >= ${addParam(new Date(competenceStart))}`);
   if (competenceEnd) conditions.push(`tp."competenceDate" <= ${addParam(new Date(competenceEnd + "T23:59:59.999Z"))}`);
   if (dueStart) conditions.push(`tp."dueDate" >= ${addParam(new Date(dueStart))}`);
