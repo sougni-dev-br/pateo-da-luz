@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { mesAnterior, montarResumo, somarTotais, type KeetaDia } from "../keeta-resumo.js";
+import { mesAnterior, montarResumo, somarTotais, totalizarRepasses, type KeetaDia, type KeetaRepasse } from "../keeta-resumo.js";
 
 // Dias reais de agosto/2026 em producao (import do portal da Keeta).
 const AGOSTO: KeetaDia[] = [
@@ -79,5 +79,48 @@ describe("montarResumo", () => {
       diasAnteriores: []
     });
     expect(r.daily.map((d) => d.date)).toEqual(["2026-08-01", "2026-08-02", "2026-08-03"]);
+  });
+});
+
+// Faturas semanais fictícias: a Keeta paga toda semana por saque automático.
+const REPASSES: KeetaRepasse[] = [
+  { id: "r1", description: "Repasse Keeta 2026-03-02 → 2026-03-08", expectedDate: "2026-03-11", receivedDate: "2026-03-11", grossAmount: 1000, fees: 250, netAmount: 750, status: "RECEIVED" },
+  { id: "r2", description: "Repasse Keeta 2026-03-09 → 2026-03-15", expectedDate: "2026-03-18", receivedDate: null, grossAmount: 400.5, fees: 100.25, netAmount: 300.25, status: "OPEN" }
+];
+
+describe("totalizarRepasses", () => {
+  test("separa o que já caiu do que ainda vai cair", () => {
+    const t = totalizarRepasses(REPASSES);
+    expect(t.received).toBeCloseTo(750, 2);
+    expect(t.pending).toBeCloseTo(300.25, 2);
+    expect(t.total).toBeCloseTo(1050.25, 2);
+    expect(t.count).toBe(2);
+  });
+
+  test("sem repasses devolve zeros, não undefined", () => {
+    expect(totalizarRepasses([])).toEqual({ received: 0, pending: 0, total: 0, count: 0 });
+  });
+
+  test("não perde centavos ao somar valores com casas decimais", () => {
+    const t = totalizarRepasses([
+      { ...REPASSES[0]!, id: "a", netAmount: 0.1, status: "RECEIVED" },
+      { ...REPASSES[0]!, id: "b", netAmount: 0.2, status: "RECEIVED" }
+    ]);
+    expect(t.received).toBe(0.3);
+  });
+});
+
+describe("montarResumo com repasses", () => {
+  test("anexa os repasses ordenados pela data prevista, sem mexer nos totais de receita", () => {
+    const r = montarResumo({ year: 2026, month: 3, dias: AGOSTO, diasAnteriores: [], repasses: [REPASSES[1]!, REPASSES[0]!] });
+    expect(r.settlements.items.map((x) => x.id)).toEqual(["r1", "r2"]);
+    expect(r.settlements.totals.total).toBeCloseTo(1050.25, 2);
+    expect(r.totals.grossAmount).toBeCloseTo(11_486.85, 2);
+  });
+
+  test("sem o argumento de repasses o bloco vem vazio", () => {
+    const r = montarResumo({ year: 2026, month: 3, dias: AGOSTO, diasAnteriores: [] });
+    expect(r.settlements.items).toEqual([]);
+    expect(r.settlements.totals.count).toBe(0);
   });
 });
