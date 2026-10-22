@@ -61,6 +61,11 @@ function CartaoDoCanal({ canal, agente }: { canal: CoberturaCanal; agente?: Saud
       <p className="cobertura-dias">
         {canal.diasComDado} de {canal.diasNoPeriodo} dias com lançamento no mês
       </p>
+      {(canal.lancamentosFuturos?.length ?? 0) > 0 && (
+        <p className="cobertura-dica">
+          Lançamento com data futura ({canal.lancamentosFuturos!.map(diaCurto).join(" · ")}) não conta como cobertura.
+        </p>
+      )}
       {doAgente && <p className={doAgente.problema ? "cobertura-dica" : "cobertura-dias"}>{doAgente.texto}</p>}
       {canal.situacao !== "EM_DIA" && <p className="cobertura-dica">{DICA_DE_ATRASO[canal.canal]}</p>}
       {canal.diasSemLancamento.length > 0 && (

@@ -9,6 +9,8 @@ import { carregarFerias, contarAlertas } from "../payroll/ferias.routes.js";
 import { calcularResultadoCompleto } from "./dashboard-resultado.js";
 import { calcularTicketsSalao, variacaoPercentual, type BaseTicketSalao } from "./dashboard-ticket.js";
 import { REVENUE_CHANNEL_SALON } from "../monthly/revenue-channels.js";
+import { getRevenueCoverage, hojeEmBrasilia } from "../monthly/revenue-coverage.service.js";
+import { resumoDeAtrasos } from "../monthly/revenue-coverage.js";
 
 export const dashboardRouter = Router();
 
@@ -209,11 +211,11 @@ async function revenueByDay(year: number, month: number): Promise<RevenueDay[]> 
   }));
 }
 
-// Base do ticket médio: só o canal Salão (ver dashboard-ticket.ts).
+// Base do ticket médio: líquido (sem serviço e deduções) só do canal Salão (ver dashboard-ticket.ts).
 async function salonTicketBase(year: number, month: number): Promise<BaseTicketSalao> {
-  const [row] = await prisma.$queryRaw<Array<{ grossAmount: unknown; tickets: unknown; peopleServed: unknown }>>`
+  const [row] = await prisma.$queryRaw<Array<{ netAmount: unknown; tickets: unknown; peopleServed: unknown }>>`
     SELECT
-      COALESCE(SUM("grossAmount"), 0)   AS "grossAmount",
+      COALESCE(SUM("netAmount"), 0)     AS "netAmount",
       COALESCE(SUM("tickets"), 0)       AS "tickets",
       COALESCE(SUM("peopleServed"), 0)  AS "peopleServed"
     FROM "RevenueEntry"
@@ -223,7 +225,7 @@ async function salonTicketBase(year: number, month: number): Promise<BaseTicketS
       AND "status" <> 'CANCELLED'
   `;
   return {
-    grossAmount: Number(row?.grossAmount ?? 0),
+    netAmount: Number(row?.netAmount ?? 0),
     tickets: Number(row?.tickets ?? 0),
     peopleServed: Number(row?.peopleServed ?? 0),
   };
@@ -738,6 +740,28 @@ dashboardRouter.get("/alerts", async (request, response) => {
       actionLabel: "Ver faturamento",
       actionPath: "/financeiro/faturamento"
     });
+  }
+
+  // Canal que parou de lançar. "Dias sem lançamento" acima olha todos os canais juntos: com o
+  // Salão em dia, 99Food ou Keeta parados não apareciam e o líquido saía incompleto sem aviso.
+  // Só faz sentido no mês corrente; nunca derruba o painel se a leitura falhar.
+  try {
+    if (hojeEmBrasilia().slice(0, 7) === `${year}-${String(month).padStart(2, "0")}`) {
+      const atrasos = resumoDeAtrasos((await getRevenueCoverage({ year, month })).channels);
+      if (atrasos) {
+        alerts.push({
+          type: "warning",
+          code: "REVENUE_CHANNELS_LATE",
+          title: "Canal de faturamento atrasado",
+          description: atrasos.description,
+          count: atrasos.count,
+          actionLabel: "Ver cobertura",
+          actionPath: "/financeiro/faturamento"
+        });
+      }
+    }
+  } catch (err) {
+    console.error("[dashboard] alerta de cobertura indisponível:", err instanceof Error ? err.message : err);
   }
 
   // Férias: só contagem (sem nomes) e nunca derruba o painel se a leitura falhar.

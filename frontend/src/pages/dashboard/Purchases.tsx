@@ -86,8 +86,8 @@ export function PurchasesPanel({ total, count, delta, reference, rankings, natur
         <div>
           <h2 id="dash-purchases-title" className="dash-eyebrow">Compras do mês</h2>
           <p className="dash-stat-value dash-stat-value--lg">{total > 0 ? <Money value={total} /> : "—"}</p>
-          <p className="dash-stat-label">
-            {[legendaNotas, reference].filter(Boolean).join(" · ")}
+          <p className="dash-stat-label" title="Notas pela competência do mês (data de recebimento). A tela Compras lista pela data da nota, então nota recebida num mês e datada em outro aparece só aqui.">
+            {[legendaNotas && `${legendaNotas} por competência`, reference].filter(Boolean).join(" · ")}
           </p>
         </div>
         <DeltaChip delta={delta} />

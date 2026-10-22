@@ -9956,6 +9956,8 @@ export type CoberturaCanal = {
   diasNoPeriodo: number;
   diasComDado: number;
   diasSemLancamento: string[];
+  /** Lançamentos com data depois de hoje: ficam fora da cobertura. */
+  lancamentosFuturos?: string[];
   origens: CoberturaOrigem[];
 };
 
