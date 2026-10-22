@@ -39,7 +39,7 @@ const TEXTOS: Record<ModoDoDialog, {
     titulo: "Registrar conferência",
     descricao: "A conferência fica registrada na auditoria do fechamento.",
     campo: "O que foi conferido",
-    placeholder: "Ex.: conferi a agenda de eventos do mês; os 3 eventos estão lançados.",
+    placeholder: "Ex.: conferi com o relatório do mês; está tudo lançado e o valor bate.",
     botao: "Registrar conferência",
     alvo: "Pendência"
   },

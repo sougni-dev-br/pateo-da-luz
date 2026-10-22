@@ -73,6 +73,17 @@ describe("ehConferencia", () => {
     expect(ehConferencia("block:eventRevenue")).toBe(true);
     expect(ehConferencia("block:taxes")).toBe(false);
   });
+
+  test("faturamento de qualquer plataforma de delivery pede conferência", () => {
+    for (const k of ["delivery:IFOOD", "delivery:KEETA", "delivery:NOVENTA_NOVE"]) {
+      expect(ehConferencia(k)).toBe(true);
+    }
+  });
+
+  test("cartão e fornecedor seguem pedindo justificativa", () => {
+    expect(ehConferencia("card:abc")).toBe(false);
+    expect(ehConferencia("supplier:abc")).toBe(false);
+  });
 });
 
 describe("classificarPendencias — cartão de crédito", () => {

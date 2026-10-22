@@ -23,10 +23,11 @@ import { anexarNomes } from "./justificativas-com-nome.js";
 import { avaliarCartoesDoMes, type CartaoDoMes, type FaturaDoMes } from "./cartoes-do-fechamento.js";
 import {
   avaliarCanaisDeDelivery,
+  diasEsperadosDoMes,
+  type FaturamentoDoCanal,
   avaliarFaturamentoDeEventos,
   avaliarFolhaLancada,
   avaliarGorjetaDoMes,
-  CANAIS_DE_DELIVERY
 } from "./pendencias-do-mes.js";
 
 export type ClosingBlockKey =
@@ -538,21 +539,36 @@ async function faturamentoDeEventos(year: number, month: number) {
   return { lancamentos: toNumber(row?.lancamentos), valor: toNumber(row?.valor) };
 }
 
-// Origem e canal do razao aparecem com grafias diferentes (iFood/IFOOD, Keeta/KEETA),
-// entao compara em maiusculas nos dois campos.
-async function canaisDeDeliveryComVenda(year: number, month: number): Promise<string[]> {
+// Faturamento de cada plataforma de delivery no mes: dias com lancamento, valores e
+// quantidade. Origem e canal do razao aparecem com grafias diferentes (iFood/IFOOD,
+// 99Food/NOVENTA_NOVE, Keeta/KEETA): compara em maiusculas e junta as duas da 99.
+async function faturamentoPorPlataforma(year: number, month: number): Promise<FaturamentoDoCanal[]> {
   const { start, end } = monthRange(year, month);
-  const linhas = await prisma.$queryRaw<Array<{ origem: string | null; canal: string | null }>>`
-    SELECT DISTINCT UPPER("sourcePlatform") AS "origem", UPPER("channel") AS "canal"
-    FROM "RevenueEntry"
-    WHERE "status" <> 'CANCELLED'
-      AND "date" >= ${start} AND "date" <= ${end}
+  const linhas = await prisma.$queryRaw<Array<{ id: string; lancamentos: any; dias: any; bruto: any; liquido: any }>>`
+    SELECT x."id" AS "id", COUNT(*) AS "lancamentos",
+           COUNT(DISTINCT DATE(x."date" AT TIME ZONE 'UTC')) AS "dias",
+           COALESCE(SUM(x."grossAmount"), 0) AS "bruto", COALESCE(SUM(x."netAmount"), 0) AS "liquido"
+    FROM (
+      SELECT "date", "grossAmount", "netAmount",
+             CASE
+               WHEN UPPER("sourcePlatform") = 'IFOOD' OR UPPER("channel") = 'IFOOD' THEN 'IFOOD'
+               WHEN UPPER("sourcePlatform") = 'KEETA' OR UPPER("channel") = 'KEETA' THEN 'KEETA'
+               WHEN UPPER("sourcePlatform") IN ('NOVENTA_NOVE', '99FOOD') OR UPPER("channel") IN ('NOVENTA_NOVE', '99FOOD') THEN 'NOVENTA_NOVE'
+             END AS "id"
+      FROM "RevenueEntry"
+      WHERE "status" <> 'CANCELLED'
+        AND "date" >= ${start} AND "date" <= ${end}
+    ) x
+    WHERE x."id" IS NOT NULL
+    GROUP BY x."id"
   `;
-  const vistos = new Set<string>();
-  for (const l of linhas) {
-    for (const v of [l.origem, l.canal]) if (v) vistos.add(v);
-  }
-  return CANAIS_DE_DELIVERY.map((c) => c.id).filter((id) => vistos.has(id));
+  return linhas.map((l) => ({
+    id: l.id,
+    lancamentos: toNumber(l.lancamentos),
+    dias: toNumber(l.dias),
+    bruto: toNumber(l.bruto),
+    liquido: toNumber(l.liquido),
+  }));
 }
 
 async function getTaxesStatus(year: number, month: number) {
@@ -676,10 +692,10 @@ export async function getMonthlyClosure(year: number, month: number) {
 
   // Cartao de credito: nao se fecha o mes sem conferir a fatura de cada cartao ativo
   // contra o extrato. A saida de quem nao usou o cartao e a justificativa.
-  const [salarios, gorjeta, canaisComVenda, eventos] = await Promise.all([
+  const [salarios, gorjeta, faturamentoDelivery, eventos] = await Promise.all([
     contarSalariosLancados(year, month),
     contarApuracoesDeGorjeta(year, month),
-    canaisDeDeliveryComVenda(year, month),
+    faturamentoPorPlataforma(year, month),
     faturamentoDeEventos(year, month),
   ]);
   const regrasDoMes = [
@@ -687,7 +703,7 @@ export async function getMonthlyClosure(year: number, month: number) {
     ...avaliarFaturamentoDeEventos(eventos),
     ...avaliarFolhaLancada(salarios),
     ...avaliarGorjetaDoMes(gorjeta),
-    ...avaliarCanaisDeDelivery(canaisComVenda),
+    ...avaliarCanaisDeDelivery(faturamentoDelivery, { diasEsperados: diasEsperadosDoMes(year, month, new Date()) }),
   ];
   for (const p of regrasDoMes) {
     if (justificationByKey.has(p.key)) continue;
