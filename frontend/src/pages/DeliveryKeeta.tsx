@@ -45,6 +45,57 @@ function Delta({ v }: { v: Variacao }) {
   );
 }
 
+const dataBR = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
+
+/** Faturas semanais da Keeta com pagamento no mês — visão de caixa; a receita acima é por competência. */
+function RepassesKeeta({ settlements, mes }: { settlements: KeetaPeriodSummary["settlements"]; mes: string }) {
+  const { items, totals } = settlements;
+  return (
+    <Card>
+      <PanelEyebrow>Repasses semanais pagos em {mes}</PanelEyebrow>
+      {items.length === 0 ? (
+        <p style={{ marginTop: "12px", color: MUTED, fontSize: "13px" }}>
+          Nenhum repasse da Keeta com pagamento previsto neste mês.
+        </p>
+      ) : (
+        <>
+          <div style={{ display: "flex", gap: "24px", flexWrap: "wrap", marginTop: "12px", fontSize: "14px" }}>
+            <span><span style={{ color: MUTED }}>Recebido </span><b><Money value={totals.received} /></b></span>
+            <span><span style={{ color: MUTED }}>A receber </span><b><Money value={totals.pending} /></b></span>
+            <span><span style={{ color: MUTED }}>Total </span><b><Money value={totals.total} /></b></span>
+          </div>
+          <div style={{ overflowX: "auto", marginTop: "12px" }}>
+            <table style={{ width: "100%", fontSize: "13px", minWidth: "480px" }}>
+              <thead>
+                <tr style={{ textAlign: "left", color: MUTED }}>
+                  <th>Fatura</th>
+                  <th>Pagamento</th>
+                  <th style={{ textAlign: "right" }}>Bruto</th>
+                  <th style={{ textAlign: "right" }}>Retido</th>
+                  <th style={{ textAlign: "right" }}>Líquido</th>
+                  <th>Situação</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((r) => (
+                  <tr key={r.id}>
+                    <td>{r.description.replace("Repasse Keeta ", "")}</td>
+                    <td>{dataBR(r.expectedDate)}</td>
+                    <td style={{ textAlign: "right" }}><Money value={r.grossAmount} /></td>
+                    <td style={{ textAlign: "right", color: MUTED }}><Money value={r.fees} /></td>
+                    <td style={{ textAlign: "right" }}><b><Money value={r.netAmount} /></b></td>
+                    <td>{r.status === "RECEIVED" ? "Recebido" : "A receber"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </Card>
+  );
+}
+
 export function DeliveryKeeta() {
   const monthOptions = useMemo(() => buildMonthOptions(), []);
   const [selectedMonth, setSelectedMonth] = useState<string>(monthOptions[0]?.value ?? "");
@@ -89,8 +140,9 @@ export function DeliveryKeeta() {
       <Alert tone="info" title="O faturamento da Keeta vem do portal">
         A Keeta não tem integração com o ERP: os valores abaixo foram importados do portal da
         plataforma, por data de conclusão do pedido, e cada mês foi conferido contra a fatura.
-        Por isso não há quebra por loja nem repasse individual — e o lançamento manual da Keeta
-        no "Fechar o dia" está desativado, para não somar duas vezes.
+        Por isso não há quebra por loja — e o lançamento manual da Keeta no "Fechar o dia" está
+        desativado, para não somar duas vezes. Os repasses semanais ficam logo abaixo e também em
+        Contas a receber.
       </Alert>
 
       <KeetaImportacao onImportado={() => setRecarga((n) => n + 1)} />
@@ -144,6 +196,8 @@ export function DeliveryKeeta() {
               </div>
             </div>
           </Card>
+
+          <RepassesKeeta settlements={resumo.settlements} mes={`${String(month).padStart(2, "0")}/${year}`} />
 
           <Card>
             <PanelEyebrow><CalendarDays size={14} style={{ verticalAlign: "-2px" }} /> Dia a dia</PanelEyebrow>

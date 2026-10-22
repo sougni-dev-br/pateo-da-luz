@@ -6863,6 +6863,17 @@ export type KeetaTotais = {
   netPercent: number;
 };
 
+export type KeetaRepasse = {
+  id: string;
+  description: string;
+  expectedDate: string;
+  receivedDate: string | null;
+  grossAmount: number;
+  fees: number;
+  netAmount: number;
+  status: string;
+};
+
 export type KeetaPeriodSummary = {
   period: { year: number; month: number };
   totals: KeetaTotais;
@@ -6874,6 +6885,10 @@ export type KeetaPeriodSummary = {
     deltaGross: Variacao;
     deltaNet: Variacao;
     deltaOrders: Variacao;
+  };
+  settlements: {
+    items: KeetaRepasse[];
+    totals: { received: number; pending: number; total: number; count: number };
   };
   semDados: boolean;
 };
