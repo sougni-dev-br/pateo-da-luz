@@ -22,6 +22,7 @@ import { seedTestMenu } from "./noventa-nove-test-menu.service.js";
 import { importarCardapios } from "./noventa-nove-menu.service.js";
 import { textoSeguro, handleWebhook, type WebhookEnvelope } from "./noventa-nove-webhook.service.js";
 import { getPainelDono } from "./noventa-nove-insights.service.js";
+import { RETRY_INTERATIVO } from "./noventa-nove-retry.js";
 
 // Router protegido — usado por telas do ERP com sessão de usuário.
 export const noventaNoveDeliveryRouter = Router();
@@ -158,7 +159,7 @@ noventaNoveDeliveryRouter.post("/sync", async (request, response) => {
   const now = new Date();
   const year = Number(request.body?.year) || now.getFullYear();
   const month = Number(request.body?.month) || (now.getMonth() + 1);
-  const result = await runSmartSyncGuarded(user.id ?? null, year, month);
+  const result = await runSmartSyncGuarded(user.id ?? null, year, month, RETRY_INTERATIVO);
   response.json(result);
 });
 
