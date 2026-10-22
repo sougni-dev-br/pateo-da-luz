@@ -2430,6 +2430,16 @@ export function getPurchases(filters?: PurchaseFilters) {
   return request<Purchase[]>(`/purchases${toQueryString(filters)}`);
 }
 
+/** Igual a getPurchases, mas diz se o backend cortou a lista no limite de segurança (cabeçalho X-Purchases-Truncado). */
+export async function getPurchasesComLimite(filters?: PurchaseFilters): Promise<{ compras: Purchase[]; truncado: boolean }> {
+  let truncado = false;
+  const compras = await request<Purchase[]>(`/purchases${toQueryString(filters)}`, undefined, REQUEST_TIMEOUT_MS, (response) => {
+    const valor = response.headers.get("X-Purchases-Truncado");
+    truncado = valor !== null && valor !== "0" && valor.toLowerCase() !== "false";
+  });
+  return { compras, truncado };
+}
+
 export function getPurchase(id: string) {
   return request<PurchaseDetail>(`/purchases/${id}`);
 }

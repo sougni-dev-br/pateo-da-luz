@@ -27,7 +27,7 @@ import {
   getPrecosNormais,
   getProducts,
   getPurchase,
-  getPurchases,
+  getPurchasesComLimite,
   getSmallExpenseReport,
   getSmallExpenseTypes,
   getSupplierCycles,
@@ -114,8 +114,6 @@ type InstallmentForm = {
 
 type PurchaseSortOption = OrdenacaoCompras;
 
-/** O backend devolve no máximo isto por consulta (purchase.routes.ts, `take`). */
-const LIMITE_LISTA_COMPRAS = 100;
 
 type ProductStep = "produtos" | "quantidades" | "valores" | "conferencia";
 
@@ -320,6 +318,8 @@ export function Purchases({ user }: { user: AppUser }) {
   const [filtrosAbertos, setFiltrosAbertos] = useState(false);
   const [faixa, setFaixa] = useState<FaixaVencimento>("todas");
   const loadSeq = useRef(0);
+  // O backend avisa por cabeçalho quando a lista passou do limite de segurança.
+  const [listaTruncada, setListaTruncada] = useState(false);
   const [mostrarEmbalagens, setMostrarEmbalagens] = useState(false);
   // Preco normal por unidade de contagem dos produtos da nota em edicao: avisa
   // pacote lancado como unidade antes de salvar.
@@ -393,14 +393,17 @@ export function Purchases({ user }: { user: AppUser }) {
     try {
       // Busca geral e forma de pagamento filtram na tela (NF, fornecedor e "contém", que o
       // servidor não entende); o servidor recebe só o que ele sabe filtrar.
-      const result = await getPurchases({
+      const result = await getPurchasesComLimite({
         supplierId: filters.supplierId,
         category: filters.category,
         showCancelled: filters.showCancelled ? "true" : "",
         startDate: period.startDate,
         endDate: period.endDate
       });
-      if (seq === loadSeq.current) setPurchases(result);
+      if (seq === loadSeq.current) {
+        setPurchases(result.compras);
+        setListaTruncada(result.truncado);
+      }
     } catch (loadError) {
       if (seq === loadSeq.current) setError(loadError instanceof Error ? loadError.message : "Erro ao carregar compras.");
     } finally {
@@ -761,7 +764,6 @@ export function Purchases({ user }: { user: AppUser }) {
     () => linhasVisiveis.reduce((soma, { compra }) => soma + (compra.status === "CANCELLED" ? 0 : Number(compra.totalAmount ?? 0)), 0),
     [linhasVisiveis]
   );
-  const listaTruncada = purchases.length >= LIMITE_LISTA_COMPRAS;
   const descricaoPeriodo = period.startDate && period.endDate
     ? `Compras de ${formatarChave(period.startDate)} a ${formatarChave(period.endDate)}`
     : "Todo o período";
@@ -1789,7 +1791,7 @@ export function Purchases({ user }: { user: AppUser }) {
 
         {!loading && !error && listaTruncada && (
           <Alert tone="warning" role="alert">
-            A lista mostra no máximo {LIMITE_LISTA_COMPRAS} compras, e os totais acima cobrem só elas. Reduza o período ou filtre por fornecedor para ver tudo.
+            A lista foi cortada no limite de segurança, e os totais acima cobrem só o que aparece. Reduza o período ou filtre por fornecedor para ver tudo.
           </Alert>
         )}
 
