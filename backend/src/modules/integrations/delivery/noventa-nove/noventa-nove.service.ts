@@ -368,7 +368,8 @@ async function readSummaryFromDb(store: NoventaNoveStoreView, year: number, mont
       totalFees: Number(row.totalFees),
       netAmount: Number(row.netAmount),
       paidAt: row.paidAt ? row.paidAt.toISOString().slice(0, 10) : null,
-      status: row.status
+      status: row.status,
+      storeLabel: store.nickname
     })),
     isMock: false
   };
