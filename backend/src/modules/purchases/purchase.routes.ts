@@ -2529,7 +2529,8 @@ purchaseRouter.put("/:id", async (request, response) => {
 
     await tx.purchaseItem.deleteMany({ where: { purchaseId: request.params.id } });
     await tx.paymentInstallment.deleteMany({ where: { purchaseId: request.params.id } });
-    await removeCardStatementItemsForPurchase(request.params.id, tx);
+    // A linha antiga some aqui; o cartao (fisico/virtual) dela precisa chegar ao sync abaixo.
+    const linhaRemovida = await removeCardStatementItemsForPurchase(request.params.id, tx);
 
     for (const item of validItems) {
       const created = await tx.purchaseItem.create({
@@ -2641,7 +2642,7 @@ purchaseRouter.put("/:id", async (request, response) => {
           numberOfInstallments,
           categoryName: firstItem?.rawCategory ?? null,
           notes: paymentMethodName ?? null,
-          cardFinalId: request.body.creditCardFinalId ? String(request.body.creditCardFinalId) : null
+          cardFinalId: request.body.creditCardFinalId ? String(request.body.creditCardFinalId) : linhaRemovida.cardFinalId
         });
       } else if (isSmallExpense) {
         await syncCardStatementItemForPurchase(tx, {
@@ -2651,6 +2652,7 @@ purchaseRouter.put("/:id", async (request, response) => {
           description: firstItem?.rawProductName || invoiceNumber || asNullableText(previousRecord.purchaseNumber) || "Pequeno gasto no cartao",
           supplierName,
           value: totalAmount,
+          cardFinalId: linhaRemovida.cardFinalId,
           categoryName: firstItem?.rawCategory ?? null,
           smallExpenseTypeId,
           responsibleName: effectiveSmallExpenseResponsible,

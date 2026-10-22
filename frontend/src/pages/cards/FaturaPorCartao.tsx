@@ -16,8 +16,8 @@ import "./cards-finais.css";
 type Props = {
   detalhe: CreditCardStatementDetail;
   podeEditar: boolean;
-  /** Define o cartão de uma ou mais linhas (null = voltar para "não definido"). */
-  onClassificar: (itemIds: string[], cardFinalId: string | null) => Promise<void>;
+  /** Define o cartão de uma ou mais linhas (null = voltar para "não definido"). Devolve false se falhou. */
+  onClassificar: (itemIds: string[], cardFinalId: string | null) => Promise<boolean>;
   /** Grava o total que o extrato traz para um cartão ("" apaga). */
   onTotalDoExtrato: (cardFinalId: string, valor: string) => Promise<boolean>;
   /** Marca várias linhas como conferidas (conciliação com o extrato colado). */
@@ -33,6 +33,11 @@ function totalDeclarado(detalhe: CreditCardStatementDetail, cardFinalId: string)
 export function FaturaPorCartao({ detalhe, podeEditar, onClassificar, onTotalDoExtrato, onConferirLinhas, acoes }: Props) {
   const finais: CreditCardFinal[] = (detalhe.creditCard.finais ?? []).filter((final) => final.isActive);
   const temFinais = finais.length > 0;
+  // Cartão inativado que já teve compras continua tendo a sua lista: senão as linhas dele somem da
+  // tela, mas seguem no total e no bloqueio por extrato.
+  const finaisInativosComLinhas = (detalhe.creditCard.finais ?? []).filter(
+    (final) => !final.isActive && detalhe.items.some((linha) => linha.cardFinalId === final.id)
+  );
   const [selecionadas, setSelecionadas] = useState<ReadonlySet<string>>(new Set());
   const [ocupado, setOcupado] = useState(false);
   const [rascunhos, setRascunhos] = useState<Record<string, string>>({});
@@ -46,6 +51,7 @@ export function FaturaPorCartao({ detalhe, podeEditar, onClassificar, onTotalDoE
   const visiveis = useMemo(() => buscarLinhas(detalhe.items, busca), [detalhe.items, busca]);
   const listaDe = (cardFinalId: string | null) =>
     ordenarLinhas(visiveis.filter((linha) => (linha.cardFinalId ?? null) === cardFinalId), ordem);
+  const visiveisIds = visiveis.map((linha) => linha.id);
   const semCartao = detalhe.items.filter((linha) => !linha.cardFinalId).length;
   const subtotais = detalhe.subtotaisPorCartao ?? [];
   const divergentes = new Map((detalhe.divergenciasPorCartao ?? []).map((d) => [d.cardFinalId, d]));
@@ -63,11 +69,14 @@ export function FaturaPorCartao({ detalhe, podeEditar, onClassificar, onTotalDoE
   }, [detalhe.items]);
 
   async function classificar(ids: string[], cardFinalId: string | null) {
-    if (ids.length === 0 || ocupado) return;
+    // Só as linhas que estão à vista: uma seleção escondida pela busca não vai junto.
+    const aVista = new Set(visiveisIds);
+    const alvo = ids.filter((id) => aVista.has(id));
+    if (alvo.length === 0 || ocupado) return;
     setOcupado(true);
     try {
-      await onClassificar(ids, cardFinalId);
-      setSelecionadas(new Set());
+      // Se falhou, a seleção fica: o dono não perde o trabalho de marcar várias linhas.
+      if (await onClassificar(alvo, cardFinalId)) setSelecionadas(new Set());
     } finally {
       setOcupado(false);
     }
@@ -190,7 +199,7 @@ export function FaturaPorCartao({ detalhe, podeEditar, onClassificar, onTotalDoE
           )}
 
           <div className="fatura-listas">
-            {finais.map((final) => {
+            {[...finais, ...finaisInativosComLinhas].map((final) => {
               const subtotal = subtotais.find((s) => s.cardFinalId === final.id);
               const declarado = totalDeclarado(detalhe, final.id);
               return (

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { History, Plus, Trash2 } from "lucide-react";
 import { getCardHistory, saveCard, type CardHistoryEntry, type CreditCard } from "../../api/client";
 import { Button, FormField, StatusBadge } from "../../design-system";
@@ -28,6 +28,9 @@ const novaChave = () => `novo-${++sequencia}`;
 
 export function CadastroDoCartao({ cartao, onFechar, onSalvo }: Props) {
   const [form, setForm] = useState<FormDoCartao>(() => formDoCartao(cartao));
+  const inicial = useRef(JSON.stringify(formDoCartao(cartao)));
+  const corpo = useRef<HTMLFormElement | null>(null);
+  const [erroDoHistorico, setErroDoHistorico] = useState(false);
   const [tentou, setTentou] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [erroDoServidor, setErroDoServidor] = useState("");
@@ -41,7 +44,7 @@ export function CadastroDoCartao({ cartao, onFechar, onSalvo }: Props) {
 
   useEffect(() => {
     if (!cartao || !historicoAberto || historico) return;
-    getCardHistory(cartao.id).then(setHistorico).catch(() => setHistorico([]));
+    getCardHistory(cartao.id).then(setHistorico).catch(() => setErroDoHistorico(true));
   }, [cartao, historicoAberto, historico]);
 
   function atualizarVirtual(chave: string, mudanca: Partial<VirtualDoForm>) {
@@ -51,10 +54,25 @@ export function CadastroDoCartao({ cartao, onFechar, onSalvo }: Props) {
     }));
   }
 
+  // Fechar sem querer (Esc, toque fora, X) não pode jogar fora um cadastro digitado.
+  function pedirParaFechar() {
+    if (salvando) return;
+    if (JSON.stringify(form) !== inicial.current && !window.confirm("Descartar as alterações deste cartão?")) return;
+    onFechar();
+  }
+
   async function salvar() {
     setTentou(true);
     setErroDoServidor("");
-    if (Object.keys(erros).length > 0) return;
+    if (Object.keys(erros).length > 0) {
+      // O botão Salvar fica sempre à vista; o campo com problema pode estar fora dela.
+      window.setTimeout(() => {
+        const invalido = corpo.current?.querySelector<HTMLElement>('[aria-invalid="true"]');
+        invalido?.focus();
+        invalido?.scrollIntoView({ block: "center", behavior: "smooth" });
+      }, 0);
+      return;
+    }
     setSalvando(true);
     try {
       const salvo = await saveCard(paraPayload(form));
@@ -69,12 +87,12 @@ export function CadastroDoCartao({ cartao, onFechar, onSalvo }: Props) {
   return (
     <Dialog
       open
-      onOpenChange={(aberto) => { if (!aberto) onFechar(); }}
+      onOpenChange={(aberto) => { if (!aberto) pedirParaFechar(); }}
       title={cartao ? "Editar cartão" : "Novo cartão"}
       description="A fatura do banco é uma só. Cadastre o cartão físico e, se houver, os cartões virtuais vinculados a ele."
       size="lg"
     >
-      <div className="cadastro-cartao">
+      <form className="cadastro-cartao" ref={corpo} noValidate onSubmit={(event) => { event.preventDefault(); void salvar(); }}>
         <section className="cadastro-cartao-secao" aria-labelledby="cc-identificacao">
           <h3 id="cc-identificacao"><span>1</span> Identificação</h3>
           <div className="cadastro-cartao-grade">
@@ -93,7 +111,7 @@ export function CadastroDoCartao({ cartao, onFechar, onSalvo }: Props) {
             <FormField label="Dia de fechamento" required hint="Compras feitas até este dia entram na fatura do mês." error={mostrar("closingDay")}>
               <input type="number" min={1} max={31} inputMode="numeric" value={form.closingDay} onChange={(event) => setForm({ ...form, closingDay: event.target.value })} />
             </FormField>
-            <FormField label="Dia de vencimento" required hint="Dia em que a fatura é paga, no mês seguinte ao fechamento." error={mostrar("dueDay")}>
+            <FormField label="Dia de vencimento" required hint="Dia em que a fatura é paga." error={mostrar("dueDay")}>
               <input type="number" min={1} max={31} inputMode="numeric" value={form.dueDay} onChange={(event) => setForm({ ...form, dueDay: event.target.value })} />
             </FormField>
           </div>
@@ -125,10 +143,10 @@ export function CadastroDoCartao({ cartao, onFechar, onSalvo }: Props) {
             {form.virtuais.length === 0 && <p className="cadastro-cartao-vazio">Nenhum cartão virtual cadastrado.</p>}
             {form.virtuais.map((virtual) => (
               <div key={virtual.key} className={`cadastro-cartao-virtual${virtual.isActive ? "" : " inativo"}`}>
-                <FormField label="Apelido (opcional)">
+                <FormField label="Apelido do cartão virtual (opcional)">
                   <input value={virtual.label} placeholder="Ex.: Compras online" disabled={!virtual.isActive} onChange={(event) => atualizarVirtual(virtual.key, { label: event.target.value })} />
                 </FormField>
-                <FormField label="4 últimos dígitos">
+                <FormField label="Cartão virtual: 4 últimos dígitos">
                   <input
                     className="cadastro-cartao-final"
                     value={virtual.last4Digits}
@@ -143,12 +161,12 @@ export function CadastroDoCartao({ cartao, onFechar, onSalvo }: Props) {
                   {virtual.id ? (
                     <>
                       {!virtual.isActive && <StatusBadge tone="neutral">Inativo</StatusBadge>}
-                      <Button variant="secondary" size="sm" onClick={() => atualizarVirtual(virtual.key, { isActive: !virtual.isActive })}>
+                      <Button variant="secondary" size="sm" aria-label={`${virtual.isActive ? "Inativar" : "Reativar"} o cartão virtual final ${virtual.last4Digits}`} onClick={() => atualizarVirtual(virtual.key, { isActive: !virtual.isActive })}>
                         {virtual.isActive ? "Inativar" : "Reativar"}
                       </Button>
                     </>
                   ) : (
-                    <Button variant="secondary" size="sm" leadingIcon={<Trash2 size={14} />} onClick={() => setForm({ ...form, virtuais: form.virtuais.filter((item) => item.key !== virtual.key) })}>
+                    <Button variant="secondary" size="sm" aria-label="Remover este cartão virtual novo" leadingIcon={<Trash2 size={14} />} onClick={() => setForm({ ...form, virtuais: form.virtuais.filter((item) => item.key !== virtual.key) })}>
                       Remover
                     </Button>
                   )}
@@ -189,7 +207,8 @@ export function CadastroDoCartao({ cartao, onFechar, onSalvo }: Props) {
               <History size={15} /> Histórico de alterações
             </button>
             {historicoAberto && (
-              historico === null ? <p className="cadastro-cartao-dica">Carregando…</p> : historico.length === 0 ? (
+              erroDoHistorico ? <p className="cadastro-cartao-erro" role="alert">Não foi possível carregar o histórico.</p>
+              : historico === null ? <p className="cadastro-cartao-dica">Carregando…</p> : historico.length === 0 ? (
                 <p className="cadastro-cartao-dica">Nenhuma alteração registrada ainda.</p>
               ) : (
                 <ol>
@@ -208,10 +227,10 @@ export function CadastroDoCartao({ cartao, onFechar, onSalvo }: Props) {
         {erroDoServidor && <p className="cadastro-cartao-erro" role="alert">{erroDoServidor}</p>}
 
         <div className="cadastro-cartao-rodape">
-          <Button variant="secondary" onClick={onFechar}>Cancelar</Button>
-          <Button onClick={() => void salvar()} disabled={salvando}>{salvando ? "Salvando…" : "Salvar cartão"}</Button>
+          <Button variant="secondary" onClick={pedirParaFechar}>Cancelar</Button>
+          <Button type="submit" disabled={salvando}>{salvando ? "Salvando…" : "Salvar cartão"}</Button>
         </div>
-      </div>
+      </form>
     </Dialog>
   );
 }

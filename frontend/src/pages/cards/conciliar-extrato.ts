@@ -30,7 +30,9 @@ export type ResultadoDaConciliacao<T extends ItemParaConciliar> = {
   soNoSistema: T[];
 };
 
-const VALOR_BR = /-?\s?(?:\d{1,3}(?:\.\d{3})+|\d+),\d{2}(?!\d)/g;
+// O sinal só vale colado ao número ("-50,00" ou "R$ -50,00"); um hífen solto entre a descrição e o
+// valor ("LOJA X - 320,00") é separador, não estorno.
+const VALOR_BR = /(^|\s)(-?)((?:\d{1,3}(?:\.\d{3})+|\d+),\d{2})(?!\d)/g;
 const DATA_INICIAL = /^\s*(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\s+/;
 const TOLERANCIA_EM_DIAS = 3;
 
@@ -43,13 +45,14 @@ export function lerExtrato(texto: string): LinhaDoExtrato[] {
   for (const bruta of texto.split(/\r?\n/)) {
     const limpa = bruta.replace(/R\$/g, "").trim();
     if (!limpa) continue;
-    const valores = limpa.match(VALOR_BR);
-    if (!valores) continue;
-    const ultimo = valores[valores.length - 1];
-    const valor = Number(ultimo.replace(/\s/g, "").replace(/\./g, "").replace(",", "."));
+    const valores = [...limpa.matchAll(VALOR_BR)];
+    if (valores.length === 0) continue;
+    const achado = valores[valores.length - 1];
+    const ultimo = `${achado[2]}${achado[3]}`;
+    const valor = Number(ultimo.replace(/\./g, "").replace(",", "."));
     const data = limpa.match(DATA_INICIAL);
     const semData = data ? limpa.slice(data[0].length) : limpa;
-    const descricao = semData.slice(0, semData.lastIndexOf(ultimo)).trim();
+    const descricao = semData.slice(0, semData.lastIndexOf(achado[3])).replace(/[-–—]?\s*$/, "").trim();
     linhas.push({
       texto: bruta.trim(),
       descricao,

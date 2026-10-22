@@ -1,6 +1,6 @@
 import { AlertTriangle, ArrowRightLeft, Check, CheckCircle2, Flag, Trash2 } from "lucide-react";
 import type { CreditCardFinal, CreditCardStatementDetail, DivergenciaDoCartao, SubtotalDoCartao } from "../../api/client";
-import { Money, RowMenu } from "../../design-system";
+import { Money, RowMenu, StatusBadge } from "../../design-system";
 import { formatDate } from "../../utils/format";
 import { rotuloDoFinal, tipoDoFinal } from "./cartoes-vinculados";
 import "./cards-finais.css";
@@ -57,6 +57,7 @@ export function ListaDoCartao(props: Props) {
           <h3>
             {lista_unica ? "Lançamentos da fatura" : final === null ? "Sem cartão definido" : `Cartão ${tipoDoFinal(final.kind).toLowerCase()}`}
             {final && <code>·· {final.last4Digits}</code>}
+            {final && !final.isActive && <StatusBadge tone="neutral">Inativo</StatusBadge>}
           </h3>
           <span>{linhas.length} {linhas.length === 1 ? "lançamento" : "lançamentos"}</span>
         </div>
@@ -93,7 +94,7 @@ export function ListaDoCartao(props: Props) {
         </div>
       )}
 
-      {editavel && linhas.length > 0 && (
+      {editavel && !props.semFinais && linhas.length > 0 && (
         <label className="fatura-lista-todas">
           <input
             type="checkbox"
@@ -126,7 +127,7 @@ export function ListaDoCartao(props: Props) {
             ];
             return (
               <li key={item.id} className={`fatura-lista-linha${props.selecionadas.has(item.id) ? " selecionada" : ""}`}>
-                {editavel && (
+                {editavel && !props.semFinais && (
                   <input
                     type="checkbox"
                     className="fatura-lista-check"
@@ -160,22 +161,23 @@ export function ListaDoCartao(props: Props) {
                       {tipoDoFinal(destino.kind)}
                     </button>
                   ))}
-                  {editavel && final && outros.length === 1 && (
+                  {editavel && final && (final.isActive ? outros.length === 1 : true) && outros.map((destino) => (
                     <button
+                      key={destino.id}
                       type="button"
                       className="fatura-lista-mover"
                       disabled={props.ocupado}
-                      title={`Passar para ${rotuloDoFinal(outros[0])}`}
-                      onClick={() => props.onClassificar([item.id], outros[0].id)}
+                      title={`Passar para ${rotuloDoFinal(destino)}`}
+                      onClick={() => props.onClassificar([item.id], destino.id)}
                     >
-                      <ArrowRightLeft size={13} /> {tipoDoFinal(outros[0].kind)}
+                      <ArrowRightLeft size={13} /> {tipoDoFinal(destino.kind)}
                     </button>
-                  )}
+                  ))}
                   <button
                     type="button"
                     className={`fatura-icone${item.checked ? " ligado" : ""}`}
                     aria-pressed={item.checked}
-                    aria-label={item.checked ? "Desmarcar como conferido" : "Marcar como conferido"}
+                    aria-label={`Conferido: ${item.description}`}
                     title={item.checked ? "Conferido (clique para desmarcar)" : "Marcar como conferido"}
                     disabled={!editavel}
                     onClick={() => props.acoes.onConferida(item)}
@@ -186,7 +188,7 @@ export function ListaDoCartao(props: Props) {
                     type="button"
                     className={`fatura-icone alerta${item.hasDivergence ? " ligado" : ""}`}
                     aria-pressed={item.hasDivergence}
-                    aria-label={item.hasDivergence ? "Remover divergência" : "Marcar divergência"}
+                    aria-label={`Divergência: ${item.description}`}
                     title={item.hasDivergence ? "Com divergência (clique para remover)" : "Marcar divergência com o extrato"}
                     disabled={!editavel}
                     onClick={() => props.acoes.onDivergencia(item)}
