@@ -24,7 +24,7 @@ import {
   setStatementItemsFinal
 } from "../api/client";
 import { CartoesCadastrados } from "./cards/CartoesCadastrados";
-import { CartoesVinculadosEditor } from "./cards/CartoesVinculadosEditor";
+import { CadastroDoCartao } from "./cards/CadastroDoCartao";
 import { ListaDeFaturas } from "./cards/ListaDeFaturas";
 import { ResumoDosCartoes } from "./cards/ResumoDosCartoes";
 import { resumoDasFaturas, vencimentoRelativo } from "./cards/resumo-de-faturas";
@@ -49,7 +49,6 @@ import { hojeLocalIso } from "../lib/datas";
 
 type CardsProps = { user: AppUser };
 
-const emptyCard = { id: "", name: "", bankName: "", last4Digits: "", closingDay: 1, dueDay: 1, notes: "", isActive: true };
 
 function todayDate() {
   return hojeLocalIso();
@@ -79,8 +78,8 @@ export function Cards({ user }: CardsProps) {
   const [statementDetail, setStatementDetail] = useState<CreditCardStatementDetail | null>(null);
   const [statementFilters, setStatementFilters] = useState({ creditCardId: "", status: "" });
   const [period, setPeriod] = useState(periodForPreset("currentYear"));
-  const [cardForm, setCardForm] = useState(emptyCard);
-  const [cardEditorOpen, setCardEditorOpen] = useState(false);
+  // "novo" = cadastro em branco; um cartão = edição dele; null = fechado.
+  const [cartaoEmEdicao, setCartaoEmEdicao] = useState<CreditCard | "novo" | null>(null);
   const [statementEditorOpen, setStatementEditorOpen] = useState(false);
   const [statementForm, setStatementForm] = useState({
     id: "",
@@ -130,15 +129,8 @@ export function Cards({ user }: CardsProps) {
 
   const resumo = useMemo(() => resumoDasFaturas(statements), [statements]);
 
-  function resetCardEditor() {
-    setCardForm(emptyCard);
-    setCardEditorOpen(false);
-  }
-
   function openCardEditor(card?: CreditCard) {
-    if (card) setCardForm({ ...card, notes: card.notes ?? "" });
-    else setCardForm(emptyCard);
-    setCardEditorOpen(true);
+    setCartaoEmEdicao(card ?? "novo");
   }
 
   function openStatementEditor() {
@@ -153,29 +145,6 @@ export function Cards({ user }: CardsProps) {
       notes: ""
     });
     setStatementEditorOpen(true);
-  }
-
-  async function submitCard() {
-    if (!cardForm.name.trim() || !cardForm.bankName.trim() || !cardForm.last4Digits.trim()) return;
-    const salvo = await saveCard({
-      id: cardForm.id,
-      name: cardForm.name,
-      bankName: cardForm.bankName,
-      last4Digits: cardForm.last4Digits,
-      notes: cardForm.notes,
-      isActive: cardForm.isActive,
-      closingDay: Number(cardForm.closingDay),
-      dueDay: Number(cardForm.dueDay)
-    });
-    if (cardForm.id) {
-      setNotice({ tone: "success", message: "Cartão atualizado com sucesso." });
-      resetCardEditor();
-    } else {
-      // Segue no editor, já na conta criada, para cadastrar o físico e o virtual.
-      setCardForm({ ...emptyCard, ...salvo, notes: salvo.notes ?? "" });
-      setNotice({ tone: "success", message: "Cartão criado. Cadastre abaixo os cartões da conta (físico e virtual), se houver." });
-    }
-    await load();
   }
 
   async function toggleCard(card: CreditCard) {
@@ -511,69 +480,16 @@ export function Cards({ user }: CardsProps) {
         </>
       )}
 
-      {cardEditorOpen && canManage && (
-        <div className="modal-backdrop">
-          <section className="panel modal-panel cards-editor-modal">
-            <div className="section-heading">
-              <div>
-                <p>Cadastro financeiro</p>
-                <h2>{cardForm.id ? "Editar cartão" : "Novo cartão"}</h2>
-              </div>
-              <button className="secondary-button" type="button" onClick={resetCardEditor}>
-                <X size={16} /> Fechar
-              </button>
-            </div>
-
-            <div className="form-grid">
-              <label>
-                Nome do cartão
-                <input value={cardForm.name} onChange={(event) => setCardForm({ ...cardForm, name: event.target.value })} />
-              </label>
-              <label>
-                Banco / Instituição
-                <input value={cardForm.bankName} onChange={(event) => setCardForm({ ...cardForm, bankName: event.target.value })} />
-              </label>
-              <label>
-                Últimos 4 dígitos
-                <input value={cardForm.last4Digits} onChange={(event) => setCardForm({ ...cardForm, last4Digits: event.target.value })} />
-              </label>
-              <label>
-                Dia de fechamento
-                <input type="number" min="1" max="31" value={cardForm.closingDay} onChange={(event) => setCardForm({ ...cardForm, closingDay: Number(event.target.value) })} />
-              </label>
-              <label>
-                Dia de vencimento
-                <input type="number" min="1" max="31" value={cardForm.dueDay} onChange={(event) => setCardForm({ ...cardForm, dueDay: Number(event.target.value) })} />
-              </label>
-              <label className="full-width">
-                Observações
-                <input value={cardForm.notes} onChange={(event) => setCardForm({ ...cardForm, notes: event.target.value })} />
-              </label>
-              <label className="checkbox-label checkbox-card-field">
-                <input type="checkbox" checked={cardForm.isActive} onChange={(event) => setCardForm({ ...cardForm, isActive: event.target.checked })} />
-                Cartão ativo para novas faturas
-              </label>
-            </div>
-
-            {cardForm.id ? (
-              <CartoesVinculadosEditor
-                cardId={cardForm.id}
-                finais={cards.find((card) => card.id === cardForm.id)?.finais ?? []}
-                onChanged={load}
-                onError={(message) => setNotice({ tone: "error", message })}
-              />
-            ) : (
-              <p className="text-muted">Salve o cartão primeiro; em seguida você cadastra o físico e o virtual desta conta.</p>
-            )}
-
-            <div className="form-actions">
-              <button className="secondary-button" type="button" onClick={resetCardEditor}>{cardForm.id ? "Fechar" : "Cancelar"}</button>
-              <button className="primary-button" type="button" onClick={submitCard}>
-                <Save size={16} /> Salvar cartão
-              </button>
-            </div>
-          </section>
-        </div>
+      {cartaoEmEdicao && canManage && (
+        <CadastroDoCartao
+          cartao={cartaoEmEdicao === "novo" ? undefined : cartaoEmEdicao}
+          onFechar={() => setCartaoEmEdicao(null)}
+          onSalvo={(salvo, novo) => {
+            setCartaoEmEdicao(null);
+            setNotice({ tone: "success", message: novo ? `Cartão ${salvo.name} criado.` : `Cartão ${salvo.name} atualizado.` });
+            void load();
+          }}
+        />
       )}
 
       {statementDetail && (

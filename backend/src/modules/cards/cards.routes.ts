@@ -17,6 +17,8 @@ import {
 } from "./cards.service.js";
 import { normalizeText } from "../../shared/utils/normalize-text.js";
 import { divergenciasDeExtrato, subtotaisPorFinal } from "./finais-da-fatura.js";
+import { validarFinais, type FinalEntrada } from "./cadastro-do-cartao.js";
+import { resumirAlteracao, type CartaoSnapshot } from "./historico-do-cartao.js";
 
 export const cardsRouter = Router();
 
@@ -163,51 +165,92 @@ cardsRouter.get("/", async (request, response) => {
   response.json(cards);
 });
 
+const COM_FINAIS = { finais: { orderBy: { createdAt: "asc" as const } } };
+
+async function gravarFinais(tx: Prisma.TransactionClient, cardId: string, finais: FinalEntrada[]) {
+  for (const final of finais) {
+    const dados = { label: final.label, last4Digits: final.last4Digits, kind: final.kind, isActive: final.isActive };
+    if (final.id) await tx.creditCardFinal.update({ where: { id: final.id }, data: dados });
+    else await tx.creditCardFinal.create({ data: { creditCardId: cardId, ...dados } });
+  }
+}
+
+// Cadastro da conta junto com os cartoes dela (fisico e virtuais): tudo numa transacao, com o
+// antes e o depois no log. Sem "finais" no corpo, segue o comportamento antigo (so a conta).
 cardsRouter.post("/", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
 
   const name = String(request.body.name ?? "").trim();
   const bankName = String(request.body.bankName ?? "").trim();
-  const last4Digits = String(request.body.last4Digits ?? "").trim();
   const closingDay = Math.max(1, Math.min(31, Number(request.body.closingDay ?? 1)));
   const dueDay = Math.max(1, Math.min(31, Number(request.body.dueDay ?? 1)));
 
+  let finais: FinalEntrada[] | null = null;
+  if (request.body.finais !== undefined) {
+    const validacao = validarFinais(request.body.finais);
+    if ("erro" in validacao) {
+      response.status(400).json({ message: validacao.erro });
+      return;
+    }
+    finais = validacao.finais;
+  }
+
+  const fisicoAtivo = finais?.find((final) => final.kind === "PHYSICAL" && final.isActive);
+  const last4Digits = fisicoAtivo?.last4Digits ?? String(request.body.last4Digits ?? "").trim();
   if (!name || !bankName || !last4Digits) {
-    response.status(400).json({ message: "Nome, banco e ultimos 4 digitos sao obrigatorios." });
+    response.status(400).json({ message: "Nome, banco e os 4 ultimos digitos do cartao fisico sao obrigatorios." });
     return;
   }
 
-  const previous = request.body.id ? await prisma.creditCard.findUnique({ where: { id: String(request.body.id) } }) : null;
-  const card = request.body.id
-    ? await prisma.creditCard.update({
-        where: { id: String(request.body.id) },
-        data: {
-          name,
-          bankName,
-          last4Digits,
-          closingDay,
-          dueDay,
-          notes: request.body.notes || null,
-          isActive: request.body.isActive ?? true
-        }
-      })
-    : await prisma.creditCard.create({
-        data: {
-          id: crypto.randomUUID(),
-          name,
-          bankName,
-          last4Digits,
-          closingDay,
-          dueDay,
-          notes: request.body.notes || null,
-          isActive: request.body.isActive ?? true
-        }
-      });
+  const id = request.body.id ? String(request.body.id) : null;
+  const previous = id ? await prisma.creditCard.findUnique({ where: { id }, include: COM_FINAIS }) : null;
+  if (id && !previous) {
+    response.status(404).json({ message: "Cartao nao encontrado." });
+    return;
+  }
+  if (finais && previous) {
+    const dessaConta = new Set(previous.finais.map((final) => final.id));
+    if (finais.some((final) => final.id && !dessaConta.has(final.id))) {
+      response.status(400).json({ message: "Um dos cartoes informados nao pertence a esta conta." });
+      return;
+    }
+  }
+
+  const dadosDaConta = {
+    name,
+    bankName,
+    last4Digits,
+    closingDay,
+    dueDay,
+    notes: request.body.notes || null,
+    isActive: request.body.isActive ?? true
+  };
+
+  let card;
+  try {
+    card = await prisma.$transaction(async (tx) => {
+      const salvo = id
+        ? await tx.creditCard.update({ where: { id }, data: dadosDaConta })
+        : await tx.creditCard.create({ data: { id: crypto.randomUUID(), ...dadosDaConta } });
+      if (finais) await gravarFinais(tx, salvo.id, finais);
+      return tx.creditCard.findUnique({ where: { id: salvo.id }, include: COM_FINAIS });
+    });
+  } catch (error) {
+    if ((error as { code?: string })?.code === "P2002") {
+      response.status(409).json({ message: "Ja existe um cartao com esse final nesta conta." });
+      return;
+    }
+    throw error;
+  }
+  if (!card) {
+    response.status(500).json({ message: "Nao foi possivel salvar o cartao." });
+    return;
+  }
 
   await auditLog({
     userId: user.id,
-    action: request.body.id ? "UPDATE_CREDIT_CARD" : "CREATE_CREDIT_CARD",
+    action: id ? "UPDATE_CREDIT_CARD" : "CREATE_CREDIT_CARD",
     entity: "CreditCard",
     entityId: card.id,
     previousValue: previous,
@@ -216,7 +259,49 @@ cardsRouter.post("/", async (request, response) => {
     userAgent: String(request.headers["user-agent"] ?? "")
   });
 
-  response.status(request.body.id ? 200 : 201).json(card);
+  response.status(id ? 200 : 201).json(card);
+});
+
+// Historico de alteracoes do cadastro (conta e cartoes dela), lido do log de auditoria.
+cardsRouter.get("/:id/historico", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "VISUALIZACAO"]);
+  if (!user) return;
+
+  const finais = await prisma.creditCardFinal.findMany({ where: { creditCardId: request.params.id }, select: { id: true } });
+  const registros = await prisma.auditLog.findMany({
+    where: {
+      OR: [
+        { entity: "CreditCard", entityId: request.params.id },
+        ...(finais.length > 0 ? [{ entity: "CreditCardFinal", entityId: { in: finais.map((final) => final.id) } }] : [])
+      ]
+    },
+    orderBy: { createdAt: "desc" },
+    take: 50
+  });
+  const usuarios = await prisma.user.findMany({
+    where: { id: { in: [...new Set(registros.map((registro) => registro.userId).filter((id): id is string => Boolean(id)))] } },
+    select: { id: true, name: true }
+  });
+  const nomes = new Map(usuarios.map((usuario) => [usuario.id, usuario.name]));
+
+  response.json(
+    registros.map((registro) => {
+      const antes = registro.previousValue as CartaoSnapshot | null;
+      const depois = registro.newValue as CartaoSnapshot | null;
+      const resumo = registro.entity === "CreditCardFinal"
+        ? resumirAlteracao(
+            { finais: antes ? [antes as never] : [] },
+            { finais: depois ? [depois as never] : [] }
+          )
+        : resumirAlteracao(antes, depois);
+      return {
+        id: registro.id,
+        createdAt: registro.createdAt,
+        usuario: registro.userId ? nomes.get(registro.userId) ?? "Usuário removido" : "Sistema",
+        resumo: resumo.length > 0 ? resumo : ["Salvo sem alterações"]
+      };
+    })
+  );
 });
 
 // Sugestao para o lancamento da compra: o cartao (fisico/virtual) que a ultima compra

@@ -2932,12 +2932,30 @@ export function getCards(search?: string) {
   return request<CreditCard[]>(`/cards${toQueryString({ search })}`);
 }
 
-export function saveCard(payload: Partial<CreditCard> & { name: string; bankName: string; last4Digits: string; closingDay: number; dueDay: number }) {
+export type SaveCardPayload = {
+  id?: string;
+  name: string;
+  bankName: string;
+  closingDay: number;
+  dueDay: number;
+  notes?: string;
+  isActive?: boolean;
+  last4Digits?: string;
+  finais?: Array<{ id?: string; label: string; last4Digits: string; kind: "PHYSICAL" | "VIRTUAL"; isActive: boolean }>;
+};
+
+export type CardHistoryEntry = { id: string; createdAt: string; usuario: string; resumo: string[] };
+
+export function saveCard(payload: SaveCardPayload) {
   return request<CreditCard>("/cards", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
   });
+}
+
+export function getCardHistory(cardId: string) {
+  return request<CardHistoryEntry[]>(`/cards/${cardId}/historico`);
 }
 
 export function saveCardFinal(
