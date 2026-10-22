@@ -25,9 +25,12 @@ export type PendenciaDoFechamento = {
 
 /** Pendências que saem por conferência registrada, não por justificativa de ausência. */
 const CHAVES_DE_CONFERENCIA = new Set(["block:eventRevenue"]);
+// O faturamento de cada plataforma de delivery (iFood, 99 Food, Keeta) é conferido
+// todo mês contra o relatório dela, mesmo com o mês inteiro lançado.
+const PREFIXOS_DE_CONFERENCIA = ["delivery:"];
 
 export function ehConferencia(key: string): boolean {
-  return CHAVES_DE_CONFERENCIA.has(key);
+  return CHAVES_DE_CONFERENCIA.has(key) || PREFIXOS_DE_CONFERENCIA.some((p) => key.startsWith(p));
 }
 
 export type NaturezaDaPendencia = "AGUARDANDO" | "ATENCAO";
