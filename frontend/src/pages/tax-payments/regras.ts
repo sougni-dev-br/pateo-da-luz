@@ -88,13 +88,13 @@ export function composicaoAPagar(aPagar: APagar): { total: number; qtd: number; 
 }
 
 // ─── cobertura: quais competências já têm guia ──────────────────────────────────
-export type LinhaCobertura = { mes: string; grupo: string; qtd: number; pagas: number; vencidas: number; valor: number };
+export type LinhaCobertura = { mes: string; grupo: string; categoriaId?: string | null; qtd: number; pagas: number; vencidas: number; valor: number };
 
 export type EstadoCelula = "pago" | "aberto" | "vencido" | "vazio";
 
 export type CelulaGrade = { mes: string; estado: EstadoCelula; qtd: number; valor: number; lacuna: boolean };
 
-export type LinhaGrade = { grupo: string; celulas: CelulaGrade[]; mensal: boolean };
+export type LinhaGrade = { grupo: string; categoriaId: string | null; celulas: CelulaGrade[]; mensal: boolean };
 
 // Ordem em que o dono pensa nos impostos; o resto vem em ordem alfabética.
 const ORDEM_GRUPOS = ["Simples Nacional", "FGTS", "INSS", "IRRF / DARF", "GARE / ICMS", "IPTU"];
@@ -130,7 +130,7 @@ export function montarGrade(cobertura: LinhaCobertura[], meses: string[], hoje: 
       const estado: EstadoCelula = c.vencidas > 0 ? "vencido" : c.pagas < c.qtd ? "aberto" : "pago";
       return { mes, estado, qtd: c.qtd, valor: c.valor, lacuna: false };
     });
-    return { grupo, celulas, mensal };
+    return { grupo, categoriaId: doGrupo.find((c) => c.categoriaId)?.categoriaId ?? null, celulas, mensal };
   });
 }
 

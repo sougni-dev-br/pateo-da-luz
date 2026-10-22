@@ -97,7 +97,7 @@ describe("ResumoImpostos", () => {
     hoje, situacoes: { todas: 0, vencidas: 0, aVencer: 0, pagas: 0, canceladas: 0 },
     aPagar: { vencido: z, ate7: z, ate30: z, depois: z }, meses: ["2026-08", "2026-09", "2026-10"], cobertura: [], semCompetencia: 0,
   };
-  const props = { podeLancar: true, onLancar: vi.fn(), onVerSituacao: vi.fn(), onVerMes: vi.fn() };
+  const props = { podeLancar: true, onLancar: vi.fn(), onVerSituacao: vi.fn(), onVerMes: vi.fn(), onVerSemCompetencia: vi.fn() };
 
   test("nada pendente: diz que está tudo em dia", () => {
     render(<ResumoImpostos panorama={base} {...props} />);
@@ -126,11 +126,25 @@ describe("ResumoImpostos", () => {
     expect(props.onLancar).toHaveBeenCalledWith({ tipo: "FGTS", mes: "2026-08" });
   });
 
-  test("clicar numa célula pede a lista daquele mês", () => {
-    const cobertura = [{ mes: "2026-09", grupo: "FGTS", qtd: 1, pagas: 1, vencidas: 0, valor: 100 }];
+  test("clicar numa célula pede a lista daquele mês e daquele imposto; o cabeçalho do mês, todas as guias", () => {
+    const cobertura = [{ mes: "2026-09", grupo: "FGTS", categoriaId: "cat-fgts", qtd: 1, pagas: 1, vencidas: 0, valor: 100 }];
     render(<ResumoImpostos panorama={{ ...base, cobertura }} {...props} />);
     fireEvent.click(screen.getByRole("button", { name: "FGTS, set/26: 1 guia, pago" }));
-    expect(props.onVerMes).toHaveBeenCalledWith("2026-09");
+    expect(props.onVerMes).toHaveBeenCalledWith("2026-09", { id: "cat-fgts", nome: "FGTS" });
+    fireEvent.click(screen.getByRole("button", { name: "Ver guias de set/26" }));
+    expect(props.onVerMes).toHaveBeenLastCalledWith("2026-09");
+  });
+
+  test("a célula com uma única guia mostra o número 1 (não parece 'sem guia')", () => {
+    const cobertura = [{ mes: "2026-09", grupo: "FGTS", categoriaId: "cat-fgts", qtd: 1, pagas: 1, vencidas: 0, valor: 100 }];
+    render(<ResumoImpostos panorama={{ ...base, cobertura }} {...props} />);
+    expect(screen.getByRole("button", { name: "FGTS, set/26: 1 guia, pago" }).textContent).toBe("1");
+  });
+
+  test("o alerta de guias sem competência leva à lista delas", () => {
+    render(<ResumoImpostos panorama={{ ...base, semCompetencia: 5 }} {...props} />);
+    fireEvent.click(screen.getByRole("button", { name: "Ver essas guias" }));
+    expect(props.onVerSemCompetencia).toHaveBeenCalled();
   });
 });
 

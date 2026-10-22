@@ -618,6 +618,16 @@ describe("lista e totais da tela de impostos", () => {
     expect(db.taxPayment.findFirst).not.toHaveBeenCalled();
   });
 
+  test("withoutCompetence=true lista só as guias sem competência; sem o parâmetro, não filtra", async () => {
+    await request(app).get("/tax-payments").query({ withoutCompetence: "true" });
+    const com = consultas().find((q: string) => q.includes("ORDER BY")) as string;
+    expect(com).toContain('tp."competenceDate" IS NULL');
+    db.$queryRawUnsafe.mockClear();
+    await request(app).get("/tax-payments");
+    const sem = consultas().find((q: string) => q.includes("ORDER BY")) as string;
+    expect(sem).not.toContain('tp."competenceDate" IS NULL');
+  });
+
   test("filtro Cancelado continua pelo status gravado", async () => {
     await request(app).get("/tax-payments").query({ status: "CANCELED" });
     const lista = consultas().find((q: string) => q.includes("ORDER BY")) as string;

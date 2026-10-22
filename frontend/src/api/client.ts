@@ -5619,6 +5619,8 @@ export type TaxPaymentFilters = {
   paymentEnd?: string;
   search?: string;
   dreCategoryId?: string;
+  /** "true": só as guias sem competência (ficam fora do DRE). */
+  withoutCompetence?: string;
   page?: number;
   pageSize?: number;
 };
@@ -5634,7 +5636,7 @@ export type TaxPanorama = {
     depois: { qtd: number; valor: number };
   };
   meses: string[];
-  cobertura: Array<{ mes: string; grupo: string; qtd: number; pagas: number; vencidas: number; valor: number }>;
+  cobertura: Array<{ mes: string; grupo: string; categoriaId?: string | null; qtd: number; pagas: number; vencidas: number; valor: number }>;
   semCompetencia: number;
 };
 

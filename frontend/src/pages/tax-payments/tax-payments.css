@@ -151,6 +151,7 @@
 .ip-pilula:hover { border-color: var(--line-strong); background: var(--paper-soft); }
 .ip-pilula:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .ip-pilula[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.ip-pilula--aviso:not([aria-pressed="true"]) .ip-pilula-qtd { background: var(--tint-warning, var(--paper-soft)); color: var(--warning, var(--ink-soft)); }
 .ip-pilula--danger:not([aria-pressed="true"]) .ip-pilula-qtd { background: var(--tint-danger); color: var(--danger); }
 .ip-pilula-qtd {
   min-width: 22px; padding: 1px 7px; border-radius: var(--radius-pill);

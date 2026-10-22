@@ -14,7 +14,7 @@ export type PanoramaImpostos = {
     depois: { qtd: number; valor: number };
   };
   meses: string[];
-  cobertura: Array<{ mes: string; grupo: string; qtd: number; pagas: number; vencidas: number; valor: number }>;
+  cobertura: Array<{ mes: string; grupo: string; categoriaId: string | null; qtd: number; pagas: number; vencidas: number; valor: number }>;
   semCompetencia: number;
 };
 
@@ -35,7 +35,7 @@ type LinhaSituacao = {
   v_qtd: number; v_valor: string; s7_qtd: number; s7_valor: string; s30_qtd: number; s30_valor: string; d_qtd: number; d_valor: string;
 };
 
-type LinhaCobertura = { mes: string; grupo: string; qtd: number; pagas: number; vencidas: number; valor: string };
+type LinhaCobertura = { mes: string; grupo: string; categoriaId: string | null; qtd: number; pagas: number; vencidas: number; valor: string };
 
 export async function montarPanorama(agora: Date = new Date()): Promise<PanoramaImpostos> {
   // hoje e primeiroMes vêm de Intl/aritmética (só dígitos), por isso podem ser interpolados.
@@ -67,6 +67,7 @@ export async function montarPanorama(agora: Date = new Date()): Promise<Panorama
       SELECT
         to_char(date_trunc('month', tp."competenceDate"), 'YYYY-MM') AS "mes",
         COALESCE(dc."name", 'Sem categoria') AS "grupo",
+        tp."dreCategoryId" AS "categoriaId",
         COUNT(*)::int AS "qtd",
         COUNT(*) FILTER (WHERE tp."paymentDate" IS NOT NULL)::int AS "pagas",
         COUNT(*) FILTER (WHERE tp."paymentDate" IS NULL AND tp."dueDate" < ${T})::int AS "vencidas",
@@ -76,7 +77,7 @@ export async function montarPanorama(agora: Date = new Date()): Promise<Panorama
       WHERE tp."deletedAt" IS NULL AND tp."status" <> 'CANCELED'
         AND tp."competenceDate" >= '${primeiroMes}'::timestamp
         AND tp."competenceDate" < date_trunc('month', ${T}) + interval '1 month'
-      GROUP BY 1, 2
+      GROUP BY 1, 2, 3
       ORDER BY 2, 1
     `),
     prisma.$queryRawUnsafe<Array<{ total: number }>>(`

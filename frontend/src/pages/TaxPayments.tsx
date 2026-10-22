@@ -2,8 +2,8 @@ import { CheckCircle2, Plus, Search, Upload, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  type AppUser, type TaxPanorama, type TaxPayment, type TaxPaymentFilters,
-  deleteTaxPayment, getTaxPanorama, getTaxPayments,
+  type AppUser, type Company, type TaxPanorama, type TaxPayment, type TaxPaymentFilters,
+  deleteTaxPayment, getCompanies, getTaxPanorama, getTaxPayments,
 } from "../api/client";
 import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { Notice, useNotice } from "../components/Notice";
@@ -51,6 +51,11 @@ export function TaxPayments({ user }: Props) {
   const [buscaAplicada, setBuscaAplicada] = useState("");
   const [tipo, setTipo] = useState("");
   const [mes, setMes] = useState("");
+  // Vindo de uma célula da grade: o imposto (categoria do DRE) daquele mês.
+  const [categoria, setCategoria] = useState<{ id: string; nome: string } | null>(null);
+  const [semCompetencia, setSemCompetencia] = useState(false);
+  const [empresaId, setEmpresaId] = useState("");
+  const [empresas, setEmpresas] = useState<Company[]>([]);
   const [pagina, setPagina] = useState(1);
 
   const [janela, setJanela] = useState<JanelaAberta>(null);
@@ -60,15 +65,21 @@ export function TaxPayments({ user }: Props) {
 
   const hoje = panorama?.hoje ?? hojeIso();
 
+  // Quem lança guia nem sempre pode ver Empresas: sem a lista, o filtro por empresa não aparece.
+  useEffect(() => { getCompanies().then(setEmpresas).catch(() => setEmpresas([])); }, []);
+
   const filtros = useMemo<TaxPaymentFilters>(() => ({
     status: situacao || undefined,
     search: buscaAplicada || undefined,
     documentType: tipo || undefined,
-    competenceStart: mes ? competenciaDoMes(mes) : undefined,
-    competenceEnd: mes ? ultimoDiaDoMes(mes) : undefined,
+    competenceStart: mes && !semCompetencia ? competenciaDoMes(mes) : undefined,
+    competenceEnd: mes && !semCompetencia ? ultimoDiaDoMes(mes) : undefined,
+    withoutCompetence: semCompetencia ? "true" : undefined,
+    dreCategoryId: categoria?.id,
+    companyId: empresaId || undefined,
     page: pagina,
     pageSize: TAMANHO_PAGINA,
-  }), [situacao, buscaAplicada, tipo, mes, pagina]);
+  }), [situacao, buscaAplicada, tipo, mes, categoria, semCompetencia, empresaId, pagina]);
 
   // Só a resposta do último pedido vale: clicar rápido em duas pílulas não pode deixar a lista da primeira.
   const pedidoPanorama = useRef(0);
@@ -138,23 +149,38 @@ export function TaxPayments({ user }: Props) {
     }
   }
 
-  function filtrar(proximo: Partial<{ situacao: Situacao; tipo: string; mes: string }>) {
+  function filtrar(proximo: Partial<{ situacao: Situacao; tipo: string; mes: string; empresa: string }>) {
     if (proximo.situacao !== undefined) setSituacao(proximo.situacao);
     if (proximo.tipo !== undefined) setTipo(proximo.tipo);
-    if (proximo.mes !== undefined) setMes(proximo.mes);
+    if (proximo.mes !== undefined) { setMes(proximo.mes); setSemCompetencia(false); }
+    if (proximo.empresa !== undefined) setEmpresaId(proximo.empresa);
     setPagina(1);
   }
 
   function limparFiltros() {
-    setSituacao(""); setBusca(""); setBuscaAplicada(""); setTipo(""); setMes(""); setPagina(1);
+    setSituacao(""); setBusca(""); setBuscaAplicada(""); setTipo(""); setMes(""); setCategoria(null); setSemCompetencia(false); setEmpresaId(""); setPagina(1);
   }
 
-  function verMes(m: string) {
-    filtrar({ mes: m, situacao: "" });
+  function verMes(m: string, cat?: { id: string; nome: string }) {
+    filtrar({ mes: m, situacao: "", tipo: "" });
+    setCategoria(cat ?? null);
     topoDaLista.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
-  const filtrando = Boolean(situacao || buscaAplicada || tipo || mes);
+  // Guias sem competência: ficam fora do DRE e não aparecem em nenhum mês da grade.
+  function alternarSemCompetencia(ligar: boolean) {
+    setSemCompetencia(ligar);
+    if (ligar) { setMes(""); setCategoria(null); }
+    setPagina(1);
+  }
+
+  function verSemCompetencia() {
+    limparFiltros();
+    alternarSemCompetencia(true);
+    topoDaLista.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  const filtrando = Boolean(situacao || buscaAplicada || tipo || mes || categoria || semCompetencia || empresaId);
   const contagens = panorama?.situacoes;
   const PILULAS: Array<{ valor: Situacao; rotulo: string; qtd: number | undefined; tom?: string }> = [
     { valor: "", rotulo: "Todas", qtd: contagens?.todas },
@@ -201,6 +227,7 @@ export function TaxPayments({ user }: Props) {
           onLancar={(inicial) => setJanela({ tipo: "guia", editId: null, duplicarDe: null, inicial })}
           onVerSituacao={(s) => { filtrar({ situacao: s }); topoDaLista.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }}
           onVerMes={verMes}
+          onVerSemCompetencia={verSemCompetencia}
         />
       )}
 
@@ -218,6 +245,18 @@ export function TaxPayments({ user }: Props) {
               {p.qtd != null && <span className="ip-pilula-qtd">{p.qtd}</span>}
             </button>
           ))}
+          {((panorama?.semCompetencia ?? 0) > 0 || semCompetencia) && (
+            <button
+              type="button"
+              className="ip-pilula ip-pilula--aviso"
+              aria-pressed={semCompetencia}
+              title="Guias sem competência ficam fora do DRE"
+              onClick={() => alternarSemCompetencia(!semCompetencia)}
+            >
+              Sem competência
+              <span className="ip-pilula-qtd">{panorama?.semCompetencia ?? 0}</span>
+            </button>
+          )}
         </div>
 
         <div className="ip-filtros">
@@ -238,13 +277,27 @@ export function TaxPayments({ user }: Props) {
             onChange={(e) => filtrar({ tipo: e.target.value })}
             options={TIPOS_DE_GUIA.map((t) => ({ value: t, label: t }))}
           />
-          <TextField type="month" aria-label="Competência" value={mes} onChange={(e) => filtrar({ mes: e.target.value })} />
+          {empresas.length > 1 && (
+            <Select
+              aria-label="Empresa"
+              placeholder="Todas as empresas"
+              value={empresaId}
+              onChange={(e) => filtrar({ empresa: e.target.value })}
+              options={empresas.map((e) => ({ value: e.id, label: e.tradeName || e.legalName }))}
+            />
+          )}
+          <TextField type="month" aria-label="Competência" title="Competência" value={semCompetencia ? "" : mes} disabled={semCompetencia} onChange={(e) => { setCategoria(null); filtrar({ mes: e.target.value }); }} />
           {filtrando && (
             <Button variant="secondary" size="sm" leadingIcon={<X size={14} />} onClick={limparFiltros}>Limpar</Button>
           )}
         </div>
 
-        {mes && <p className="ip-filtro-ativo">Mostrando guias com competência em <b>{rotuloMes(mes)}</b>.</p>}
+        {semCompetencia && <p className="ip-filtro-ativo">Mostrando só as guias <b>sem competência</b> (ficam fora do DRE). Abra cada uma pelo menu da linha, em Editar, e informe o mês.</p>}
+        {mes && !semCompetencia && (
+          <p className="ip-filtro-ativo">
+            Mostrando guias {categoria ? <>de <b>{categoria.nome}</b> </> : null}com competência em <b>{rotuloMes(mes)}</b>.
+          </p>
+        )}
 
         <ListaGuias
           guias={guias}
