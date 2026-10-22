@@ -4257,6 +4257,8 @@ export type MonthlyClosureJustification = {
   blockKey: string;
   reason: string;
   justifiedByUserId: string;
+  /** Nome de quem registrou; nulo se o usuário não existe mais. */
+  justifiedByName?: string | null;
   justifiedAt: string;
 };
 
@@ -4304,6 +4306,7 @@ export type MonthlyClosureState = {
   status: "OPEN" | "CLOSED";
   closedAt: string | null;
   closedByUserId: string | null;
+  closedByName?: string | null;
   reopenReason: string | null;
   revenue: {
     salon: { grossAmount: number; netAmount: number; daysCount: number; entryCount: number };

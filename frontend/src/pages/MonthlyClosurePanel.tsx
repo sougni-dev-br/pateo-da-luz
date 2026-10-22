@@ -27,13 +27,14 @@ import {
 import { Notice, useNotice } from "../components/Notice";
 import { VerificacaoDoFechamento } from "../components/VerificacaoDoFechamento";
 import { BlocoDoFechamento, type EstadoDoBloco } from "../components/fechamento/BlocoDoFechamento";
+import { BotaoImprimirResumo } from "../components/fechamento/BotaoImprimirResumo";
 import { CartoesDoFechamento } from "../components/fechamento/CartoesDoFechamento";
 import { JustificarDialog, type ModoDoDialog } from "../components/fechamento/JustificarDialog";
 import { PendenciasAgrupadas } from "../components/fechamento/PendenciasAgrupadas";
 import { ConfirmDialog } from "../components/ui";
 import { Alert, Button, Money, StatusBadge } from "../design-system";
 import { hasPermission } from "../lib/permissions";
-import { nomeDaChave } from "../lib/fechamento-apresentacao";
+import { dataComHora, nomeDaJustificativa as nomeDoRegistro } from "../lib/fechamento-resumo";
 import { ehConferencia, progressoDoMes, resumirFechamento } from "../lib/fechamento-pendencias";
 import { formatDate } from "../utils/format";
 import "./MonthlyClosurePanel.css";
@@ -281,18 +282,7 @@ export function MonthlyClosurePanel({ user }: { user: AppUser }) {
     return p ? "AGUARDANDO" : "ATENCAO";
   }
 
-  /** Nome de quem foi justificado: cartão e fornecedor vêm do cadastro, o resto é fixo. */
-  function nomeDaJustificativa(chave: string): string {
-    if (chave.startsWith("card:")) {
-      const c = state!.cards.cartoes.find((x) => `card:${x.id}` === chave);
-      return c ? `Cartão ${c.name} (final ${c.last4Digits})` : "Cartão";
-    }
-    if (chave.startsWith("supplier:")) {
-      const f = state!.requiredSuppliers.find((x) => `supplier:${x.id}` === chave);
-      return f ? `Fornecedor ${f.name}` : "Fornecedor";
-    }
-    return nomeDaChave(chave) ?? chave;
-  }
+  const nomeDaJustificativa = (chave: string) => nomeDoRegistro(chave, state);
 
   function acaoDeJustificar(chave: string, rotulo: string) {
     const just = justificationByKey.get(chave);
@@ -366,6 +356,7 @@ export function MonthlyClosurePanel({ user }: { user: AppUser }) {
           </div>
 
           <div className="fm-acoes">
+            <BotaoImprimirResumo state={state} cmv={cmv} usuario={user.name} disabled={loading} />
             <button type="button" className="fm-passo" onClick={load} aria-label="Recarregar" title="Recarregar" disabled={loading}>
               <RefreshCw size={16} />
             </button>
@@ -727,7 +718,9 @@ export function MonthlyClosurePanel({ user }: { user: AppUser }) {
                   <span className="fm-just-motivo">{j.reason}</span>
                 </div>
                 <div className="fm-just-lado">
-                  <span className="fm-just-data">{formatDate(j.justifiedAt)}</span>
+                  <span className="fm-just-data">
+                    {j.justifiedByName ? `${j.justifiedByName} · ` : ""}{dataComHora(j.justifiedAt)}
+                  </span>
                   {canEdit && !isClosed && (
                     <button type="button" className="link-btn" disabled={busy}
                       onClick={() => removeJustification(j.blockKey)}

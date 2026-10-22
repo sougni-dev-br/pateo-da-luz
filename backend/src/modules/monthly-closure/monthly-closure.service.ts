@@ -11,6 +11,7 @@ import { prisma } from "../../config/database.js";
 import crypto from "node:crypto";
 import { REVENUE_CHANNEL_EVENTS } from "../monthly/revenue-channels.js";
 import { excludeAggregatorsSql } from "../purchases/purchase-aggregators.js";
+import { anexarNomes } from "./justificativas-com-nome.js";
 import { avaliarCartoesDoMes, type CartaoDoMes, type FaturaDoMes } from "./cartoes-do-fechamento.js";
 import {
   avaliarCanaisDeDelivery,
@@ -582,7 +583,17 @@ export async function getMonthlyClosure(year: number, month: number) {
     getCardsStatus(year, month),
   ]);
 
-  const justifications = parseJustifications(monthlyCmv?.justifications);
+  const justificativasBrutas = parseJustifications(monthlyCmv?.justifications);
+  // Nome de quem justificou e de quem travou: o resumo impresso precisa do "quem".
+  const idsDeUsuario = [...new Set([
+    ...justificativasBrutas.map((j) => j.justifiedByUserId),
+    ...(monthlyCmv?.closedByUserId ? [monthlyCmv.closedByUserId] : [])
+  ].filter(Boolean))];
+  const usuarios = idsDeUsuario.length > 0
+    ? await prisma.user.findMany({ where: { id: { in: idsDeUsuario } }, select: { id: true, name: true } })
+    : [];
+  const justifications = anexarNomes(justificativasBrutas, usuarios);
+  const closedByName = usuarios.find((u) => u.id === monthlyCmv?.closedByUserId)?.name ?? null;
   const justificationByKey = new Map<string, ClosureJustification>();
   for (const j of justifications) justificationByKey.set(j.blockKey, j);
 
@@ -702,6 +713,7 @@ export async function getMonthlyClosure(year: number, month: number) {
     status,
     closedAt: monthlyCmv?.closedAt?.toISOString() ?? null,
     closedByUserId: monthlyCmv?.closedByUserId ?? null,
+    closedByName,
     reopenReason: monthlyCmv?.reopenReason ?? null,
     revenue: { ...revenue, eventos },
     purchases,
