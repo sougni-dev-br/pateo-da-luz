@@ -81,6 +81,7 @@ import { currentMonthPeriod } from "../utils/period";
 import { PedidosDaNota } from "../components/PedidosDaNota";
 import { lerQuantidade } from "../lib/vinculoPedido";
 import { hojeLocalIso } from "../lib/datas";
+import { CartaoDaCompra } from "./cards/CartaoDaCompra";
 
 const ROTULO_STATUS_PEDIDO: Record<string, string> = { RASCUNHO: "Rascunho", ENVIADO: "Enviado", RECEBIDO_PARCIAL: "Recebido parcial", RECEBIDO: "Recebido" };
 function statusDoPedidoRotulo(status: string) {
@@ -276,6 +277,7 @@ export function Purchases({ user }: { user: AppUser }) {
     smallExpenseMoneyOrigin: "",
     smallExpenseNotes: "",
     creditCardId: "",
+    creditCardFinalId: "",
     reimbursementPayeeId: "",
     ccNumberOfInstallments: "1",
     paymentDifferenceReason: "",
@@ -534,6 +536,7 @@ export function Purchases({ user }: { user: AppUser }) {
           smallExpenseMoneyOrigin: "",
           smallExpenseNotes: "",
           creditCardId: "",
+          creditCardFinalId: "",
           reimbursementPayeeId: "",
           ccNumberOfInstallments: "1",
           paymentDifferenceReason: "",
@@ -1097,6 +1100,7 @@ export function Purchases({ user }: { user: AppUser }) {
       smallExpenseMoneyOrigin: "",
       smallExpenseNotes: "",
       creditCardId: "",
+      creditCardFinalId: "",
       reimbursementPayeeId: "",
       ccNumberOfInstallments: "1",
       paymentDifferenceReason: "",
@@ -1190,6 +1194,7 @@ export function Purchases({ user }: { user: AppUser }) {
         smallExpenseMoneyOrigin: data.smallExpenseMoneyOrigin ?? "",
         smallExpenseNotes: data.smallExpenseNotes ?? "",
         creditCardId: data.creditCardId ?? "",
+        creditCardFinalId: "",
         reimbursementPayeeId: data.reimbursementPayeeId ?? "",
         ccNumberOfInstallments: "1",
         paymentDifferenceReason: "",
@@ -1271,6 +1276,7 @@ export function Purchases({ user }: { user: AppUser }) {
         smallExpenseMoneyOrigin: data.smallExpenseMoneyOrigin ?? "",
         smallExpenseNotes: data.smallExpenseNotes ?? "",
         creditCardId: "",
+        creditCardFinalId: "",
         reimbursementPayeeId: "",
         ccNumberOfInstallments: "1",
         paymentDifferenceReason: "",
@@ -1508,6 +1514,7 @@ export function Purchases({ user }: { user: AppUser }) {
         smallExpenseMoneyOrigin: form.isSmallExpense ? selectedPaymentMethod?.name ?? null : null,
         smallExpenseNotes: form.isSmallExpense ? form.smallExpenseNotes || form.notes || null : null,
         creditCardId: usesCreditCard ? form.creditCardId || null : null,
+        creditCardFinalId: normalPurchaseUsesCreditCard ? form.creditCardFinalId || null : null,
         // "emp:<id>": funcionário que ainda não tem cadastro de fornecedor; o servidor cria pelo CPF.
         reimbursementPayeeId: usesReimbursement && !form.reimbursementPayeeId.startsWith("emp:") ? form.reimbursementPayeeId || null : null,
         reimbursementEmployeeId: usesReimbursement && form.reimbursementPayeeId.startsWith("emp:") ? form.reimbursementPayeeId.slice(4) : null,
@@ -2925,11 +2932,17 @@ export function Purchases({ user }: { user: AppUser }) {
                             <label className={fieldErrors.creditCardId ? "field-error" : ""}>
                               Cartão de crédito
                               <select value={form.creditCardId}
-                                onChange={(event) => setForm({ ...form, creditCardId: event.target.value })}>
+                                onChange={(event) => setForm({ ...form, creditCardId: event.target.value, creditCardFinalId: "" })}>
                                 <option value="">Selecione</option>
                                 {creditCards.map((card) => <option key={card.id} value={card.id}>{card.name} — {card.bankName} {card.last4Digits}</option>)}
                               </select>
                             </label>
+                            <CartaoDaCompra
+                              cartao={creditCards.find((card) => card.id === form.creditCardId)}
+                              fornecedor={suppliers.find((entry) => entry.id === form.supplierId)?.name ?? ""}
+                              valor={form.creditCardFinalId}
+                              onChange={(creditCardFinalId) => setForm((current) => ({ ...current, creditCardFinalId }))}
+                            />
                             <label>
                               Parcelas no cartão
                               <div className="pnova-installment-count-wrap">

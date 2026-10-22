@@ -1071,6 +1071,15 @@ export type SmallExpenseType = {
   naturezaGerencial: NaturezaGerencial | null;
 };
 
+export type CreditCardFinal = {
+  id: string;
+  creditCardId: string;
+  label: string;
+  last4Digits: string;
+  kind: "PHYSICAL" | "VIRTUAL" | string;
+  isActive: boolean;
+};
+
 export type CreditCard = {
   id: string;
   name: string;
@@ -1082,6 +1091,7 @@ export type CreditCard = {
   notes: string | null;
   createdAt: string;
   updatedAt: string;
+  finais?: CreditCardFinal[];
   _count?: {
     statements: number;
     purchases: number;
@@ -1103,6 +1113,8 @@ export type CreditCardStatement = {
   createdAt: string;
   updatedAt: string;
   creditCard?: CreditCard;
+  itensSemCartao?: number;
+  itensConferidos?: number;
   _count?: { items: number };
 };
 
@@ -1120,6 +1132,7 @@ export type CreditCardStatementItem = {
   categoryName: string | null;
   smallExpenseTypeId: string | null;
   responsibleName: string | null;
+  cardFinalId: string | null;
   checked: boolean;
   hasDivergence: boolean;
   notes: string | null;
@@ -1422,9 +1435,15 @@ export type SmallExpenseReport = {
   };
 };
 
+export type SubtotalDoCartao = { cardFinalId: string | null; itens: number; total: number };
+export type DivergenciaDoCartao = { cardFinalId: string; calculado: number; declarado: number; diferenca: number };
+
 export type CreditCardStatementDetail = Omit<CreditCardStatement, "_count"> & {
   creditCard: CreditCard;
   items: CreditCardStatementItem[];
+  finalTotals?: Array<{ cardFinalId: string; statedAmount: string }>;
+  subtotaisPorCartao?: SubtotalDoCartao[];
+  divergenciasPorCartao?: DivergenciaDoCartao[];
 };
 
 export type PurchaseFilters = {
@@ -2918,6 +2937,45 @@ export function saveCard(payload: Partial<CreditCard> & { name: string; bankName
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
+  });
+}
+
+export function saveCardFinal(
+  cardId: string,
+  payload: { id?: string; label: string; last4Digits: string; kind: string; isActive?: boolean }
+) {
+  return request<CreditCardFinal>(`/cards/${cardId}/finais`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function setStatementItemsFinal(statementId: string, itemIds: string[], cardFinalId: string | null) {
+  return request<{ atualizados: number; reabertaPorDivergencia: boolean }>(`/cards/statements/${statementId}/items-final`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ itemIds, cardFinalId })
+  });
+}
+
+export function getCardFinalSugerido(cardId: string, supplierName: string) {
+  return request<{ cardFinalId: string | null }>(`/cards/${cardId}/final-sugerido${toQueryString({ supplierName })}`);
+}
+
+export function setStatementItemsChecked(statementId: string, itemIds: string[], checked: boolean) {
+  return request<{ atualizados: number }>(`/cards/statements/${statementId}/items-check`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ itemIds, checked })
+  });
+}
+
+export function setStatementFinalTotal(statementId: string, cardFinalId: string, statedAmount: string | null) {
+  return request<{ ok: boolean; statedAmount: number | null }>(`/cards/statements/${statementId}/final-totals/${cardFinalId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ statedAmount })
   });
 }
 

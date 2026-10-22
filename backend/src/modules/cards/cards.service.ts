@@ -100,6 +100,31 @@ export async function findOrCreateStatementForPurchase(tx: Prisma.TransactionCli
   });
 }
 
+// Editar a compra apaga e recria a linha dela na fatura. O cartao vinculado
+// (fisico/virtual) ja classificado precisa sobreviver: le o da linha anterior
+// antes do deleteMany e so o reaproveita se ainda for ativo e do mesmo cartao.
+async function finalDasLinhasAnteriores(
+  tx: Prisma.TransactionClient,
+  purchaseId: string,
+  cardId: string | null,
+  escolhido?: string | null
+) {
+  // O cartao escolhido no lancamento vale mais que o da linha anterior.
+  const anteriores = escolhido
+    ? []
+    : await tx.creditCardStatementItem.findMany({
+        where: { purchaseId, cardFinalId: { not: null } },
+        select: { cardFinalId: true }
+      });
+  const cardFinalId = escolhido || (anteriores[0]?.cardFinalId ?? null);
+  if (!cardFinalId || !cardId) return null;
+  const valido = await tx.creditCardFinal.findFirst({
+    where: { id: cardFinalId, creditCardId: cardId, isActive: true },
+    select: { id: true }
+  });
+  return valido ? cardFinalId : null;
+}
+
 export async function syncCardStatementItemForPurchase(tx: Prisma.TransactionClient, input: {
   purchaseId: string;
   cardId: string | null;
@@ -112,10 +137,13 @@ export async function syncCardStatementItemForPurchase(tx: Prisma.TransactionCli
   responsibleName?: string | null;
   notes?: string | null;
   purchaseItemId?: string | null;
+  /** Cartao (fisico/virtual) escolhido no lancamento; ausente = preserva o da linha anterior. */
+  cardFinalId?: string | null;
   itemDate?: Date | null;
   totalInstallments?: number | null;
   installment?: number | null;
 }) {
+  const cardFinalId = await finalDasLinhasAnteriores(tx, input.purchaseId, input.cardId, input.cardFinalId);
   const removed = await tx.creditCardStatementItem.deleteMany({
     where: { purchaseId: input.purchaseId }
   });
@@ -152,6 +180,7 @@ export async function syncCardStatementItemForPurchase(tx: Prisma.TransactionCli
       value: new Prisma.Decimal(input.value),
       installment: input.installment ?? null,
       totalInstallments: input.totalInstallments ?? null,
+      cardFinalId,
       categoryName: input.categoryName ?? null,
       smallExpenseTypeId: input.smallExpenseTypeId ?? null,
       responsibleName: input.responsibleName ?? null,
@@ -239,7 +268,9 @@ export async function syncCardStatementItemsForPurchase(tx: Prisma.TransactionCl
   numberOfInstallments: number;
   categoryName?: string | null;
   notes?: string | null;
+  cardFinalId?: string | null;
 }) {
+  const cardFinalId = await finalDasLinhasAnteriores(tx, input.purchaseId, input.cardId, input.cardFinalId);
   await tx.creditCardStatementItem.deleteMany({ where: { purchaseId: input.purchaseId } });
 
   if (input.totalAmount <= 0) return [];
@@ -291,6 +322,7 @@ export async function syncCardStatementItemsForPurchase(tx: Prisma.TransactionCl
         value: new Prisma.Decimal(value),
         installment: n > 1 ? i + 1 : null,
         totalInstallments: n > 1 ? n : null,
+        cardFinalId,
         categoryName: input.categoryName ?? null,
         notes: input.notes ?? null,
         checked: false,
