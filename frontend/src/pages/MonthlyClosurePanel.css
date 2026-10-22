@@ -299,6 +299,11 @@
 .fm-tabela .num { text-align: right; font-variant-numeric: tabular-nums; }
 .fm-tabela .num.forte { font-weight: 600; }
 
+/* Cartões: os botões ficam sob o selo de situação, em vez de uma coluna só deles,
+   que no celular estourava a largura e saía cortada. */
+.fm-celula-situacao { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.fm-acoes-celula { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+
 .fm-nota {
   margin: 10px 0 0;
   font-size: 0.78rem;
@@ -435,6 +440,7 @@
   /* Tabela larga rola em vez de espremer a coluna do nome. */
   .fbloco-corpo { overflow-x: auto; }
   .fm-tabela { min-width: 420px; }
+  .fm-tabela-cartoes { min-width: 0; }
 }
 
 /* Trocar de mês recarrega tudo. Em vez de sumir com a tela, ela esmaece e

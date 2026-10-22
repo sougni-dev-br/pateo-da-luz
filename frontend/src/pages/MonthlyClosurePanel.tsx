@@ -564,9 +564,9 @@ export function MonthlyClosurePanel({ user }: { user: AppUser }) {
                 Não se fecha o mês sem conferir a fatura de cada cartão contra o extrato.
                 Marque a fatura como <strong>Conferida</strong> em Cartões; cartão que não foi usado no mês exige justificativa.
               </p>
-              <table className="data-table fm-tabela">
+              <table className="data-table fm-tabela fm-tabela-cartoes">
                 <thead>
-                  <tr><th>Cartão</th><th>Fatura do mês</th><th>Situação</th><th /></tr>
+                  <tr><th>Cartão</th><th>Fatura do mês</th><th>Situação</th></tr>
                 </thead>
                 <tbody>
                   {state.cards.cartoes.map((c) => {
@@ -585,8 +585,10 @@ export function MonthlyClosurePanel({ user }: { user: AppUser }) {
                           {fatura ? statusDaFatura(fatura.status) : "Sem fatura"}
                           {fatura && fatura.itensComDivergencia > 0 && ` · ${fatura.itensComDivergencia} com divergência`}
                         </td>
-                        <td><StatusBadge tone={tone}>{texto}</StatusBadge></td>
-                        <td className="num">
+                        <td>
+                          <div className="fm-celula-situacao">
+                          <StatusBadge tone={tone}>{texto}</StatusBadge>
+                          <div className="fm-acoes-celula">
                           {pendente && (
                             <a href="/financeiro/cartoes" className="link-btn">
                               <ExternalLink size={12} /> Abrir Cartões
@@ -604,6 +606,8 @@ export function MonthlyClosurePanel({ user }: { user: AppUser }) {
                               <X size={12} /> remover
                             </button>
                           )}
+                          </div>
+                          </div>
                         </td>
                       </tr>
                     );
