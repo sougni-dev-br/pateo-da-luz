@@ -138,6 +138,41 @@ export function ResultPanel({ net, purchases, smallExpenses, result, margin }: R
   );
 }
 
+// ── Resultado completo ─────────────────────────────────────
+
+type FullResultProps = {
+  net: number;
+  purchases: number;
+  smallExpenses: number;
+  payroll: number;
+  taxes: number;
+  occupancy: number;
+  result: number;
+  margin: number | null;
+};
+
+export function FullResultPanel({ net, purchases, smallExpenses, payroll, taxes, occupancy, result, margin }: FullResultProps) {
+  const tone = result > 0 ? "success" : result < 0 ? "danger" : "neutral";
+  return (
+    <section className="dash-card dash-result" aria-labelledby="dash-full-result-title">
+      <h2 id="dash-full-result-title" className="dash-eyebrow">Resultado completo</h2>
+      <dl className="dash-ledger">
+        <div><dt>Faturamento líquido</dt><dd><Money value={net} /></dd></div>
+        <div><dt>− Compras</dt><dd><Money value={purchases} /></dd></div>
+        {smallExpenses > 0 && <div><dt>− Pequenos gastos</dt><dd><Money value={smallExpenses} /></dd></div>}
+        <div><dt>− Folha</dt><dd><Money value={payroll} /></dd></div>
+        <div><dt>− Impostos</dt><dd><Money value={taxes} /></dd></div>
+        <div><dt>− Ocupação</dt><dd><Money value={occupancy} /></dd></div>
+        <div className={`dash-ledger-total tone-${tone}`}>
+          <dt>= Resultado{margin !== null && <span className="dash-ledger-margin">margem {formatPercent(margin)}</span>}</dt>
+          <dd><Money value={result} /></dd>
+        </div>
+      </dl>
+      <p className="dash-footnote">Folha, impostos e ocupação pela competência do mês. Compras lançadas, não o CMV.</p>
+    </section>
+  );
+}
+
 // ── CMV ────────────────────────────────────────────────────
 
 type CmvProps = {

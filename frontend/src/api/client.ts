@@ -3175,6 +3175,16 @@ export type DashboardSummaryData = {
     value: number;
     marginPercent: number | null;
   };
+  // Opcional: um backend anterior a este campo não o manda.
+  fullResult?: {
+    purchases: number;
+    smallExpenses: number;
+    payroll: number;
+    taxes: number;
+    occupancy: number;
+    value: number;
+    marginPercent: number | null;
+  };
 };
 
 export function getDashboardSummary(year: number, month: number) {
@@ -5709,6 +5719,8 @@ export type TaxPaymentFilters = {
   paymentEnd?: string;
   search?: string;
   dreCategoryId?: string;
+  /** "true": só as guias sem competência (ficam fora do DRE). */
+  withoutCompetence?: string;
   page?: number;
   pageSize?: number;
 };
@@ -5724,7 +5736,7 @@ export type TaxPanorama = {
     depois: { qtd: number; valor: number };
   };
   meses: string[];
-  cobertura: Array<{ mes: string; grupo: string; qtd: number; pagas: number; vencidas: number; valor: number }>;
+  cobertura: Array<{ mes: string; grupo: string; categoriaId?: string | null; qtd: number; pagas: number; vencidas: number; valor: number }>;
   semCompetencia: number;
 };
 

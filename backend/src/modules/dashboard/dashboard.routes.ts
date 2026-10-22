@@ -6,6 +6,7 @@ import { getMonthlyCmv } from "../monthly/monthly.service.js";
 import { excludeAggregatorsSql } from "../purchases/purchase-aggregators.js";
 import { montarRankings } from "./dashboard-rankings.js";
 import { carregarFerias, contarAlertas } from "../payroll/ferias.routes.js";
+import { calcularResultadoCompleto } from "./dashboard-resultado.js";
 
 export const dashboardRouter = Router();
 
@@ -372,6 +373,12 @@ dashboardRouter.get("/summary", async (request, response) => {
   const estimatedResult = revNet - purchasesTotal - smallExpTotal;
   const estimatedMargin = revNet > 0 ? (estimatedResult / revNet) * 100 : null;
 
+  const fullResult = await calcularResultadoCompleto(year, month, {
+    net: revNet,
+    purchasesTotal,
+    smallExpenses: smallExpTotal,
+  });
+
   const delta = (current: number, previous: number) =>
     previous > 0 ? ((current - previous) / previous) * 100 : null;
 
@@ -446,6 +453,9 @@ dashboardRouter.get("/summary", async (request, response) => {
       value: estimatedResult,
       marginPercent: estimatedMargin,
     },
+    // Mesma conta com folha, impostos e ocupação. Compras já vem sem o que
+    // pertence a essas três linhas (ver dashboard-resultado.ts).
+    fullResult,
   });
 });
 
