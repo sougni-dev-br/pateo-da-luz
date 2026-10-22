@@ -96,6 +96,7 @@ export function somarResumos(resumos: IfoodPeriodSummary[], year: number, month:
     daily: Array.from(porDia.values()).sort((a, b) => (a.date < b.date ? -1 : 1)),
     fees,
     settlements,
-    isMock: false
+    isMock: false,
+    ...(consideradas.some((resumo) => resumo.granularidade === "mensal") ? { granularidade: "mensal" as const } : {})
   };
 }
