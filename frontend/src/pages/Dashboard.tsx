@@ -206,7 +206,7 @@ function DashboardContent({ loaded, info, navigate, pathAllowed, canAccessSectio
   if (!summary) {
     // sem o resumo não há base — o chip some em vez de dizer "sem comparação"
   } else if (daily) {
-    const cmp = compareRevenue(daily.current, daily.previous, "netAmount", info.isCurrent);
+    const cmp = compareRevenue(daily.current, daily.previous, "netAmount", info.isCurrent, info.elapsedDays);
     const against = cmp.throughDay ? `vs 1–${cmp.throughDay} de ${prevLabel}` : `vs ${prevLabel}`;
     revenueDelta = buildDelta(cmp.pct, true, against);
   } else if (rev) {
@@ -302,8 +302,8 @@ function DashboardContent({ loaded, info, navigate, pathAllowed, canAccessSectio
               <TicketPanel
                 perTable={summary.revenue.ticketAveragePerTable}
                 perPerson={summary.revenue.ticketAveragePerPerson}
-                tables={summary.revenue.tickets}
-                people={summary.revenue.peopleServed}
+                tables={summary.revenue.salonTickets ?? summary.revenue.tickets}
+                people={summary.revenue.salonPeopleServed ?? summary.revenue.peopleServed}
                 deltaTable={buildDelta(summary.revenue.deltaTicketAvgPerTablePercent, true, `vs ${prevLabel}`)}
                 deltaPerson={buildDelta(summary.revenue.deltaTicketAvgPerPersonPercent, true, `vs ${prevLabel}`)}
               />
