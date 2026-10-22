@@ -48,3 +48,13 @@ export function ordenarRepasses<T extends LinhaOrdenavel>(linhas: T[]): T[] {
     return (a.storeLabel ?? "").localeCompare(b.storeLabel ?? "", "pt-BR");
   });
 }
+
+const dataBR = (iso: string) => {
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : iso;
+};
+
+/** "2026-10-01" + "2026-10-04" -> "01/10/2026 → 04/10/2026" (sem fuso: só reordena o texto). */
+export function formatarPeriodoRepasse(inicio: string, fim: string): string {
+  return `${dataBR(inicio)} → ${dataBR(fim)}`;
+}
