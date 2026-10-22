@@ -290,17 +290,24 @@ export function Cards({ user }: CardsProps) {
   }
 
   async function gravarTotalDoExtrato(cardFinalId: string, valor: string) {
-    if (!statementDetail) return;
+    if (!statementDetail) return false;
     try {
       await setStatementFinalTotal(statementDetail.id, cardFinalId, valor.trim() ? valor : null);
       setStatementDetail(await getCardStatement(statementDetail.id));
+      return true;
     } catch (error) {
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao gravar o total do extrato." });
+      return false;
     }
   }
 
   async function mudarStatusDaFatura(status: "CHECKED" | "OPEN") {
     if (!statementDetail) return;
+    const temFinais = (statementDetail.creditCard.finais ?? []).some((final) => final.isActive);
+    const semCartao = statementDetail.items.filter((item) => !item.cardFinalId).length;
+    if (status === "CHECKED" && temFinais && semCartao > 0 && !window.confirm(
+      `${semCartao} lançamento(s) ainda estão sem cartão definido, então o subtotal de cada cartão não está completo. Marcar como conferida mesmo assim?`
+    )) return;
     try {
       await setCardStatementStatus(statementDetail.id, status);
       setStatementDetail(await getCardStatement(statementDetail.id));
@@ -716,12 +723,24 @@ export function Cards({ user }: CardsProps) {
       {statementDetail && (
         <div className="modal-backdrop">
           <section className="panel modal-panel wide-modal">
-            <div className="section-heading">
+            <div className="section-heading fatura-detalhe-topo">
               <div>
                 <p>Detalhe da fatura</p>
                 <h2>{statementDetail.creditCard.name}</h2>
               </div>
-              <button className="secondary-button" type="button" onClick={() => setStatementDetail(null)}>Fechar</button>
+              <div className="actions-cell">
+                {canManage && statementDetail.status === "OPEN" && (
+                  <button className="primary-button" type="button" onClick={() => void mudarStatusDaFatura("CHECKED")}>
+                    <CheckCircle2 size={16} /> Marcar como conferida
+                  </button>
+                )}
+                {canManage && statementDetail.status === "CHECKED" && (
+                  <button className="secondary-button" type="button" onClick={() => void mudarStatusDaFatura("OPEN")}>
+                    Voltar para aberta
+                  </button>
+                )}
+                <button className="secondary-button" type="button" onClick={() => setStatementDetail(null)}>Fechar</button>
+              </div>
             </div>
             <div className="summary-columns">
               <div><h3>Cartão</h3><p>{statementDetail.creditCard.bankName}</p><p>Final {statementDetail.creditCard.last4Digits}</p></div>
@@ -753,19 +772,6 @@ export function Cards({ user }: CardsProps) {
                 }
               />
             </div>
-            {canManage && ["OPEN", "CHECKED"].includes(statementDetail.status) && (
-              <div className="actions-cell subsection">
-                {statementDetail.status === "OPEN" ? (
-                  <button className="primary-button" type="button" onClick={() => void mudarStatusDaFatura("CHECKED")}>
-                    <CheckCircle2 size={16} /> Marcar fatura como conferida
-                  </button>
-                ) : (
-                  <button className="secondary-button" type="button" onClick={() => void mudarStatusDaFatura("OPEN")}>
-                    Voltar para aberta
-                  </button>
-                )}
-              </div>
-            )}
             {canManage && ["OPEN", "CHECKED"].includes(statementDetail.status) && (
               <p className="subsection text-muted">
                 Toda linha da fatura vem de uma compra. Anuidade, juros ou tarifa: lance como compra paga no cartão, com o item, em{" "}

@@ -82,3 +82,24 @@
   .fatura-troca-opcao { min-height: 40px; padding: 6px 16px; }
   .fatura-cartoes-lote button { flex: 1 1 100%; min-height: 40px; }
 }
+
+.fatura-detalhe-topo {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--surface);
+  padding-bottom: 8px;
+}
+.fatura-cartoes-busca { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.fatura-cartoes-busca input { flex: 1 1 240px; min-width: 0; }
+.fatura-cartao-gravado { color: var(--success); font-size: 12px; }
+.fatura-cartoes-lote { top: auto; bottom: 0; box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.12); }
+@media (min-width: 721px) {
+  .fatura-cartoes-resumo {
+    position: sticky;
+    top: 64px;
+    z-index: 2;
+    background: var(--surface);
+    padding: 4px 0 8px;
+  }
+}

@@ -4,6 +4,7 @@ import type { CreditCardFinal, CreditCardStatementDetail } from "../../api/clien
 import { Money, StatusBadge } from "../../design-system";
 import { formatDate } from "../../utils/format";
 import {
+  buscarLinhas,
   filtrarLinhas,
   rotuloDoFinal,
   tipoDoFinal,
@@ -20,7 +21,7 @@ type Props = {
   /** Define o cartão de uma ou mais linhas (null = voltar para "não definido"). */
   onClassificar: (itemIds: string[], cardFinalId: string | null) => Promise<void>;
   /** Grava o total que o extrato traz para um cartão ("" apaga). */
-  onTotalDoExtrato: (cardFinalId: string, valor: string) => Promise<void>;
+  onTotalDoExtrato: (cardFinalId: string, valor: string) => Promise<boolean>;
   renderAcoes: (linha: Linha) => React.ReactNode;
 };
 
@@ -36,9 +37,14 @@ export function FaturaPorCartao({ detalhe, podeEditar, onClassificar, onTotalDoE
   const [selecionadas, setSelecionadas] = useState<ReadonlySet<string>>(new Set());
   const [ocupado, setOcupado] = useState(false);
   const [rascunhos, setRascunhos] = useState<Record<string, string>>({});
+  const [busca, setBusca] = useState("");
+  const [gravadoId, setGravadoId] = useState<string | null>(null);
   const editavel = podeEditar && ["OPEN", "CHECKED"].includes(detalhe.status);
 
-  const linhasVisiveis = useMemo(() => filtrarLinhas(detalhe.items, filtro), [detalhe.items, filtro]);
+  const linhasVisiveis = useMemo(
+    () => buscarLinhas(filtrarLinhas(detalhe.items, filtro), busca),
+    [detalhe.items, filtro, busca]
+  );
   const semCartao = detalhe.items.filter((linha) => !linha.cardFinalId).length;
   const subtotais = detalhe.subtotaisPorCartao ?? [];
   const divergentes = new Map((detalhe.divergenciasPorCartao ?? []).map((d) => [d.cardFinalId, d]));
@@ -47,6 +53,7 @@ export function FaturaPorCartao({ detalhe, podeEditar, onClassificar, onTotalDoE
   useEffect(() => {
     setSelecionadas(new Set());
     setFiltro("todos");
+    setBusca("");
     setRascunhos({});
   }, [detalhe.id]);
   useEffect(() => {
@@ -103,11 +110,16 @@ export function FaturaPorCartao({ detalhe, podeEditar, onClassificar, onTotalDoE
                       onChange={(event) => setRascunhos({ ...rascunhos, [final.id]: event.target.value })}
                       onBlur={() => {
                         if (rascunho === declarado) return;
-                        void onTotalDoExtrato(final.id, rascunho);
+                        void onTotalDoExtrato(final.id, rascunho).then((gravou) => {
+                          if (!gravou) return;
+                          setGravadoId(final.id);
+                          window.setTimeout(() => setGravadoId((atual) => (atual === final.id ? null : atual)), 2500);
+                        });
                       }}
                     />
                   </label>
                 )}
+                {gravadoId === final.id && <span className="fatura-cartao-gravado" role="status">Total gravado</span>}
                 {declarado && !divergencia && (
                   <span className="fatura-cartao-ok"><Check size={13} /> Bate com o extrato</span>
                 )}
@@ -133,6 +145,29 @@ export function FaturaPorCartao({ detalhe, podeEditar, onClassificar, onTotalDoE
           </article>
         </div>
       )}
+
+      <div className="fatura-cartoes-busca">
+        <input
+          type="search"
+          value={busca}
+          placeholder="Buscar por descrição, fornecedor ou valor"
+          aria-label="Buscar lançamentos da fatura"
+          onChange={(event) => setBusca(event.target.value)}
+        />
+        {temFinais && editavel && semCartao > 0 && (
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() =>
+              setSelecionadas(
+                transicaoDeSelecao(selecionadas, detalhe.items.filter((linha) => !linha.cardFinalId).map((linha) => linha.id), true)
+              )
+            }
+          >
+            Selecionar os {semCartao} sem cartão
+          </button>
+        )}
+      </div>
 
       {temFinais && editavel && selecionadas.size > 0 && (
         <div className="fatura-cartoes-lote" role="region" aria-label="Ação em lote">

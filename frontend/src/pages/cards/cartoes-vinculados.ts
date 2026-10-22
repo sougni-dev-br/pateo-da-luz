@@ -29,3 +29,29 @@ export function transicaoDeSelecao(atual: ReadonlySet<string>, ids: string[], ma
   }
   return proximo;
 }
+
+function semAcento(texto: string): string {
+  return texto.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+}
+
+/** Busca por descrição, fornecedor ou valor (como na tela, "1.250,50", ou "1250.50"). */
+export function buscarLinhas<T extends { description: string; supplierName: string | null; value: string | number }>(
+  linhas: T[],
+  texto: string
+): T[] {
+  const termo = semAcento(texto.trim());
+  if (!termo) return linhas;
+  return linhas.filter((linha) => {
+    const numero = Number(linha.value);
+    const valores = [
+      String(linha.value),
+      numero.toFixed(2),
+      numero.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    ];
+    return (
+      semAcento(linha.description).includes(termo) ||
+      semAcento(linha.supplierName ?? "").includes(termo) ||
+      valores.some((valor) => valor.includes(termo))
+    );
+  });
+}
