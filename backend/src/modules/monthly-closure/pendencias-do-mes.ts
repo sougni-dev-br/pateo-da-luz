@@ -13,9 +13,12 @@ export const CANAIS_DE_DELIVERY = [
   { id: "KEETA", rotulo: "Keeta" }
 ] as const;
 
-export function chaveDoCanal(canalId: string): string {
-  return `delivery:${canalId}`;
+export function chaveDoCanal(canalId: string, lojaId?: string): string {
+  return lojaId ? `delivery:${canalId}:${lojaId}` : `delivery:${canalId}`;
 }
+
+/** Loja ativa de uma plataforma (iFood e 99 Food têm várias; a Keeta, uma só, sem cadastro). */
+export type LojaDeDelivery = { id: string; plataforma: string; apelido: string };
 
 export function avaliarFolhaLancada(salariosLancados: number): PendenciaDoMes[] {
   if (salariosLancados > 0) return [];
@@ -66,6 +69,8 @@ export function avaliarFaturamentoDeEventos(eventos: { lancamentos: number; valo
 export type FaturamentoDoCanal = {
   /** Id normalizado: IFOOD, NOVENTA_NOVE ou KEETA. */
   id: string;
+  /** Loja a que o faturamento pertence; ausente quando é da plataforma inteira. */
+  lojaId?: string;
   /** Dias distintos com lançamento no mês. */
   dias: number;
   lancamentos: number;
@@ -103,29 +108,34 @@ const dinheiro = (v: number) => v.toLocaleString("pt-BR", { style: "currency", c
  */
 export function avaliarCanaisDeDelivery(
   faturamentos: FaturamentoDoCanal[],
-  contexto: { diasEsperados: number }
+  contexto: { diasEsperados: number },
+  lojas: LojaDeDelivery[] = []
 ): PendenciaDoMes[] {
-  const porCanal = new Map(faturamentos.map((f) => [f.id, f]));
-  return CANAIS_DE_DELIVERY.map((canal) => {
-    const key = chaveDoCanal(canal.id);
-    const f = porCanal.get(canal.id);
-    if (!f || f.lancamentos === 0) {
-      return {
-        key,
-        label: `Delivery ${canal.rotulo}: nenhum faturamento no mês — importe os pedidos/repasses e registre a conferência (se a loja não operou, diga isso na conferência)`
-      };
+  const porAlvo = new Map(faturamentos.map((f) => [chaveDoCanal(f.id, f.lojaId), f]));
+  const pendencias: PendenciaDoMes[] = [];
+  for (const canal of CANAIS_DE_DELIVERY) {
+    const doCanal = lojas.filter((l) => l.plataforma === canal.id);
+    // Plataforma com lojas cadastradas é conferida loja a loja; sem cadastro (Keeta,
+    // ou iFood/99 ainda sem loja), a conferência é da plataforma inteira.
+    const alvos = doCanal.length > 0
+      ? doCanal.map((l) => ({ lojaId: l.id, nome: `${canal.rotulo} (${l.apelido})` }))
+      : [{ lojaId: undefined, nome: canal.rotulo }];
+    for (const alvo of alvos) {
+      const key = chaveDoCanal(canal.id, alvo.lojaId);
+      pendencias.push({ key, label: rotuloDaPendencia(alvo.nome, porAlvo.get(key), contexto.diasEsperados) });
     }
-    const valores = `${dinheiro(f.bruto)} bruto e ${dinheiro(f.liquido)} líquido`;
-    const faltam = contexto.diasEsperados - f.dias;
-    if (faltam > 0) {
-      return {
-        key,
-        label: `Delivery ${canal.rotulo}: faturamento em ${f.dias} de ${contexto.diasEsperados} dias (${valores}) — faltam ${faltam} dia(s); complete a importação e registre a conferência`
-      };
-    }
-    return {
-      key,
-      label: `Delivery ${canal.rotulo}: ${valores} em ${f.dias}/${contexto.diasEsperados} dias — confira com o relatório da plataforma e registre a conferência`
-    };
-  });
+  }
+  return pendencias;
+}
+
+function rotuloDaPendencia(nome: string, f: FaturamentoDoCanal | undefined, diasEsperados: number): string {
+  if (!f || f.lancamentos === 0) {
+    return `Delivery ${nome}: nenhum faturamento no mês — importe os pedidos/repasses e registre a conferência (se a loja não operou, diga isso na conferência)`;
+  }
+  const valores = `${dinheiro(f.bruto)} bruto e ${dinheiro(f.liquido)} líquido`;
+  const faltam = diasEsperados - f.dias;
+  if (faltam > 0) {
+    return `Delivery ${nome}: faturamento em ${f.dias} de ${diasEsperados} dias (${valores}) — faltam ${faltam} dia(s); complete a importação e registre a conferência`;
+  }
+  return `Delivery ${nome}: ${valores} em ${f.dias}/${diasEsperados} dias — confira com o relatório da plataforma e registre a conferência`;
 }

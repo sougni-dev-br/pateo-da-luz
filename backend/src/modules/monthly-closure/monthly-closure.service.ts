@@ -25,6 +25,7 @@ import {
   avaliarCanaisDeDelivery,
   diasEsperadosDoMes,
   type FaturamentoDoCanal,
+  type LojaDeDelivery,
   avaliarFaturamentoDeEventos,
   avaliarFolhaLancada,
   avaliarGorjetaDoMes,
@@ -544,12 +545,14 @@ async function faturamentoDeEventos(year: number, month: number) {
 // 99Food/NOVENTA_NOVE, Keeta/KEETA): compara em maiusculas e junta as duas da 99.
 async function faturamentoPorPlataforma(year: number, month: number): Promise<FaturamentoDoCanal[]> {
   const { start, end } = monthRange(year, month);
-  const linhas = await prisma.$queryRaw<Array<{ id: string; lancamentos: any; dias: any; bruto: any; liquido: any }>>`
-    SELECT x."id" AS "id", COUNT(*) AS "lancamentos",
+  // O id do lançamento das integrações carrega a loja (ifood-<loja>-AAAAMMDD,
+  // nnfood-<loja>-AAAAMMDD): é o vínculo estruturado, sem depender do apelido.
+  const linhas = await prisma.$queryRaw<Array<{ id: string; lojaId: string | null; lancamentos: any; dias: any; bruto: any; liquido: any }>>`
+    SELECT x."id" AS "id", s."id" AS "lojaId", COUNT(*) AS "lancamentos",
            COUNT(DISTINCT DATE(x."date" AT TIME ZONE 'UTC')) AS "dias",
            COALESCE(SUM(x."grossAmount"), 0) AS "bruto", COALESCE(SUM(x."netAmount"), 0) AS "liquido"
     FROM (
-      SELECT "date", "grossAmount", "netAmount",
+      SELECT "id" AS "entryId", "date", "grossAmount", "netAmount",
              CASE
                WHEN UPPER("sourcePlatform") = 'IFOOD' OR UPPER("channel") = 'IFOOD' THEN 'IFOOD'
                WHEN UPPER("sourcePlatform") = 'KEETA' OR UPPER("channel") = 'KEETA' THEN 'KEETA'
@@ -559,16 +562,31 @@ async function faturamentoPorPlataforma(year: number, month: number): Promise<Fa
       WHERE "status" <> 'CANCELLED'
         AND "date" >= ${start} AND "date" <= ${end}
     ) x
+    LEFT JOIN "DeliveryStore" s
+      ON s."active" = TRUE
+     AND (x."entryId" LIKE 'ifood-' || s."id" || '-%' OR x."entryId" LIKE 'nnfood-' || s."id" || '-%')
     WHERE x."id" IS NOT NULL
-    GROUP BY x."id"
+    GROUP BY x."id", s."id"
   `;
+  // Lançamento de plataforma com lojas que não bate com nenhuma ativa (importação
+  // antiga, consolidado do mês) não cobre loja nenhuma: fica com lojaId nulo.
   return linhas.map((l) => ({
     id: l.id,
+    lojaId: l.lojaId ?? undefined,
     lancamentos: toNumber(l.lancamentos),
     dias: toNumber(l.dias),
     bruto: toNumber(l.bruto),
     liquido: toNumber(l.liquido),
   }));
+}
+
+async function lojasDeDeliveryAtivas(): Promise<LojaDeDelivery[]> {
+  const lojas = await prisma.deliveryStore.findMany({
+    where: { active: true, platform: { in: ["IFOOD", "NOVENTA_NOVE"] } },
+    select: { id: true, platform: true, nickname: true },
+    orderBy: [{ platform: "asc" }, { nickname: "asc" }]
+  });
+  return lojas.map((l) => ({ id: l.id, plataforma: l.platform, apelido: l.nickname }));
 }
 
 async function getTaxesStatus(year: number, month: number) {
@@ -692,10 +710,11 @@ export async function getMonthlyClosure(year: number, month: number) {
 
   // Cartao de credito: nao se fecha o mes sem conferir a fatura de cada cartao ativo
   // contra o extrato. A saida de quem nao usou o cartao e a justificativa.
-  const [salarios, gorjeta, faturamentoDelivery, eventos] = await Promise.all([
+  const [salarios, gorjeta, faturamentoDelivery, lojasDelivery, eventos] = await Promise.all([
     contarSalariosLancados(year, month),
     contarApuracoesDeGorjeta(year, month),
     faturamentoPorPlataforma(year, month),
+    lojasDeDeliveryAtivas(),
     faturamentoDeEventos(year, month),
   ]);
   const regrasDoMes = [
@@ -703,7 +722,7 @@ export async function getMonthlyClosure(year: number, month: number) {
     ...avaliarFaturamentoDeEventos(eventos),
     ...avaliarFolhaLancada(salarios),
     ...avaliarGorjetaDoMes(gorjeta),
-    ...avaliarCanaisDeDelivery(faturamentoDelivery, { diasEsperados: diasEsperadosDoMes(year, month, new Date()) }),
+    ...avaliarCanaisDeDelivery(faturamentoDelivery, { diasEsperados: diasEsperadosDoMes(year, month, new Date()) }, lojasDelivery),
   ];
   for (const p of regrasDoMes) {
     if (justificationByKey.has(p.key)) continue;

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   avaliarCanaisDeDelivery,
+  type LojaDeDelivery,
   diasEsperadosDoMes,
   type FaturamentoDoCanal,
   avaliarFaturamentoDeEventos,
@@ -118,6 +119,57 @@ describe("faturamento de delivery: toda plataforma pede conferência", () => {
     const keeta = avaliarCanaisDeDelivery([completo("KEETA", { liquido: 31890.45 })], CONTEXTO)
       .find((x) => x.key === "delivery:KEETA")!;
     expect(keeta.label).toMatch(/31.890,45/);
+  });
+});
+
+describe("faturamento de delivery por loja", () => {
+  const LOJAS: LojaDeDelivery[] = [
+    { id: "i1", plataforma: "IFOOD", apelido: "Loja Um" },
+    { id: "i2", plataforma: "IFOOD", apelido: "Loja Dois" },
+    { id: "n1", plataforma: "NOVENTA_NOVE", apelido: "Loja Tres" },
+    { id: "n2", plataforma: "NOVENTA_NOVE", apelido: "Loja Quatro" }
+  ];
+  const CONTEXTO = { diasEsperados: 30 };
+  const daLoja = (lojaId: string, id: string, parcial: Partial<FaturamentoDoCanal> = {}): FaturamentoDoCanal => ({
+    id, lojaId, dias: 30, lancamentos: 30, bruto: 1000.5, liquido: 900.25, ...parcial
+  });
+
+  test("uma pendência por loja cadastrada e uma só para a Keeta", () => {
+    const chaves = avaliarCanaisDeDelivery([], CONTEXTO, LOJAS).map((p) => p.key).sort();
+    expect(chaves).toEqual([
+      "delivery:IFOOD:i1", "delivery:IFOOD:i2", "delivery:KEETA",
+      "delivery:NOVENTA_NOVE:n1", "delivery:NOVENTA_NOVE:n2"
+    ]);
+  });
+
+  test("sem loja cadastrada na plataforma, cai na pendência da plataforma", () => {
+    const chaves = avaliarCanaisDeDelivery([], CONTEXTO, LOJAS.filter((l) => l.plataforma === "IFOOD")).map((p) => p.key);
+    expect(chaves).toContain("delivery:NOVENTA_NOVE");
+    expect(chaves).not.toContain("delivery:IFOOD");
+  });
+
+  test("o rótulo nomeia a plataforma e a loja", () => {
+    const p = avaliarCanaisDeDelivery([], CONTEXTO, LOJAS).find((x) => x.key === "delivery:IFOOD:i2")!;
+    expect(p.label.startsWith("Delivery iFood (Loja Dois): nenhum faturamento")).toBe(true);
+  });
+
+  test("cada loja mostra o próprio valor e os próprios dias", () => {
+    const pendencias = avaliarCanaisDeDelivery(
+      [daLoja("i1", "IFOOD", { dias: 12, bruto: 500 }), daLoja("i2", "IFOOD")],
+      CONTEXTO, LOJAS
+    );
+    const um = pendencias.find((x) => x.key === "delivery:IFOOD:i1")!;
+    const dois = pendencias.find((x) => x.key === "delivery:IFOOD:i2")!;
+    expect(um.label).toMatch(/12 de 30 dias/);
+    expect(um.label).toMatch(/faltam 18 dia/);
+    expect(dois.label).toMatch(/30\/30 dias/);
+    expect(dois.label).toMatch(/1\.000,50/);
+  });
+
+  test("faturamento de uma loja não cobre a outra", () => {
+    const p = avaliarCanaisDeDelivery([daLoja("n1", "NOVENTA_NOVE")], CONTEXTO, LOJAS)
+      .find((x) => x.key === "delivery:NOVENTA_NOVE:n2")!;
+    expect(p.label).toMatch(/nenhum faturamento/i);
   });
 });
 

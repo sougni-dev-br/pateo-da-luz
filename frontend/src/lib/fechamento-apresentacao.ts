@@ -76,6 +76,9 @@ const NOME_DA_CHAVE: Record<string, string> = {
 export function nomeDaChave(key: string): string | null {
   const fixo = NOME_DA_CHAVE[key];
   if (fixo) return fixo;
+  // delivery:<plataforma>:<loja> — a loja não está na chave, só o nome da plataforma.
+  const porLoja = key.match(/^delivery:([A-Z_]+):/);
+  if (porLoja && NOME_DA_CHAVE[`delivery:${porLoja[1]}`]) return `${NOME_DA_CHAVE[`delivery:${porLoja[1]}`]} (loja)`;
   if (key.startsWith("card:") || key.startsWith("supplier:")) return null;
   return key;
 }
