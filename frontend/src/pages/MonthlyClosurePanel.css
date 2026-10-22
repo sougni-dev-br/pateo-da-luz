@@ -17,12 +17,53 @@
   gap: 16px;
 }
 
+.fm-mes-titulo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: -8px; /* a seta alinha com o texto abaixo, não com a borda */
+}
+
 .fm-mes h2 {
   margin: 0;
   font-size: 1.6rem;
   letter-spacing: -0.01em;
   color: var(--ink);
 }
+
+/* Botão quadrado só com ícone: navegar entre meses e recarregar. Alvo de 36px
+   (40px no celular); o rótulo vive em aria-label/title. */
+.fm-passo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm, 8px);
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.fm-passo:hover:not(:disabled) { background: var(--row-hover); color: var(--ink); border-color: var(--line); }
+.fm-passo:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
+.fm-passo:disabled { opacity: 0.45; cursor: default; }
+
+.fm-acoes .fm-passo { border-color: var(--line); }
+
+/* Por que "Travar mês" está apagado — visível, não escondido em tooltip. */
+.fm-trava-estado {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 0.76rem;
+  text-align: right;
+  color: var(--muted);
+}
+
+.fm-trava-estado.liberado { color: var(--success); font-weight: 550; }
 
 .fm-mes > p {
   margin: 4px 0 0;
@@ -149,35 +190,88 @@
   color: var(--muted);
 }
 
-.fm-atencao ul,
-.fm-aguardando ul {
-  list-style: none;
-  margin: 12px 0 0;
-  padding: 0;
-  display: grid;
-  gap: 8px;
+.fpend-total {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 20px;
+  margin-left: 8px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  vertical-align: 1px;
 }
 
-.fm-atencao li,
-.fm-aguardando li {
+/* ── Lista agrupada de pendências ───────────────────────────────────────── */
+
+.fpend { display: grid; gap: 18px; margin-top: 14px; }
+
+.fpend-grupo h4 {
   display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 12px;
-  font-size: 0.85rem;
-  padding-bottom: 8px;
-  border-bottom: 1px dashed var(--line);
-}
-
-.fm-atencao li:last-child,
-.fm-aguardando li:last-child {
-  border-bottom: 0;
-  padding-bottom: 0;
-}
-
-.fm-aguardando li {
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 4px;
+  font-size: 0.72rem;
+  font-weight: 600;
   color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
 }
+
+.fpend-contagem {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--paper-soft);
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.fpend-grupo ul { list-style: none; margin: 0; padding: 0; }
+
+.fpend-grupo li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+
+.fpend-grupo li:first-child { border-top: 0; }
+
+.fpend-texto { display: grid; gap: 2px; min-width: 0; }
+.fpend-texto strong { font-size: 0.88rem; font-weight: 600; color: var(--ink); line-height: 1.35; }
+.fpend-texto span { font-size: 0.8rem; color: var(--muted); line-height: 1.4; }
+
+.fm-aguardando .fpend-texto strong { font-weight: 550; color: var(--muted); }
+
+.fpend-acao {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border: 1px solid var(--line-strong, var(--line));
+  border-radius: var(--radius-sm, 8px);
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 550;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.fpend-acao:hover:not(:disabled) { background: var(--row-hover); border-color: var(--ink); }
+.fpend-acao:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.fpend-acao:disabled { opacity: 0.5; cursor: default; }
+
+/* Conferir é afirmar que está tudo certo: ação positiva, com a cor da casa. */
+.fpend-acao-conferir { border-color: var(--gold); background: var(--row-hover); }
+.fpend-acao-conferir:hover:not(:disabled) { border-color: var(--gold); background: var(--gold); color: var(--ink); }
 
 /* ── Blocos ─────────────────────────────────────────────────────────────── */
 
@@ -358,14 +452,17 @@
   display: flex;
   justify-content: space-between;
   gap: 16px;
-  align-items: baseline;
+  align-items: flex-start;
   font-size: 0.82rem;
   padding-bottom: 10px;
   border-bottom: 1px dashed var(--line);
 }
 
 .fm-justificativas li:last-child { border-bottom: 0; padding-bottom: 0; }
-.fm-just-motivo { color: var(--ink); }
+.fm-just-texto { display: grid; gap: 2px; min-width: 0; }
+.fm-just-texto strong { font-weight: 600; color: var(--ink); }
+.fm-just-motivo { color: var(--muted); line-height: 1.45; }
+.fm-just-lado { display: grid; justify-items: end; gap: 4px; flex-shrink: 0; }
 .fm-just-data { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 
 /* ── Diálogo de justificativa ───────────────────────────────────────────── */
@@ -423,19 +520,25 @@
 @media (max-width: 720px) {
   .fm-cabecalho-topo { flex-direction: column; }
   .fm-acoes { width: 100%; }
-  .fm-acoes > * { flex: 1 1 auto; }
+  .fm-acoes > button:not(.fm-passo) { flex: 1 1 auto; }
+  .fm-passo { width: 40px; height: 40px; }
+  .fm-trava-estado { text-align: left; }
 
   .fm-indicadores { grid-template-columns: repeat(2, 1fr); }
   .fm-indicador.destaque { grid-column: 1 / -1; }
+  /* Número ímpar de indicadores: o último ocupa a linha, sem célula cinza vazia. */
+  .fm-indicadores > .fm-indicador:last-child:nth-child(even) { grid-column: 1 / -1; }
 
   /* O resumo do bloco cede lugar ao título e ao estado, que são o que
      orienta. O número reaparece dentro, ao abrir. */
   .fbloco-resumo { display: none; }
   .fbloco-estado-texto { display: none; }
 
-  .fm-atencao li,
-  .fm-aguardando li,
-  .fm-justificativas li { flex-direction: column; gap: 4px; }
+  /* Ação embaixo do texto, larga o bastante para o polegar. */
+  .fpend-grupo li { flex-direction: column; align-items: stretch; gap: 8px; }
+  .fpend-acao { min-height: 40px; }
+  .fm-justificativas li { flex-direction: column; gap: 6px; }
+  .fm-just-lado { grid-auto-flow: column; justify-items: start; justify-content: space-between; align-items: center; width: 100%; }
 
   /* Tabela larga rola em vez de espremer a coluna do nome. */
   .fbloco-corpo { overflow-x: auto; }
