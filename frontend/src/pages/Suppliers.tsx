@@ -23,6 +23,7 @@ import {
   Tabs,
   TextField
 } from "../design-system";
+import { ExigenciasDoFornecedor } from "../components/fornecedores/ExigenciasDoFornecedor";
 import { hasPermission } from "../lib/permissions";
 import { formatDate } from "../utils/format";
 
@@ -622,6 +623,7 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
                         onChange={(event) => setForm({ ...form, closingChecklistGroup: event.target.value })}
                       />
                     </FormField>
+                    <ExigenciasDoFornecedor supplierId={form.id || null} canEdit={canEdit} />
                   </>
                 )}
               </FormGrid>

@@ -1,0 +1,121 @@
+/* Lançamentos obrigatórios do fornecedor (fechamento). Prefixo fex-. */
+
+.fex {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md, 12px);
+  background: var(--paper);
+}
+
+.fex h4 { margin: 0; font-size: 0.9rem; font-weight: 600; color: var(--ink); }
+.fex-ajuda { margin: 0; font-size: 0.8rem; line-height: 1.5; color: var(--muted); }
+.fex-aviso { grid-column: 1 / -1; margin: 0; font-size: 0.82rem; color: var(--muted); }
+.fex-erro { margin: 0; font-size: 0.82rem; color: var(--danger); }
+
+.fex-lista { list-style: none; margin: 0; padding: 0; }
+
+.fex-lista li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 6px 16px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+
+.fex-lista li:first-child { border-top: 0; }
+
+.fex-texto { display: grid; gap: 2px; min-width: 0; }
+.fex-texto strong { font-size: 0.88rem; color: var(--ink); }
+.fex-texto span { font-size: 0.78rem; color: var(--muted); }
+
+/* Acordo quitado: continua à vista, só apagado. */
+.fex-quitada .fex-texto strong { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--line-strong, var(--muted)); }
+
+.fex-acoes { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.fex-acoes .link-btn { display: inline-flex; align-items: center; gap: 5px; }
+.fex-remover { color: var(--danger); }
+
+.fex-novo {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  align-items: end;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--line);
+}
+
+@media (max-width: 720px) {
+  .fex-novo { grid-template-columns: 1fr; }
+  .fex-lista li { grid-template-columns: 1fr; }
+}
+
+/* Busca de produto: o campo vira chip depois de escolhido. */
+.fex-produto { position: relative; display: grid; gap: 4px; }
+
+/* Flutuante: se empurrasse o formulário, os campos ao lado desalinhariam a cada busca. */
+.fex-resultados {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 4px;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 8px);
+  background: var(--paper);
+  box-shadow: var(--shadow, 0 4px 16px rgba(0, 0, 0, 0.08));
+}
+
+.fex-resultados button {
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.84rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fex-resultados button:hover, .fex-resultados button:focus-visible { background: var(--row-hover); outline: none; }
+.fex-sem-resultado { padding: 8px 10px; font-size: 0.8rem; color: var(--muted); }
+
+.fex-escolhido { display: grid; gap: 6px; }
+.fex-escolhido-rotulo { font-size: 0.8rem; font-weight: 550; color: var(--ink); }
+
+.fex-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--gold);
+  border-radius: var(--radius-sm, 8px);
+  background: var(--row-hover);
+  font-size: 0.86rem;
+  color: var(--ink);
+}
+
+.fex-chip button {
+  display: inline-flex;
+  padding: 2px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.fex-chip button:hover { color: var(--ink); }
+.fex-chip button:focus-visible { outline: 2px solid var(--gold); }

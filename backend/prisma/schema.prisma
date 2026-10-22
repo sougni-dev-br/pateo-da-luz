@@ -239,6 +239,7 @@ model Supplier {
   closingChecklistGroup    String?
 
   purchases            Purchase[]
+  closingRequirements  SupplierClosingRequirement[]
   billingCycles        SupplierBillingCycle[]
   reimbursedPurchases  Purchase[]             @relation("PurchaseReimbursementPayee")
   reimbursementReports ReimbursementReport[]
@@ -480,6 +481,28 @@ model ExpenseTypeMaster {
   @@index([isActive])
 }
 
+// Lançamento que um fornecedor obrigatório no fechamento precisa ter em TODO mês,
+// reconhecido pelo PRODUTO dos itens da compra. Ex.: o condomínio do shopping tem dois —
+// "Condomínio do mês" e "Parcelamento de dívida" —, e o segundo vale até o acordo ser
+// quitado (settledAt preenchido encerra a cobrança, sem apagar o histórico).
+// Sem nenhuma exigência ativa, vale a regra antiga: qualquer compra do mês basta.
+model SupplierClosingRequirement {
+  id              String            @id @default(cuid())
+  supplierId      String
+  supplier        Supplier          @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  label           String
+  productId       String
+  product         Product           @relation(fields: [productId], references: [id])
+  settledAt       DateTime?
+  settledByUserId String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  // Dois lançamentos com o mesmo produto seriam indistinguíveis: um produto por exigência.
+  @@unique([supplierId, productId])
+  @@index([supplierId])
+}
+
 /// O que o item e (insumo, embalagem, consumo, duravel, servico). Sugere DRE e estoque no cadastro;
 /// nao altera o calculo do CMV, que segue lendo o grupo da categoria DRE.
 enum ProductNature {
@@ -492,6 +515,7 @@ enum ProductNature {
 
 model Product {
   pdvBebidas                AgileProdutoInsumo[]
+  closingRequirements       SupplierClosingRequirement[]
   id                        String                     @id @default(cuid())
   externalCode              String?                    @unique
   name                      String

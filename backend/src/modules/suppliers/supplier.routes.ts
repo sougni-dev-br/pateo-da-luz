@@ -8,8 +8,12 @@ import { userHasPermission } from "../security/menu-permissions.js";
 import { excludeAggregatorsSql } from "../purchases/purchase-aggregators.js";
 import { employeeFullName, employeeToSupplierDraft, onlyDigits } from "./employee-supplier.js";
 import { nextSupplierCode } from "./supplier-code.js";
+import { supplierClosingRequirementsRouter } from "./supplier-closing-requirements.routes.js";
 
 export const supplierRouter = Router();
+
+// Lançamentos obrigatórios do fornecedor no Fechamento Mensal (ex.: condomínio + parcela do acordo).
+supplierRouter.use("/:id/closing-requirements", supplierClosingRequirementsRouter);
 
 function parseInstallmentDays(value: unknown): string | null {
   if (value == null || value === "") return null;

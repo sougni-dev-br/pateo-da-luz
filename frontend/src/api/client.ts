@@ -4267,6 +4267,8 @@ export type MonthlyClosureJustification = {
   blockKey: string;
   reason: string;
   justifiedByUserId: string;
+  /** Nome de quem registrou; nulo se o usuário não existe mais. */
+  justifiedByName?: string | null;
   justifiedAt: string;
 };
 
@@ -4276,6 +4278,20 @@ export type MonthlyClosureRequiredSupplier = {
   group: string;
   frequency: "MONTHLY" | "QUARTERLY" | "ANNUAL";
   appliesThisMonth: boolean;
+  present: boolean;
+  total: number;
+  purchaseCount: number;
+  /** Lançamentos obrigatórios do fornecedor (ex.: condomínio do mês + parcela do acordo). */
+  requirements: MonthlyClosureRequirement[];
+  /** Há exigência ativa: o fornecedor é cobrado por lançamento, não por "qualquer compra". */
+  usaExigencias: boolean;
+};
+
+export type MonthlyClosureRequirement = {
+  id: string;
+  label: string;
+  productName: string;
+  quitada: boolean;
   present: boolean;
   total: number;
   purchaseCount: number;
@@ -4314,12 +4330,15 @@ export type MonthlyClosureState = {
   status: "OPEN" | "CLOSED";
   closedAt: string | null;
   closedByUserId: string | null;
+  closedByName?: string | null;
   reopenReason: string | null;
   revenue: {
     salon: { grossAmount: number; netAmount: number; daysCount: number; entryCount: number };
     ifood: { grossAmount: number; count: number };
     noventaNove: { grossAmount: number; count: number };
     outrosDelivery: { grossAmount: number; count: number; plataformas: string[] };
+    /** Eventos/empreitada lançados em Faturamento (não passam pelo Agile); lançamento obrigatório no fechamento. */
+    eventos: { lancamentos: number; valor: number };
     /** Total do mes, lido do razao. Nunca some as parcelas acima — elas saem dele. */
     total: { grossAmount: number; netAmount: number };
   };
@@ -4330,6 +4349,11 @@ export type MonthlyClosureState = {
   };
   requiredSuppliers: MonthlyClosureRequiredSupplier[];
   taxes: MonthlyClosureTax[];
+  /** Cartões ativos e a fatura da competência de cada um (conferência obrigatória). */
+  cards: {
+    cartoes: Array<{ id: string; name: string; last4Digits: string }>;
+    faturas: Array<{ creditCardId: string; status: string; itensComDivergencia: number }>;
+  };
   finalInventory: MonthlyClosureFinalInventory;
   cmvAttribution: { total: number; breakdown: MonthlyClosureCmvContribution[] };
   justifications: MonthlyClosureJustification[];
@@ -4339,6 +4363,38 @@ export type MonthlyClosureState = {
     canLock: boolean;
   };
 };
+
+export type EventoDoHistorico = {
+  id: string;
+  /** Instante (ISO) em que aconteceu. */
+  em: string;
+  acao: "JUSTIFICOU" | "REMOVEU_JUSTIFICATIVA" | "TRAVOU" | "REABRIU";
+  porNome: string | null;
+  blockKey: string | null;
+  texto: string | null;
+};
+
+export type MesDoHistorico = {
+  ano: number;
+  mes: number;
+  travado: boolean;
+  travadoEm: string | null;
+  travadoPor: string | null;
+  reabertoEm: string | null;
+  reabertoPor: string | null;
+  motivoDaReabertura: string | null;
+  justificativas: number;
+  faturamentoBruto: number;
+  cmvAtribuido: number | null;
+};
+
+export function getMonthlyClosureHistory(year: number, month: number) {
+  return request<EventoDoHistorico[]>(`/monthly-closure/${year}/${month}/history`);
+}
+
+export function getMonthlyClosureOverview(limit = 12) {
+  return request<MesDoHistorico[]>(`/monthly-closure/overview?limit=${limit}`);
+}
 
 export function getMonthlyClosure(year: number, month: number) {
   return request<MonthlyClosureState>(`/monthly-closure/${year}/${month}`);
@@ -4467,6 +4523,50 @@ export function setUnitStatus(id: string, isActive: boolean) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ isActive })
   });
+}
+
+export type SupplierClosingRequirement = {
+  id: string;
+  label: string;
+  productId: string;
+  productName: string;
+  /** Quando o acordo foi quitado; nulo = ainda cobrado todo mês. */
+  settledAt: string | null;
+};
+
+export function getSupplierClosingRequirements(supplierId: string) {
+  return request<SupplierClosingRequirement[]>(`/suppliers/${encodeURIComponent(supplierId)}/closing-requirements`);
+}
+
+export function createSupplierClosingRequirement(supplierId: string, payload: { label: string; productId: string }) {
+  return request<SupplierClosingRequirement>(`/suppliers/${encodeURIComponent(supplierId)}/closing-requirements`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function updateSupplierClosingRequirement(
+  supplierId: string, requirementId: string, payload: { label?: string; productId?: string }
+) {
+  return request<SupplierClosingRequirement>(
+    `/suppliers/${encodeURIComponent(supplierId)}/closing-requirements/${encodeURIComponent(requirementId)}`,
+    { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }
+  );
+}
+
+export function deleteSupplierClosingRequirement(supplierId: string, requirementId: string) {
+  return request<{ ok: boolean }>(
+    `/suppliers/${encodeURIComponent(supplierId)}/closing-requirements/${encodeURIComponent(requirementId)}`,
+    { method: "DELETE" }
+  );
+}
+
+export function settleSupplierClosingRequirement(supplierId: string, requirementId: string, settled: boolean) {
+  return request<SupplierClosingRequirement>(
+    `/suppliers/${encodeURIComponent(supplierId)}/closing-requirements/${encodeURIComponent(requirementId)}/settle`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ settled }) }
+  );
 }
 
 export function getExpenseTypes(search?: string) {

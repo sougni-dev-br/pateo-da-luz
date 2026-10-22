@@ -8,6 +8,8 @@
  */
 export const REVENUE_CHANNEL_SALON = "Salão";
 export const REVENUE_CHANNEL_DELIVERY = "Delivery";
+/** Gravado pela rotina "Lançar evento" (Faturamento). Mesmo literal de EVENT_CHANNEL no frontend. */
+export const REVENUE_CHANNEL_EVENTS = "Eventos / Empreitada";
 
 /**
  * Nomes canonicos das plataformas, gravados em RevenueEntry.sourcePlatform.
