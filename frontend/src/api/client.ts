@@ -3201,6 +3201,9 @@ export type DashboardSummaryData = {
     serviceAmount: number;
     tickets: number;
     peopleServed: number;
+    /** Mesas e pessoas só do canal Salão — base dos dois tickets médios. */
+    salonTickets?: number;
+    salonPeopleServed?: number;
     count: number;
     ticketAverage: number;
     ticketAveragePerTable: number;

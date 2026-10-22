@@ -120,13 +120,19 @@ export function compareRevenue(
   previous: RevenueDay[],
   key: RevenueKey,
   isInProgress: boolean,
+  /** Hoje (dia do mês). Lançamento depois de hoje não conta como "último dia lançado". */
+  maxDay?: number,
 ): RevenueComparison {
   if (!isInProgress) {
     const cur = sumThroughDay(current, key, 31);
     const prev = sumThroughDay(previous, key, 31);
     return { current: cur, previous: prev, pct: safePct(cur, prev), throughDay: null };
   }
-  const throughDay = lastRevenueDay(current);
+  // Importação mensal (planilha do iFood) grava o mês inteiro na data do último dia:
+  // sem o teto, "último dia lançado" virava 31 e outubro era comparado com setembro
+  // inteiro (−55%), mesmo no dia 22.
+  const lancados = maxDay === undefined ? current : current.filter((d) => d.day <= maxDay);
+  const throughDay = lastRevenueDay(lancados);
   if (throughDay === 0) return { current: 0, previous: 0, pct: null, throughDay: null };
   const cur = sumThroughDay(current, key, throughDay);
   const prev = sumThroughDay(previous, key, throughDay);

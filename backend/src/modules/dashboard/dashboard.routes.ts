@@ -7,6 +7,8 @@ import { excludeAggregatorsSql } from "../purchases/purchase-aggregators.js";
 import { montarRankings } from "./dashboard-rankings.js";
 import { carregarFerias, contarAlertas } from "../payroll/ferias.routes.js";
 import { calcularResultadoCompleto } from "./dashboard-resultado.js";
+import { calcularTicketsSalao, variacaoPercentual, type BaseTicketSalao } from "./dashboard-ticket.js";
+import { REVENUE_CHANNEL_SALON } from "../monthly/revenue-channels.js";
 
 export const dashboardRouter = Router();
 
@@ -207,6 +209,26 @@ async function revenueByDay(year: number, month: number): Promise<RevenueDay[]> 
   }));
 }
 
+// Base do ticket médio: só o canal Salão (ver dashboard-ticket.ts).
+async function salonTicketBase(year: number, month: number): Promise<BaseTicketSalao> {
+  const [row] = await prisma.$queryRaw<Array<{ grossAmount: unknown; tickets: unknown; peopleServed: unknown }>>`
+    SELECT
+      COALESCE(SUM("grossAmount"), 0)   AS "grossAmount",
+      COALESCE(SUM("tickets"), 0)       AS "tickets",
+      COALESCE(SUM("peopleServed"), 0)  AS "peopleServed"
+    FROM "RevenueEntry"
+    WHERE "competenceYear" = ${year}
+      AND "competenceMonth" = ${month}
+      AND "channel" = ${REVENUE_CHANNEL_SALON}
+      AND "status" <> 'CANCELLED'
+  `;
+  return {
+    grossAmount: Number(row?.grossAmount ?? 0),
+    tickets: Number(row?.tickets ?? 0),
+    peopleServed: Number(row?.peopleServed ?? 0),
+  };
+}
+
 // ─────────────────────────────────────────────
 // GET /dashboard/summary?year=YYYY&month=MM
 // Resumo financeiro consolidado do período:
@@ -237,6 +259,8 @@ dashboardRouter.get("/summary", async (request, response) => {
     monthlyCmvViews,
     dailyRows,
     prevDailyRows,
+    salonRow,
+    prevSalonRow,
   ] = await Promise.all([
     // Faturamento período atual (por competência)
     prisma.$queryRaw<Array<{ grossAmount: unknown; netAmount: unknown; serviceAmount: unknown; tickets: unknown; peopleServed: unknown; count: unknown }>>`
@@ -323,6 +347,8 @@ dashboardRouter.get("/summary", async (request, response) => {
     // A serie permite comparar o mesmo trecho e desenhar o ritmo do mes.
     revenueByDay(year, month),
     revenueByDay(prevYear, prevMonth),
+    salonTicketBase(year, month),
+    salonTicketBase(prevYear, prevMonth),
   ]);
 
   // ── Extrair valores ──
@@ -337,6 +363,8 @@ dashboardRouter.get("/summary", async (request, response) => {
   const prevRevTickets = Number(prevRevRow[0]?.tickets       ?? 0);
   const prevRevPeople  = Number(prevRevRow[0]?.peopleServed  ?? 0);
   const revPeople      = Number(revRow[0]?.peopleServed ?? 0);
+  const ticketSalao     = calcularTicketsSalao(salonRow);
+  const prevTicketSalao = calcularTicketsSalao(prevSalonRow);
 
   const purchasesTotal     = Number(purchasesRow[0]?.total     ?? 0);
   const purchasesCount     = Number(purchasesRow[0]?.cnt       ?? 0);
@@ -391,30 +419,27 @@ dashboardRouter.get("/summary", async (request, response) => {
       serviceAmount: revService,
       tickets: revTickets,
       count: revCount,
-      ticketAverage: revTickets > 0 ? revGross / revTickets : 0,
+      ticketAverage: ticketSalao.perTable,
       peopleServed: revPeople,
-      ticketAveragePerTable: revTickets > 0 ? revGross / revTickets : 0,
-      ticketAveragePerPerson: revPeople > 0 ? revGross / revPeople : 0,
+      // Ticket de mesa e de pessoa é do salão; tickets/peopleServed acima seguem totais.
+      salonTickets: salonRow.tickets,
+      salonPeopleServed: salonRow.peopleServed,
+      ticketAveragePerTable: ticketSalao.perTable,
+      ticketAveragePerPerson: ticketSalao.perPerson,
       prev: {
         grossAmount: prevRevGross,
         netAmount: prevRevNet,
         serviceAmount: prevRevService,
         tickets: prevRevTickets,
         peopleServed: prevRevPeople,
-        ticketAveragePerTable: prevRevTickets > 0 ? prevRevGross / prevRevTickets : 0,
-        ticketAveragePerPerson: prevRevPeople > 0 ? prevRevGross / prevRevPeople : 0
+        ticketAveragePerTable: prevTicketSalao.perTable,
+        ticketAveragePerPerson: prevTicketSalao.perPerson
       },
       deltaPercent: delta(revNet, prevRevNet),
       deltaGrossPercent: delta(revGross, prevRevGross),
       deltaServicePercent: delta(revService, prevRevService),
-      deltaTicketAvgPerTablePercent: delta(
-        revTickets > 0 ? revGross / revTickets : 0,
-        prevRevTickets > 0 ? prevRevGross / prevRevTickets : 0
-      ),
-      deltaTicketAvgPerPersonPercent: delta(
-        revPeople > 0 ? revGross / revPeople : 0,
-        prevRevPeople > 0 ? prevRevGross / prevRevPeople : 0
-      ),
+      deltaTicketAvgPerTablePercent: variacaoPercentual(ticketSalao.perTable, prevTicketSalao.perTable),
+      deltaTicketAvgPerPersonPercent: variacaoPercentual(ticketSalao.perPerson, prevTicketSalao.perPerson),
     },
     purchases: {
       total: purchasesTotal,

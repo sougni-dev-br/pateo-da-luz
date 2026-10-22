@@ -78,6 +78,21 @@ describe("compareRevenue", () => {
     expect(result.pct).toBe(0);
   });
 
+  it("lançamento em data futura não estica o trecho comparado", () => {
+    // planilha mensal do iFood grava o mês inteiro no dia 31, com hoje no dia 3
+    const current = [day(1, 110), day(2, 110), day(3, 110), day(31, 500)];
+    const result = compareRevenue(current, previous, "grossAmount", true, 3);
+    expect(result.throughDay).toBe(3);
+    expect(result.previous).toBe(300);
+    expect(result.current).toBe(330);
+    expect(result.pct).toBeCloseTo(10);
+  });
+
+  it("sem teto de hoje mantém o comportamento anterior", () => {
+    const current = [day(1, 110), day(31, 500)];
+    expect(compareRevenue(current, previous, "grossAmount", true).throughDay).toBe(31);
+  });
+
   it("mês em andamento sem lançamento não compara", () => {
     expect(compareRevenue([], previous, "grossAmount", true).pct).toBeNull();
   });
