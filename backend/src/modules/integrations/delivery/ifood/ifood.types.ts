@@ -93,6 +93,8 @@ export type IfoodPeriodSummary = {
   fees: IfoodFeeBreakdownRow[];
   settlements: IfoodSettlementRow[];
   isMock: boolean;
+  /** `mensal` quando o dado vem do consolidado do portal (sem dia a dia). Ausente = diário. */
+  granularidade?: "diaria" | "mensal";
 };
 
 export type IfoodStatusView = {

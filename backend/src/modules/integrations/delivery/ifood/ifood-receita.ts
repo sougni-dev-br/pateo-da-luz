@@ -93,6 +93,7 @@ export function resumoDeReceita(input: {
       .sort((a, b) => (a.date < b.date ? -1 : 1)),
     fees: [],
     settlements: input.settlements,
-    isMock: false
+    isMock: false,
+    granularidade: "mensal"
   };
 }

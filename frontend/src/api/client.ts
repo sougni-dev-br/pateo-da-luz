@@ -6626,6 +6626,8 @@ export type PainelDonoInsights = {
     avgNet: number;
     avgOrders: number;
   }>;
+  /** `mensal`: dado do consolidado do portal — sem média por dia da semana nem projeção. */
+  granularidade: "diaria" | "mensal";
   ticketByStore: Array<{
     storeId: string;
     storeLabel: string;

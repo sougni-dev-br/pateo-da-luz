@@ -1,5 +1,6 @@
 import { prisma } from "../../../../config/database.js";
 import { lerResumoDaLoja } from "./ifood.service.js";
+import { WEEKDAY_LABELS, dadosSaoMensais, montarProjecao, podeAlertarQueda, semanaSemDados } from "./ifood-insights-regras.js";
 import { resumoSemDados } from "./ifood-sem-dados.js";
 import { pct as pctTexto } from "../noventa-nove/painel-dono-calculo.js";
 import type { IfoodPeriodSummary } from "./ifood.types.js";
@@ -64,6 +65,8 @@ export type PainelDonoInsights = {
     avgNet: number;
     avgOrders: number;
   }>;
+  /** `mensal`: dado do consolidado do portal — sem média por dia da semana nem projeção. */
+  granularidade: "diaria" | "mensal";
   ticketByStore: Array<{
     storeId: string;
     storeLabel: string;
@@ -98,7 +101,6 @@ function shiftMonth(year: number, month: number, delta: number): { year: number;
   return { year: Math.floor(total / 12), month: (total % 12) + 1 };
 }
 
-const WEEKDAY_LABELS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
 export async function getPainelDonoInsights(params: {
   year: number;
@@ -151,18 +153,15 @@ export async function getPainelDonoInsights(params: {
   const todayDay = isCurrentMonth ? now.getDate() : daysInMonth;
   const daysElapsed = isCurrentMonth ? todayDay : daysInMonth;
 
-  // Como o mock já tem 1 mês inteiro, "current" mostra o mês todo simulado.
-  // A projeção só faz sentido quando o mês ainda está em curso (dados reais parciais).
-  // Aqui deixamos igual ao total pra Fase 1; na Fase 2 vai casar com dias parciais reais.
-  const projection = {
-    grossAmount: round2(cur.grossAmount),
-    netAmount: round2(cur.netAmount),
+  const mensal = dadosSaoMensais(currentPerStore);
+  const projection = montarProjecao({
+    mensal,
+    isCurrentMonth,
     daysElapsed,
-    daysRemaining: daysInMonth - daysElapsed,
-    note: isCurrentMonth
-      ? `Projeção com base em ${daysElapsed} dia(s) do ranking histórico do mês.`
-      : "Mês fechado — valores refletem o total do período."
-  };
+    daysInMonth,
+    grossAmount: cur.grossAmount,
+    netAmount: cur.netAmount
+  });
 
   const ranking = currentPerStore.map((row, idx) => {
     const prevRow = prevPerStore[idx];
@@ -197,7 +196,7 @@ export async function getPainelDonoInsights(params: {
       });
     }
   }
-  const weekday = [1, 2, 3, 4, 5, 6, 0].map((dow) => {
+  const weekday = mensal ? semanaSemDados() : [1, 2, 3, 4, 5, 6, 0].map((dow) => {
     const bucket = weekdayMap.get(dow) ?? { totalNet: 0, totalOrders: 0, count: 1 };
     return {
       dow,
@@ -246,7 +245,7 @@ export async function getPainelDonoInsights(params: {
       storeId: null
     });
   }
-  for (const store of ranking) {
+  for (const store of podeAlertarQueda(isCurrentMonth) ? ranking : []) {
     if (store.deltaVsPreviousMonthPercent < ALERT_THRESHOLDS.MOM_DROP_DANGER) {
       alerts.push({
         severity: "danger",
@@ -289,6 +288,7 @@ export async function getPainelDonoInsights(params: {
     ranking,
     breakdown,
     weekday,
+    granularidade: mensal ? ("mensal" as const) : ("diaria" as const),
     ticketByStore,
     alerts,
     // Era `true` literal. Agora diz a verdade sobre ESTE periodo: so marca
