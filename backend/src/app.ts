@@ -79,7 +79,7 @@ app.use(cors({
   },
   credentials: true,
   // Cabeçalhos que a tela lê da resposta (sem isto o navegador os esconde em outra origem).
-  exposedHeaders: ["X-Payables-Truncado"],
+  exposedHeaders: ["X-Payables-Truncado", "X-Purchases-Truncado"],
 }));
 // A ficha cadastral pública é aberta por qualquer um que tenha o link: corpo JSON pequeno (o
 // formulário inteiro tem poucos KB). Vem antes do parser geral, que então pula o corpo já lido.

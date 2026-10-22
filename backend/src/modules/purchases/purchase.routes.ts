@@ -391,6 +391,8 @@ purchaseRouter.get("/", async (request, response) => {
     // somam. Os dois sao veiculo de pagamento: o lugar deles e Contas a Pagar e
     // a tela do proprio ciclo/fatura.
     ...excludeAggregatorsWhere,
+    // Canceladas saem na consulta: filtrar depois do corte fazia elas ocuparem vagas.
+    ...(showCancelled ? {} : { status: { not: "CANCELLED" } }),
     ...(year ? { competenceYear: year } : {}),
     ...(month ? { competenceMonth: month } : {}),
     ...((startDate || endDate)
@@ -423,12 +425,17 @@ purchaseRouter.get("/", async (request, response) => {
       : {})
   };
 
-  const purchases = await prisma.purchase.findMany({
+  // Sem paginação: a tela soma os cartões de resumo sobre a lista inteira do período.
+  // O limite é só de segurança (+1 para saber se estourou) e é avisado por cabeçalho.
+  const fetched = await prisma.purchase.findMany({
     where,
     include: { supplier: true, items: { include: { product: true } }, installments: true },
     orderBy: { purchaseDate: "desc" },
-    take: 100
+    take: LIMITE_POR_ORIGEM + 1
   });
+  const truncado = fetched.length > LIMITE_POR_ORIGEM;
+  const purchases = truncado ? fetched.slice(0, LIMITE_POR_ORIGEM) : fetched;
+  if (truncado) response.setHeader("X-Purchases-Truncado", "1");
 
   const statusRows = purchases.length
     ? await prisma.$queryRaw<Array<{ id: string; status: string; cancelledAt: Date | null; cancellationReason: string | null; purchaseNumber: string | null; workflowStatus: string | null; cycleStatus: string | null }>>`
@@ -438,7 +445,7 @@ purchaseRouter.get("/", async (request, response) => {
            JOIN "SupplierBillingCycle" sbc ON sbc."id" = sbi."cycleId"
            WHERE sbi."purchaseId" = p."id" LIMIT 1) AS "cycleStatus"
         FROM "Purchase" p
-        WHERE p."id" IN (${Prisma.join(purchases.map((purchase) => purchase.id))})
+        WHERE p."id" = ANY(${purchases.map((purchase) => purchase.id)}::text[])
       `
     : [];
   const statusById = new Map(statusRows.map((row) => [row.id, row]));
@@ -470,7 +477,7 @@ purchaseRouter.get("/", async (request, response) => {
       "conversionFactorUsed"::text AS "conversionFactorUsed",
       "conversionMissing"
     FROM "PurchaseItem"
-    WHERE "id" IN (${Prisma.join(itemIds)})
+    WHERE "id" = ANY(${itemIds}::text[])
   `;
   const conversionByItemId = new Map(conversionFields.map((item) => [item.id, item]));
 
