@@ -198,3 +198,23 @@
   .fatura-lista-check { width: 24px; height: 24px; }
   .fatura-lista-desc strong, .fatura-lista-desc small { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
 }
+
+/* ---------- conferido: o estado precisa saltar aos olhos ---------- */
+.fatura-conferir {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 12px; margin-right: 4px;
+  border: 1px solid var(--line-strong, var(--border)); border-radius: 999px; background: transparent;
+  color: var(--muted); font-weight: 500; cursor: pointer; white-space: nowrap;
+  transition: background 120ms, color 120ms, border-color 120ms;
+}
+.fatura-conferir:hover:not(:disabled) { border-color: var(--success); color: var(--success); }
+.fatura-conferir.ligado { background: var(--success); border-color: var(--success); color: #fff; font-weight: 600; }
+.fatura-conferir:disabled { cursor: default; }
+.fatura-conferir:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.fatura-lista-linha.conferida { background: color-mix(in srgb, var(--success) 8%, transparent); box-shadow: inset 4px 0 0 var(--success); }
+.fatura-lista-linha.divergente { background: color-mix(in srgb, var(--danger) 8%, transparent); box-shadow: inset 4px 0 0 var(--danger); }
+.fatura-lista-linha.conferida:hover, .fatura-lista-linha.divergente:hover { filter: brightness(0.98); }
+.fatura-lista-conferidas { color: var(--muted); font-weight: 600; }
+.fatura-lista-conferidas.completo { color: var(--success); }
+@media (max-width: 720px) {
+  .fatura-conferir { min-height: 40px; flex: 1; justify-content: center; }
+}
