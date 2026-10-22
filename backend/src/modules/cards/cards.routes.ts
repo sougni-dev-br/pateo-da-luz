@@ -16,6 +16,7 @@ import {
   syncCardStatementItemForPurchase
 } from "./cards.service.js";
 import { normalizeText } from "../../shared/utils/normalize-text.js";
+import { divergenciasDeExtrato, subtotaisPorFinal } from "./finais-da-fatura.js";
 
 export const cardsRouter = Router();
 
@@ -62,7 +63,8 @@ async function cardStatementDetail(id: string) {
   const statement = await prisma.creditCardStatement.findUnique({
     where: { id },
     include: {
-      creditCard: true,
+      creditCard: { include: { finais: { orderBy: { createdAt: "asc" } } } },
+      finalTotals: true,
       items: {
         include: {
           purchase: { include: { supplier: true, _count: { select: { items: true } } } },
@@ -97,6 +99,43 @@ function recusouLinhaForaDoDre(
   return true;
 }
 
+type DetalheParaConferencia = {
+  items: Array<{ cardFinalId?: string | null; value: Prisma.Decimal | number | string }>;
+  creditCard?: { finais?: Array<{ id: string; label: string; last4Digits: string; kind: string; isActive: boolean }> };
+  finalTotals?: Array<{ cardFinalId: string; statedAmount: Prisma.Decimal | number | string }>;
+};
+
+// A fatura so e conferida quando o total de cada final bate com o que o extrato
+// do banco traz (quando o Eli informou esse total). Sem total informado, a
+// regra e a de sempre: o Fechamento Mensal so olha status e divergencia de item.
+function recusouExtratoDivergente(
+  detalhe: DetalheParaConferencia,
+  response: { status: (code: number) => { json: (body: unknown) => void } }
+) {
+  const declarados = detalhe.finalTotals ?? [];
+  if (declarados.length === 0) return false;
+  const finais = detalhe.creditCard?.finais ?? [];
+  const subtotais = subtotaisPorFinal(
+    detalhe.items.map((item) => ({ cardFinalId: item.cardFinalId ?? null, value: item.value })),
+    finais
+  );
+  const divergentes = divergenciasDeExtrato(subtotais, declarados);
+  if (divergentes.length === 0) return false;
+  const reais = (valor: number) => `R$ ${valor.toFixed(2).replace(".", ",")}`;
+  const lista = divergentes
+    .map((d) => {
+      const final = finais.find((f) => f.id === d.cardFinalId);
+      const nome = final ? `${final.label} (final ${final.last4Digits})` : "cartao removido";
+      return `${nome}: extrato ${reais(d.declarado)}, lancado ${reais(d.calculado)}`;
+    })
+    .join("; ");
+  response.status(422).json({
+    message: `O total de um cartao da fatura nao bate com o extrato — ${lista}. Classifique os itens sem cartao definido ou corrija o total informado antes de conferir.`,
+    divergenciasPorCartao: divergentes
+  });
+  return true;
+}
+
 cardsRouter.get("/", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "VISUALIZACAO"]);
   if (!user) return;
@@ -115,7 +154,8 @@ cardsRouter.get("/", async (request, response) => {
   const cards = await prisma.creditCard.findMany({
     where,
     include: {
-      _count: { select: { statements: true, purchases: true } }
+      _count: { select: { statements: true, purchases: true } },
+      finais: { orderBy: { createdAt: "asc" } }
     },
     orderBy: [{ isActive: "desc" }, { name: "asc" }]
   });
@@ -179,6 +219,56 @@ cardsRouter.post("/", async (request, response) => {
   response.status(request.body.id ? 200 : 201).json(card);
 });
 
+const KINDS_DE_FINAL = ["PHYSICAL", "VIRTUAL"];
+
+cardsRouter.post("/:id/finais", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  if (!user) return;
+
+  const card = await prisma.creditCard.findUnique({ where: { id: request.params.id } });
+  if (!card) {
+    response.status(404).json({ message: "Cartao nao encontrado." });
+    return;
+  }
+
+  const label = String(request.body.label ?? "").trim();
+  const last4Digits = String(request.body.last4Digits ?? "").trim();
+  const kind = String(request.body.kind ?? "PHYSICAL").toUpperCase();
+  if (!label || !/^\d{4}$/.test(last4Digits) || !KINDS_DE_FINAL.includes(kind)) {
+    response.status(400).json({ message: "Informe o nome, os 4 ultimos digitos (so numeros) e o tipo (fisico ou virtual) do cartao." });
+    return;
+  }
+
+  const id = request.body.id ? String(request.body.id) : null;
+  const repetido = await prisma.creditCardFinal.findFirst({
+    where: { creditCardId: card.id, last4Digits, ...(id ? { NOT: { id } } : {}) }
+  });
+  if (repetido) {
+    response.status(409).json({ message: "Ja existe um cartao com esse final nesta conta." });
+    return;
+  }
+
+  const final = id
+    ? await prisma.creditCardFinal.update({
+        where: { id },
+        data: { label, last4Digits, kind, isActive: request.body.isActive ?? true }
+      })
+    : await prisma.creditCardFinal.create({
+        data: { creditCardId: card.id, label, last4Digits, kind, isActive: request.body.isActive ?? true }
+      });
+
+  await auditLog({
+    userId: user.id,
+    action: id ? "UPDATE_CREDIT_CARD_FINAL" : "CREATE_CREDIT_CARD_FINAL",
+    entity: "CreditCardFinal",
+    entityId: final.id,
+    newValue: final,
+    ipAddress: requestIp(request),
+    userAgent: String(request.headers["user-agent"] ?? "")
+  });
+  response.status(id ? 200 : 201).json(final);
+});
+
 cardsRouter.patch("/:id/status", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
@@ -231,13 +321,26 @@ cardsRouter.get("/statements", async (request, response) => {
   const statements = await prisma.creditCardStatement.findMany({
     where,
     include: {
-      creditCard: true,
+      creditCard: { include: { finais: { orderBy: { createdAt: "asc" } } } },
       _count: { select: { items: true } }
     },
     orderBy: [{ closingDate: "desc" }, { createdAt: "desc" }]
   });
 
-  response.json(statements);
+  // Quantas linhas de cada fatura ainda estao sem cartao definido.
+  const semFinal = await prisma.creditCardStatementItem.groupBy({
+    by: ["statementId"],
+    where: { statementId: { in: statements.map((s) => s.id) }, cardFinalId: null },
+    _count: { _all: true }
+  });
+  const semFinalPorFatura = new Map(semFinal.map((g) => [g.statementId, g._count._all]));
+
+  response.json(
+    statements.map((statement) => ({
+      ...statement,
+      itensSemCartao: semFinalPorFatura.get(statement.id) ?? 0
+    }))
+  );
 });
 
 cardsRouter.get("/statements/:id", async (request, response) => {
@@ -250,7 +353,15 @@ cardsRouter.get("/statements/:id", async (request, response) => {
     return;
   }
 
-  response.json(statement);
+  const subtotaisPorCartao = subtotaisPorFinal(
+    statement.items.map((item) => ({ cardFinalId: item.cardFinalId, value: item.value })),
+    statement.creditCard.finais
+  );
+  response.json({
+    ...statement,
+    subtotaisPorCartao,
+    divergenciasPorCartao: divergenciasDeExtrato(subtotaisPorCartao, statement.finalTotals)
+  });
 });
 
 cardsRouter.post("/statements", async (request, response) => {
@@ -338,6 +449,7 @@ cardsRouter.patch("/statements/:id/status", async (request, response) => {
     return;
   }
   if (STATUS_DE_FATURA_FECHADA.includes(status) && recusouLinhaForaDoDre(previous.items, response)) return;
+  if ((status === "CHECKED" || STATUS_DE_FATURA_FECHADA.includes(status)) && recusouExtratoDivergente(previous, response)) return;
 
   const statement = await prisma.creditCardStatement.update({
     where: { id: request.params.id },
@@ -492,6 +604,138 @@ cardsRouter.delete("/statements/:id/items/:itemId", async (request, response) =>
     userAgent: String(request.headers["user-agent"] ?? "")
   });
   response.json({ ok: true });
+});
+
+// Classificar a linha como fisico/virtual nao muda valor, competencia nem DRE:
+// so diz em qual cartao da conta o gasto aconteceu. Por isso nao passa pela
+// trava de periodo; so a fatura ja fechada recusa (reabra para ajustar).
+cardsRouter.post("/statements/:id/items-final", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  if (!user) return;
+
+  const itemIds: string[] = Array.isArray(request.body.itemIds)
+    ? [...new Set<string>(request.body.itemIds.map((id: unknown) => String(id)).filter(Boolean))]
+    : [];
+  const cardFinalId = asText(request.body.cardFinalId);
+  if (itemIds.length === 0) {
+    response.status(400).json({ message: "Selecione ao menos uma linha da fatura." });
+    return;
+  }
+
+  const statement = await prisma.creditCardStatement.findUnique({ where: { id: request.params.id } });
+  if (!statement) {
+    response.status(404).json({ message: "Fatura nao encontrada." });
+    return;
+  }
+  if (!["OPEN", "CHECKED"].includes(statement.status)) {
+    response.status(409).json({ message: "Fatura fechada, paga ou cancelada nao pode ser reclassificada. Reabra a fatura antes." });
+    return;
+  }
+
+  if (cardFinalId) {
+    const final = await prisma.creditCardFinal.findUnique({ where: { id: cardFinalId } });
+    if (!final || final.creditCardId !== statement.creditCardId) {
+      response.status(400).json({ message: "Esse cartao nao pertence a conta desta fatura." });
+      return;
+    }
+    if (!final.isActive) {
+      response.status(400).json({ message: "Esse cartao esta inativo." });
+      return;
+    }
+  }
+
+  const existentes = await prisma.creditCardStatementItem.findMany({
+    where: { statementId: statement.id, id: { in: itemIds } },
+    select: { id: true }
+  });
+  if (existentes.length !== itemIds.length) {
+    response.status(404).json({ message: "Alguma linha selecionada nao pertence a esta fatura." });
+    return;
+  }
+
+  const atualizados = await prisma.$transaction(async (tx) => {
+    const resultado = await tx.creditCardStatementItem.updateMany({
+      where: { statementId: statement.id, id: { in: itemIds } },
+      data: { cardFinalId }
+    });
+    return resultado.count;
+  });
+
+  // Conferida contra o extrato e reclassificada depois: se algum total informado
+  // deixou de bater, a fatura volta a Aberta em vez de seguir "conferida" errada.
+  let reabertaPorDivergencia = false;
+  if (statement.status === "CHECKED") {
+    const detalhe = await cardStatementDetail(statement.id);
+    const bate = !detalhe || detalhe.finalTotals.length === 0
+      || divergenciasDeExtrato(
+        subtotaisPorFinal(
+          detalhe.items.map((item) => ({ cardFinalId: item.cardFinalId, value: item.value })),
+          detalhe.creditCard.finais
+        ),
+        detalhe.finalTotals
+      ).length === 0;
+    if (!bate) {
+      await prisma.creditCardStatement.update({ where: { id: statement.id }, data: { status: "OPEN" } });
+      reabertaPorDivergencia = true;
+    }
+  }
+
+  await auditLog({
+    userId: user.id,
+    action: "SET_CREDIT_CARD_STATEMENT_ITEMS_FINAL",
+    entity: "CreditCardStatement",
+    entityId: statement.id,
+    newValue: { itemIds, cardFinalId, reabertaPorDivergencia },
+    ipAddress: requestIp(request),
+    userAgent: String(request.headers["user-agent"] ?? "")
+  });
+  response.json({ atualizados, reabertaPorDivergencia });
+});
+
+cardsRouter.put("/statements/:id/final-totals/:finalId", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  if (!user) return;
+
+  const statement = await prisma.creditCardStatement.findUnique({ where: { id: request.params.id } });
+  if (!statement) {
+    response.status(404).json({ message: "Fatura nao encontrada." });
+    return;
+  }
+  const final = await prisma.creditCardFinal.findUnique({ where: { id: request.params.finalId } });
+  if (!final || final.creditCardId !== statement.creditCardId) {
+    response.status(400).json({ message: "Esse cartao nao pertence a conta desta fatura." });
+    return;
+  }
+
+  const bruto = request.body.statedAmount;
+  const vazio = bruto === null || bruto === undefined || String(bruto).trim() === "";
+  const where = { statementId: statement.id, cardFinalId: final.id };
+  if (vazio) {
+    await prisma.creditCardStatementFinalTotal.deleteMany({ where });
+    response.json({ ok: true, statedAmount: null });
+    return;
+  }
+
+  const valor = parseDecimalInput(bruto);
+  if (valor === null || valor < 0) {
+    response.status(400).json({ message: "Total do extrato invalido." });
+    return;
+  }
+  await prisma.creditCardStatementFinalTotal.upsert({
+    where: { statementId_cardFinalId: { statementId: statement.id, cardFinalId: final.id } },
+    create: { ...where, statedAmount: new Prisma.Decimal(valor) },
+    update: { statedAmount: new Prisma.Decimal(valor) }
+  });
+  await auditLog({
+    userId: user.id,
+    action: "SET_CREDIT_CARD_STATEMENT_FINAL_TOTAL",
+    entity: "CreditCardStatement",
+    entityId: statement.id,
+    newValue: { cardFinalId: final.id, statedAmount: valor },
+    ipAddress: requestIp(request),
+    userAgent: String(request.headers["user-agent"] ?? "")
+  });
+  response.json({ ok: true, statedAmount: valor });
 });
 
 cardsRouter.patch("/statements/:id/items/:itemId", async (request, response) => {
@@ -709,6 +953,7 @@ cardsRouter.post("/statements/:id/close", async (request, response) => {
   }
 
   if (recusouLinhaForaDoDre(statement.items, response)) return;
+  if (recusouExtratoDivergente(statement, response)) return;
 
   const totalAmount = statement.items.reduce((sum, item) => sum + Number(item.value ?? 0), 0);
   const period = getCardStatementPeriod({

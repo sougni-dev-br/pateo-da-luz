@@ -241,10 +241,10 @@ model Supplier {
   purchases            Purchase[]
   closingRequirements  SupplierClosingRequirement[]
   billingCycles        SupplierBillingCycle[]
-  reimbursedPurchases  Purchase[]             @relation("PurchaseReimbursementPayee")
+  reimbursedPurchases  Purchase[]                   @relation("PurchaseReimbursementPayee")
   reimbursementReports ReimbursementReport[]
-  createdAt            DateTime               @default(now())
-  updatedAt            DateTime               @updatedAt
+  createdAt            DateTime                     @default(now())
+  updatedAt            DateTime                     @updatedAt
 
   @@index([name])
   @@index([normalizedName])
@@ -487,16 +487,16 @@ model ExpenseTypeMaster {
 // quitado (settledAt preenchido encerra a cobrança, sem apagar o histórico).
 // Sem nenhuma exigência ativa, vale a regra antiga: qualquer compra do mês basta.
 model SupplierClosingRequirement {
-  id              String            @id @default(cuid())
+  id              String    @id @default(cuid())
   supplierId      String
-  supplier        Supplier          @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  supplier        Supplier  @relation(fields: [supplierId], references: [id], onDelete: Cascade)
   label           String
   productId       String
-  product         Product           @relation(fields: [productId], references: [id])
+  product         Product   @relation(fields: [productId], references: [id])
   settledAt       DateTime?
   settledByUserId String?
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   // Dois lançamentos com o mesmo produto seriam indistinguíveis: um produto por exigência.
   @@unique([supplierId, productId])
@@ -516,21 +516,21 @@ enum ProductNature {
 model Product {
   pdvBebidas                AgileProdutoInsumo[]
   closingRequirements       SupplierClosingRequirement[]
-  id                        String                     @id @default(cuid())
-  externalCode              String?                    @unique
+  id                        String                       @id @default(cuid())
+  externalCode              String?                      @unique
   name                      String
   normalizedName            String
   unit                      String?
   unitMeasureId             String?
-  unitMeasure               UnitMeasure?               @relation(fields: [unitMeasureId], references: [id])
+  unitMeasure               UnitMeasure?                 @relation(fields: [unitMeasureId], references: [id])
   stockUnit                 String?
   purchaseUnit              String?
   baseUnit                  String?
-  conversionFactor          Decimal?                   @db.Decimal(12, 6)
-  packageWeight             Decimal?                   @db.Decimal(12, 3)
+  conversionFactor          Decimal?                     @db.Decimal(12, 6)
+  packageWeight             Decimal?                     @db.Decimal(12, 3)
   conversionNotes           String?
   logisticsNotes            String?
-  isActive                  Boolean                    @default(true)
+  isActive                  Boolean                      @default(true)
   notes                     String?
   categoryId                String?
   subcategoryId             String?
@@ -542,16 +542,16 @@ model Product {
   storageNotes              String?
   accountType               String?
   nature                    ProductNature?
-  controlsStock             Boolean                    @default(true)
-  estoqueMinimo             Decimal?                   @db.Decimal(14, 3)
-  estoqueIdeal              Decimal?                   @db.Decimal(14, 3)
+  controlsStock             Boolean                      @default(true)
+  estoqueMinimo             Decimal?                     @db.Decimal(14, 3)
+  estoqueIdeal              Decimal?                     @db.Decimal(14, 3)
   leadTimeCompraDias        Int?
   fornecedorPrincipalId     String?
   dreCategoryId             String?
-  dreCategory               DRECategory?               @relation(fields: [dreCategoryId], references: [id])
-  category                  Category?                  @relation(fields: [categoryId], references: [id])
-  subcategory               Subcategory?               @relation(fields: [subcategoryId], references: [id])
-  inventorySector           InventorySector?           @relation(fields: [inventorySectorId], references: [id])
+  dreCategory               DRECategory?                 @relation(fields: [dreCategoryId], references: [id])
+  category                  Category?                    @relation(fields: [categoryId], references: [id])
+  subcategory               Subcategory?                 @relation(fields: [subcategoryId], references: [id])
+  inventorySector           InventorySector?             @relation(fields: [inventorySectorId], references: [id])
   aliases                   ProductAlias[]
   conversions               ProductUnitConversion[]
   items                     PurchaseItem[]
@@ -562,8 +562,8 @@ model Product {
   operationalInventoryItems OperationalInventoryItem[]
   dishItems                 DishItem[]
   wasteEntries              WasteEntry[]
-  createdAt                 DateTime                   @default(now())
-  updatedAt                 DateTime                   @updatedAt
+  createdAt                 DateTime                     @default(now())
+  updatedAt                 DateTime                     @updatedAt
 
   @@index([normalizedName])
   @@index([unitMeasureId])
@@ -627,6 +627,7 @@ model CreditCard {
   notes       String?
   statements  CreditCardStatement[]
   purchases   Purchase[]
+  finais      CreditCardFinal[]
   createdAt   DateTime              @default(now())
   updatedAt   DateTime              @updatedAt
 
@@ -636,22 +637,56 @@ model CreditCard {
   @@index([isActive])
 }
 
+// Cartao vinculado a conta (ex.: fisico e virtual na mesma fatura do banco).
+model CreditCardFinal {
+  id              String                          @id @default(cuid())
+  creditCardId    String
+  creditCard      CreditCard                      @relation(fields: [creditCardId], references: [id])
+  label           String
+  last4Digits     String
+  kind            String                          @default("PHYSICAL")
+  isActive        Boolean                         @default(true)
+  items           CreditCardStatementItem[]
+  statementTotals CreditCardStatementFinalTotal[]
+  createdAt       DateTime                        @default(now())
+  updatedAt       DateTime                        @updatedAt
+
+  @@unique([creditCardId, last4Digits])
+  @@index([creditCardId])
+}
+
+// Total que o extrato do banco traz para um final, informado pelo Eli para conferir.
+model CreditCardStatementFinalTotal {
+  id           String              @id @default(cuid())
+  statementId  String
+  statement    CreditCardStatement @relation(fields: [statementId], references: [id], onDelete: Cascade)
+  cardFinalId  String
+  cardFinal    CreditCardFinal     @relation(fields: [cardFinalId], references: [id])
+  statedAmount Decimal             @db.Decimal(12, 2)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  @@unique([statementId, cardFinalId])
+  @@index([cardFinalId])
+}
+
 model CreditCardStatement {
-  id                  String                    @id @default(cuid())
+  id                  String                          @id @default(cuid())
   creditCardId        String
-  creditCard          CreditCard                @relation(fields: [creditCardId], references: [id])
+  creditCard          CreditCard                      @relation(fields: [creditCardId], references: [id])
   name                String?
   competenceYear      Int
   competenceMonth     Int
   closingDate         DateTime
   dueDate             DateTime
-  totalAmount         Decimal                   @default(0) @db.Decimal(12, 2)
-  status              CreditCardStatementStatus @default(OPEN)
+  totalAmount         Decimal                         @default(0) @db.Decimal(12, 2)
+  status              CreditCardStatementStatus       @default(OPEN)
   notes               String?
   generatedPurchaseId String?
   items               CreditCardStatementItem[]
-  createdAt           DateTime                  @default(now())
-  updatedAt           DateTime                  @updatedAt
+  finalTotals         CreditCardStatementFinalTotal[]
+  createdAt           DateTime                        @default(now())
+  updatedAt           DateTime                        @updatedAt
 
   @@unique([creditCardId, competenceYear, competenceMonth])
   @@index([creditCardId])
@@ -679,6 +714,8 @@ model CreditCardStatementItem {
   smallExpenseTypeId String?
   smallExpenseType   SmallExpenseType?   @relation(fields: [smallExpenseTypeId], references: [id])
   responsibleName    String?
+  cardFinalId        String?
+  cardFinal          CreditCardFinal?    @relation(fields: [cardFinalId], references: [id], onDelete: SetNull)
   checked            Boolean             @default(false)
   hasDivergence      Boolean             @default(false)
   notes              String?
@@ -686,6 +723,7 @@ model CreditCardStatementItem {
   updatedAt          DateTime            @updatedAt
 
   @@index([statementId])
+  @@index([cardFinalId])
   @@index([purchaseId])
   @@index([purchaseItemId])
   @@index([smallExpenseTypeId])

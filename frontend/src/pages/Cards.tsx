@@ -17,8 +17,13 @@ import {
   reopenCardStatement,
   saveCard,
   saveCardStatement,
-  setCardStatus
+  setCardStatementStatus,
+  setCardStatus,
+  setStatementFinalTotal,
+  setStatementItemsFinal
 } from "../api/client";
+import { CartoesVinculadosEditor } from "./cards/CartoesVinculadosEditor";
+import { FaturaPorCartao } from "./cards/FaturaPorCartao";
 import { PeriodFilter } from "../components/PeriodFilter";
 import { Notice, useNotice } from "../components/Notice";
 import { Money, StatusBadge as DsStatusBadge } from "../design-system";
@@ -34,7 +39,7 @@ const CARDS_TONE_TO_DS: Record<string, StatusTone> = {
 };
 import { hasPermission } from "../lib/permissions";
 import { formatDate } from "../utils/format";
-import { currentMonthPeriod } from "../utils/period";
+import { periodForPreset } from "../utils/period";
 import { hojeLocalIso } from "../lib/datas";
 
 type CardsProps = { user: AppUser };
@@ -69,7 +74,7 @@ export function Cards({ user }: CardsProps) {
   const [statementDetail, setStatementDetail] = useState<CreditCardStatementDetail | null>(null);
   const [cardSearch, setCardSearch] = useState("");
   const [statementFilters, setStatementFilters] = useState({ creditCardId: "", status: "" });
-  const [period, setPeriod] = useState(currentMonthPeriod());
+  const [period, setPeriod] = useState(periodForPreset("currentYear"));
   const [cardForm, setCardForm] = useState(emptyCard);
   const [cardEditorOpen, setCardEditorOpen] = useState(false);
   const [statementEditorOpen, setStatementEditorOpen] = useState(false);
@@ -161,13 +166,24 @@ export function Cards({ user }: CardsProps) {
 
   async function submitCard() {
     if (!cardForm.name.trim() || !cardForm.bankName.trim() || !cardForm.last4Digits.trim()) return;
-    await saveCard({
-      ...cardForm,
+    const salvo = await saveCard({
+      id: cardForm.id,
+      name: cardForm.name,
+      bankName: cardForm.bankName,
+      last4Digits: cardForm.last4Digits,
+      notes: cardForm.notes,
+      isActive: cardForm.isActive,
       closingDay: Number(cardForm.closingDay),
       dueDay: Number(cardForm.dueDay)
     });
-    setNotice({ tone: "success", message: cardForm.id ? "Cartão atualizado com sucesso." : "Cartão criado com sucesso." });
-    resetCardEditor();
+    if (cardForm.id) {
+      setNotice({ tone: "success", message: "Cartão atualizado com sucesso." });
+      resetCardEditor();
+    } else {
+      // Segue no editor, já na conta criada, para cadastrar o físico e o virtual.
+      setCardForm({ ...emptyCard, ...salvo, notes: salvo.notes ?? "" });
+      setNotice({ tone: "success", message: "Cartão criado. Cadastre abaixo os cartões da conta (físico e virtual), se houver." });
+    }
     await load();
   }
 
@@ -256,6 +272,42 @@ export function Cards({ user }: CardsProps) {
       await load();
     } catch (error) {
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao excluir a linha." });
+    }
+  }
+
+  async function classificarLinhas(itemIds: string[], cardFinalId: string | null) {
+    if (!statementDetail) return;
+    try {
+      const resultado = await setStatementItemsFinal(statementDetail.id, itemIds, cardFinalId);
+      setStatementDetail(await getCardStatement(statementDetail.id));
+      if (resultado.reabertaPorDivergencia) {
+        setNotice({ tone: "warning", message: "A fatura voltou para Aberta: algum total do extrato deixou de bater depois da troca. Confira de novo." });
+      }
+      await load();
+    } catch (error) {
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao trocar o cartão da linha." });
+    }
+  }
+
+  async function gravarTotalDoExtrato(cardFinalId: string, valor: string) {
+    if (!statementDetail) return;
+    try {
+      await setStatementFinalTotal(statementDetail.id, cardFinalId, valor.trim() ? valor : null);
+      setStatementDetail(await getCardStatement(statementDetail.id));
+    } catch (error) {
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao gravar o total do extrato." });
+    }
+  }
+
+  async function mudarStatusDaFatura(status: "CHECKED" | "OPEN") {
+    if (!statementDetail) return;
+    try {
+      await setCardStatementStatus(statementDetail.id, status);
+      setStatementDetail(await getCardStatement(statementDetail.id));
+      setNotice({ tone: "success", message: status === "CHECKED" ? "Fatura marcada como conferida." : "Fatura voltou para Aberta." });
+      await load();
+    } catch (error) {
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao atualizar a fatura." });
     }
   }
 
@@ -499,6 +551,9 @@ export function Cards({ user }: CardsProps) {
                   <td className="cards-main-cell" title={statement.creditCard?.name ?? "-"}>
                     <strong>{statement.creditCard?.name ?? "-"}</strong>
                     <small>{statement.name || "Fatura do período"}</small>
+                    {(statement.itensSemCartao ?? 0) > 0 && (statement.creditCard?.finais ?? []).some((f) => f.isActive) && (
+                      <small className="fatura-sem-cartao">{statement.itensSemCartao} sem cartão definido</small>
+                    )}
                   </td>
                   <td>{String(statement.competenceMonth).padStart(2, "0")}/{statement.competenceYear}</td>
                   <td>{formatDate(statement.closingDate)}</td>
@@ -569,7 +624,9 @@ export function Cards({ user }: CardsProps) {
                     {card.notes ? <small title={card.notes}>{card.notes}</small> : <small>Sem observações operacionais.</small>}
                   </td>
                   <td title={card.bankName}>{card.bankName}</td>
-                  <td>{card.last4Digits}</td>
+                  <td>{(card.finais ?? []).filter((f) => f.isActive).length > 0
+                    ? (card.finais ?? []).filter((f) => f.isActive).map((f) => `${f.label} ${f.last4Digits}`).join(" · ")
+                    : card.last4Digits}</td>
                   <td className="numeric-cell">{card.closingDay}</td>
                   <td className="numeric-cell">{card.dueDay}</td>
                   <td className="numeric-cell">{card._count?.statements ?? 0}</td>
@@ -635,8 +692,19 @@ export function Cards({ user }: CardsProps) {
               </label>
             </div>
 
+            {cardForm.id ? (
+              <CartoesVinculadosEditor
+                cardId={cardForm.id}
+                finais={cards.find((card) => card.id === cardForm.id)?.finais ?? []}
+                onChanged={load}
+                onError={(message) => setNotice({ tone: "error", message })}
+              />
+            ) : (
+              <p className="text-muted">Salve o cartão primeiro; em seguida você cadastra o físico e o virtual desta conta.</p>
+            )}
+
             <div className="form-actions">
-              <button className="secondary-button" type="button" onClick={resetCardEditor}>Cancelar</button>
+              <button className="secondary-button" type="button" onClick={resetCardEditor}>{cardForm.id ? "Fechar" : "Cancelar"}</button>
               <button className="primary-button" type="button" onClick={submitCard}>
                 <Save size={16} /> Salvar cartão
               </button>
@@ -660,61 +728,44 @@ export function Cards({ user }: CardsProps) {
               <div><h3>Competência</h3><p>{String(statementDetail.competenceMonth).padStart(2, "0")}/{statementDetail.competenceYear}</p><p>Status {statementStatusLabel(statementDetail.status)}</p></div>
               <div><h3>Resumo</h3><p>Total <Money value={statementDetail.totalAmount} /></p><p>{statementDetail.items.length} item(ns)</p></div>
             </div>
-            <div ref={itemsSectionRef} className="subsection table-wrap operational-table">
+            <div ref={itemsSectionRef} className="subsection">
               <h3>Itens</h3>
-              <table>
-                <thead>
-                  <tr>
-                    <th>Data</th>
-                    <th>Parcela</th>
-                    <th>Descrição</th>
-                    <th>Fornecedor</th>
-                    <th>Categoria</th>
-                    <th className="numeric-cell">Valor</th>
-                    <th>Conf.</th>
-                    <th>Div.</th>
-                    <th>Ação</th>
-                  </tr>
-                </thead>
-                <tbody>{statementDetail.items.map((item) => {
-                  const supplierDisplay = item.supplierName ?? item.purchase?.supplier?.name ?? "-";
-                  const parcelaLabel = item.installment != null && item.totalInstallments != null
-                    ? `${item.installment}/${item.totalInstallments}`
-                    : item.installment != null ? String(item.installment) : "-";
-                  return (
-                    <tr key={item.id}>
-                      <td className="nowrap-cell">{formatDate(item.itemDate)}</td>
-                      <td className="numeric-cell nowrap-cell">{parcelaLabel}</td>
-                      <td title={item.description}>
-                        {item.description}
-                        {!item.purchaseId && <> <DsStatusBadge tone="warning">sem compra</DsStatusBadge></>}
-                      </td>
-                      <td title={supplierDisplay}>{supplierDisplay}</td>
-                      <td>{item.categoryName ?? "-"}</td>
-                      <td className="numeric-cell nowrap-cell"><Money value={item.value} /></td>
-                      <td>{item.checked ? "✓" : "–"}</td>
-                      <td>{item.hasDivergence ? "⚠" : "–"}</td>
-                      <td className="actions-cell">
-                        {canManage && ["OPEN", "CHECKED"].includes(statementDetail.status) ? (
-                          <>
-                            <button type="button" onClick={() => toggleItemCheck(item)}>{item.checked ? "Desmarcar" : "Conferir"}</button>
-                            <button type="button" onClick={() => toggleItemDivergence(item)}>Div.</button>
-                            <button type="button" className="secondary-button realocar-btn" onClick={() => void openReallocate(item)}>
-                              <ArrowRightLeft size={13} /> Realocar
-                            </button>
-                            {!item.purchaseId && (
-                              <button type="button" className="secondary-button" onClick={() => void removeLooseItem(item)}>Excluir</button>
-                            )}
-                          </>
-                        ) : (
-                          <span>-</span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}</tbody>
-              </table>
+              <FaturaPorCartao
+                detalhe={statementDetail}
+                podeEditar={canManage}
+                onClassificar={classificarLinhas}
+                onTotalDoExtrato={gravarTotalDoExtrato}
+                renderAcoes={(item) =>
+                  canManage && ["OPEN", "CHECKED"].includes(statementDetail.status) ? (
+                    <>
+                      <button type="button" onClick={() => toggleItemCheck(item)}>{item.checked ? "Desmarcar" : "Conferir"}</button>
+                      <button type="button" onClick={() => toggleItemDivergence(item)}>Div.</button>
+                      <button type="button" className="secondary-button realocar-btn" onClick={() => void openReallocate(item)}>
+                        <ArrowRightLeft size={13} /> Realocar
+                      </button>
+                      {!item.purchaseId && (
+                        <button type="button" className="secondary-button" onClick={() => void removeLooseItem(item)}>Excluir</button>
+                      )}
+                    </>
+                  ) : (
+                    <span>-</span>
+                  )
+                }
+              />
             </div>
+            {canManage && ["OPEN", "CHECKED"].includes(statementDetail.status) && (
+              <div className="actions-cell subsection">
+                {statementDetail.status === "OPEN" ? (
+                  <button className="primary-button" type="button" onClick={() => void mudarStatusDaFatura("CHECKED")}>
+                    <CheckCircle2 size={16} /> Marcar fatura como conferida
+                  </button>
+                ) : (
+                  <button className="secondary-button" type="button" onClick={() => void mudarStatusDaFatura("OPEN")}>
+                    Voltar para aberta
+                  </button>
+                )}
+              </div>
+            )}
             {canManage && ["OPEN", "CHECKED"].includes(statementDetail.status) && (
               <p className="subsection text-muted">
                 Toda linha da fatura vem de uma compra. Anuidade, juros ou tarifa: lance como compra paga no cartão, com o item, em{" "}
