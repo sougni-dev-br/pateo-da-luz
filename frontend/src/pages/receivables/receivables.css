@@ -24,7 +24,7 @@
   font-variant-numeric: tabular-nums;
 }
 .pg-chip[aria-pressed="true"] .rc-chip-qtd { background: var(--paper); color: var(--gold-dark); }
-.pg-chip svg { margin-left: 2px; vertical-align: -1px; }
+.rc-tela .pg-chip svg { margin-left: 2px; vertical-align: -1px; }
 
 /* Período das vistas de histórico, ao lado do seletor de situação. */
 .rc-periodo {

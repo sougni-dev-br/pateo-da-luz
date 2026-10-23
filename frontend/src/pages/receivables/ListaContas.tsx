@@ -87,6 +87,9 @@ function Grupo({ grupo, hoje, rotuloTotal, ...acoes }: AcoesDaLista & { grupo: G
   );
 }
 
+/** Abre a janela só depois que o menu fechou e devolveu o foco ao gatilho (senão a janela guarda o item de menu como quem abriu). */
+const adiar = (acao: () => void) => { window.setTimeout(acao, 0); };
+
 const MESES = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
 
 /** Data prevista como folha de calendário; a data completa fica para leitores de tela. */
@@ -115,8 +118,8 @@ function Linha({ conta: c, grupo, hoje, ...acoes }: AcoesDaLista & { conta: Rece
   const marcaLateral = grupo === "atrasadas" ? "vencidos" : grupo === "hoje" ? "hoje" : "outro";
 
   const itensMenu = [
-    ...(temRecebimento(c) && acoes.podeDesfazer ? [{ label: "Recebimentos e estorno…", onClick: () => acoes.onEstornar(c) }] : []),
-    ...(podeCancelar(c) && acoes.podeDesfazer ? [{ label: "Cancelar conta…", tone: "danger" as const, onClick: () => acoes.onCancelar(c) }] : [])
+    ...(temRecebimento(c) && acoes.podeDesfazer ? [{ label: "Recebimentos e estorno…", onClick: () => adiar(() => acoes.onEstornar(c)) }] : []),
+    ...(podeCancelar(c) && acoes.podeDesfazer ? [{ label: "Cancelar conta…", tone: "danger" as const, onClick: () => adiar(() => acoes.onCancelar(c)) }] : [])
   ];
 
   return (
@@ -166,7 +169,7 @@ function Linha({ conta: c, grupo, hoje, ...acoes }: AcoesDaLista & { conta: Rece
       <div className="pg-c-acoes">
         <IconButton icon={<Eye size={16} />} label={`Ver detalhes de ${nome}`} size="sm" onClick={() => acoes.onVer(c)} />
         {acoes.podeReceber && pendente && (
-          <Button size="sm" leadingIcon={<CheckCircle2 size={14} />} onClick={() => acoes.onReceber(c)} aria-label={`Registrar recebimento de ${nome}`}>
+          <Button size="sm" leadingIcon={<CheckCircle2 size={14} />} onClick={() => acoes.onReceber(c)} aria-label={`Receber ${nome}`}>
             Receber
           </Button>
         )}

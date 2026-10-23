@@ -14,11 +14,11 @@ type Estado = {
   historico: ReceivableView[];
   carregando: boolean;
   erro: string | null;
-  /** A lista bateu no limite do servidor: faltam linhas, é preciso refinar o período. */
-  truncado: boolean;
+  /** Vista e período a que `historico` pertence; difere da escolha atual enquanto a resposta nova não chega. */
+  chave: string;
 };
 
-const INICIAL: Estado = { resumo: null, pendentes: [], historico: [], carregando: true, erro: null, truncado: false };
+const INICIAL: Estado = { resumo: null, pendentes: [], historico: [], carregando: true, erro: null, chave: "" };
 
 function consultaDoHistorico(vista: Exclude<Vista, "pendentes">, periodo: Periodo) {
   const base = { startDate: periodo.startDate || undefined, endDate: periodo.endDate || undefined, limit: LIMITE_DA_LISTA };
@@ -35,6 +35,7 @@ export function useContasReceber(vista: Vista, periodo: Periodo) {
   const [estado, setEstado] = useState<Estado>(INICIAL);
   const sequencia = useRef(0);
   const { startDate, endDate } = periodo;
+  const chaveAtual = `${vista}|${startDate}|${endDate}`;
 
   const recarregar = useCallback(async () => {
     const minha = ++sequencia.current;
@@ -52,18 +53,19 @@ export function useContasReceber(vista: Vista, periodo: Periodo) {
         historico: Array.isArray(historico) ? historico : [],
         carregando: false,
         erro: null,
-        truncado: pendentes.length >= LIMITE_DA_LISTA || historico.length >= LIMITE_DA_LISTA
+        chave: chaveAtual
       });
     } catch (e) {
       if (minha !== sequencia.current) return;
-      setEstado({ ...INICIAL, carregando: false, erro: e instanceof Error ? e.message : "Falha ao carregar contas a receber." });
+      // Mantém o panorama e as pendentes já carregados: um erro no histórico não derruba a tela.
+      setEstado((anterior) => ({ ...anterior, carregando: false, erro: e instanceof Error ? e.message : "Falha ao carregar contas a receber." }));
     }
-  }, [vista, startDate, endDate]);
+  }, [vista, startDate, endDate, chaveAtual]);
 
   useEffect(() => {
     void recarregar();
     return () => { sequencia.current += 1; };
   }, [recarregar]);
 
-  return { ...estado, recarregar };
+  return { ...estado, vistaCarregada: estado.chave === chaveAtual, recarregar };
 }

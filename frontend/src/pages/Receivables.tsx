@@ -61,7 +61,7 @@ export function Receivables({ user }: { user: AppUser }) {
 
   const hojeLocal = useMemo(() => hojeLocalIso(), []);
   const periodo = useMemo(() => (preset === "custom" ? datas : periodoDoPreset(preset, hojeLocal)), [preset, datas, hojeLocal]);
-  const { resumo, pendentes, historico, carregando, erro, truncado, recarregar } = useContasReceber(vista, periodo);
+  const { resumo, pendentes, historico, carregando, erro, vistaCarregada, recarregar } = useContasReceber(vista, periodo);
   const hoje = resumo?.today ?? hojeLocal;
 
   // "/" leva à busca, como em Contas a Pagar.
@@ -69,6 +69,7 @@ export function Receivables({ user }: { user: AppUser }) {
     const tecla = (e: KeyboardEvent) => {
       const alvo = e.target as HTMLElement | null;
       if (e.key !== "/" || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (document.querySelector('[role="dialog"]')) return;
       if (alvo && (alvo.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(alvo.tagName))) return;
       e.preventDefault();
       buscaRef.current?.focus();
@@ -90,7 +91,12 @@ export function Receivables({ user }: { user: AppUser }) {
   const totalExibido = useMemo(() => grupos.reduce((s, g) => s + Math.round(g.total * 100), 0) / 100, [grupos]);
   const temFiltro = Boolean(busca || foco || diaFoco || origem !== "all");
   const selecionaveis = useMemo(() => exibidas.filter(estaPendente), [exibidas]);
-  const escolhidas = useMemo(() => pendentes.filter((c) => selecionados.has(c.id)), [pendentes, selecionados]);
+  // Só vale o que está à vista: a barra nunca age sobre conta que a busca ou o filtro esconderam.
+  const escolhidas = useMemo(() => {
+    if (vista !== "pendentes") return [];
+    const visiveis = new Set(exibidas.map((c) => c.id));
+    return pendentes.filter((c) => selecionados.has(c.id) && visiveis.has(c.id));
+  }, [vista, exibidas, pendentes, selecionados]);
   const totalEscolhido = escolhidas.reduce((s, c) => s + Math.round(c.remainingAmount * 100), 0) / 100;
 
   function limparFiltros() {
@@ -109,18 +115,21 @@ export function Receivables({ user }: { user: AppUser }) {
 
   function alternarFoco(f: Foco) {
     setVista("pendentes");
+    setSelecionados(new Set());
     setDiaFoco(null);
     setFoco((atual) => (atual === f && vista === "pendentes" ? null : f));
   }
 
   function alternarDia(chave: string) {
     setVista("pendentes");
+    setSelecionados(new Set());
     setFoco(null);
     setDiaFoco((atual) => (atual === chave && vista === "pendentes" ? null : chave));
   }
 
   function verRecebidoNoMes() {
     setVista("recebidas");
+    setSelecionados(new Set());
     setPreset("mes");
     setFoco(null);
     setDiaFoco(null);
@@ -266,10 +275,10 @@ export function Receivables({ user }: { user: AppUser }) {
             </button>
           ))}
           {foco && vista === "pendentes" && (
-            <button type="button" className="pg-chip" aria-pressed onClick={() => setFoco(null)} aria-label={`Remover filtro ${ROTULO_FOCO[foco]}`}>{ROTULO_FOCO[foco]} <X size={11} aria-hidden="true" /></button>
+            <button type="button" className="pg-chip" onClick={() => setFoco(null)} aria-label={`Remover filtro ${ROTULO_FOCO[foco]}`}>{ROTULO_FOCO[foco]} <X size={11} aria-hidden="true" /></button>
           )}
           {diaFoco && vista === "pendentes" && (
-            <button type="button" className="pg-chip" aria-pressed onClick={() => setDiaFoco(null)} aria-label={`Remover filtro do dia ${formatDate(diaFoco)}`}>Dia {formatDate(diaFoco)} <X size={11} aria-hidden="true" /></button>
+            <button type="button" className="pg-chip" onClick={() => setDiaFoco(null)} aria-label={`Remover filtro do dia ${formatDate(diaFoco)}`}>Dia {formatDate(diaFoco)} <X size={11} aria-hidden="true" /></button>
           )}
         </div>
       </div>
@@ -291,11 +300,15 @@ export function Receivables({ user }: { user: AppUser }) {
         <span className="pg-resultado-periodo">{periodoTexto}</span>
       </div>
 
-      {!carregando && !erro && truncado && (
-        <Alert tone="warning" role="alert">A lista passou de {LIMITE_DA_LISTA} contas e foi cortada: escolha um período menor.</Alert>
+      {!carregando && !erro && vistaCarregada && base.length >= LIMITE_DA_LISTA && (
+        <Alert tone="warning" role="alert">
+          {vista === "pendentes"
+            ? `A lista mostra só as ${LIMITE_DA_LISTA} contas mais antigas a receber; os totais do topo contam todas.`
+            : `A lista passou de ${LIMITE_DA_LISTA} contas e foi cortada: escolha um período menor.`}
+        </Alert>
       )}
 
-      {carregando && !resumo ? (
+      {(carregando && !resumo) || (carregando && !vistaCarregada) ? (
         <div className="pg-carregando" role="status" aria-label="Carregando contas a receber">
           {[0, 1, 2, 3].map((i) => <div key={i} className="pg-esqueleto" />)}
         </div>
@@ -394,14 +407,13 @@ export function Receivables({ user }: { user: AppUser }) {
           contas={pendentes.filter((c) => acao.ids.includes(c.id))}
           hoje={hoje}
           onFechar={() => setAcao(null)}
-          onConcluir={({ feitas, falhas }) => {
-            setSelecionados(new Set());
+          onConcluir={({ feitas, falhas, idsComFalha }) => {
+            // Com falha parcial a janela fica aberta e a seleção passa a ser só das contas que falharam.
+            setSelecionados(new Set(idsComFalha));
             setVersao((v) => v + 1);
             void recarregar();
-            if (falhas.length === 0) {
-              setAcao(null);
-              setNotice({ tone: "success", message: `${feitas} ${feitas === 1 ? "recebimento registrado" : "recebimentos registrados"}.` });
-            }
+            if (feitas > 0) setNotice({ tone: "success", message: `${feitas} ${feitas === 1 ? "recebimento registrado" : "recebimentos registrados"}.` });
+            if (falhas.length === 0) setAcao(null);
           }}
         />
       )}

@@ -6,7 +6,7 @@ import { formatDate } from "../../utils/format";
 import { Campo } from "../payables/Campos";
 import { Janela } from "../payables/Janela";
 import {
-  estaPendente, ORIGEM_ROTULO, ORIGEM_SELO, podeCancelar, SITUACAO_ROTULO, SITUACAO_TOM, situacaoDe, taxaEfetiva, tituloDaConta
+  diaDoInstante, estaPendente, ORIGEM_ROTULO, ORIGEM_SELO, podeCancelar, SITUACAO_ROTULO, SITUACAO_TOM, situacaoDe, taxaEfetiva, tituloDaConta
 } from "./regras";
 
 type Props = {
@@ -81,7 +81,7 @@ export function DetalheConta({ id, versao, podeReceber, podeDesfazer, onFechar, 
 
           {conta.status === "CANCELLED" && (
             <Alert tone="warning">
-              Conta cancelada{conta.cancelledAt ? ` em ${formatDate(conta.cancelledAt)}` : ""}{conta.cancellationReason ? ` — motivo: ${conta.cancellationReason}` : ""}.
+              Conta cancelada{conta.cancelledAt ? ` em ${diaDoInstante(conta.cancelledAt)}` : ""}{conta.cancellationReason ? ` — motivo: ${conta.cancellationReason}` : ""}.
             </Alert>
           )}
 
@@ -97,10 +97,10 @@ export function DetalheConta({ id, versao, podeReceber, podeDesfazer, onFechar, 
                     <span> em {formatDate(r.receivedDate)}{r.paymentMethod ? ` · ${r.paymentMethod}` : ""}</span>
                     {r.legacy && <small> · anterior ao controle por lançamento</small>}
                     {r.notes && <small className="rc-recebimento-obs">{r.notes}</small>}
-                    {r.reversedAt && <small className="rc-recebimento-obs">Estornado em {formatDate(r.reversedAt)}{r.reversalReason ? ` — ${r.reversalReason}` : ""}</small>}
+                    {r.reversedAt && <small className="rc-recebimento-obs">Estornado em {diaDoInstante(r.reversedAt)}{r.reversalReason ? ` — ${r.reversalReason}` : ""}</small>}
                   </div>
                   {!r.reversedAt && podeDesfazer && conta.status !== "CANCELLED" && (
-                    <Button variant="secondary" size="sm" leadingIcon={<RotateCcw size={14} />} onClick={() => onEstornar(conta, r)} aria-label={`Estornar recebimento de ${r.amount.toFixed(2).replace(".", ",")} reais`}>
+                    <Button variant="secondary" size="sm" leadingIcon={<RotateCcw size={14} />} onClick={() => onEstornar(conta, r)} aria-label={`Estornar o recebimento de ${formatDate(r.receivedDate)}`}>
                       Estornar
                     </Button>
                   )}

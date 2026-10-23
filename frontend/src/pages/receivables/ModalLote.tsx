@@ -12,16 +12,19 @@ type Props = {
   hoje: string;
   onFechar: () => void;
   /** Chamado ao terminar (mesmo com falhas) para a tela recarregar. */
-  onConcluir: (resumo: { feitas: number; falhas: string[] }) => void;
+  onConcluir: (resumo: { feitas: number; falhas: string[]; idsComFalha: string[] }) => void;
 };
 
 /** Registra o recebimento do saldo de várias contas de uma vez (ex.: as faturas da semana que caíram juntas). */
-export function ModalLote({ contas, hoje, onFechar, onConcluir }: Props) {
+export function ModalLote({ contas: contasDaLista, hoje, onFechar, onConcluir }: Props) {
+  // Foto das contas ao abrir: a lista de trás recarrega a cada recebimento e as já recebidas somem dela.
+  const [contas] = useState(contasDaLista);
   const [data, setData] = useState(hoje);
   const [forma, setForma] = useState("Repasse da plataforma");
   const [enviando, setEnviando] = useState(false);
   const [progresso, setProgresso] = useState(0);
   const [falhas, setFalhas] = useState<string[]>([]);
+  const [feitasNoLote, setFeitasNoLote] = useState(0);
   const total = Math.round(contas.reduce((s, c) => s + Math.round(c.remainingAmount * 100), 0)) / 100;
   const dataInvalida = !data || data > hoje;
 
@@ -30,6 +33,7 @@ export function ModalLote({ contas, hoje, onFechar, onConcluir }: Props) {
     setEnviando(true);
     setFalhas([]);
     const erros: string[] = [];
+    const idsComFalha: string[] = [];
     let feitas = 0;
     for (const c of contas) {
       try {
@@ -37,16 +41,14 @@ export function ModalLote({ contas, hoje, onFechar, onConcluir }: Props) {
         feitas += 1;
       } catch (e) {
         erros.push(`${tituloDaConta(c.description)}: ${e instanceof Error ? e.message : "falhou"}`);
+        idsComFalha.push(c.id);
       }
       setProgresso((p) => p + 1);
     }
     setFalhas(erros);
-    if (erros.length === 0) {
-      onConcluir({ feitas, falhas: [] });
-      return;
-    }
-    setEnviando(false);
-    onConcluir({ feitas, falhas: erros });
+    setFeitasNoLote(feitas);
+    if (erros.length > 0) setEnviando(false);
+    onConcluir({ feitas, falhas: erros, idsComFalha });
   }
 
   const terminou = progresso > 0 && !enviando;
@@ -79,7 +81,7 @@ export function ModalLote({ contas, hoje, onFechar, onConcluir }: Props) {
       {enviando && <p className="pg-nota" role="status">Registrando {progresso} de {contas.length}…</p>}
       {falhas.length > 0 && (
         <Alert tone="error" role="alert">
-          {contas.length - falhas.length} de {contas.length} registradas. Não foi possível registrar:
+          {feitasNoLote} de {contas.length} registradas. Não foi possível registrar:
           <ul className="pg-lote-erros">{falhas.map((f) => <li key={f}>{f}</li>)}</ul>
         </Alert>
       )}

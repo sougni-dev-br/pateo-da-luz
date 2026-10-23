@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { ReceivableView } from "../../../api/client";
 import {
-  agruparPorMes, agruparPorUrgencia, aplicarDia, aplicarFoco, aplicarOrigem, contagemPorOrigem, diasDaAgenda,
+  diaDoInstante, agruparPorMes, agruparPorUrgencia, aplicarDia, aplicarFoco, aplicarOrigem, contagemPorOrigem, diasDaAgenda,
   filtrarPorBusca, periodoDoPreset, podeCancelar, rotuloDoMes, rotuloPrazo, situacaoDe, taxaEfetiva, temRecebimento, tituloDaConta
 } from "../regras";
 
@@ -43,8 +43,14 @@ describe("situação e permissões de ação", () => {
   test("prazo em palavras fala em 'previsto', não em 'vence'", () => {
     expect(rotuloPrazo({ expectedDate: HOJE }, HOJE)).toBe("previsto para hoje");
     expect(rotuloPrazo({ expectedDate: "2026-10-24" }, HOJE)).toBe("previsto para amanhã");
-    expect(rotuloPrazo({ expectedDate: "2026-10-20" }, HOJE)).toBe("venceu há 3 dias");
+    expect(rotuloPrazo({ expectedDate: "2026-10-20" }, HOJE)).toBe("atrasada há 3 dias");
     expect(rotuloPrazo({ expectedDate: "2026-10-30" }, HOJE)).toBe("em 7 dias");
+  });
+});
+
+describe("dia do instante", () => {
+  test("usa o dia de São Paulo, não o do UTC", () => {
+    expect(diaDoInstante("2026-10-24T01:30:00.000Z")).toBe("23/10/2026");
   });
 });
 
@@ -53,6 +59,7 @@ describe("título legível", () => {
     expect(tituloDaConta("Repasse iFood 2026-10-12 → 2026-10-18 · Loja Centro")).toBe("Repasse iFood 12/10 a 18/10 · Loja Centro");
     expect(tituloDaConta("Fatura Keeta 2026-09-28 → 2026-10-04")).toBe("Fatura Keeta 28/09 a 04/10");
     expect(tituloDaConta("Evento de formatura — 2ª parcela")).toBe("Evento de formatura — 2ª parcela");
+    expect(tituloDaConta("Contrato 2026-10-12 assinado")).toBe("Contrato 2026-10-12 assinado");
   });
 });
 
@@ -91,6 +98,7 @@ describe("filtros", () => {
     expect(filtrarPorBusca(l, "fat-998").map((c) => c.id)).toEqual(["2"]);
     expect(filtrarPorBusca(l, "1.250,00").map((c) => c.id)).toEqual(["1"]);
     expect(filtrarPorBusca(l, "80,5").map((c) => c.id)).toEqual(["2"]);
+    expect(filtrarPorBusca(l, "1.250").map((c) => c.id)).toEqual(["1"]);
     expect(filtrarPorBusca(l, "keeta")).toHaveLength(2);
     expect(filtrarPorBusca(l, "   ")).toHaveLength(2);
   });

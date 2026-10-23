@@ -156,7 +156,7 @@ describe("Contas a Receber — registrar recebimento", () => {
   test("a janela vem com o saldo, registra e recarrega a lista", async () => {
     abrir();
     await screen.findByText("Evento de formatura");
-    fireEvent.click(screen.getByRole("button", { name: "Registrar recebimento de Evento de formatura" }));
+    fireEvent.click(screen.getByRole("button", { name: "Receber Evento de formatura" }));
 
     const janela = await screen.findByRole("dialog");
     expect(within(janela).getByLabelText(/Valor recebido/)).toHaveValue("600,00");
@@ -179,7 +179,7 @@ describe("Contas a Receber — registrar recebimento", () => {
   test("valor acima do saldo só confirma com o motivo da diferença", async () => {
     abrir();
     await screen.findByText("Fatura Keeta semana 4");
-    fireEvent.click(screen.getByRole("button", { name: "Registrar recebimento de Fatura Keeta semana 4" }));
+    fireEvent.click(screen.getByRole("button", { name: "Receber Fatura Keeta semana 4" }));
     const janela = await screen.findByRole("dialog");
 
     fireEvent.change(within(janela).getByLabelText(/Valor recebido/), { target: { value: "90100" } });
@@ -196,7 +196,7 @@ describe("Contas a Receber — registrar recebimento", () => {
   test("data futura e valor zero bloqueiam a confirmação", async () => {
     abrir();
     await screen.findByText("Fatura Keeta semana 4");
-    fireEvent.click(screen.getByRole("button", { name: "Registrar recebimento de Fatura Keeta semana 4" }));
+    fireEvent.click(screen.getByRole("button", { name: "Receber Fatura Keeta semana 4" }));
     const janela = await screen.findByRole("dialog");
     const confirmar = within(janela).getByRole("button", { name: "Confirmar recebimento" });
 
@@ -213,7 +213,7 @@ describe("Contas a Receber — registrar recebimento", () => {
     api.markReceivableReceived.mockRejectedValueOnce(new Error("Esta conta já foi recebida."));
     abrir();
     await screen.findByText("Fatura Keeta semana 4");
-    fireEvent.click(screen.getByRole("button", { name: "Registrar recebimento de Fatura Keeta semana 4" }));
+    fireEvent.click(screen.getByRole("button", { name: "Receber Fatura Keeta semana 4" }));
     const janela = await screen.findByRole("dialog");
     fireEvent.click(within(janela).getByRole("button", { name: "Confirmar recebimento" }));
 
@@ -238,6 +238,45 @@ describe("Contas a Receber — registrar recebimento", () => {
     expect(api.markReceivableReceived).toHaveBeenCalledWith("hoje", expect.objectContaining({ paidAmount: 900, receivedDate: "2026-10-23" }));
     expect(api.markReceivableReceived).toHaveBeenCalledWith("parcial", expect.objectContaining({ paidAmount: 600 }));
     expect(await screen.findByText("2 recebimentos registrados.")).toBeInTheDocument();
+  });
+});
+
+describe("Contas a Receber — lote e seleção", () => {
+  test("falha parcial no lote: mostra quantas foram registradas e mantém só as que falharam selecionadas", async () => {
+    api.markReceivableReceived.mockImplementation(async (id: string) => {
+      if (id === "parcial") throw new Error("valor acima do saldo");
+      return HOJE;
+    });
+    abrir();
+    await screen.findByText("Fatura Keeta semana 4");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Selecionar Fatura Keeta semana 4 para receber em lote" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Selecionar Evento de formatura para receber em lote" }));
+    fireEvent.click(within(screen.getByRole("region", { name: "Contas selecionadas" })).getByRole("button", { name: /Receber selecionadas/ }));
+    const janela = await screen.findByRole("dialog");
+    fireEvent.click(within(janela).getByRole("button", { name: "Confirmar recebimentos" }));
+
+    expect(await within(janela).findByText(/1 de 2 registradas/)).toBeInTheDocument();
+    expect(within(janela).getByText(/valor acima do saldo/)).toBeInTheDocument();
+    fireEvent.click(within(janela).getByRole("button", { name: "Fechar" }));
+    expect(screen.getByRole("region", { name: "Contas selecionadas" })).toHaveTextContent("1 selecionada(s)");
+  });
+
+  test("a barra de seleção não age sobre contas que a busca escondeu, e trocar de vista limpa a seleção", async () => {
+    abrir();
+    await screen.findByText("Fatura Keeta semana 4");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Selecionar Fatura Keeta semana 4 para receber em lote" }));
+    expect(screen.getByRole("region", { name: "Contas selecionadas" })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Buscar contas a receber" }), { target: { value: "formatura" } });
+    expect(screen.queryByRole("region", { name: "Contas selecionadas" })).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Buscar contas a receber" }), { target: { value: "" } });
+    expect(screen.getByRole("region", { name: "Contas selecionadas" })).toBeInTheDocument();
+
+    fireEvent.click(within(screen.getByRole("group", { name: /Totais/ })).getByRole("button", { name: /^Recebido no mês/ }));
+    await screen.findByRole("button", { name: "Recebidas", pressed: true });
+    fireEvent.click(screen.getByRole("button", { name: "A receber" }));
+    expect(screen.queryByRole("region", { name: "Contas selecionadas" })).not.toBeInTheDocument();
   });
 });
 
@@ -283,7 +322,7 @@ describe("Contas a Receber — cancelar, detalhe e permissões", () => {
     expect(composicao).toHaveTextContent("Falta receber");
     expect(within(janela).getByText(/em 10\/10\/2026 · PIX/)).toBeInTheDocument();
 
-    fireEvent.click(within(janela).getByRole("button", { name: /Estornar recebimento de 400,00 reais/ }));
+    fireEvent.click(within(janela).getByRole("button", { name: /Estornar o recebimento de 10\/10\/2026/ }));
     const dialogos = await screen.findAllByRole("dialog");
     const estorno = dialogos[dialogos.length - 1];
     fireEvent.change(within(estorno).getByLabelText(/Motivo do estorno/), { target: { value: "valor digitado errado" } });
@@ -296,7 +335,7 @@ describe("Contas a Receber — cancelar, detalhe e permissões", () => {
     abrir(SO_VER);
     await screen.findByText("Fatura Keeta semana 4");
     expect(screen.queryByRole("button", { name: /Nova conta/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Registrar recebimento de/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Receber / })).not.toBeInTheDocument();
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Mais ações de/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Ver detalhes de Fatura Keeta semana 4" })).toBeInTheDocument();

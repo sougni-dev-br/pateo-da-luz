@@ -71,6 +71,8 @@ export function situacaoDe(c: Pick<ReceivableView, "status" | "isLate">): Situac
  * ("Repasse iFood 2026-10-12 → 2026-10-18 · Loja"); aqui viram "12/10 a 18/10".
  */
 export function tituloDaConta(descricao: string): string {
+  // Só os repasses de plataforma (período "A → B"); o texto digitado à mão fica como está.
+  if (!descricao.includes("→")) return descricao;
   return descricao
     .replace(/\d{4}-(\d{2})-(\d{2})/g, "$2/$1")
     .replace(/\s*→\s*/g, " a ")
@@ -91,7 +93,9 @@ export function rotuloPrazo(c: Pick<ReceivableView, "expectedDate">, hoje: strin
   // "vence" é de pagar; aqui a conta é a receber.
   return rotuloPrazoPagar(c.expectedDate, hoje)
     .replace("vence hoje", "previsto para hoje")
-    .replace("vence amanhã", "previsto para amanhã");
+    .replace("vence amanhã", "previsto para amanhã")
+    .replace("venceu ontem", "atrasada desde ontem")
+    .replace(/^venceu há/, "atrasada há");
 }
 
 // ── Foco dos cartões e dia da agenda ─────────────────────────────────────
@@ -125,7 +129,9 @@ const semAcento = (t: string) => t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLo
 export function filtrarPorBusca(contas: ReceivableView[], texto: string): ReceivableView[] {
   const termo = semAcento(texto.trim());
   if (!termo) return contas;
-  const valor = /^[\d.,]+$/.test(termo) ? numeroBr(termo) : null;
+  // "1.250" sem vírgula é milhar para quem digita; numeroBr leria como 1,25.
+  const milhar = /^\d{1,3}(\.\d{3})+$/.test(termo);
+  const valor = /^[\d.,]+$/.test(termo) ? (milhar ? Number(termo.replace(/\./g, "")) : numeroBr(termo)) : null;
   return contas.filter((c) => {
     const alvo = semAcento([c.description, c.customerName ?? "", c.sourceRef ?? "", ORIGEM_ROTULO[c.sourceType]].join(" "));
     if (alvo.includes(termo)) return true;
@@ -171,6 +177,11 @@ export function agruparPorUrgencia(contas: ReceivableView[], hoje: string): Grup
 }
 
 const MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+
+/** Dia (no fuso de São Paulo) de um instante ISO, como dd/mm/aaaa. */
+export function diaDoInstante(iso: string): string {
+  return new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo" }).format(new Date(iso));
+}
 
 export function rotuloDoMes(chave: string): string {
   const [ano, mes] = chave.split("-");
