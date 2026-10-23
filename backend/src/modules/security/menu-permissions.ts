@@ -64,6 +64,8 @@ export const menuCatalog = [
   { id: "supplier-cycles", label: "Ciclos de fornecedor", group: "Financeiro" },
   // Compras pagas do bolso de um funcionario: conferir os comprovantes e fechar o titulo da pessoa.
   { id: "reimbursements", label: "Reembolsos a funcionário", group: "Financeiro" },
+  // Coleta de óleo de fritura (Retióleo): certificado de destino final e conferência do PIX. Cancelar pede "excluir".
+  { id: "oil-collections", label: "Coleta de óleo", group: "Operacao" },
   { id: "dre", label: "DRE Gerencial", group: "Financeiro" },
   { id: "dishes", label: "Fichas Técnicas", group: "Cardápio" },
   { id: "buffet-plates", label: "Plaquinhas do buffet", group: "Cardápio" },
@@ -413,6 +415,7 @@ function menuFromRequest(request: Request): MenuId | null {
   if (path.startsWith("/dashboard")) return "dashboard";
   if (path.startsWith("/supplier-cycles")) return "supplier-cycles";
   if (path.startsWith("/reimbursements")) return "reimbursements";
+  if (path.startsWith("/oil-collections")) return "oil-collections";
   if (path.startsWith("/suppliers")) return "suppliers";
   if (path.startsWith("/companies")) return "companies";
   if (path.startsWith("/employees")) return "employees";
