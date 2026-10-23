@@ -30,6 +30,7 @@ import { paymentMethodRouter } from "./modules/payment-methods/payment-method.ro
 import { productRouter } from "./modules/products/product.routes.js";
 import { purchaseOrderRouter } from "./modules/purchase-orders/purchase-order.routes.js";
 import { purchaseRouter } from "./modules/purchases/purchase.routes.js";
+import { parcelamentoRouter } from "./modules/parcelamentos/parcelamento.routes.js";
 import { supplierRouter } from "./modules/suppliers/supplier.routes.js";
 import { supplierCyclesRouter } from "./modules/suppliers/supplier-cycles.routes.js";
 import { reimbursementsRouter } from "./modules/reimbursements/reimbursement.routes.js";
@@ -187,6 +188,7 @@ app.use("/products", productRouter);
 app.use("/payment-methods", paymentMethodRouter);
 app.use("/purchase-orders", purchaseOrderRouter);
 app.use("/purchases", purchaseRouter);
+app.use("/installment-plans", parcelamentoRouter);
 app.use("/cards", cardsRouter);
 app.use("/imports", importRouter);
 app.use("/doc-intake", docIntakeRouter);

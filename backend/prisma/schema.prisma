@@ -240,6 +240,7 @@ model Supplier {
 
   purchases            Purchase[]
   closingRequirements  SupplierClosingRequirement[]
+  installmentPlans     InstallmentPlan[]
   billingCycles        SupplierBillingCycle[]
   reimbursedPurchases  Purchase[]                   @relation("PurchaseReimbursementPayee")
   reimbursementReports ReimbursementReport[]
@@ -1182,11 +1183,15 @@ model Purchase {
   pedidoLinks                   PurchaseOrderItemLink[]
   cardStatementItems            CreditCardStatementItem[]
   installments                  PaymentInstallment[]
+  installmentPlanId             String?
+  installmentPlan               InstallmentPlan?          @relation(fields: [installmentPlanId], references: [id])
+  planInstallmentNumber         Int?
   billingCycleItem              SupplierBillingCycleItem?
   createdAt                     DateTime                  @default(now())
   updatedAt                     DateTime                  @updatedAt
 
   @@index([purchaseDate])
+  @@index([installmentPlanId])
   @@index([purchaseNumber])
   @@index([purchaseOrderNumber])
   @@index([duplicateKey])
@@ -4272,4 +4277,32 @@ model OilCollection {
 
   @@unique([collectorName, certificateNumber])
   @@index([collectionDate])
+}
+
+// Parcelamento em lote (ex.: dívida renegociada com o shopping). Cada parcela é uma Purchase
+// comum de 1 item e 1 PaymentInstallment, com competência no mês do vencimento; assim DRE,
+// Contas a Pagar, baixa, estorno e travas de período valem sem tratamento especial.
+// "Quitado" não é gravado: sai da contagem de parcelas pagas.
+model InstallmentPlan {
+  id                 String            @id @default(cuid())
+  supplierId         String
+  supplier           Supplier          @relation(fields: [supplierId], references: [id])
+  companyId          String
+  productId          String
+  description        String
+  totalAmount        Decimal           @db.Decimal(12, 2)
+  installmentCount   Int
+  // ACTIVE | RENEGOTIATED (saldo foi para outro parcelamento) | CANCELLED
+  status             String            @default("ACTIVE")
+  renegotiatedFromId String?
+  renegotiatedFrom   InstallmentPlan?  @relation("PlanRenegotiation", fields: [renegotiatedFromId], references: [id])
+  renegotiatedTo     InstallmentPlan[] @relation("PlanRenegotiation")
+  notes              String?
+  createdByUserId    String?
+  purchases          Purchase[]
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  @@index([supplierId])
+  @@index([status])
 }

@@ -10126,3 +10126,85 @@ export function updateOilCollection(id: string, payload: OilCollectionInput) {
 export function cancelOilCollection(id: string, reason: string) {
   return request<OilCollection>(`/oil-collections/${id}/cancel`, { method: "POST", headers: OIL_JSON, body: JSON.stringify({ reason }) });
 }
+
+// ── Parcelamentos em lote ────────────────────────────────────────────────────
+export type InstallmentPlanSummary = {
+  total: number;
+  pagas: number;
+  abertas: number;
+  atrasadas: number;
+  canceladas: number;
+  valorPago: number;
+  saldoAberto: number;
+  proximoVencimento: string | null;
+  quitado: boolean;
+};
+
+export type InstallmentPlanListItem = {
+  id: string;
+  description: string;
+  supplierName: string;
+  status: "ACTIVE" | "RENEGOTIATED" | "CANCELLED";
+  totalAmount: number;
+  installmentCount: number;
+  createdAt: string;
+  resumo: InstallmentPlanSummary;
+};
+
+export type InstallmentPlanInstallment = {
+  purchaseId: string;
+  installmentId: string | null;
+  numero: number | null;
+  amount: number;
+  paidAmount: number | null;
+  dueDate: string | null;
+  paidDate: string | null;
+  situacao: "PAGA" | "ABERTA" | "CANCELADA";
+};
+
+export type InstallmentPlanDetail = Omit<InstallmentPlanListItem, "supplierName" | "createdAt"> & {
+  supplierId: string;
+  supplierName: string;
+  companyId: string;
+  productId: string;
+  renegotiatedFromId: string | null;
+  notes: string | null;
+  parcelas: InstallmentPlanInstallment[];
+};
+
+export type InstallmentPlanParcelaInput = { valor: number; vencimento: string };
+
+export type InstallmentPlanInput = {
+  supplierId: string;
+  companyId: string;
+  productId: string;
+  description: string;
+  total: number;
+  quantidade: number;
+  primeiroVencimento?: string;
+  parcelas?: InstallmentPlanParcelaInput[];
+  paymentMethodId?: string | null;
+  notes?: string | null;
+};
+
+const PLAN_JSON = { "Content-Type": "application/json" };
+
+export function getInstallmentPlans() {
+  return request<InstallmentPlanListItem[]>("/installment-plans");
+}
+
+export function getInstallmentPlan(id: string) {
+  return request<InstallmentPlanDetail>(`/installment-plans/${id}`);
+}
+
+export function createInstallmentPlan(payload: InstallmentPlanInput) {
+  return request<InstallmentPlanDetail>("/installment-plans", { method: "POST", headers: PLAN_JSON, body: JSON.stringify(payload) });
+}
+
+export function renegotiateInstallmentPlan(id: string, payload: { quantidade: number; primeiroVencimento?: string; parcelas?: InstallmentPlanParcelaInput[]; total?: number; motivo: string }) {
+  return request<{ planId: string; saldoAnterior: number; parcelasCanceladas: number; plano: InstallmentPlanDetail }>(`/installment-plans/${id}/renegociar`, { method: "POST", headers: PLAN_JSON, body: JSON.stringify(payload) });
+}
+
+export function cancelInstallmentPlan(id: string, motivo: string) {
+  return request<{ parcelasCanceladas: number; parcelasPagasMantidas: number; plano: InstallmentPlanDetail }>(`/installment-plans/${id}/cancelar`, { method: "POST", headers: PLAN_JSON, body: JSON.stringify({ motivo }) });
+}
