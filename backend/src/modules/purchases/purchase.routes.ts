@@ -9,6 +9,7 @@ import { excludeAggregatorsWhere } from "./purchase-aggregators.js";
 import { lotesParaPayables, lotesParaPayablesPdf } from "../payroll/folha-lote-payables.js";
 import { extrasParaPayables, extrasParaPayablesPdf } from "../payroll/extras-payables.js";
 import { LIMITE_POR_ORIGEM } from "./payables-limite.js";
+import { decidirParcelasNaEdicao, EdicaoComParcelaPagaError, MENSAGEM_PARCELA_PAGA, type DecisaoParcelas } from "./parcelas-pagas-na-edicao.js";
 import {
   formatPaymentMethodWithInstallments,
   getPaymentMethodBaseName,
@@ -2499,12 +2500,28 @@ purchaseRouter.put("/:id", async (request, response) => {
     return;
   }
 
+  // Decidida dentro da transacao, com as parcelas travadas: uma baixa que entrasse entre
+  // a leitura e o delete seria apagada do mesmo jeito.
+  let decisaoParcelas: DecisaoParcelas = "RECRIAR";
+  const cobrancaSemParcelaPropria = isCycleSupplier || isNormalCreditCard || isReimbursement || Boolean(isSmallExpense && creditCardId);
+
   const previousItems = Array.isArray(previousRecord.items) ? previousRecord.items : [];
   // A edicao recria os itens; a conversao para a unidade de contagem e
   // recalculada depois da transacao (antes ela sumia e a nota editada voltava
   // a quantidade bruta).
   const itensRecriados: Array<{ id: string; productId: string; quantity: number; unit: string | null; totalPrice: number }> = [];
   await prisma.$transaction(async (tx) => {
+    const parcelasAtuais = await tx.$queryRaw<Array<{ dueDate: Date | null; amount: string; status: string; paidDate: Date | null }>>`
+      SELECT "dueDate", "amount"::text AS "amount", "status", "paidDate"
+      FROM "PaymentInstallment"
+      WHERE "purchaseId" = ${request.params.id}
+      FOR UPDATE
+    `;
+    decisaoParcelas = decidirParcelasNaEdicao(parcelasAtuais, installments);
+    if (decisaoParcelas === "BLOQUEAR" || (decisaoParcelas === "MANTER" && cobrancaSemParcelaPropria)) {
+      throw new EdicaoComParcelaPagaError();
+    }
+
     await tx.purchase.update({
       where: { id: request.params.id },
       data: {
@@ -2535,7 +2552,10 @@ purchaseRouter.put("/:id", async (request, response) => {
     });
 
     await tx.purchaseItem.deleteMany({ where: { purchaseId: request.params.id } });
-    await tx.paymentInstallment.deleteMany({ where: { purchaseId: request.params.id } });
+    // Parcela paga so e preservada (nao apagada) quando a edicao nao mexe na cobranca.
+    if (decisaoParcelas === "RECRIAR") {
+      await tx.paymentInstallment.deleteMany({ where: { purchaseId: request.params.id } });
+    }
     // A linha antiga some aqui; o cartao (fisico/virtual) dela precisa chegar ao sync abaixo.
     const linhaRemovida = await removeCardStatementItemsForPurchase(request.params.id, tx);
 
@@ -2568,7 +2588,16 @@ purchaseRouter.put("/:id", async (request, response) => {
       });
     }
 
-    if (installments.length && !isCycleSupplier) {
+    // MANTER nao recria a parcela: a forma de pagamento planejada acompanha a compra
+    // (a forma efetivamente paga fica em paidPaymentMethod*, intacta).
+    if (decisaoParcelas === "MANTER" && paymentMethodId) {
+      await tx.paymentInstallment.updateMany({
+        where: { purchaseId: request.params.id, status: { not: "CANCELLED" } },
+        data: { paymentMethodId, paymentMethodName: basePaymentMethodName }
+      });
+    }
+
+    if (decisaoParcelas === "RECRIAR" && installments.length && !isCycleSupplier) {
       await tx.paymentInstallment.createMany({
         data: installments.map((installment) => ({
           purchaseId: request.params.id,
@@ -2721,6 +2750,10 @@ purchaseRouter.put("/:id", async (request, response) => {
 
   response.json(await getPurchaseDetail(request.params.id));
   } catch (error) {
+    if (error instanceof EdicaoComParcelaPagaError) {
+      response.status(409).json({ message: MENSAGEM_PARCELA_PAGA });
+      return;
+    }
     if (error instanceof ReimbursementError) {
       response.status(error.status).json({ message: error.message });
       return;
