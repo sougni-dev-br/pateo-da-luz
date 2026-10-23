@@ -17,6 +17,7 @@ import {
   AppUser,
   changeOwnPassword,
   getActiveSessions,
+  getLoginHistory,
   getMenuPermissions,
   getUsers,
   killUserSession,
@@ -30,6 +31,7 @@ import {
   updateUserPermissions,
   UserRole,
   UserSessionInfo,
+  type LoginHistoryEvent,
 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
 import { isPasswordValid, PasswordField, passwordPolicyMessage } from "../components/PasswordField";
@@ -99,6 +101,22 @@ function formatRelative(dateStr: string | null | undefined) {
   const h = Math.floor(m / 60);
   if (h < 24)  return `${h}h atrás`;
   return `${Math.floor(h / 24)}d atrás`;
+}
+
+const LOGIN_EVENT_LABELS: Record<string, { label: string; tone: "ok" | "warn" | "bad" | "info" }> = {
+  LOGIN: { label: "Entrou", tone: "ok" },
+  LOGOUT: { label: "Saiu", tone: "info" },
+  LOGOUT_INACTIVITY: { label: "Desconectado por inatividade", tone: "warn" },
+  SESSION_EXPIRED_BY_INACTIVITY: { label: "Sessão expirou por inatividade", tone: "warn" },
+  LOGIN_INVALID: { label: "Tentativa com senha errada", tone: "bad" },
+  LOGIN_BLOCKED: { label: "Tentativa bloqueada (usuário travado)", tone: "bad" },
+  LOGIN_BLOCKED_SESSION_CONFLICT: { label: "Entrada barrada: já havia sessão ativa", tone: "warn" },
+  LOGIN_AFTER_INACTIVITY_EXPIRY: { label: "Entrou após sessão inativa expirar", tone: "info" },
+  SESSION_FORCE_REPLACED: { label: "Entrou derrubando outra sessão", tone: "warn" }
+};
+
+function formatDateTime(dateStr: string) {
+  return new Date(dateStr).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
 }
 
 function simplifyUA(ua: string | null) {
@@ -186,6 +204,8 @@ export function Users() {
   const [sessions, setSessions]     = useState<UserSessionInfo[]>([]);
   const [sessionsReady, setSessionsReady] = useState(false);
   const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [history, setHistory] = useState<LoginHistoryEvent[] | null>(null);
+  const [historyError, setHistoryError] = useState(false);
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
   const [confirmLoading, setConfirmLoading] = useState(false);
   const { notice, setNotice } = useNotice(7000);
@@ -242,6 +262,18 @@ export function Users() {
   }
 
   useEffect(() => { load(); }, []);
+
+  // Histórico de acessos do usuário selecionado (só na aba Sessões, só para admin).
+  useEffect(() => {
+    if (activeTab !== "sessoes" || !isAdmin || !selectedId) return;
+    let ativo = true;
+    setHistory(null);
+    setHistoryError(false);
+    getLoginHistory(selectedId)
+      .then((rows) => { if (ativo) setHistory(rows); })
+      .catch(() => { if (ativo) setHistoryError(true); });
+    return () => { ativo = false; };
+  }, [activeTab, isAdmin, selectedId]);
 
   useEffect(() => {
     if (!selectedUser) return;
@@ -597,7 +629,7 @@ export function Users() {
                     </span>
                   </div>
                   <div className="user-header-login">
-                    Último login: {selectedUser.lastLoginAt ? formatDate(selectedUser.lastLoginAt) : "nunca"}
+                    Último login: {selectedUser.lastLoginAt ? formatDateTime(selectedUser.lastLoginAt) : "nunca"}
                     {selectedUser.lastLoginAt && <span className="separator">·</span>}
                     {selectedUser.lastLoginAt && <span>{formatRelative(selectedUser.lastLoginAt)}</span>}
                   </div>
@@ -816,6 +848,38 @@ export function Users() {
                         </div>
                       ))}
                     </div>
+                  )}
+
+                  <div className="section-heading" style={{ margin: "20px 0 8px" }}>
+                    <span>Histórico de acessos</span>
+                  </div>
+                  {historyError ? (
+                    <div className="alert">Não foi possível carregar o histórico.</div>
+                  ) : history === null ? (
+                    <div className="alert">Carregando histórico…</div>
+                  ) : history.length === 0 ? (
+                    <div className="alert">Nenhum acesso registrado para este usuário.</div>
+                  ) : (
+                    <ul className="login-history">
+                      {history.map((event) => {
+                        const info = LOGIN_EVENT_LABELS[event.action] ?? { label: event.action, tone: "info" as const };
+                        return (
+                          <li key={event.id} className="login-history-item">
+                            <span className={`login-history-dot tone-${info.tone}`} aria-hidden="true" />
+                            <div className="login-history-main">
+                              <div className="login-history-label">{info.label}</div>
+                              <div className="session-meta">
+                                {formatDateTime(event.createdAt)}
+                                <span className="separator">·</span>
+                                {event.ipAddress ?? "IP desconhecido"}
+                                <span className="separator">·</span>
+                                {simplifyUA(event.userAgent)}
+                              </div>
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
                   )}
                 </section>
               )}

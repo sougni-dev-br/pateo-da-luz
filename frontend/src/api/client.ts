@@ -1436,6 +1436,7 @@ export type AppUser = {
   failedLoginAttempts?: number;
   lockedUntil?: string | null;
   lastLoginAt?: string | null;
+  inactivityTimeoutMinutes?: number;
   menuPermissions?: MenuPermissionMap;
   modulePermissions?: ModulePermissionMap;
   menuPermissionOverrides?: Partial<MenuPermissionMap>;
@@ -2881,17 +2882,24 @@ export function getDashboardSummary(year: number, month: number) {
 }
 
 export async function login(email: string, password: string, options?: { force?: boolean }) {
-  const result = await request<{ token: string; user: AppUser }>("/auth/login", {
+  const result = await request<{ token: string; user: AppUser; inactivityTimeoutMinutes?: number }>("/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password, force: options?.force ?? false })
   });
   localStorage.removeItem(SESSION_TOKEN_KEY);
   sessionStorage.setItem(SESSION_TOKEN_KEY, result.token);
-  return result;
+  return { ...result, user: { ...result.user, inactivityTimeoutMinutes: result.inactivityTimeoutMinutes } };
 }
 
-export async function logout() {
+// Chave do localStorage onde as abas que compartilham o mesmo token (aba duplicada) registram
+// a última atividade, para que uma aba esquecida não derrube a sessão da aba em uso.
+export function sessionActivityKey() {
+  const token = sessionStorage.getItem(SESSION_TOKEN_KEY);
+  return token ? `pateo_last_activity:${token.slice(-16)}` : null;
+}
+
+export async function logout(reason?: "inactivity") {
   const token = sessionToken();
   if (token) {
     const urls = [
@@ -2902,7 +2910,8 @@ export async function logout() {
       try {
         const resp = await fetchWithTimeout(url, {
           method: "POST",
-          headers: { Authorization: `Bearer ${token}` }
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ reason })
         });
         if (resp.ok) break;
       } catch {
@@ -2910,8 +2919,12 @@ export async function logout() {
       }
     }
   }
+  // Limpa antes da rede: se o usuário logar de novo enquanto o POST ainda está pendente,
+  // o fim deste logout não pode apagar o token novo.
+  const activityKey = sessionActivityKey();
   localStorage.removeItem(SESSION_TOKEN_KEY);
   sessionStorage.removeItem(SESSION_TOKEN_KEY);
+  if (activityKey) localStorage.removeItem(activityKey);
 }
 
 export function killUserSession(userId: string) {
@@ -2950,6 +2963,18 @@ export function getMenuPermissions() {
     actions: PermissionAction[];
     rolePermissions: Record<UserRole, MenuPermissionMap>;
     roleModulePermissions: Record<UserRole, ModulePermissionMap>;
+export type LoginHistoryEvent = {
+  id: string;
+  action: string;
+  ipAddress: string | null;
+  userAgent: string | null;
+  createdAt: string;
+};
+
+export function getLoginHistory(userId: string) {
+  return request<LoginHistoryEvent[]>(`/auth/login-history/${userId}`);
+}
+
   }>("/users/menu-permissions");
 }
 

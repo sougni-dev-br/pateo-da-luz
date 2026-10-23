@@ -388,6 +388,7 @@ model AuditLog {
   createdAt     DateTime @default(now())
 
   @@index([entity, entityId])
+  @@index([userId, createdAt(sort: Desc)])
 }
 
 model Category {
