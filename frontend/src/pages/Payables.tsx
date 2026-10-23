@@ -30,6 +30,7 @@ import {
   filtroDaUrl
 } from "./payables/regras";
 import { ConfirmaBaixaDuplicada } from "./payables/ConfirmaBaixaDuplicada";
+import { avisoDeAuxiliares, carregarAuxiliar } from "./payables/auxiliares";
 import { recusaDaFolha, type RecusaFolha, type SuspeitoLote } from "../lib/folha-duplicidade";
 import "./payables/payables.css";
 
@@ -127,6 +128,8 @@ export function Payables({ user }: PayablesProps) {
   const [erroCarga, setErroCarga] = useState<string | null>(null);
   // O backend corta a lista num limite de segurança e avisa pelo cabeçalho X-Payables-Truncado.
   const [listaTruncada, setListaTruncada] = useState(false);
+  // Fornecedores e formas só alimentam filtros: se falharem, a lista continua e a tela avisa.
+  const [auxiliaresFalharam, setAuxiliaresFalharam] = useState<string[]>([]);
   const [gerandoPdf, setGerandoPdf] = useState(false);
   const gerandoPdfRef = useRef(false);
   // Baixa em lote: cada título vencido baixado na própria data de vencimento (em vez da data única).
@@ -178,22 +181,27 @@ export function Payables({ user }: PayablesProps) {
       const vencidosAntes = (buscar: boolean, extra: Record<string, string | undefined>) => buscar
         ? getPayablesComLimite({ ...extra, status: "OVERDUE", endDate: activePeriod.startDate, origin: orig })
         : Promise.resolve({ titulos: [] as Payable[], truncado: false });
-      const [periodoRows, periodoAllRows, vencidosRows, vencidosAllRows, supplierRows, methodRows, companyRows] = await Promise.all([
+      const [periodoRows, periodoAllRows, vencidosRows, vencidosAllRows, supplierAux, methodAux, companyAux] = await Promise.all([
         getPayablesComLimite({ ...apiFilters, ...dateParams, origin: orig }),
         getPayablesComLimite({ ...periodFilters, origin: orig }),
         vencidosAntes(vencidosNaLista, apiFilters),
         vencidosAntes(puxaVencidos, {}),
-        suppliers.length ? Promise.resolve(suppliers) : getSuppliers(),
-        paymentMethods.length ? Promise.resolve(paymentMethods) : getPaymentMethods(),
-        companies.length ? Promise.resolve(companies) : getCompanies().catch(() => [] as Company[])
+        carregarAuxiliar(suppliers, getSuppliers),
+        carregarAuxiliar(paymentMethods, getPaymentMethods),
+        // Empresas: nem todo perfil enxerga a lista, então a falha segue silenciosa (só some o filtro).
+        carregarAuxiliar(companies, () => getCompanies().catch(() => [] as Company[]))
       ]);
       if (!atual()) return;
       setPayables(juntarVencidosAnteriores(periodoRows.titulos, vencidosRows.titulos));
       setAllPayables(juntarVencidosAnteriores(periodoAllRows.titulos, vencidosAllRows.titulos));
       setListaTruncada([periodoRows, periodoAllRows, vencidosRows, vencidosAllRows].some((r) => r.truncado));
-      setSuppliers(supplierRows);
-      setPaymentMethods(methodRows);
-      setCompanies(companyRows.filter((c) => c.isActive));
+      setSuppliers(supplierAux.itens);
+      setPaymentMethods(methodAux.itens);
+      setCompanies(companyAux.itens.filter((c) => c.isActive));
+      setAuxiliaresFalharam([
+        supplierAux.falhou ? "fornecedores" : "",
+        methodAux.falhou ? "formas de pagamento" : ""
+      ].filter(Boolean));
     } catch (error) {
       if (!atual()) return;
       const message = error instanceof Error ? error.message : "Erro ao carregar contas a pagar.";
@@ -1025,6 +1033,10 @@ export function Payables({ user }: PayablesProps) {
         )}
         <span className="pg-resultado-periodo">{descricaoPeriodo}</span>
       </div>
+
+      {!loading && !erroCarga && avisoDeAuxiliares(auxiliaresFalharam) && (
+        <Alert tone="warning" role="status">{avisoDeAuxiliares(auxiliaresFalharam)}</Alert>
+      )}
 
       {!loading && !erroCarga && listaTruncada && (
         <Alert tone="warning" role="alert">
