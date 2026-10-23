@@ -3011,6 +3011,7 @@ model Employee {
   fichasCadastrais       FichaCadastral[]
   feriasRegistradas      EmployeeFerias[]
   feriasProgramadas      FeriasProgramacao[]
+  feriasSolicitadas          FeriasSolicitacao[]
   anotacoesCarteira      EmployeeAnotacaoCarteira[]
   // Auditoria / soft delete
   createdById            String
@@ -3393,6 +3394,24 @@ model EmployeeDependente {
 // CALCULADOS da admissão (ferias-calc.ts); aqui fica só o que alguém decidiu: quando a pessoa
 // sai, por quantos dias, se vende o abono (até 10 dias) e se já gozou. O histórico lido da
 // ficha de registro continua em EmployeeFerias (só consulta).
+// O que o colaborador pediu para as férias de um período aquisitivo (quando e quantos dias). A empresa decide
+// pela FeriasProgramacao; aqui fica o pedido para comparar e atender. Um pedido por período.
+model FeriasSolicitacao {
+  id               String   @id @default(cuid())
+  employeeId       String
+  employee         Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  aquisitivoInicio DateTime @db.Date
+  inicio           DateTime @db.Date
+  dias             Int
+  diasAbono        Int      @default(0)
+  observacao       String?
+  createdById      String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([employeeId, aquisitivoInicio])
+}
+
 model FeriasProgramacao {
   id               String    @id @default(cuid())
   employeeId       String

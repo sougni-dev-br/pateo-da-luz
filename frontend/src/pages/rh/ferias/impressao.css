@@ -53,6 +53,13 @@
 /* Folha da contabilidade: 10 colunas. Fonte e espaços menores e datas em linha única, para caber folgado mesmo se alguém imprimir em retrato. */
 .fe-folha-tabela--contab td { font-size: 9pt; padding: 1.5mm; }
 .fe-folhas .fe-folha-tabela--contab th { font-size: 7pt; letter-spacing: 0; padding: 1.5mm; }
+.fe-folha-tabela--conversa .c-nome { width: 18%; }
+.fe-folha-tabela--conversa .c-periodo { width: 12%; }
+.fe-folha-tabela--conversa .c-limite { width: 12%; }
+.fe-folha-tabela--conversa .c-dias { width: 8%; }
+.fe-folha-tabela--conversa .c-pedido { width: 16%; font-size: 9pt; }
+.fe-folha-tabela--conversa .c-combinado { width: 22%; }
+.fe-folha-tabela--conversa .c-visto { width: 12%; }
 .fe-folha-tabela--contab .c-nome { width: 15%; }
 .fe-folha-tabela--contab .c-periodo { width: 13%; }
 .fe-folha-tabela--contab .c-data { width: 9.5%; white-space: nowrap; }
@@ -80,6 +87,7 @@
 
 @media print {
   body.imprimindo-ferias > *:not(.fe-area-impressao) { display: none !important; }
+  html:has(body.imprimindo-ferias) { background: #fff !important; }
   body.imprimindo-ferias { margin: 0 !important; background: #fff !important; }
   body.imprimindo-ferias .fe-area-impressao { position: static; left: auto; visibility: visible; }
   body.imprimindo-ferias .fe-folha { padding-top: 0; break-after: page; page-break-after: always; }

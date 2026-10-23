@@ -41,7 +41,9 @@ function pessoas(): Pessoa[] {
   ];
 }
 
+type Pedido = { id: string; employeeId: string; aquisitivoInicio: string; inicio: string; dias: number; diasAbono: number; observacao: string | null; registradaEm: string };
 let gravadas: Gravada[] | null = null;
+let pedidos: Pedido[] | null = null;
 let proximoId = 1;
 
 /** Programações de partida, em dias a partir de hoje (inicio) — escolhidas para o mapa de calor ter sobreposição. */
@@ -63,6 +65,20 @@ function sementes(): Gravada[] {
   ];
 }
 
+function sementesDePedidos(): Pedido[] {
+  const aquisitivoDe = (id: string, n: number) => somaMeses((pessoas().find((x) => x.id === id) as Pessoa).admissao, 12 * n);
+  const pedido = (id: string, n: number, deslocamento: number, dias: number, extra: Partial<Pedido> = {}): Pedido => ({
+    id: `ped-${proximoId++}`, employeeId: id, aquisitivoInicio: aquisitivoDe(id, n), inicio: somaDias(hoje(), deslocamento), dias, diasAbono: 0,
+    observacao: null, registradaEm: new Date().toISOString(), ...extra,
+  });
+  return [
+    pedido("f3", 1, 52, 15, { observacao: "Quer emendar com o aniversário da filha." }), // Igor: aguardando a empresa
+    pedido("f7", 0, 38, 15), // Gisele: a empresa programou exatamente isso
+    pedido("f5", 0, 29, 20, { diasAbono: 10 }), // Diego: a empresa programou um dia depois
+    pedido("f2", 1, 14, 30, { observacao: "Viagem já comprada." }), // Bruno: o pedido termina depois do prazo
+  ];
+}
+
 function programacaoNoPeriodo(g: Gravada): ProgramacaoFerias {
   const gozoFim = g.gozoInicio ? somaDias(g.gozoInicio, g.dias - 1) : null;
   return {
@@ -71,7 +87,7 @@ function programacaoNoPeriodo(g: Gravada): ProgramacaoFerias {
   };
 }
 
-function periodosDe(p: Pessoa, doPessoa: Gravada[]): PeriodoFerias[] {
+function periodosDe(p: Pessoa, doPessoa: Gravada[], doPedido: Pedido[]): PeriodoFerias[] {
   const h = hoje();
   const corte = somaMeses(h, -12);
   const periodos: PeriodoFerias[] = [];
@@ -102,6 +118,10 @@ function periodosDe(p: Pessoa, doPessoa: Gravada[]): PeriodoFerias[] {
       aquisitivoInicio: inicio, aquisitivoFim: fim, limiteInicioGozo: limite, fimConcessivo, diasDireito: 30, diasGozados: gozados,
       diasProgramados: programados, diasAbono: abono, diasPendentes: emAquisicao ? 30 : pendentes, situacao, nivel, diasParaLimite,
       diasParaCompletar: emAquisicao ? diasEntre(h, somaDias(fim, 1)) : null, foraDoPrazo, doHistorico: false, programacoes: deste.map(programacaoNoPeriodo),
+      solicitacao: (() => {
+        const x = doPedido.find((q) => q.aquisitivoInicio === inicio);
+        return x ? { id: x.id, inicio: x.inicio, fim: somaDias(x.inicio, x.dias - 1), dias: x.dias, diasAbono: x.diasAbono, observacao: x.observacao, registradaEm: x.registradaEm } : null;
+      })(),
     });
   }
   return periodos;
@@ -122,8 +142,9 @@ const PESO = { perigo: 2, atencao: 1, ok: 0 } as const;
 
 function montar(): ListaFerias {
   if (!gravadas) gravadas = sementes();
+  if (!pedidos) pedidos = sementesDePedidos();
   const lista = pessoas().map((p) => {
-    const periodos = periodosDe(p, (gravadas as Gravada[]).filter((g) => g.employeeId === p.id));
+    const periodos = periodosDe(p, (gravadas as Gravada[]).filter((g) => g.employeeId === p.id), (pedidos as Pedido[]).filter((q) => q.employeeId === p.id));
     const nivel = periodos.reduce<PeriodoFerias["nivel"]>((pior, per) => (PESO[per.nivel] > PESO[pior] ? per.nivel : pior), "ok");
     return { employeeId: p.id, nome: p.nome, empresa: p.empresa, setor: p.setor, repousoSemanal: p.repouso ?? [0], repousoPelaEscala: p.repouso !== undefined, admissao: p.admissao, nivel, periodos };
   });
@@ -140,6 +161,27 @@ function montar(): ListaFerias {
 /** GET/POST /payroll/ferias, PATCH e DELETE /payroll/ferias/:id. */
 export function mockFerias(url: string, method = "GET", corpo?: unknown): unknown | undefined {
   const u = new URL(url, "http://localhost");
+  // Pedido do colaborador: registrar/trocar (PUT) e retirar (DELETE).
+  const rotaPedido = /\/payroll\/ferias\/solicitacao(?:\/([^/]+))?$/.exec(u.pathname);
+  if (rotaPedido) {
+    if (!pedidos) pedidos = sementesDePedidos();
+    const verbo = method.toUpperCase();
+    if (verbo === "PUT") {
+      const d = (typeof corpo === "string" && corpo ? JSON.parse(corpo) : {}) as Partial<Pedido>;
+      const novo: Pedido = {
+        id: pedidos.find((q) => q.employeeId === d.employeeId && q.aquisitivoInicio === d.aquisitivoInicio)?.id ?? `ped-${proximoId++}`,
+        employeeId: String(d.employeeId), aquisitivoInicio: String(d.aquisitivoInicio), inicio: String(d.inicio), dias: Number(d.dias), diasAbono: Number(d.diasAbono ?? 0),
+        observacao: d.observacao ?? null, registradaEm: new Date().toISOString(),
+      };
+      pedidos = [...pedidos.filter((q) => q.id !== novo.id), novo];
+      return { id: novo.id };
+    }
+    if (verbo === "DELETE" && rotaPedido[1]) {
+      pedidos = pedidos.filter((q) => q.id !== rotaPedido[1]);
+      return { ok: true };
+    }
+    return undefined;
+  }
   const aviso = /\/payroll\/ferias\/([^/]+)\/avisado$/.exec(u.pathname);
   if (aviso && method.toUpperCase() === "POST") {
     if (!gravadas) gravadas = sementes();

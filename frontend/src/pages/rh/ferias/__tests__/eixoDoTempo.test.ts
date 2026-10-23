@@ -215,3 +215,62 @@ describe("rótulos dos meses", () => {
     expect(rotulosDosMeses(virada).map((x) => `${x.nome} ${x.ano}`)).toEqual(["nov 2026", "dez 2026", "jan 2027", "fev 2027"]);
   });
 });
+
+describe("sugestão a partir do pedido do colaborador", () => {
+  const eixo = criarEixo(HOJE, [pessoa([periodo()])], px);
+  const ctx = (extra: Partial<ContextoSugestao> = {}): ContextoSugestao => ({ feriados: FERIADOS, setor: null, dosOutros: [], proprias: [], ...extra });
+  const pedido = (inicio: string, dias = 15, diasAbono = 0) => ({ inicio, dias, diasAbono });
+  const fora = (employeeId: string, inicio: string, fim: string, setor = "Cozinha"): Ausencia => ({ employeeId, nome: employeeId, setor, inicio, fim, gozada: false });
+
+  test("pedido que serve vira a sugestão, com o abono pedido", () => {
+    const s = sugerirInicio(eixo, periodo(), HOJE, 30, ctx({ pedido: pedido("2026-12-14", 15, 10) }));
+    expect(s).toMatchObject({ origem: "pedido", inicio: "2026-12-14", fim: "2026-12-28", dias: 15, diasAbono: 10 });
+    expect(s?.motivoDoPedido).toBeUndefined();
+  });
+
+  test("pedido em dia vedado: sugere a data mais próxima que serve e diz por quê", () => {
+    const s = sugerirInicio(eixo, periodo(), HOJE, 30, ctx({ pedido: pedido("2026-12-12") })); // sábado
+    expect(s).toMatchObject({ origem: "calculada", inicio: "2026-12-14", dias: 15, diasAbono: 0 });
+    expect(s?.motivoDoPedido).toMatch(/sábado/);
+  });
+
+  test("pedido que passa do prazo: a alternativa fica dentro do prazo, o mais perto possível do pedido", () => {
+    const s = sugerirInicio(eixo, periodo(), HOJE, 30, ctx({ pedido: pedido("2027-02-15", 30) }));
+    expect(s?.motivoDoPedido).toMatch(/termina depois do prazo \(28\/02\/2027\)/);
+    expect(s?.inicio).toBe("2027-01-28"); // o limite (30/01) é sábado e a sexta antes do domingo também é vedada
+  });
+
+  test("setor lotado: com 2 colegas do setor fora, o pedido não serve e a alternativa não lota o setor", () => {
+    const colegas = [fora("a", "2026-11-09", "2026-11-27"), fora("b", "2026-11-12", "2026-12-04")];
+    const s = sugerirInicio(eixo, periodo(), HOJE, 30, ctx({ setor: "Cozinha", dosOutros: colegas, pedido: pedido("2026-11-16", 10) }));
+    expect(s?.motivoDoPedido).toMatch(/2 colegas do setor Cozinha/);
+    expect(s?.origem).toBe("calculada");
+    expect(s?.picoSetor).toBeLessThan(2); // a alternativa não lota o setor, e fica o mais perto possível do pedido
+    expect(s?.inicio).toBe("2026-11-30");
+  });
+
+  test("um colega do setor fora ainda deixa o pedido servir (só avisa na tela)", () => {
+    const s = sugerirInicio(eixo, periodo(), HOJE, 30, ctx({ setor: "Cozinha", dosOutros: [fora("a", "2026-11-09", "2026-11-27")], pedido: pedido("2026-11-16", 10) }));
+    expect(s).toMatchObject({ origem: "pedido", picoSetor: 1 });
+  });
+
+  test("pedido que bate nas férias já marcadas, no passado ou com mais dias do que restam não serve", () => {
+    const propria: Ausencia = { employeeId: "e1", nome: "Ana", setor: null, inicio: "2026-12-10", fim: "2026-12-20", gozada: false };
+    expect(sugerirInicio(eixo, periodo(), HOJE, 30, ctx({ proprias: [propria], pedido: pedido("2026-12-14") }))?.motivoDoPedido).toMatch(/bate em férias/);
+    expect(sugerirInicio(eixo, periodo(), HOJE, 30, ctx({ pedido: pedido("2026-10-12") }))?.motivoDoPedido).toMatch(/já passou/);
+    const poucos = sugerirInicio(eixo, periodo({ diasPendentes: 10 }), HOJE, 10, ctx({ pedido: pedido("2026-12-14", 15) }));
+    expect(poucos?.motivoDoPedido).toMatch(/pede 15 dias e restam 10/);
+    expect(poucos?.dias).toBe(10);
+  });
+
+  test("vários motivos aparecem juntos", () => {
+    const s = sugerirInicio(eixo, periodo(), HOJE, 30, ctx({ pedido: pedido("2027-02-13", 30) })); // sábado e passa do prazo
+    expect(s?.motivoDoPedido).toMatch(/sábado.*; termina depois do prazo/);
+  });
+
+  test("sem pedido, nada muda: a origem é calculada e não há motivo", () => {
+    const s = sugerirInicio(eixo, periodo(), HOJE, 10, ctx());
+    expect(s).toMatchObject({ origem: "calculada", diasAbono: 0 });
+    expect(s?.motivoDoPedido).toBeUndefined();
+  });
+});

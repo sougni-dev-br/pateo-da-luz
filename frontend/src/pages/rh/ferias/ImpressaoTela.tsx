@@ -6,7 +6,7 @@ import { Button } from "../../../design-system";
 import type { Ausencia } from "./eixoDoTempo";
 import type { LinhaFerias } from "./feriasFormato";
 import { FolhaTelaLinhaDoTempo, FolhaTelaLista } from "./FolhaTela";
-import { MESES_OPCOES, type MesesNaFolha, OPCOES_PADRAO, type OpcoesTela, type Orientacao, type Papel, eixoDaFolha, estiloDePagina, larguraUtilPx, nomeDoArquivo } from "./opcoesDaFolha";
+import { LETRAS, MESES_OPCOES, type MesesNaFolha, type TamanhoDaLetra, OPCOES_PADRAO, type OpcoesTela, type Orientacao, type Papel, eixoDaFolha, estiloDePagina, larguraUtilPx, nomeDoArquivo } from "./opcoesDaFolha";
 import "./impressao.css";
 import "./impressaoTela.css";
 
@@ -104,6 +104,18 @@ export function ImpressaoTela({ lista, visao, pessoas, linhas, filtroRotulo, emp
                   <label key={o} className="fe-imp-opcao">
                     <input type="radio" name="fe-it-orientacao" checked={opcoes.orientacao === o} onChange={() => mudar({ orientacao: o })} />
                     <span><strong>{rotulo}</strong></span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+
+            <fieldset className="fe-imp-grupo">
+              <legend>Tamanho da letra</legend>
+              <div className="fe-it-grupo-linha">
+                {LETRAS.map((l) => (
+                  <label key={l.id} className="fe-imp-opcao">
+                    <input type="radio" name="fe-it-letra" checked={opcoes.letra === l.id} onChange={() => mudar({ letra: l.id as TamanhoDaLetra })} />
+                    <span><strong>{l.rotulo}</strong></span>
                   </label>
                 ))}
               </div>

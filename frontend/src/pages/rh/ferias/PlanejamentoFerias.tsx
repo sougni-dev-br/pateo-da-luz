@@ -4,6 +4,7 @@ import type { ListaFerias } from "../../../api/client";
 import { Button } from "../../../design-system";
 import { ausenciasDaLista } from "./eixoDoTempo";
 import { dataBr, plural } from "./feriasFormato";
+import { pedidosAguardando } from "./pedido";
 import { prazosDeAviso, resumoPorMes } from "./planejamento";
 
 const URGENTE_EM_DIAS = 7;
@@ -19,15 +20,17 @@ export function PlanejamentoFerias({ lista, ocupado, onAvisado }: { lista: Lista
   const semAviso = prazos.filter((p) => p.avisadoEm === null);
   const urgentes = semAviso.filter((p) => p.diasParaAvisar <= URGENTE_EM_DIAS).length;
   const totalDias = meses.reduce((s, m) => s + m.diasFora, 0);
+  const aguardando = pedidosAguardando(lista);
   const resumoPrazos = semAviso.length === 0 ? ""
     : urgentes > 0 ? ` · ${urgentes} ${plural(urgentes, "aviso urgente", "avisos urgentes")} (até ${URGENTE_EM_DIAS} dias)`
       : ` · ${semAviso.length} ${plural(semAviso.length, "aviso a fazer", "avisos a fazer")}`;
+  const resumoPedidos = aguardando > 0 ? ` · ${aguardando} ${plural(aguardando, "pedido aguardando a empresa", "pedidos aguardando a empresa")}` : "";
 
   return (
     <details className="fe-plano">
       <summary>
         <CalendarClock size={15} aria-hidden="true" /> Planejamento
-        <span className="fe-sub">{totalDias} {plural(totalDias, "dia de férias", "dias de férias")} nos próximos 12 meses{resumoPrazos}</span>
+        <span className="fe-sub">{totalDias} {plural(totalDias, "dia de férias", "dias de férias")} nos próximos 12 meses{resumoPrazos}{resumoPedidos}</span>
       </summary>
       <div className="fe-plano-corpo">
         <section aria-labelledby="fe-plano-meses">

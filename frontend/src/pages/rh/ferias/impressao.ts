@@ -1,5 +1,6 @@
 import type { ListaFerias, PeriodoFerias, PessoaFerias, ProgramacaoFerias } from "../../../api/client";
 import { dataBr, linhasDaLista, pertenceAoFiltro, somaDias, textoPrazo } from "./feriasFormato";
+import { resumoDoPedido } from "./pedido";
 import { prazoParaAvisar, prazoParaPagar } from "./regrasFerias";
 
 // Dois papéis, um por etapa do combinado com a equipe:
@@ -20,6 +21,8 @@ export type LinhaConversa = {
   diasAProgramar: number;
   /** Já tem parte programada (fracionadas): o papel avisa para programar só o que falta. */
   jaProgramado: string | null;
+  /** O que o colaborador pediu para este período, para a conversa partir daí; null quando ainda não pediu. */
+  pedido: string | null;
 };
 
 export type LinhaContabilidade = {
@@ -67,6 +70,7 @@ export function folhasDeConversa(lista: ListaFerias): Array<FolhaEmpresa<LinhaCo
         urgente: periodo.nivel !== "ok",
         diasAProgramar: periodo.diasPendentes,
         jaProgramado: periodo.programacoes.length ? periodo.programacoes.map(resumoCurto).join("; ") : null,
+        pedido: periodo.solicitacao ? resumoDoPedido(periodo.solicitacao) : null,
       },
     })));
 }
