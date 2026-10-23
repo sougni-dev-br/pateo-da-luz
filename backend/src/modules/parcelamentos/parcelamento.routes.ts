@@ -67,7 +67,8 @@ parcelamentoRouter.post("/", async (request, response) => {
       primeiroVencimento: texto(body.primeiroVencimento) || undefined,
       informadas: informadas(body.parcelas),
       paymentMethodId: texto(body.paymentMethodId) || null,
-      notes: texto(body.notes) || null
+      notes: texto(body.notes) || null,
+      excludeFromDre: body.foraDoDre === true || body.foraDoDre === "true"
     }, user.id);
     response.status(201).json(await detalharParcelamento(resultado.planId));
   } catch (error) {

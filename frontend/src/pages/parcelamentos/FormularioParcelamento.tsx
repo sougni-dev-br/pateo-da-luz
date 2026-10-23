@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Company, getCompanies, getPaymentMethods, getProducts, getSuppliers, PaymentMethod, Product, Supplier } from "../../api/client";
-import { Alert, Button, FormGrid, Select, TextField, Textarea } from "../../design-system";
+import { Alert, Button, FormGrid, Select, Switch, TextField, Textarea } from "../../design-system";
 import { Money } from "../../design-system";
 import { hojeLocalIso } from "../../lib/datas";
 import { gerarParcelas, motivoProdutoInvalido, ParcelaEditavel, somaEmCentavos, valorDoCampo } from "./regras";
@@ -12,6 +12,7 @@ export type DadosDoFormulario = {
   description: string;
   paymentMethodId: string;
   notes: string;
+  foraDoDre: boolean;
   motivo: string;
   total: number;
   quantidade: number;
@@ -46,6 +47,7 @@ export function FormularioParcelamento({ modo, saldo, busy, erro, onVoltar, onEn
   const [description, setDescription] = useState("");
   const [paymentMethodId, setPaymentMethodId] = useState("");
   const [notes, setNotes] = useState("");
+  const [foraDoDre, setForaDoDre] = useState(false);
   const [motivo, setMotivo] = useState("");
   const [total, setTotal] = useState(saldo !== undefined ? paraTela(saldo) : "");
   const [quantidade, setQuantidade] = useState("");
@@ -88,7 +90,7 @@ export function FormularioParcelamento({ modo, saldo, busy, erro, onVoltar, onEn
 
   function enviar() {
     onEnviar({
-      supplierId, companyId, productId, description: description.trim(), paymentMethodId, notes: notes.trim(), motivo: motivo.trim(),
+      supplierId, companyId, productId, description: description.trim(), paymentMethodId, notes: notes.trim(), foraDoDre, motivo: motivo.trim(),
       total: totalNumero ?? 0, quantidade: quantidadeNumero, primeiroVencimento,
       parcelas: parcelas.map((p) => ({ valor: valorDoCampo(p.valor) ?? 0, vencimento: p.vencimento }))
     });
@@ -135,6 +137,15 @@ export function FormularioParcelamento({ modo, saldo, busy, erro, onVoltar, onEn
       )}
 
       {modo === "renegociar" && <TextField label="Motivo da renegociação" required minLength={3} maxLength={300} value={motivo} onChange={(e) => setMotivo(e.target.value)} />}
+      {modo === "novo" && (
+        <div className="parcelamentos-fora-dre">
+          <Switch label="Fora do DRE" checked={foraDoDre} onChange={setForaDoDre} />
+          <span>
+            <strong>Fora do DRE</strong>
+            <small className="parcelamentos-nota"> Use quando a despesa dos meses originais já foi lançada. As parcelas aparecem no Contas a Pagar e no caixa, mas não somam de novo no DRE.</small>
+          </span>
+        </div>
+      )}
       {modo === "novo" && <Textarea label="Observações" rows={2} maxLength={500} value={notes} onChange={(e) => setNotes(e.target.value)} />}
 
       <div className="parcelamentos-rodape">

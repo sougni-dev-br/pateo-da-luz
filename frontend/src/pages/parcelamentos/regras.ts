@@ -73,3 +73,23 @@ export function motivoProdutoInvalido(p: ProdutoParaParcelamento): string | null
   if (p.dreCategory?.dreGroup === "CMV_COMPRAS") return "categoria de CMV";
   return null;
 }
+
+const DIA_MS = 24 * 60 * 60 * 1000;
+
+/** Ids das parcelas em aberto que vencem até `dias` dias de hoje (vencidas incluídas): o que costuma ser pago agora. */
+export function parcelasSugeridas(parcelas: Array<{ installmentId: string | null; dueDate: string | null }>, hojeIso: string, dias = 30): string[] {
+  const limite = Date.parse(`${hojeIso}T00:00:00Z`) + dias * DIA_MS;
+  return parcelas.flatMap((p) => {
+    if (!p.installmentId || !p.dueDate) return [];
+    return Date.parse(`${p.dueDate.slice(0, 10)}T00:00:00Z`) <= limite ? [p.installmentId] : [];
+  });
+}
+
+/** Reparte juros/multa entre as parcelas em centavos (resto na última). Null se for negativo. */
+export function repartirAcrescimo(quantidade: number, acrescimo: number): number[] | null {
+  const cent = Math.round(acrescimo * 100);
+  if (quantidade <= 0 || cent < 0) return null;
+  const base = Math.floor(cent / quantidade);
+  const resto = cent - base * quantidade;
+  return Array.from({ length: quantidade }, (_, i) => emReais(base + (i === quantidade - 1 ? resto : 0)));
+}

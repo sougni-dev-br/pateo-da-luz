@@ -8,6 +8,7 @@ CREATE TABLE "InstallmentPlan" (
     "totalAmount" DECIMAL(12,2) NOT NULL,
     "installmentCount" INTEGER NOT NULL,
     "status" TEXT NOT NULL DEFAULT 'ACTIVE',
+    "excludeFromDre" BOOLEAN NOT NULL DEFAULT false,
     "renegotiatedFromId" TEXT,
     "notes" TEXT,
     "createdByUserId" TEXT,

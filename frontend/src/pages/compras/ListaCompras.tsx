@@ -1,4 +1,4 @@
-import { Copy, Eye, Package, Pencil, Plus, Trash2 } from "lucide-react";
+import { Copy, Eye, Layers, Package, Pencil, Plus, Trash2 } from "lucide-react";
 import type { ReactNode } from "react";
 import type { Purchase } from "../../api/client";
 import {
@@ -24,6 +24,8 @@ export type AcoesLista = {
   onCopiar: (compra: Purchase) => void;
   onCancelar: (compra: Purchase) => void;
   onRestaurar: (compra: Purchase) => void;
+  /** Abre a tela Parcelamentos (parcela de acordo não se edita nem cancela como compra comum). */
+  onAbrirParcelamento: () => void;
   onNova: () => void;
 };
 
@@ -93,11 +95,13 @@ function Vazio({ acoes }: { acoes: AcoesLista }) {
 }
 
 function MenuMais({ compra, acoes }: { compra: Purchase; acoes: AcoesLista }): ReactNode {
+  const doParcelamento = Boolean(compra.installmentPlanId);
   const itens = [
+    ...(doParcelamento ? [{ label: "Abrir em Parcelamentos", icon: <Layers size={15} />, onClick: acoes.onAbrirParcelamento }] : []),
     ...(acoes.podeCriar
       ? [{ label: "Copiar para nova compra", icon: <Copy size={15} />, onClick: () => acoes.onCopiar(compra) }]
       : []),
-    ...(acoes.podeCancelar
+    ...(acoes.podeCancelar && !doParcelamento
       ? [
           { separator: true as const },
           compra.status === "CANCELLED"
@@ -163,7 +167,7 @@ function TabelaDesktop({ linhas, acoes }: { linhas: LinhaCompra[]; acoes: AcoesL
                 <Table.Td align="right" style={{ whiteSpace: "nowrap" }}><Money value={Number(compra.totalAmount ?? 0)} /></Table.Td>
                 <Table.Td actions onClick={(e) => e.stopPropagation()}>
                   <IconButton icon={<Eye size={16} />} label="Ver compra" onClick={() => acoes.onVer(compra)} />
-                  {acoes.podeEditar && !cancelada && <IconButton icon={<Pencil size={16} />} label="Editar" onClick={() => acoes.onEditar(compra)} />}
+                  {acoes.podeEditar && !cancelada && !compra.installmentPlanId && <IconButton icon={<Pencil size={16} />} label="Editar" onClick={() => acoes.onEditar(compra)} />}
                   <MenuMais compra={compra} acoes={acoes} />
                 </Table.Td>
               </Table.Row>
@@ -218,9 +222,9 @@ function CartoesMobile({ linhas, acoes }: { linhas: LinhaCompra[]; acoes: AcoesL
             <div className="purch-mobile-card-footer">
               <div className="purch-mobile-actions">
                 <button className="purch-mobile-btn" type="button" onClick={() => acoes.onVer(compra)}><Eye size={15} /> Ver</button>
-                {acoes.podeEditar && !cancelada && <button className="purch-mobile-btn" type="button" onClick={() => acoes.onEditar(compra)}><Pencil size={15} /> Editar</button>}
+                {acoes.podeEditar && !cancelada && !compra.installmentPlanId && <button className="purch-mobile-btn" type="button" onClick={() => acoes.onEditar(compra)}><Pencil size={15} /> Editar</button>}
                 {acoes.podeCriar && <button className="purch-mobile-btn purch-mobile-btn-ghost" type="button" title="Copiar" onClick={() => acoes.onCopiar(compra)}><Copy size={14} /></button>}
-                {acoes.podeCancelar && (
+                {acoes.podeCancelar && !compra.installmentPlanId && (
                   cancelada
                     ? <button className="purch-mobile-btn purch-mobile-btn-ghost" type="button" onClick={() => acoes.onRestaurar(compra)}>Restaurar</button>
                     : <button className="purch-mobile-btn purch-mobile-btn-danger" type="button" title="Cancelar" onClick={() => acoes.onCancelar(compra)}><Trash2 size={14} /></button>

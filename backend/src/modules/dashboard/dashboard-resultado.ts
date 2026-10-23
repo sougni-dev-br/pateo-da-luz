@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 import { custoExtrasSql } from "../payroll/extras-custo.js";
 import { excludeAggregatorsSql } from "../purchases/purchase-aggregators.js";
+import { semParcelamentoForaDoDreSql } from "../parcelamentos/parcelamento-dre.js";
 
 // Grupos do DRE que o Resultado completo mostra em linha própria. Compra
 // lançada com produto desses grupos (a nota do condomínio, por exemplo) já está
@@ -107,6 +108,7 @@ export async function calcularResultadoCompleto(
         AND p.status = 'ACTIVE'
         AND (p."isSmallExpense" = false OR p."isSmallExpense" IS NULL)
         AND ${excludeAggregatorsSql("p")}
+        AND ${semParcelamentoForaDoDreSql("p")}
         AND dc."dreGroup" IN (${Prisma.join([...GRUPOS_PESSOAL, GRUPO_IMPOSTOS, ...GRUPOS_OCUPACAO])})
       GROUP BY dc."dreGroup"
     `,

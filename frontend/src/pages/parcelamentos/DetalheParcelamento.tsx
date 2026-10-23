@@ -15,7 +15,7 @@ import { Alert, Button, Money, Select, StatusBadge, Table, TextField } from "../
 import { hojeLocalIso } from "../../lib/datas";
 import { formatDate } from "../../utils/format";
 import { DadosDoFormulario, FormularioParcelamento } from "./FormularioParcelamento";
-import { repartirDesconto, valorDoCampo } from "./regras";
+import { parcelasSugeridas, repartirAcrescimo, repartirDesconto, valorDoCampo } from "./regras";
 
 type Props = {
   planId: string;
@@ -42,6 +42,7 @@ export function DetalheParcelamento({ planId, podeBaixar, podeAlterar, onAlterou
   const [escolhidas, setEscolhidas] = useState<Set<string>>(new Set());
   const [dataPagamento, setDataPagamento] = useState(hojeLocalIso());
   const [desconto, setDesconto] = useState("");
+  const [acrescimo, setAcrescimo] = useState("");
   const [motivoDesconto, setMotivoDesconto] = useState("");
   const [formas, setFormas] = useState<PaymentMethod[]>([]);
   const [formaPagamentoId, setFormaPagamentoId] = useState("");
@@ -61,8 +62,9 @@ export function DetalheParcelamento({ planId, podeBaixar, podeAlterar, onAlterou
   function abrirQuitar() {
     setErro(null);
     if (formas.length === 0) getPaymentMethods().then(setFormas).catch(() => setErro("Não foi possível carregar as formas de pagamento."));
-    setEscolhidas(new Set(abertas.flatMap((p) => (p.installmentId ? [p.installmentId] : []))));
+    setEscolhidas(new Set(parcelasSugeridas(abertas, hojeLocalIso())));
     setDesconto("");
+    setAcrescimo("");
     setMotivoDesconto("");
     setEtapa({ tipo: "quitar" });
   }
@@ -77,9 +79,18 @@ export function DetalheParcelamento({ planId, podeBaixar, podeAlterar, onAlterou
 
   const selecionadas: InstallmentPlanInstallment[] = abertas.filter((p) => p.installmentId && escolhidas.has(p.installmentId));
   const descontoNumero = desconto.trim() ? valorDoCampo(desconto) : 0;
-  const partes = descontoNumero === null ? null : repartirDesconto(selecionadas.map((p) => p.amount), descontoNumero);
-  const totalAPagar = selecionadas.reduce((s, p) => s + p.amount, 0) - (descontoNumero ?? 0);
-  const quitarOk = selecionadas.length > 0 && partes !== null && Boolean(dataPagamento) && Boolean(formaPagamentoId) && ((descontoNumero ?? 0) === 0 || motivoDesconto.trim().length >= 3);
+  const acrescimoNumero = acrescimo.trim() ? valorDoCampo(acrescimo) : 0;
+  const ajusteInvalido = descontoNumero === null || acrescimoNumero === null;
+  const descontoEAcrescimo = (descontoNumero ?? 0) > 0 && (acrescimoNumero ?? 0) > 0;
+  const partesDesconto = descontoNumero === null ? null : repartirDesconto(selecionadas.map((p) => p.amount), descontoNumero);
+  const partesAcrescimo = acrescimoNumero === null ? null : repartirAcrescimo(selecionadas.length, acrescimoNumero);
+  // Valor a pagar de cada parcela marcada: desconto tira, juros/multa soma. Só um dos dois por vez.
+  const partes = partesDesconto && partesAcrescimo && !descontoEAcrescimo
+    ? partesAcrescimo.map((mais, i) => Math.round((mais - partesDesconto[i]) * 100) / 100)
+    : null;
+  const temAjuste = (descontoNumero ?? 0) > 0 || (acrescimoNumero ?? 0) > 0;
+  const totalAPagar = selecionadas.reduce((s, p) => s + p.amount, 0) - (descontoNumero ?? 0) + (acrescimoNumero ?? 0);
+  const quitarOk = selecionadas.length > 0 && partes !== null && Boolean(dataPagamento) && Boolean(formaPagamentoId) && (!temAjuste || motivoDesconto.trim().length >= 3);
 
   // Cada baixa passa pela mesma rota do Contas a Pagar (trava de período, data futura, valor): se uma falhar, as já feitas ficam e a tela diz quantas.
   async function quitar() {
@@ -90,14 +101,14 @@ export function DetalheParcelamento({ planId, podeBaixar, podeAlterar, onAlterou
     try {
       for (let i = 0; i < selecionadas.length; i += 1) {
         const p = selecionadas[i];
-        const valorPago = Math.round((p.amount - partes[i]) * 100) / 100;
+        const valorPago = Math.round((p.amount + partes[i]) * 100) / 100;
         await payInstallment(p.installmentId as string, {
           paidDate: dataPagamento,
           paidAmount: valorPago,
           paidPaymentMethodId: formaPagamentoId,
           paidPaymentMethodName: formas.find((m) => m.id === formaPagamentoId)?.name ?? null,
           payingCompanyId: plano?.companyId ?? null,
-          differenceReason: partes[i] > 0 ? motivoDesconto.trim() : null,
+          differenceReason: partes[i] !== 0 ? motivoDesconto.trim() : null,
           paymentNotes: `Quitação do parcelamento: ${plano?.description ?? ""}`.slice(0, 200)
         });
         feitas += 1;
@@ -163,7 +174,14 @@ export function DetalheParcelamento({ planId, podeBaixar, podeAlterar, onAlterou
     return (
       <form onSubmit={(e) => { e.preventDefault(); if (quitarOk) void quitar(); }}>
         {erro && <Alert tone="error">{erro}</Alert>}
-        <p className="parcelamentos-conferencia">Marque as parcelas que serão baixadas agora. Cada uma é baixada como no Contas a Pagar.</p>
+        <p className="parcelamentos-conferencia">
+          Já marquei as vencidas e as que vencem em até 30 dias. Ajuste como precisar: cada parcela é baixada como no Contas a Pagar.
+        </p>
+        <div className="parcelamentos-atalhos">
+          <Button size="sm" variant="secondary" onClick={() => setEscolhidas(new Set(abertas.flatMap((p) => (p.installmentId ? [p.installmentId] : []))))}>Marcar todas</Button>
+          <Button size="sm" variant="secondary" onClick={() => setEscolhidas(new Set(parcelasSugeridas(abertas, hojeLocalIso())))}>Só vencidas e próximas</Button>
+          <Button size="sm" variant="secondary" onClick={() => setEscolhidas(new Set())}>Desmarcar</Button>
+        </div>
         <div className="parcelamentos-grade">
           {abertas.map((p) => (
             <label key={p.purchaseId}>
@@ -172,14 +190,16 @@ export function DetalheParcelamento({ planId, podeBaixar, podeAlterar, onAlterou
             </label>
           ))}
         </div>
-        <div className="parcelamentos-grade-linha" style={{ gridTemplateColumns: "1fr 1fr" }}>
+        <div className="parcelamentos-grade-linha" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
           <TextField label="Data do pagamento" type="date" required max={hojeLocalIso()} value={dataPagamento} onChange={(e) => setDataPagamento(e.target.value)} />
           <TextField label="Desconto total (R$)" inputMode="decimal" placeholder="0,00" hint="Dividido entre as parcelas marcadas" value={desconto} onChange={(e) => setDesconto(e.target.value)} />
+          <TextField label="Juros e multa total (R$)" inputMode="decimal" placeholder="0,00" hint="Atraso: entra na baixa, não no acordo" value={acrescimo} onChange={(e) => setAcrescimo(e.target.value)} />
         </div>
         <Select label="Forma de pagamento" required value={formaPagamentoId} onChange={(e) => setFormaPagamentoId(e.target.value)} placeholder="Escolha" options={formas.map((m) => ({ value: m.id, label: m.name }))} />
-        {(descontoNumero ?? 0) > 0 && <TextField label="Motivo do desconto" required minLength={3} maxLength={200} value={motivoDesconto} onChange={(e) => setMotivoDesconto(e.target.value)} />}
-        {descontoNumero === null && <Alert tone="error">Desconto inválido.</Alert>}
-        {descontoNumero !== null && partes === null && selecionadas.length > 0 && <Alert tone="error">O desconto não pode zerar uma parcela.</Alert>}
+        {temAjuste && <TextField label="Motivo do desconto ou dos juros" required minLength={3} maxLength={200} value={motivoDesconto} onChange={(e) => setMotivoDesconto(e.target.value)} />}
+        {ajusteInvalido && <Alert tone="error">Valor de desconto ou juros inválido.</Alert>}
+        {descontoEAcrescimo && <Alert tone="error">Informe só desconto ou só juros e multa.</Alert>}
+        {!ajusteInvalido && !descontoEAcrescimo && partes === null && selecionadas.length > 0 && <Alert tone="error">O desconto não pode zerar uma parcela.</Alert>}
         <p className="parcelamentos-conferencia">Total a pagar: <strong><Money value={Math.max(0, totalAPagar)} /></strong></p>
         <div className="parcelamentos-rodape">
           <Button variant="secondary" disabled={busy} onClick={() => setEtapa({ tipo: "detalhe" })}>Voltar</Button>
@@ -212,6 +232,7 @@ export function DetalheParcelamento({ planId, podeBaixar, podeAlterar, onAlterou
         {plano.supplierName} · total <strong><Money value={plano.totalAmount} /></strong> · {r.pagas} de {r.total} pagas
         {r.abertas > 0 && <> · faltam <strong>{r.abertas}</strong> (<Money value={r.saldoAberto} />)</>}
         {r.atrasadas > 0 && <> · <strong>{r.atrasadas} em atraso</strong></>}
+        {plano.excludeFromDre && <> · <strong>fora do DRE</strong></>}
       </p>
       <Table>
         <Table.Head>

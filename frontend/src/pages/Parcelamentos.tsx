@@ -74,7 +74,7 @@ export function Parcelamentos() {
       const criado = await createInstallmentPlan({
         supplierId: d.supplierId, companyId: d.companyId, productId: d.productId, description: d.description,
         total: d.total, quantidade: d.quantidade, parcelas: d.parcelas,
-        paymentMethodId: d.paymentMethodId || null, notes: d.notes || null
+        paymentMethodId: d.paymentMethodId || null, notes: d.notes || null, foraDoDre: d.foraDoDre
       });
       setNotice({ tone: "success", message: `Parcelamento criado com ${criado.installmentCount} parcelas no Contas a Pagar.` });
       setNovo(false);
@@ -138,7 +138,7 @@ export function Parcelamentos() {
               <Table.Body>
                 {itens.map((p) => (
                   <Table.Row key={p.id}>
-                    <Table.Td>{p.description}</Table.Td>
+                    <Table.Td>{p.description}{p.excludeFromDre && <small className="parcelamentos-nota"> Fora do DRE</small>}</Table.Td>
                     <Table.Td>{p.supplierName}</Table.Td>
                     <Table.Td align="right"><Money value={p.totalAmount} /></Table.Td>
                     <Table.Td><Progresso plano={p} /></Table.Td>
@@ -157,7 +157,7 @@ export function Parcelamentos() {
               <article className="purch-mobile-card" key={`${p.id}-mobile`}>
                 <div className="purch-mobile-card-header">
                   <div className="purch-mobile-card-title">
-                    <strong className="purch-mobile-supplier">{p.description}</strong>
+                    <strong className="purch-mobile-supplier">{p.description}{p.excludeFromDre && <small className="parcelamentos-nota"> · Fora do DRE</small>}</strong>
                     <div className="purch-mobile-meta-row"><span className="purch-mobile-date">{p.supplierName}</span></div>
                   </div>
                   <div className="purch-mobile-card-right"><strong className="purch-mobile-amount"><Money value={p.resumo.saldoAberto} /></strong></div>

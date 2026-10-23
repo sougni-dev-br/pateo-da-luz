@@ -29,6 +29,8 @@ export type NovoParcelamento = {
   informadas?: ParcelaInformada[];
   paymentMethodId?: string | null;
   notes?: string | null;
+  /** Despesa já lançada nos meses de origem: o título vale no Contas a Pagar e no caixa, mas não no DRE. */
+  excludeFromDre?: boolean;
 };
 
 type Db = Prisma.TransactionClient;
@@ -115,6 +117,7 @@ async function gravarPlano(tx: Db, e: NovoParcelamento, parcelas: ParcelaCalcula
       totalAmount: new Prisma.Decimal(total),
       installmentCount: parcelas.length,
       renegotiatedFromId,
+      excludeFromDre: e.excludeFromDre === true,
       notes: e.notes?.trim() || null,
       createdByUserId: userId
     }
@@ -249,6 +252,7 @@ export async function listarParcelamentos(hoje = new Date()) {
     description: plano.description,
     supplierName: plano.supplier.name,
     status: plano.status,
+    excludeFromDre: plano.excludeFromDre,
     totalAmount: Number(plano.totalAmount),
     installmentCount: plano.installmentCount,
     createdAt: plano.createdAt,
@@ -268,6 +272,7 @@ export async function detalharParcelamento(planId: string, hoje = new Date()) {
     companyId: plano.companyId,
     productId: plano.productId,
     status: plano.status,
+    excludeFromDre: plano.excludeFromDre,
     totalAmount: Number(plano.totalAmount),
     installmentCount: plano.installmentCount,
     renegotiatedFromId: plano.renegotiatedFromId,
@@ -335,6 +340,7 @@ export async function renegociarParcelamento(planId: string, r: Renegociacao, us
   });
   const entrada: NovoParcelamento = {
     paymentMethodId: comForma?.paymentMethodId ?? null,
+    excludeFromDre: plano.excludeFromDre,
     supplierId: plano.supplierId,
     companyId: plano.companyId,
     productId: plano.productId,

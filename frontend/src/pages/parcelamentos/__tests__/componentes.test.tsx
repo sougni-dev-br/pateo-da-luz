@@ -28,15 +28,17 @@ import { FormularioParcelamento } from "../FormularioParcelamento";
 
 const tela = (ui: React.ReactElement) => render(<HideValuesProvider><MemoryRouter>{ui}</MemoryRouter></HideValuesProvider>);
 
+const emDias = (dias: number) => new Date(Date.now() + dias * 86_400_000).toISOString().slice(0, 10);
+
 const resumo = { total: 3, pagas: 1, abertas: 2, atrasadas: 1, canceladas: 0, valorPago: 100, saldoAberto: 200, proximoVencimento: "2026-11-10", quitado: false };
 
 const plano = (over: Partial<InstallmentPlanDetail> = {}): InstallmentPlanDetail => ({
   id: "pl1", description: "Acordo fictício", supplierId: "s1", supplierName: "Fornecedor Fictício", companyId: "c1", productId: "p1",
-  status: "ACTIVE", totalAmount: 300, installmentCount: 3, renegotiatedFromId: null, notes: null, resumo,
+  status: "ACTIVE", excludeFromDre: false, totalAmount: 300, installmentCount: 3, renegotiatedFromId: null, notes: null, resumo,
   parcelas: [
     { purchaseId: "a", installmentId: "i1", numero: 1, amount: 100, paidAmount: 100, dueDate: "2026-10-10", paidDate: "2026-10-09", situacao: "PAGA" },
-    { purchaseId: "b", installmentId: "i2", numero: 2, amount: 100, paidAmount: null, dueDate: "2026-11-10", paidDate: null, situacao: "ABERTA" },
-    { purchaseId: "c", installmentId: "i3", numero: 3, amount: 100, paidAmount: null, dueDate: "2026-12-10", paidDate: null, situacao: "ABERTA" }
+    { purchaseId: "b", installmentId: "i2", numero: 2, amount: 100, paidAmount: null, dueDate: emDias(10), paidDate: null, situacao: "ABERTA" },
+    { purchaseId: "c", installmentId: "i3", numero: 3, amount: 100, paidAmount: null, dueDate: emDias(90), paidDate: null, situacao: "ABERTA" }
   ],
   ...over
 });
@@ -52,7 +54,7 @@ beforeEach(() => {
 
 describe("Parcelamentos (lista)", () => {
   test("mostra andamento, saldo e atraso do parcelamento", async () => {
-    api.getInstallmentPlans.mockResolvedValue([{ id: "pl1", description: "Acordo fictício", supplierName: "Fornecedor Fictício", status: "ACTIVE", totalAmount: 300, installmentCount: 3, createdAt: "2026-10-01", resumo }]);
+    api.getInstallmentPlans.mockResolvedValue([{ id: "pl1", description: "Acordo fictício", supplierName: "Fornecedor Fictício", status: "ACTIVE", excludeFromDre: false, totalAmount: 300, installmentCount: 3, createdAt: "2026-10-01", resumo }]);
     tela(<Parcelamentos />);
     expect((await screen.findAllByText("Acordo fictício")).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/1 de 3 pagas · faltam 2 · 1 em atraso/).length).toBeGreaterThan(0);
@@ -117,6 +119,7 @@ describe("DetalheParcelamento", () => {
     api.payInstallment.mockResolvedValue({ id: "i2", status: "PAID" });
     abrir();
     fireEvent.click(await screen.findByRole("button", { name: /Quitar/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Marcar todas" }));
     const baixar = await screen.findByRole("button", { name: /Baixar 2 parcelas/ });
     expect(baixar).toBeDisabled();
     fireEvent.change(screen.getByLabelText("Forma de pagamento"), { target: { value: "m1" } });
@@ -131,11 +134,12 @@ describe("DetalheParcelamento", () => {
     api.payInstallment.mockResolvedValue({ id: "x", status: "PAID" });
     abrir();
     fireEvent.click(await screen.findByRole("button", { name: /Quitar/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Marcar todas" }));
     fireEvent.change(await screen.findByLabelText("Forma de pagamento"), { target: { value: "m1" } });
     fireEvent.change(screen.getByLabelText(/Desconto total/), { target: { value: "10,00" } });
     const baixar = screen.getByRole("button", { name: /Baixar 2 parcelas/ });
     expect(baixar).toBeDisabled();
-    fireEvent.change(await screen.findByLabelText("Motivo do desconto"), { target: { value: "antecipação" } });
+    fireEvent.change(await screen.findByLabelText(/Motivo do desconto/), { target: { value: "antecipação" } });
     await waitFor(() => expect(baixar).toBeEnabled());
     fireEvent.click(baixar);
     await waitFor(() => expect(api.payInstallment).toHaveBeenCalledTimes(2));
@@ -143,13 +147,56 @@ describe("DetalheParcelamento", () => {
     expect(api.payInstallment.mock.calls[0][1].differenceReason).toBe("antecipação");
   });
 
+  test("juros e multa entram na baixa de cada parcela marcada, com motivo", async () => {
+    api.payInstallment.mockResolvedValue({ id: "x", status: "PAID_LATE" });
+    abrir();
+    fireEvent.click(await screen.findByRole("button", { name: /Quitar/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Marcar todas" }));
+    fireEvent.change(await screen.findByLabelText("Forma de pagamento"), { target: { value: "m1" } });
+    fireEvent.change(screen.getByLabelText(/Juros e multa total/), { target: { value: "20,00" } });
+    const baixar = screen.getByRole("button", { name: /Baixar 2 parcelas/ });
+    expect(baixar).toBeDisabled();
+    fireEvent.change(await screen.findByLabelText(/Motivo do desconto ou dos juros/), { target: { value: "atraso" } });
+    await waitFor(() => expect(baixar).toBeEnabled());
+    fireEvent.click(baixar);
+    await waitFor(() => expect(api.payInstallment).toHaveBeenCalledTimes(2));
+    expect(api.payInstallment.mock.calls.map((c) => c[1].paidAmount)).toEqual([110, 110]);
+    expect(api.payInstallment.mock.calls[0][1].differenceReason).toBe("atraso");
+  });
+
+  test("desconto e juros ao mesmo tempo é recusado", async () => {
+    abrir();
+    fireEvent.click(await screen.findByRole("button", { name: /Quitar/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Marcar todas" }));
+    fireEvent.change(await screen.findByLabelText("Forma de pagamento"), { target: { value: "m1" } });
+    fireEvent.change(screen.getByLabelText(/Desconto total/), { target: { value: "5,00" } });
+    fireEvent.change(screen.getByLabelText(/Juros e multa total/), { target: { value: "5,00" } });
+    expect(await screen.findByText(/só desconto ou só juros e multa/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Baixar 2 parcelas/ })).toBeDisabled();
+  });
+
   test("falha numa baixa para e diz quantas já foram feitas", async () => {
     api.payInstallment.mockResolvedValueOnce({ id: "i2", status: "PAID" }).mockRejectedValueOnce(new Error("Periodo fechado"));
     abrir();
     fireEvent.click(await screen.findByRole("button", { name: /Quitar/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Marcar todas" }));
     fireEvent.change(await screen.findByLabelText("Forma de pagamento"), { target: { value: "m1" } });
     fireEvent.click(await screen.findByRole("button", { name: /Baixar 2 parcelas/ }));
     expect(await screen.findByText(/1 de 2 parcelas já foram baixadas/)).toBeInTheDocument();
+  });
+
+  test("ao abrir a quitação já vêm marcadas só as vencidas e as dos próximos 30 dias", async () => {
+    abrir();
+    fireEvent.click(await screen.findByRole("button", { name: /Quitar/ }));
+    expect(await screen.findByRole("button", { name: /Baixar 1 parcela/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Marcar todas" }));
+    expect(await screen.findByRole("button", { name: /Baixar 2 parcelas/ })).toBeInTheDocument();
+  });
+
+  test("plano marcado fora do DRE mostra o aviso no detalhe", async () => {
+    api.getInstallmentPlan.mockResolvedValue(plano({ excludeFromDre: true }));
+    abrir();
+    expect(await screen.findByText("fora do DRE")).toBeInTheDocument();
   });
 
   test("plano renegociado não oferece ações de alteração", async () => {

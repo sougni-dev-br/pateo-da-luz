@@ -538,6 +538,7 @@
 .pg-selo--fatura { background: var(--tint-info); color: var(--info); }
 .pg-selo--legado { background: var(--paper-soft); color: var(--ink-soft); }
 .pg-selo--ciclo { background: var(--tint-success); color: var(--success); }
+.pg-selo--parcelamento { background: var(--tint-info, var(--paper-soft)); color: var(--info, var(--ink-soft)); }
 
 .pg-c-status { min-width: 0; }
 

@@ -150,7 +150,7 @@ function Linha({ titulo: p, grupo, hoje, ...acoes }: Acoes & { titulo: Payable; 
       <div className="pg-c-quem">
         <strong className="pg-nome">{nome}</strong>
         <div className="pg-sub">
-          {selo && <span className={`pg-selo pg-selo--${selo.tom}`}>{selo.rotulo}</span>}
+          {selo && <span className={`pg-selo pg-selo--${selo.tom}`} title={selo.dica}>{selo.rotulo}</span>}
           {detalhes.length > 0 && <span className="pg-sub-texto">{detalhes.join(" · ")}</span>}
         </div>
         {mostrarNota && <p className="pg-obs" title={nota}>{nota}</p>}

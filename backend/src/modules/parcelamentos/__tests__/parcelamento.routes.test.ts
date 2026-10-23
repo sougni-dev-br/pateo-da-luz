@@ -49,12 +49,12 @@ test("devolve 404 do serviço", async () => {
 test("criar converte o corpo e devolve 201 com o detalhe", async () => {
   const r = await request(app).post("/installment-plans").send({
     supplierId: " s1 ", companyId: "c1", productId: "p1", description: " Acordo ", total: "300", quantidade: "3",
-    primeiroVencimento: "2026-11-10", parcelas: [{ valor: "100", vencimento: "2026-11-10" }], paymentMethodId: "", notes: ""
+    primeiroVencimento: "2026-11-10", parcelas: [{ valor: "100", vencimento: "2026-11-10" }], paymentMethodId: "", notes: "", foraDoDre: true
   });
   expect(r.status).toBe(201);
   expect(servico.criarParcelamento).toHaveBeenCalledWith({
     supplierId: "s1", companyId: "c1", productId: "p1", description: "Acordo", total: 300, quantidade: 3,
-    primeiroVencimento: "2026-11-10", informadas: [{ valor: 100, vencimento: "2026-11-10" }], paymentMethodId: null, notes: null
+    primeiroVencimento: "2026-11-10", informadas: [{ valor: 100, vencimento: "2026-11-10" }], paymentMethodId: null, notes: null, excludeFromDre: true
   }, "u1");
 });
 

@@ -1148,6 +1148,9 @@ export type Purchase = {
   supplierId: string;
   purchaseNumber?: string | null;
   purchaseOrderNumber?: string | null;
+  /** Parcela de um parcelamento em lote: não se edita nem cancela aqui, só dentro do parcelamento. */
+  installmentPlanId?: string | null;
+  planInstallmentNumber?: number | null;
   workflowStatus?: string | null;
   cycleStatus?: string | null;
   purchaseDate: string;
@@ -1352,6 +1355,10 @@ export type Payable = {
   paidPaymentMethodId?: string | null;
   paidPaymentMethodName?: string | null;
   paymentNotes?: string | null;
+  /** Parcela de um parcelamento em lote (rótulo "Parcelamento 2/12"). */
+  planDescription?: string | null;
+  planInstallmentNumber?: number | null;
+  planInstallmentCount?: number | null;
   sourceType?: "DIRECT" | "CARD_STATEMENT" | "LEGACY_CREDIT_CARD" | "SUPPLIER_CYCLE" | "TAX_PAYMENT" | "PAYROLL" | "EXTRA" | string | null;
   status: "OPEN" | "PAID" | "PAID_LATE" | "OVERDUE" | "CANCELLED" | string;
   rawValue: string | null;
@@ -10142,6 +10149,8 @@ export type InstallmentPlanSummary = {
 
 export type InstallmentPlanListItem = {
   id: string;
+  /** Despesa já lançada nos meses de origem: vale no Contas a Pagar e no caixa, mas não no DRE. */
+  excludeFromDre: boolean;
   description: string;
   supplierName: string;
   status: "ACTIVE" | "RENEGOTIATED" | "CANCELLED";
@@ -10185,6 +10194,7 @@ export type InstallmentPlanInput = {
   parcelas?: InstallmentPlanParcelaInput[];
   paymentMethodId?: string | null;
   notes?: string | null;
+  foraDoDre?: boolean;
 };
 
 const PLAN_JSON = { "Content-Type": "application/json" };

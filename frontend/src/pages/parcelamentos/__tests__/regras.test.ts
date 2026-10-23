@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { gerarParcelas, motivoProdutoInvalido, repartirDesconto, somaEmCentavos, valorDoCampo } from "../regras";
+import { gerarParcelas, motivoProdutoInvalido, parcelasSugeridas, repartirAcrescimo, repartirDesconto, somaEmCentavos, valorDoCampo } from "../regras";
 
 // Valores e datas fictícios.
 
@@ -60,5 +60,30 @@ describe("motivoProdutoInvalido", () => {
     expect(motivoProdutoInvalido({ ...ok, dreCategory: { dreGroup: "CMV_COMPRAS" } })).toMatch(/CMV/);
     expect(motivoProdutoInvalido({ ...ok, dreCategoryId: null })).toMatch(/categoria/);
     expect(motivoProdutoInvalido({ ...ok, isActive: false })).toMatch(/inativo/);
+  });
+});
+
+describe("parcelasSugeridas", () => {
+  const parcelas = [
+    { installmentId: "a", dueDate: "2026-09-10" },
+    { installmentId: "b", dueDate: "2026-11-20" },
+    { installmentId: "c", dueDate: "2026-12-10" },
+    { installmentId: null, dueDate: "2026-10-25" }
+  ];
+  it("sugere as vencidas e as que vencem em até 30 dias", () => {
+    expect(parcelasSugeridas(parcelas, "2026-10-23")).toEqual(["a", "b"]);
+  });
+  it("com mais dias inclui as seguintes", () => {
+    expect(parcelasSugeridas(parcelas, "2026-10-23", 60)).toEqual(["a", "b", "c"]);
+  });
+});
+
+describe("repartirAcrescimo", () => {
+  it("reparte em centavos e a soma fecha", () => {
+    expect(repartirAcrescimo(3, 10)).toEqual([3.33, 3.33, 3.34]);
+  });
+  it("recusa valor negativo ou sem parcelas", () => {
+    expect(repartirAcrescimo(2, -1)).toBeNull();
+    expect(repartirAcrescimo(0, 5)).toBeNull();
   });
 });

@@ -55,6 +55,24 @@ test("cria o plano e uma compra com item e parcela para cada vencimento", async 
   expect(tx.purchase.create.mock.calls[0][0].data.installmentPlanId).toBe("pl1");
 });
 
+test("grava a marca de fora do DRE e a renegociação a herda", async () => {
+  await criarParcelamento({ ...entrada, excludeFromDre: true }, "u1");
+  expect(tx.installmentPlan.create.mock.calls[0][0].data.excludeFromDre).toBe(true);
+
+  tx.installmentPlan.create.mockClear();
+  vi.mocked(prisma.installmentPlan.findUnique).mockResolvedValue({ id: "pl0", status: "ACTIVE", supplierId: "s1", companyId: "c1", productId: "p1", description: "x", excludeFromDre: true } as never);
+  vi.mocked(prisma.purchase.findFirst).mockResolvedValue(null as never);
+  vi.mocked(prisma.$queryRaw).mockResolvedValue([linha({ purchaseId: "b" })]);
+  tx.$queryRaw.mockResolvedValue([{ purchaseId: "b", status: "OPEN" }]);
+  await renegociarParcelamento("pl0", { quantidade: 1, primeiroVencimento: "2027-02-05", motivo: "novo" }, "u1");
+  expect(tx.installmentPlan.create.mock.calls[0][0].data.excludeFromDre).toBe(true);
+});
+
+test("por padrão o parcelamento entra no DRE", async () => {
+  await criarParcelamento(entrada, "u1");
+  expect(tx.installmentPlan.create.mock.calls[0][0].data.excludeFromDre).toBe(false);
+});
+
 test("recusa parcelamento repetido nos últimos minutos", async () => {
   tx.installmentPlan.findFirst.mockResolvedValue({ id: "plX" });
   await expect(criarParcelamento(entrada, "u1")).rejects.toMatchObject({ status: 409 });

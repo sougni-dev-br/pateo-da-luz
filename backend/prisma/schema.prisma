@@ -4296,6 +4296,9 @@ model InstallmentPlan {
   installmentCount   Int
   // ACTIVE | RENEGOTIATED (saldo foi para outro parcelamento) | CANCELLED
   status             String            @default("ACTIVE")
+  // Dívida cuja despesa já foi lançada nos meses de origem: o título aparece no Contas a Pagar e no
+  // caixa, mas não entra no DRE nem nos totais de resultado (evita contar duas vezes).
+  excludeFromDre     Boolean           @default(false)
   renegotiatedFromId String?
   renegotiatedFrom   InstallmentPlan?  @relation("PlanRenegotiation", fields: [renegotiatedFromId], references: [id])
   renegotiatedTo     InstallmentPlan[] @relation("PlanRenegotiation")
