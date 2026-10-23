@@ -121,7 +121,7 @@ export function DetalheParcelamento({ planId, podeBaixar, podeAlterar, onAlterou
       const r = await renegotiateInstallmentPlan(planId, {
         quantidade: dados.quantidade, total: dados.total, motivo: dados.motivo, parcelas: dados.parcelas
       });
-      setAviso(`Saldo renegociado: ${r.parcelasCanceladas} parcelas canceladas e novo parcelamento criado.`);
+      setAviso(`Saldo renegociado: canceladas ${r.parcelasCanceladas} em aberto; novo parcelamento criado.`);
       onAlterou();
       setEtapa({ tipo: "detalhe" });
       await carregar();
@@ -137,7 +137,7 @@ export function DetalheParcelamento({ planId, podeBaixar, podeAlterar, onAlterou
     setErro(null);
     try {
       const r = await cancelInstallmentPlan(planId, motivo);
-      setAviso(`Parcelamento cancelado: ${r.parcelasCanceladas} parcelas em aberto canceladas; ${r.parcelasPagasMantidas} pagas mantidas.`);
+      setAviso(`Parcelamento cancelado. Em aberto canceladas: ${r.parcelasCanceladas}; pagas mantidas: ${r.parcelasPagasMantidas}.`);
       onAlterou();
       setEtapa({ tipo: "detalhe" });
       await carregar();
@@ -153,7 +153,7 @@ export function DetalheParcelamento({ planId, podeBaixar, podeAlterar, onAlterou
   if (etapa.tipo === "renegociar") {
     return (
       <>
-        <Alert tone="info">As {abertas.length} parcelas em aberto serão canceladas e viram um novo parcelamento. As já pagas não mudam.</Alert>
+        <Alert tone="info">{abertas.length === 1 ? "A parcela em aberto será cancelada e vira" : `As ${abertas.length} parcelas em aberto serão canceladas e viram`} um novo parcelamento. As já pagas não mudam.</Alert>
         <FormularioParcelamento modo="renegociar" saldo={plano.resumo.saldoAberto} busy={busy} erro={erro} onVoltar={() => setEtapa({ tipo: "detalhe" })} onEnviar={(d) => void renegociar(d)} />
       </>
     );
@@ -193,7 +193,7 @@ export function DetalheParcelamento({ planId, podeBaixar, podeAlterar, onAlterou
     return (
       <form onSubmit={(e) => { e.preventDefault(); void cancelar(etapa.motivo.trim()); }}>
         {erro && <Alert tone="error">{erro}</Alert>}
-        <p className="parcelamentos-conferencia">As {abertas.length} parcelas em aberto saem do Contas a Pagar. As parcelas já pagas não mudam: para desfazer um pagamento, estorne no Contas a Pagar.</p>
+        <p className="parcelamentos-conferencia">{abertas.length === 1 ? "A parcela em aberto sai" : `As ${abertas.length} parcelas em aberto saem`} do Contas a Pagar. As parcelas já pagas não mudam: para desfazer um pagamento, estorne no Contas a Pagar.</p>
         <TextField label="Motivo" required minLength={3} maxLength={300} value={etapa.motivo} onChange={(e) => setEtapa({ tipo: "cancelar", motivo: e.target.value })} />
         <div className="parcelamentos-rodape">
           <Button variant="secondary" disabled={busy} onClick={() => setEtapa({ tipo: "detalhe" })}>Voltar</Button>
