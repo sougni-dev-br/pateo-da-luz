@@ -245,6 +245,17 @@ export async function fetchAuthorizationPageUrl(appShopId: string): Promise<stri
 // chama /refresh se o /get falhar por token inexistente ou expirado —
 // evita "The store authorization information does not exist" em lojas
 // recém-criadas onde /refresh não tem authorization pra refreshar.
+// A 99 responde HTTP 200 + errno != 0 com "The store authorization information
+// has expired" quando o authtoken da loja vence (validade de ~30 dias). Não é
+// 401 nem errno 1001/1002, então não cai em isAuthError — mas o remédio é o
+// mesmo: /refresh + /get. Em 22/10/2026 isso derrubou a importação do cardápio
+// das 3 lojas vinculadas em 17/09. Só casa o "expired": "does not exist" é loja
+// sem autorização, que o refresh não resolve.
+export function isAuthorizationExpired(error: unknown): boolean {
+  return error instanceof NoventaNoveApiException
+    && /authorization information has expired/i.test(`${error.info.message} ${error.info.detail ?? ""}`);
+}
+
 export async function getShopAuthToken(deliveryStoreId: string, appShopId: string): Promise<string> {
   const cached = await prisma.noventaNoveShopAuthToken.findUnique({
     where: { deliveryStoreId }
@@ -259,7 +270,7 @@ export async function getShopAuthToken(deliveryStoreId: string, appShopId: strin
   try {
     ({ authToken, expirationTime } = await fetchAuthToken(appShopId));
   } catch (getError: unknown) {
-    if (getError instanceof NoventaNoveApiException && !getError.info.isAuthError) {
+    if (getError instanceof NoventaNoveApiException && !getError.info.isAuthError && !isAuthorizationExpired(getError)) {
       throw getError;
     }
     await refreshAuthToken(appShopId);
@@ -462,7 +473,19 @@ export async function callNoventaNoveShop<T>(
   appShopId: string,
   options: NoventaNoveRequestOptions
 ): Promise<T> {
-  const token = await getShopAuthToken(deliveryStoreId, appShopId);
+  const response = await sendShopRequest(options, await getShopAuthToken(deliveryStoreId, appShopId));
+  // 401: o token em cache não vale mais. Invalida, renova e tenta 1x mais.
+  if (response.status === 401) return parseResponse<T>(await resendWithFreshToken(deliveryStoreId, appShopId, options));
+  try {
+    return await parseResponse<T>(response);
+  } catch (error: unknown) {
+    // Token vencido na 99 vem como HTTP 200 + errno != 0, não como 401. Mesma saída, também 1x só.
+    if (!isAuthorizationExpired(error)) throw error;
+    return parseResponse<T>(await resendWithFreshToken(deliveryStoreId, appShopId, options));
+  }
+}
+
+async function sendShopRequest(options: NoventaNoveRequestOptions, token: string): Promise<Response> {
   const url = new URL(`${DIDI_FOOD_BASE_URL}${options.path}`);
   url.searchParams.set("auth_token", token);
   if (options.query) {
@@ -471,7 +494,7 @@ export async function callNoventaNoveShop<T>(
     }
   }
   const requestBody = bodyWithAuthToken(options.body, token);
-  const response = await fetchWithTimeout(url.toString(), {
+  return fetchWithTimeout(url.toString(), {
     method: options.method ?? "GET",
     headers: {
       "Accept": "application/json",
@@ -479,29 +502,15 @@ export async function callNoventaNoveShop<T>(
     },
     body: requestBody ? JSON.stringify(requestBody) : undefined
   });
-  // Se 401, invalida cache e tenta 1x mais
-  if (response.status === 401) {
-    await prisma.noventaNoveShopAuthToken.deleteMany({ where: { deliveryStoreId } });
-    const freshToken = await getShopAuthToken(deliveryStoreId, appShopId);
-    const retryUrl = new URL(`${DIDI_FOOD_BASE_URL}${options.path}`);
-    retryUrl.searchParams.set("auth_token", freshToken);
-    if (options.query) {
-      for (const [key, value] of Object.entries(options.query)) {
-        if (value !== undefined && value !== null) retryUrl.searchParams.set(key, String(value));
-      }
-    }
-    const retryBody = bodyWithAuthToken(options.body, freshToken);
-    const retry = await fetchWithTimeout(retryUrl.toString(), {
-      method: options.method ?? "GET",
-      headers: {
-        "Accept": "application/json",
-        ...(retryBody ? { "Content-Type": "application/json" } : {})
-      },
-      body: retryBody ? JSON.stringify(retryBody) : undefined
-    });
-    return parseResponse<T>(retry);
-  }
-  return parseResponse<T>(response);
+}
+
+async function resendWithFreshToken(
+  deliveryStoreId: string,
+  appShopId: string,
+  options: NoventaNoveRequestOptions
+): Promise<Response> {
+  await prisma.noventaNoveShopAuthToken.deleteMany({ where: { deliveryStoreId } });
+  return sendShopRequest(options, await getShopAuthToken(deliveryStoreId, appShopId));
 }
 
 // ---------------------------------------------------------------------------
