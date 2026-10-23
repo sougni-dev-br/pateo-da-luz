@@ -12,6 +12,7 @@ import {
 import { useSession } from "../context/SessionContext";
 import { Alert, Button, useFormatCurrency } from "../design-system";
 import { AttentionList, type AttentionItem } from "./dashboard/AttentionList";
+import { CanaisPanel } from "./dashboard/CanaisPanel";
 import { PeriodBar } from "./dashboard/PeriodBar";
 import { CmvStrip, FullResultPanel, ResultPanel, RevenueHero, TicketPanel } from "./dashboard/Panels";
 import { PurchasesPanel, RecentPurchases } from "./dashboard/Purchases";
@@ -331,6 +332,10 @@ function DashboardContent({ loaded, info, navigate, pathAllowed, canAccessSectio
             )}
           </div>
         </div>
+      )}
+
+      {!noData && summary?.revenue.byChannel && summary.revenue.byChannel.length > 0 && (
+        <CanaisPanel channels={summary.revenue.byChannel} />
       )}
 
       {!noData && summary && (
