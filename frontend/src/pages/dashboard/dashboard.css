@@ -803,3 +803,11 @@ button.dash-attention-row:hover .dash-attention-go svg { transform: translateX(3
 .dash-canal-status { grid-area: status; color: var(--muted); font-size: 12px; }
 .dash-canal-status--late { color: var(--warning); font-weight: 600; }
 .dash-canal-status--none { color: var(--danger); }
+
+/* Coluna do faturamento: o card do gráfico fica no tamanho do conteúdo e o painel por canal ocupa o espaço de baixo. */
+.dash-main {
+  display: grid;
+  gap: var(--dash-gap);
+  align-content: start;
+  min-width: 0;
+}
