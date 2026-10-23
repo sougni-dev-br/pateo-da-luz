@@ -41,6 +41,8 @@ export type KeetaRepasse = {
   grossAmount: number;
   fees: number;
   netAmount: number;
+  /** Já recebido (cobre o recebimento parcial). Ausente = só vale o status. */
+  paidAmount?: number | null;
   status: "OPEN" | "RECEIVED" | "OVERDUE" | string;
 };
 
@@ -91,8 +93,10 @@ export function somarTotais(dias: KeetaDia[]): KeetaTotais {
 }
 
 export function totalizarRepasses(repasses: KeetaRepasse[]): KeetaRepassesTotais {
-  const received = round2(repasses.filter((r) => r.status === "RECEIVED").reduce((s, r) => s + r.netAmount, 0));
-  const pending = round2(repasses.filter((r) => r.status !== "RECEIVED").reduce((s, r) => s + r.netAmount, 0));
+  // Parcial: o que entrou conta como recebido e só o saldo fica pendente.
+  const recebido = (r: KeetaRepasse) => (r.status === "RECEIVED" ? r.netAmount : Math.min(r.netAmount, Math.max(0, r.paidAmount ?? 0)));
+  const received = round2(repasses.reduce((s, r) => s + recebido(r), 0));
+  const pending = round2(repasses.reduce((s, r) => s + (r.netAmount - recebido(r)), 0));
   return { received, pending, total: round2(received + pending), count: repasses.length };
 }
 

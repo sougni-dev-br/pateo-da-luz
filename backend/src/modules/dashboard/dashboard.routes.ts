@@ -8,6 +8,7 @@ import { semParcelamentoForaDoDreSql } from "../parcelamentos/parcelamento-dre.j
 import { montarRankings } from "./dashboard-rankings.js";
 import { carregarFerias, contarAlertas } from "../payroll/ferias.routes.js";
 import { calcularResultadoCompleto } from "./dashboard-resultado.js";
+import { montarFaturamentoPorCanal, type SomaPorOrigem } from "./dashboard-canais.js";
 import { calcularTicketsSalao, variacaoPercentual, type BaseTicketSalao } from "./dashboard-ticket.js";
 import { REVENUE_CHANNEL_SALON } from "../monthly/revenue-channels.js";
 import { getRevenueCoverage, hojeEmBrasilia } from "../monthly/revenue-coverage.service.js";
@@ -234,6 +235,48 @@ async function salonTicketBase(year: number, month: number): Promise<BaseTicketS
   };
 }
 
+// Faturamento do mês aberto nos canais, com o último dia lançado de cada um (ver dashboard-canais.ts).
+// A cobertura (atraso) só vale para o mês corrente; em mês passado só o valor e o último dia.
+// Falha ao calcular a cobertura não derruba o resumo: o canal aparece sem a situação.
+async function faturamentoPorCanal(year: number, month: number) {
+  const hoje = hojeEmBrasilia();
+  const fimDeHoje = new Date(`${hoje}T23:59:59Z`);
+  const rows = await prisma.$queryRaw<Array<Record<string, unknown>>>`
+    SELECT
+      "channel",
+      "sourcePlatform",
+      COALESCE(SUM("grossAmount"), 0) AS "grossAmount",
+      COALESCE(SUM("netAmount"), 0)   AS "netAmount",
+      COUNT(*)                        AS "count",
+      to_char(MAX("date") FILTER (WHERE "date" <= ${fimDeHoje}), 'YYYY-MM-DD') AS "ultimoDia",
+      to_char(MAX("date") FILTER (WHERE "date" > ${fimDeHoje}), 'YYYY-MM-DD')  AS "diaFuturo"
+    FROM "RevenueEntry"
+    WHERE "competenceYear" = ${year}
+      AND "competenceMonth" = ${month}
+      AND "status" <> 'CANCELLED'
+    GROUP BY "channel", "sourcePlatform"
+  `;
+  const somas: SomaPorOrigem[] = rows.map((row) => ({
+    channel: String(row.channel ?? ""),
+    sourcePlatform: row.sourcePlatform === null || row.sourcePlatform === undefined ? null : String(row.sourcePlatform),
+    grossAmount: Number(row.grossAmount ?? 0),
+    netAmount: Number(row.netAmount ?? 0),
+    count: Number(row.count ?? 0),
+    ultimoDia: row.ultimoDia ? String(row.ultimoDia) : null,
+    diaFuturo: row.diaFuturo ? String(row.diaFuturo) : null
+  }));
+
+  let cobertura = null;
+  if (hoje.startsWith(`${year}-${String(month).padStart(2, "0")}`)) {
+    try {
+      cobertura = (await getRevenueCoverage({ year, month })).channels;
+    } catch (error) {
+      console.error("[dashboard] cobertura de faturamento indisponível:", error);
+    }
+  }
+  return montarFaturamentoPorCanal(somas, cobertura);
+}
+
 // ─────────────────────────────────────────────
 // GET /dashboard/summary?year=YYYY&month=MM
 // Resumo financeiro consolidado do período:
@@ -419,6 +462,8 @@ dashboardRouter.get("/summary", async (request, response) => {
   const delta = (current: number, previous: number) =>
     previous > 0 ? ((current - previous) / previous) * 100 : null;
 
+  const byChannel = await faturamentoPorCanal(year, month);
+
   response.json({
     year,
     month,
@@ -428,6 +473,7 @@ dashboardRouter.get("/summary", async (request, response) => {
       serviceAmount: revService,
       tickets: revTickets,
       count: revCount,
+      byChannel,
       ticketAverage: ticketSalao.perTable,
       peopleServed: revPeople,
       // Ticket de mesa e de pessoa é do salão; tickets/peopleServed acima seguem totais.

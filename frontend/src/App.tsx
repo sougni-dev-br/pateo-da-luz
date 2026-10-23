@@ -169,7 +169,7 @@ const sections = [
   { id: "oil-collections", label: "Coleta de óleo", icon: Droplets, showInSidebar: true, group: "Operação", path: "/operacao/coleta-oleo", matchers: ["/operacao/coleta-oleo"], description: "Certificados de destino final do óleo de fritura e conferência do PIX da coleta" },
   { id: "payables", label: "Contas a pagar", icon: WalletCards, showInSidebar: true, group: "Financeiro", path: "/financeiro/contas-a-pagar", matchers: ["/financeiro/contas-a-pagar"] },
   { id: "installment-plans", label: "Parcelamentos", icon: WalletCards, showInSidebar: true, group: "Financeiro", path: "/financeiro/parcelamentos", matchers: ["/financeiro/parcelamentos"], description: "Dívidas parceladas com fornecedores: cada parcela vira uma conta a pagar" },
-  { id: "receivables", label: "Contas a receber", icon: WalletCards, showInSidebar: true, group: "Financeiro", path: "/financeiro/contas-a-receber", matchers: ["/financeiro/contas-a-receber"], description: "Repasses iFood, 99 Food e Keeta, eventos e outros recebíveis" },
+  { id: "receivables", label: "Contas a receber", icon: WalletCards, showInSidebar: true, group: "Financeiro", path: "/financeiro/contas-a-receber", matchers: ["/financeiro/contas-a-receber"], description: "Repasses do iFood, 99 Food e Keeta, eventos, coleta de óleo e outros valores a receber" },
   { id: "ifood-expenses", label: "Despesas iFood", icon: WalletCards, showInSidebar: true, group: "Financeiro", path: "/financeiro/despesas-ifood", matchers: ["/financeiro/despesas-ifood"], description: "Comissão, entrega, marketing e taxas mensais iFood" },
   { id: "revenue", label: "Faturamento", icon: BadgeDollarSign, showInSidebar: true, group: "Financeiro", path: "/financeiro/faturamento", matchers: ["/financeiro/faturamento"] },
   { id: "faturamento-salao", label: "Salão (Agile PDV)", icon: BadgeDollarSign, showInSidebar: true, group: "Financeiro", path: "/financeiro/faturamento-salao", matchers: ["/financeiro/faturamento-salao"], description: "Faturamento do salão sincronizado automaticamente pelo agente do PDV", hidePageHeader: true },
@@ -728,7 +728,7 @@ export function App() {
               <Route path="/compras/:id/editar" element={<Purchases user={user} />} />
               <Route path="/compras/pedidos" element={<PurchaseOrders user={user} />} />
               <Route path="/financeiro/contas-a-pagar" element={<Payables user={user} />} />
-              <Route path="/financeiro/contas-a-receber" element={<Receivables />} />
+              <Route path="/financeiro/contas-a-receber" element={<Receivables user={user} />} />
               <Route path="/financeiro/despesas-ifood" element={<IfoodExpenses />} />
               <Route path="/financeiro/cartoes" element={<Cards user={user} />} />
               <Route

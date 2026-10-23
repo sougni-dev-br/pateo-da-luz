@@ -97,6 +97,16 @@ describe("totalizarRepasses", () => {
     expect(t.count).toBe(2);
   });
 
+  test("repasse recebido em parte conta o que entrou como recebido e só o saldo como pendente", () => {
+    const t = totalizarRepasses([{ ...REPASSES[0]!, id: "p", netAmount: 1000, status: "PARTIALLY_RECEIVED", paidAmount: 400 }]);
+    expect(t).toMatchObject({ received: 400, pending: 600, total: 1000, count: 1 });
+  });
+
+  test("valor recebido acima do líquido não gera pendência negativa", () => {
+    const t = totalizarRepasses([{ ...REPASSES[0]!, id: "p", netAmount: 100, status: "PARTIALLY_RECEIVED", paidAmount: 150 }]);
+    expect(t).toMatchObject({ received: 100, pending: 0 });
+  });
+
   test("sem repasses devolve zeros, não undefined", () => {
     expect(totalizarRepasses([])).toEqual({ received: 0, pending: 0, total: 0, count: 0 });
   });

@@ -2668,6 +2668,7 @@ model Receivable {
   parentReceivableId      String?
   parent                  Receivable?            @relation("ReceivableInstallments", fields: [parentReceivableId], references: [id], onDelete: SetNull)
   installments            Receivable[]           @relation("ReceivableInstallments")
+  receipts                ReceivableReceipt[]
   status                  ReceivableStatus       @default(OPEN)
   notes                   String?
   createdAt               DateTime               @default(now())
@@ -2681,6 +2682,29 @@ model Receivable {
   @@index([competenceYear, competenceMonth])
   @@index([companyId, expectedDate])
   @@index([parentReceivableId])
+}
+
+// Cada recebimento (total ou parcial) de uma conta a receber. `Receivable.paidAmount`,
+// `receivedDate` e `status` são o resumo derivado destes lançamentos, mantido pelo
+// serviço (a coleta de óleo e a Keeta leem esses campos). Estornar marca o lançamento,
+// não apaga: o histórico fica.
+model ReceivableReceipt {
+  id               String     @id @default(cuid())
+  receivableId     String
+  receivable       Receivable @relation(fields: [receivableId], references: [id], onDelete: Cascade)
+  receivedDate     DateTime
+  amount           Decimal    @db.Decimal(14, 2)
+  paymentMethod    String?
+  bankAccountId    String?
+  notes            String?
+  createdByUserId  String?
+  createdAt        DateTime   @default(now())
+  reversedAt       DateTime?
+  reversedByUserId String?
+  reversalReason   String?
+
+  @@index([receivableId])
+  @@index([receivedDate])
 }
 
 // ─── WhatsApp (Baileys) ───────────────────────────────────────────────────

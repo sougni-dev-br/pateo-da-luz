@@ -12,6 +12,7 @@ import {
 import { useSession } from "../context/SessionContext";
 import { Alert, Button, useFormatCurrency } from "../design-system";
 import { AttentionList, type AttentionItem } from "./dashboard/AttentionList";
+import { CanaisPanel } from "./dashboard/CanaisPanel";
 import { PeriodBar } from "./dashboard/PeriodBar";
 import { CmvStrip, FullResultPanel, ResultPanel, RevenueHero, TicketPanel } from "./dashboard/Panels";
 import { PurchasesPanel, RecentPurchases } from "./dashboard/Purchases";
@@ -276,27 +277,32 @@ function DashboardContent({ loaded, info, navigate, pathAllowed, canAccessSectio
 
       {!noData && (
         <div className="dash-grid">
-          <RevenueHero
-            gross={gross}
-            service={service}
-            net={net}
-            delta={revenueDelta}
-            noDeltaText={summary ? "Sem base de comparação" : undefined}
-            emptyAction={canCreateRevenue ? { label: "Lançar faturamento", onClick: () => navigate("/financeiro/faturamento") } : undefined}
-            chart={
-              daily && (
-                <RitmoDoMes
-                  current={daily.current}
-                  previous={daily.previous}
-                  daysInMonth={info.daysInMonth}
-                  previousDaysInMonth={monthInfo(shiftCompetence(competence, -1), new Date()).daysInMonth}
-                  currentUntil={info.isCurrent ? info.elapsedDays : info.daysInMonth}
-                  currentLabel={info.shortLabel}
-                  previousLabel={prevLabel}
-                />
-              )
-            }
-          />
+          <div className="dash-main">
+            <RevenueHero
+              gross={gross}
+              service={service}
+              net={net}
+              delta={revenueDelta}
+              noDeltaText={summary ? "Sem base de comparação" : undefined}
+              emptyAction={canCreateRevenue ? { label: "Lançar faturamento", onClick: () => navigate("/financeiro/faturamento") } : undefined}
+              chart={
+                daily && (
+                  <RitmoDoMes
+                    current={daily.current}
+                    previous={daily.previous}
+                    daysInMonth={info.daysInMonth}
+                    previousDaysInMonth={monthInfo(shiftCompetence(competence, -1), new Date()).daysInMonth}
+                    currentUntil={info.isCurrent ? info.elapsedDays : info.daysInMonth}
+                    currentLabel={info.shortLabel}
+                    previousLabel={prevLabel}
+                  />
+                )
+              }
+            />
+            {summary?.revenue.byChannel && summary.revenue.byChannel.length > 0 && (
+              <CanaisPanel channels={summary.revenue.byChannel} />
+            )}
+          </div>
           <div className="dash-side">
             {summary && (
               <TicketPanel
