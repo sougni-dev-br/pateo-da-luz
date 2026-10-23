@@ -3,7 +3,7 @@
 export type ParcelaCalculada = { numero: number; valor: number; vencimento: string };
 export type ParcelaInformada = { valor: number; vencimento: string };
 
-export const MAX_PARCELAS = 360;
+export const MAX_PARCELAS = 120;
 const DATA_ISO = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 function paraCentavos(valor: number) {

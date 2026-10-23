@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { gerarParcelas, repartirDesconto, somaEmCentavos, valorDoCampo } from "../regras";
+import { gerarParcelas, motivoProdutoInvalido, repartirDesconto, somaEmCentavos, valorDoCampo } from "../regras";
 
 // Valores e datas fictícios.
 
@@ -49,5 +49,16 @@ describe("repartirDesconto", () => {
   it("recusa desconto que zere ou ultrapasse as parcelas", () => {
     expect(repartirDesconto([50, 50], 100)).toBeNull();
     expect(repartirDesconto([50, 50], -1)).toBeNull();
+  });
+});
+
+describe("motivoProdutoInvalido", () => {
+  const ok = { isActive: true, controlsStock: false, dreCategoryId: "d1", dreCategory: { dreGroup: "LOCACAO" } };
+  it("aceita produto de despesa", () => expect(motivoProdutoInvalido(ok)).toBeNull());
+  it("recusa estoque, CMV, sem categoria e inativo", () => {
+    expect(motivoProdutoInvalido({ ...ok, controlsStock: true })).toMatch(/estoque/);
+    expect(motivoProdutoInvalido({ ...ok, dreCategory: { dreGroup: "CMV_COMPRAS" } })).toMatch(/CMV/);
+    expect(motivoProdutoInvalido({ ...ok, dreCategoryId: null })).toMatch(/categoria/);
+    expect(motivoProdutoInvalido({ ...ok, isActive: false })).toMatch(/inativo/);
   });
 });

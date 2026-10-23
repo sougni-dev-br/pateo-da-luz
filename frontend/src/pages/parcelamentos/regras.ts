@@ -31,7 +31,7 @@ function dataValida(iso: string) {
 export function gerarParcelas(total: number, quantidade: number, primeiroVencimento: string): ParcelaEditavel[] {
   const inicio = dataValida(primeiroVencimento);
   const totalCentavos = Math.round(total * 100);
-  if (!inicio || !Number.isInteger(quantidade) || quantidade < 1 || quantidade > 360 || !(totalCentavos > 0)) return [];
+  if (!inicio || !Number.isInteger(quantidade) || quantidade < 1 || quantidade > 120 || !(totalCentavos > 0)) return [];
   const base = Math.floor(totalCentavos / quantidade);
   const resto = totalCentavos - base * quantidade;
   return Array.from({ length: quantidade }, (_, i) => {
@@ -56,4 +56,20 @@ export function repartirDesconto(valores: number[], desconto: number): number[] 
   const partes = valores.map((_, i) => base + (i === n - 1 ? resto : 0));
   if (valores.some((v, i) => Math.round(v * 100) - partes[i] <= 0)) return null;
   return partes.map(emReais);
+}
+
+export type ProdutoParaParcelamento = {
+  isActive: boolean;
+  controlsStock?: boolean;
+  dreCategoryId?: string | null;
+  dreCategory?: { dreGroup?: string | null } | null;
+};
+
+/** Mesmo critério do servidor: parcelamento é despesa, então produto de estoque ou de CMV não serve. */
+export function motivoProdutoInvalido(p: ProdutoParaParcelamento): string | null {
+  if (!p.isActive) return "inativo";
+  if (p.controlsStock) return "controla estoque";
+  if (!p.dreCategoryId) return "sem categoria de DRE";
+  if (p.dreCategory?.dreGroup === "CMV_COMPRAS") return "categoria de CMV";
+  return null;
 }

@@ -21,6 +21,8 @@ CREATE INDEX "InstallmentPlan_supplierId_idx" ON "InstallmentPlan"("supplierId")
 CREATE INDEX "InstallmentPlan_status_idx" ON "InstallmentPlan"("status");
 
 ALTER TABLE "InstallmentPlan" ADD CONSTRAINT "InstallmentPlan_supplierId_fkey" FOREIGN KEY ("supplierId") REFERENCES "Supplier"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "InstallmentPlan" ADD CONSTRAINT "InstallmentPlan_companyId_fkey" FOREIGN KEY ("companyId") REFERENCES "Company"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "InstallmentPlan" ADD CONSTRAINT "InstallmentPlan_productId_fkey" FOREIGN KEY ("productId") REFERENCES "Product"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "InstallmentPlan" ADD CONSTRAINT "InstallmentPlan_renegotiatedFromId_fkey" FOREIGN KEY ("renegotiatedFromId") REFERENCES "InstallmentPlan"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 ALTER TABLE "Purchase" ADD COLUMN "installmentPlanId" TEXT, ADD COLUMN "planInstallmentNumber" INTEGER;

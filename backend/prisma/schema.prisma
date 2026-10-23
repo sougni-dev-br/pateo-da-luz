@@ -151,6 +151,7 @@ enum TaxPaymentSource {
 }
 
 model Company {
+  installmentPlans           InstallmentPlan[]
   id                         String                      @id @default(cuid())
   code                       String                      @unique
   tradeName                  String
@@ -518,6 +519,7 @@ enum ProductNature {
 model Product {
   pdvBebidas                AgileProdutoInsumo[]
   closingRequirements       SupplierClosingRequirement[]
+  installmentPlans          InstallmentPlan[]
   id                        String                       @id @default(cuid())
   externalCode              String?                      @unique
   name                      String
@@ -4302,6 +4304,8 @@ model InstallmentPlan {
   purchases          Purchase[]
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt
+  Company            Company           @relation(fields: [companyId], references: [id])
+  Product            Product           @relation(fields: [productId], references: [id])
 
   @@index([supplierId])
   @@index([status])

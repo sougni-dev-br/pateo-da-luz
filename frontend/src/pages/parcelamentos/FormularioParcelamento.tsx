@@ -3,7 +3,7 @@ import { Company, getCompanies, getPaymentMethods, getProducts, getSuppliers, Pa
 import { Alert, Button, FormGrid, Select, TextField, Textarea } from "../../design-system";
 import { Money } from "../../design-system";
 import { hojeLocalIso } from "../../lib/datas";
-import { gerarParcelas, ParcelaEditavel, somaEmCentavos, valorDoCampo } from "./regras";
+import { gerarParcelas, motivoProdutoInvalido, ParcelaEditavel, somaEmCentavos, valorDoCampo } from "./regras";
 
 export type DadosDoFormulario = {
   supplierId: string;
@@ -102,7 +102,10 @@ export function FormularioParcelamento({ modo, saldo, busy, erro, onVoltar, onEn
           <Select label="Fornecedor" required value={supplierId} onChange={(e) => setSupplierId(e.target.value)} placeholder="Escolha" options={fornecedores.map((f) => ({ value: f.id, label: f.name }))} />
           <Select label="Empresa" required value={companyId} onChange={(e) => setCompanyId(e.target.value)} placeholder="Escolha" options={empresas.map((c) => ({ value: c.id, label: c.tradeName }))} />
           <TextField label="Buscar produto" hint="Digite 2 letras ou mais" value={buscaProduto} onChange={(e) => setBuscaProduto(e.target.value)} />
-          <Select label="Produto do lançamento" required value={productId} onChange={(e) => setProductId(e.target.value)} placeholder={produtos.length ? "Escolha" : "Busque ao lado"} options={produtos.map((p) => ({ value: p.id, label: p.name }))} />
+          <Select label="Produto do lançamento" required value={productId} onChange={(e) => setProductId(e.target.value)} placeholder={produtos.length ? "Escolha" : "Busque ao lado"} options={produtos.map((p) => {
+            const motivo = motivoProdutoInvalido(p);
+            return { value: p.id, label: motivo ? `${p.name} (${motivo})` : p.name, disabled: motivo !== null };
+          })} hint="Produto de despesa, sem estoque e fora do CMV" />
           <TextField label="Descrição" required maxLength={120} placeholder="Ex.: Acordo de parcelamento 2026" value={description} onChange={(e) => setDescription(e.target.value)} />
           <Select label="Forma de pagamento" value={paymentMethodId} onChange={(e) => setPaymentMethodId(e.target.value)} placeholder="Definir na baixa" options={formas.map((m) => ({ value: m.id, label: m.name }))} />
         </FormGrid>

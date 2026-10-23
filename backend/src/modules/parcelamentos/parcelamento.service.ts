@@ -8,6 +8,7 @@ import { parseDate } from "../../shared/utils/parse-date.js";
 import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
 import { getNextPurchaseNumber } from "../cards/cards.service.js";
 import { montarParcelas, type ParcelaCalculada, type ParcelaInformada } from "./parcelamento-calc.js";
+import { motivoProdutoInvalido } from "./parcelamento-produto.js";
 import { resumirParcelas, situacaoDaParcela, type ParcelaLinha } from "./parcelamento-regras.js";
 
 export class ParcelamentoError extends Error {
@@ -59,6 +60,9 @@ async function exigirPeriodosAbertos(datas: Date[], contexto: string) {
   if (travados.length) throw new ParcelamentoError(travados.join(" | "));
 }
 
+const MAX_DESCRICAO = 120;
+const MAX_OBSERVACOES = 500;
+const JANELA_DUPLICIDADE_MIN = 10;
 const ANOS_PARA_TRAS = 5;
 const ANOS_PARA_FRENTE = 15;
 
@@ -73,6 +77,8 @@ function exigirVencimentosPlausiveis(datas: Date[], hoje = new Date()) {
 function validarEntrada(e: NovoParcelamento) {
   if (!e.supplierId || !e.companyId || !e.productId) throw new ParcelamentoError("Informe fornecedor, empresa e produto.");
   if (!e.description?.trim()) throw new ParcelamentoError("Informe a descrição do parcelamento.");
+  if (e.description.trim().length > MAX_DESCRICAO) throw new ParcelamentoError(`A descrição aceita até ${MAX_DESCRICAO} caracteres.`);
+  if ((e.notes ?? "").length > MAX_OBSERVACOES) throw new ParcelamentoError(`As observações aceitam até ${MAX_OBSERVACOES} caracteres.`);
 }
 
 function montar(e: NovoParcelamento): ParcelaCalculada[] {
@@ -87,13 +93,17 @@ async function gravarPlano(tx: Db, e: NovoParcelamento, parcelas: ParcelaCalcula
   const [supplier, company, product, method] = await Promise.all([
     tx.supplier.findUnique({ where: { id: e.supplierId }, select: { id: true } }),
     tx.company.findFirst({ where: { id: e.companyId, isActive: true }, select: { id: true } }),
-    tx.product.findUnique({ where: { id: e.productId }, select: { id: true, name: true, unit: true, unitMeasureId: true } }),
+    tx.product.findUnique({ where: { id: e.productId }, select: { id: true, name: true, unit: true, unitMeasureId: true, isActive: true, controlsStock: true, dreCategoryId: true, dreCategory: { select: { dreGroup: true } } } }),
     e.paymentMethodId ? tx.paymentMethod.findUnique({ where: { id: e.paymentMethodId }, select: { id: true, name: true } }) : Promise.resolve(null)
   ]);
   if (!supplier) throw new ParcelamentoError("Fornecedor não encontrado.", 404);
   if (!company) throw new ParcelamentoError("Empresa não encontrada ou inativa.");
   if (!product) throw new ParcelamentoError("Produto não encontrado.", 404);
   if (e.paymentMethodId && !method) throw new ParcelamentoError("Forma de pagamento não encontrada.");
+  const motivoProduto = motivoProdutoInvalido({
+    isActive: product.isActive, controlsStock: product.controlsStock, dreCategoryId: product.dreCategoryId, dreGroup: product.dreCategory?.dreGroup ?? null
+  });
+  if (motivoProduto) throw new ParcelamentoError(motivoProduto);
 
   const total = parcelas.reduce((s, p) => s + Math.round(p.valor * 100), 0) / 100;
   const plano = await tx.installmentPlan.create({
@@ -181,7 +191,21 @@ export async function criarParcelamento(entrada: NovoParcelamento, userId: strin
   const parcelas = montar(entrada);
   exigirVencimentosPlausiveis(parcelas.map(dataDaParcela));
   await exigirPeriodosAbertos(parcelas.map(dataDaParcela), "Cadastro de parcelamento");
-  return prisma.$transaction((tx) => gravarPlano(tx, entrada, parcelas, userId, null), { timeout: 60_000, maxWait: 15_000 });
+  return prisma.$transaction(async (tx) => {
+    // Trava por fornecedor: dois cliques ou duas abas seguidos esperam um pelo outro e o segundo vê o primeiro.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`parcelamento:${entrada.supplierId}`}))`;
+    const desde = new Date(Date.now() - JANELA_DUPLICIDADE_MIN * 60_000);
+    const repetido = await tx.installmentPlan.findFirst({
+      where: {
+        supplierId: entrada.supplierId, status: "ACTIVE", createdAt: { gte: desde },
+        description: { equals: entrada.description.trim(), mode: "insensitive" },
+        totalAmount: new Prisma.Decimal(parcelas.reduce((s, p) => s + Math.round(p.valor * 100), 0) / 100)
+      },
+      select: { id: true }
+    });
+    if (repetido) throw new ParcelamentoError("Já existe um parcelamento igual criado há poucos minutos. Confira a lista antes de criar de novo.", 409);
+    return gravarPlano(tx, entrada, parcelas, userId, null);
+  }, { timeout: 60_000, maxWait: 15_000 });
 }
 
 type LinhaParcela = ParcelaLinha & {

@@ -16,7 +16,7 @@ test("recusa total zerado, negativo ou número de parcelas inválido", () => {
   expect(() => dividirEmParcelas(0, 3)).toThrow();
   expect(() => dividirEmParcelas(-5, 3)).toThrow();
   expect(() => dividirEmParcelas(100, 0)).toThrow();
-  expect(() => dividirEmParcelas(100, 361)).toThrow();
+  expect(() => dividirEmParcelas(100, 121)).toThrow();
   expect(() => dividirEmParcelas(100, 2.5)).toThrow();
 });
 
