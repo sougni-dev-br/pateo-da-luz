@@ -115,13 +115,13 @@ function TabelaDesktop({ linhas, acoes }: { linhas: LinhaCompra[]; acoes: AcoesL
       <Table>
         <Table.Head>
           <Table.Row>
-            <Table.Th style={{ width: 140 }}>Compra</Table.Th>
+            <Table.Th style={{ width: 136 }}>Compra</Table.Th>
             <Table.Th>Fornecedor</Table.Th>
-            <Table.Th style={{ width: 160 }}>Itens</Table.Th>
-            <Table.Th style={{ width: 120 }}>Pagamento</Table.Th>
+            <Table.Th style={{ width: 150 }}>Itens</Table.Th>
+            <Table.Th style={{ width: 112 }}>Pagamento</Table.Th>
             <Table.Th style={{ width: 140 }}>Vencimento</Table.Th>
-            <Table.Th align="right" style={{ width: 100 }}>Total</Table.Th>
-            <Table.Th actions style={{ width: 132 }}>Ações</Table.Th>
+            <Table.Th align="right" style={{ width: 124 }}>Total</Table.Th>
+            <Table.Th actions style={{ width: 156 }}>Ações</Table.Th>
           </Table.Row>
         </Table.Head>
         <Table.Body>
