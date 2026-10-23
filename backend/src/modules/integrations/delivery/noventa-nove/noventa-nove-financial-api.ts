@@ -1,5 +1,6 @@
 import { prisma } from "../../../../config/database.js";
 import { NoventaNoveApiException } from "./noventa-nove-http-client.js";
+import { comRetry, type PoliticaDeRetry } from "./noventa-nove-retry.js";
 
 // Cliente da Financial API do 99 Food (DiDi).
 //
@@ -258,7 +259,8 @@ async function fetchFinancePage<T>(
   const errno = payload?.errno ?? null;
   if (!response.ok || (payload && errno !== 0 && errno !== null)) {
     const isAuthError = response.status === 401 || response.status === 403;
-    const isRateLimit = response.status === 429;
+    // A 99 devolve HTTP 200 + errno 10005 quando estoura a janela de rate limit (mesmo caso do cliente de pedidos).
+    const isRateLimit = response.status === 429 || errno === 10005;
     throw new NoventaNoveApiException({
       status: response.status,
       errno,
@@ -275,12 +277,20 @@ async function fetchFinancePage<T>(
 }
 
 // Percorre todas as páginas de um endpoint financeiro e agrega os itens.
-async function fetchAllPages<T>(path: string, body: Record<string, unknown>): Promise<T[]> {
+async function fetchAllPages<T>(path: string, body: Record<string, unknown>, retry?: PoliticaDeRetry): Promise<T[]> {
   const items: T[] = [];
   let pageNo = 1;
   let totalPage = 1;
   do {
-    const page = await fetchFinancePage<T>(path, body, pageNo, FINANCE_DEFAULT_PAGE_SIZE);
+    // Retry por página: se a 3ª de 5 falha, as duas primeiras não são refeitas.
+    const page = await comRetry(
+      () => fetchFinancePage<T>(path, body, pageNo, FINANCE_DEFAULT_PAGE_SIZE),
+      {
+        ...retry,
+        aoRepetir: (error, tentativa, esperaMs) =>
+          console.warn(`[99Food] ${path} p.${pageNo}: tentativa ${tentativa} falhou (${error instanceof Error ? error.message : error}); nova em ${Math.round(esperaMs / 1000)}s.`)
+      }
+    );
     if (page?.data?.length) items.push(...page.data);
     totalPage = page?.total_page ?? 1;
     pageNo += 1;
@@ -294,22 +304,22 @@ async function fetchAllPages<T>(path: string, body: Record<string, unknown>): Pr
 
 // Get Settlements Data — repasse semanal por loja (getShopBillWeek).
 // Agrega todas as páginas do período. Janela máx 31 dias / 3 meses.
-export async function getSettlements(params: NoventaNoveFinancePeriodParams): Promise<NoventaNoveSettlement[]> {
+export async function getSettlements(params: NoventaNoveFinancePeriodParams, retry?: PoliticaDeRetry): Promise<NoventaNoveSettlement[]> {
   return fetchAllPages<NoventaNoveSettlement>("/v3/finance/finance/getShopBillWeek", {
     acceptor_code: params.appShopId,
     start_date: params.startDate,
     end_date: params.endDate
-  });
+  }, retry);
 }
 
 // Get Bill Data — detalhe diário por pedido (getShopBillDetail). Só retorna
 // pedidos confirmados pela loja. Agrega todas as páginas do período.
-export async function getBillDetails(params: NoventaNoveFinancePeriodParams): Promise<NoventaNoveBillDetail[]> {
+export async function getBillDetails(params: NoventaNoveFinancePeriodParams, retry?: PoliticaDeRetry): Promise<NoventaNoveBillDetail[]> {
   return fetchAllPages<NoventaNoveBillDetail>("/v3/finance/finance/getShopBillDetail", {
     acceptor_code: params.appShopId,
     start_date: params.startDate,
     end_date: params.endDate
-  });
+  }, retry);
 }
 
 // Reexport pra quem só importa o cliente financeiro.
