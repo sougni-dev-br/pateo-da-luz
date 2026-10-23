@@ -1,384 +1,410 @@
-import { useEffect, useMemo, useState } from "react";
-import { AlertCircle, Ban, Check, RefreshCw } from "lucide-react";
+import { AlertTriangle, Ban, CheckCircle2, Plus, RefreshCw, RotateCcw, Search, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   cancelReceivable,
-  getReceivables,
+  createReceivable,
   markReceivableReceived,
+  reverseReceivableReceipt,
+  type AppUser,
+  type ReceivableDetail,
+  type ReceivableReceiptView,
   type ReceivableSourceType,
-  type ReceivableStatus,
   type ReceivableView
 } from "../api/client";
-import { Alert, Button, Card, Money, PanelEyebrow, Select, SummaryCard, Table, TextField } from "../design-system";
-import "./DeliveryFinance.css";
+import { Notice, useNotice } from "../components/Notice";
+import { Alert, Button, EmptyState, IconButton, Money, PanelEyebrow, Select } from "../design-system";
 import { hojeLocalIso } from "../lib/datas";
+import { hasPermission } from "../lib/permissions";
+import { formatDate } from "../utils/format";
+import { DetalheConta } from "./receivables/DetalheConta";
+import { ListaContas } from "./receivables/ListaContas";
+import { ModalLote } from "./receivables/ModalLote";
+import { ModalMotivo } from "./receivables/ModalMotivo";
+import { ModalNova, type ValoresDaNovaConta } from "./receivables/ModalNova";
+import { ModalReceber, type ValoresDoRecebimento } from "./receivables/ModalReceber";
+import { PanoramaReceber } from "./receivables/PanoramaReceber";
+import {
+  agruparPorMes, agruparPorUrgencia, aplicarDia, aplicarFoco, aplicarOrigem, contagemPorOrigem, diasDaAgenda,
+  estaPendente, filtrarPorBusca, ORIGEM_ROTULO, ORIGENS, periodoDoPreset, PRESETS_PERIODO, rotuloDoPeriodo,
+  tituloDaConta, VISTAS, type Foco, type PresetPeriodo, type Vista
+} from "./receivables/regras";
+import { LIMITE_DA_LISTA, useContasReceber } from "./receivables/useContasReceber";
+import "./payables/payables.css";
+import "./receivables/receivables.css";
 
-const STATUS_LABEL: Record<string, string> = {
-  OPEN: "Em aberto",
-  PARTIALLY_RECEIVED: "Parcial",
-  RECEIVED: "Recebido",
-  LATE: "Atrasado",
-  CANCELLED: "Cancelado"
-};
+type Acao =
+  | { tipo: "receber"; conta: ReceivableView }
+  | { tipo: "cancelar"; conta: ReceivableView }
+  | { tipo: "estornar"; conta: ReceivableView; recebimento: ReceivableReceiptView }
+  | { tipo: "lote"; ids: string[] }
+  | { tipo: "nova" };
 
-const STATUS_CLASS: Record<string, string> = {
-  OPEN: "df-status-open",
-  PARTIALLY_RECEIVED: "df-status-partial",
-  RECEIVED: "df-status-received",
-  LATE: "df-status-late",
-  CANCELLED: "df-status-cancelled"
-};
+const ROTULO_FOCO: Record<Foco, string> = { atrasadas: "Atrasadas", hoje: "Previstas para hoje", proximos7: "Próximos 7 dias", proximos30: "Próximos 30 dias" };
 
-const SOURCE_LABEL: Record<ReceivableSourceType, string> = {
-  IFOOD_SETTLEMENT: "Repasse iFood",
-  NOVENTA_NOVE_SETTLEMENT: "Repasse 99 Food",
-  KEETA_SETTLEMENT: "Repasse Keeta",
-  EVENT: "Evento / Empreitada",
-  DIRECT: "Recebimento direto",
-  OTHER: "Outro"
-};
+export function Receivables({ user }: { user: AppUser }) {
+  const podeReceber = hasPermission(user, "receivables", "create");
+  const podeDesfazer = hasPermission(user, "receivables", "delete");
 
-function StatusPill({ status, isLate }: { status: ReceivableStatus; isLate: boolean }) {
-  const effective = isLate && status === "OPEN" ? "LATE" : status;
-  return <span className={`df-status-pill ${STATUS_CLASS[effective] ?? "df-status-open"}`}>{STATUS_LABEL[effective]}</span>;
-}
+  const [vista, setVista] = useState<Vista>("pendentes");
+  const [preset, setPreset] = useState<PresetPeriodo>("mes");
+  const [datas, setDatas] = useState({ startDate: "", endDate: "" });
+  const [origem, setOrigem] = useState<ReceivableSourceType | "all">("all");
+  const [foco, setFoco] = useState<Foco | null>(null);
+  const [diaFoco, setDiaFoco] = useState<string | null>(null);
+  const [busca, setBusca] = useState("");
+  const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
+  const [acao, setAcao] = useState<Acao | null>(null);
+  const [detalheId, setDetalheId] = useState<string | null>(null);
+  const [versao, setVersao] = useState(0);
+  const { notice, setNotice } = useNotice();
+  const buscaRef = useRef<HTMLInputElement>(null);
 
-function DueDateHint({ row }: { row: ReceivableView }) {
-  if (row.status !== "OPEN") return null;
-  if (row.isLate) return <span style={{ color: "#dc2626" }}>atrasado {Math.abs(row.daysUntilExpected)}d</span>;
-  if (row.daysUntilExpected === 0) return <span>hoje</span>;
-  return <span style={{ color: "var(--color-text-muted, #6b7280)" }}>em {row.daysUntilExpected}d</span>;
-}
+  const hojeLocal = useMemo(() => hojeLocalIso(), []);
+  const periodo = useMemo(() => (preset === "custom" ? datas : periodoDoPreset(preset, hojeLocal)), [preset, datas, hojeLocal]);
+  const { resumo, pendentes, historico, carregando, erro, truncado, recarregar } = useContasReceber(vista, periodo);
+  const hoje = resumo?.today ?? hojeLocal;
 
-export function Receivables() {
-  const [rows, setRows] = useState<ReceivableView[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [feedback, setFeedback] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<string>("");
-  const [sourceFilter, setSourceFilter] = useState<string>("");
-  const [payingId, setPayingId] = useState<string | null>(null);
+  // "/" leva à busca, como em Contas a Pagar.
+  useEffect(() => {
+    const tecla = (e: KeyboardEvent) => {
+      const alvo = e.target as HTMLElement | null;
+      if (e.key !== "/" || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (alvo && (alvo.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(alvo.tagName))) return;
+      e.preventDefault();
+      buscaRef.current?.focus();
+    };
+    window.addEventListener("keydown", tecla);
+    return () => window.removeEventListener("keydown", tecla);
+  }, []);
 
-  useEffect(() => { void reload(); }, [statusFilter, sourceFilter]);
+  const base = vista === "pendentes" ? pendentes : historico;
+  const buscadas = useMemo(() => filtrarPorBusca(base, busca), [base, busca]);
+  const porOrigem = useMemo(() => contagemPorOrigem(buscadas), [buscadas]);
+  const exibidas = useMemo(() => {
+    const daOrigem = aplicarOrigem(buscadas, origem);
+    return vista === "pendentes" ? aplicarDia(aplicarFoco(daOrigem, foco, hoje), diaFoco) : daOrigem;
+  }, [buscadas, origem, vista, foco, diaFoco, hoje]);
+  const grupos = useMemo(() => (vista === "pendentes" ? agruparPorUrgencia(exibidas, hoje) : agruparPorMes(exibidas)), [exibidas, vista, hoje]);
+  const agenda = useMemo(() => diasDaAgenda(pendentes, hoje), [pendentes, hoje]);
 
-  async function reload() {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await getReceivables({
-        status: statusFilter ? (statusFilter as ReceivableStatus) : undefined,
-        sourceType: sourceFilter ? (sourceFilter as ReceivableSourceType) : undefined
-      });
-      setRows(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setRows([]);
-      setError(err instanceof Error ? err.message : "Falha ao carregar contas a receber.");
-    } finally {
-      setLoading(false);
-    }
+  const totalExibido = useMemo(() => grupos.reduce((s, g) => s + Math.round(g.total * 100), 0) / 100, [grupos]);
+  const temFiltro = Boolean(busca || foco || diaFoco || origem !== "all");
+  const selecionaveis = useMemo(() => exibidas.filter(estaPendente), [exibidas]);
+  const escolhidas = useMemo(() => pendentes.filter((c) => selecionados.has(c.id)), [pendentes, selecionados]);
+  const totalEscolhido = escolhidas.reduce((s, c) => s + Math.round(c.remainingAmount * 100), 0) / 100;
+
+  function limparFiltros() {
+    setBusca("");
+    setFoco(null);
+    setDiaFoco(null);
+    setOrigem("all");
   }
 
-  const summary = useMemo(() => {
-    const s = { total: 0, open: 0, late: 0, received: 0 };
-    for (const r of rows) {
-      if (r.status === "CANCELLED") continue;
-      s.total += r.netAmount;
-      s.received += r.paidAmount ?? 0;
-      if (r.isLate) s.late += r.remainingAmount;
-      else s.open += r.remainingAmount;
-    }
-    return s;
-  }, [rows]);
-
-  async function handleMarkReceived(receivable: ReceivableView, values: { receivedDate: string; paidAmount: number; paymentMethod: string; notes: string; differenceReason: string }) {
-    setError(null);
-    setFeedback(null);
-    try {
-      await markReceivableReceived(receivable.id, {
-        receivedDate: values.receivedDate,
-        paidAmount: values.paidAmount,
-        paymentMethod: values.paymentMethod || null,
-        notes: values.notes || null,
-        differenceReason: values.differenceReason || null
-      });
-      setFeedback(`Recebimento registrado: ${receivable.description}`);
-      setPayingId(null);
-      await reload();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao dar baixa.");
-    }
+  function trocarVista(nova: Vista) {
+    setVista(nova);
+    setFoco(null);
+    setDiaFoco(null);
+    setSelecionados(new Set());
   }
 
-  async function handleCancel(receivable: ReceivableView) {
-    const reason = window.prompt("Motivo do cancelamento? (obrigatório)", "");
-    if (reason === null) return;
-    if (reason.trim().length < 3) {
-      setError("Informe o motivo do cancelamento (mínimo 3 letras).");
-      return;
-    }
-    setError(null);
-    setFeedback(null);
-    try {
-      await cancelReceivable(receivable.id, reason);
-      setFeedback(`Recebível cancelado: ${receivable.description}`);
-      await reload();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao cancelar.");
-    }
+  function alternarFoco(f: Foco) {
+    setVista("pendentes");
+    setDiaFoco(null);
+    setFoco((atual) => (atual === f && vista === "pendentes" ? null : f));
   }
 
-  const paying = payingId ? rows.find((r) => r.id === payingId) ?? null : null;
+  function alternarDia(chave: string) {
+    setVista("pendentes");
+    setFoco(null);
+    setDiaFoco((atual) => (atual === chave && vista === "pendentes" ? null : chave));
+  }
+
+  function verRecebidoNoMes() {
+    setVista("recebidas");
+    setPreset("mes");
+    setFoco(null);
+    setDiaFoco(null);
+  }
+
+  function alternar(id: string) {
+    setSelecionados((atual) => {
+      const novo = new Set(atual);
+      if (novo.has(id)) novo.delete(id); else novo.add(id);
+      return novo;
+    });
+  }
+
+  function alternarGrupo(ids: string[], marcar: boolean) {
+    setSelecionados((atual) => {
+      const novo = new Set(atual);
+      for (const id of ids) { if (marcar) novo.add(id); else novo.delete(id); }
+      return novo;
+    });
+  }
+
+  // Depois de qualquer ação: recarrega a lista e o detalhe aberto.
+  async function aposAcao(mensagem: string) {
+    setNotice({ tone: "success", message: mensagem });
+    setAcao(null);
+    setSelecionados(new Set());
+    setVersao((v) => v + 1);
+    await recarregar();
+  }
+
+  async function receber(conta: ReceivableView, v: ValoresDoRecebimento) {
+    await markReceivableReceived(conta.id, {
+      receivedDate: v.receivedDate,
+      paidAmount: v.paidAmount,
+      paymentMethod: v.paymentMethod || null,
+      notes: v.notes || null,
+      differenceReason: v.differenceReason || null
+    });
+    await aposAcao(`Recebimento registrado: ${tituloDaConta(conta.description)}`);
+  }
+
+  async function lancar(v: ValoresDaNovaConta) {
+    await createReceivable({
+      sourceType: v.sourceType,
+      description: v.description,
+      customerName: v.customerName || null,
+      expectedDate: v.expectedDate,
+      grossAmount: v.grossAmount,
+      fees: v.fees,
+      netAmount: v.netAmount,
+      notes: v.notes || null
+    });
+    await aposAcao(`Conta lançada: ${v.description}`);
+  }
+
+  async function cancelar(conta: ReceivableView, motivo: string) {
+    await cancelReceivable(conta.id, motivo);
+    await aposAcao(`Conta cancelada: ${tituloDaConta(conta.description)}`);
+  }
+
+  async function estornar(conta: ReceivableView, recebimento: ReceivableReceiptView, motivo: string) {
+    await reverseReceivableReceipt(conta.id, recebimento.id, motivo);
+    await aposAcao(`Recebimento estornado: ${tituloDaConta(conta.description)}`);
+  }
+
+  const contexto = (c: ReceivableView) => (
+    <>
+      <div><span>Origem</span><strong>{ORIGEM_ROTULO[c.sourceType]}</strong></div>
+      <div><span>Previsto</span><strong>{formatDate(c.expectedDate)}</strong></div>
+      <div className="pg-ctx-valor"><span>Valor</span><strong className="pay-ctx-amount"><Money value={c.netAmount} /></strong></div>
+    </>
+  );
+
+  const periodoTexto = vista === "pendentes" ? "Tudo que falta receber" : preset === "tudo" ? "Todo o período" : preset === "custom" ? `${formatDate(periodo.startDate)} a ${formatDate(periodo.endDate)}` : `${rotuloDoPeriodo(preset)} · ${formatDate(periodo.startDate)} a ${formatDate(periodo.endDate)}`;
 
   return (
-    <div className="df-page">
-      {error && <Alert tone="error">{error}</Alert>}
-      {feedback && <Alert tone="success">{feedback}</Alert>}
+    <section className="panel pg-tela rc-tela">
+      <Notice notice={notice} />
 
-      <div className="df-kpi-grid">
-        <SummaryCard label="Total previsto" moneyValue={summary.total} tone="neutral" />
-        <SummaryCard label="A receber" moneyValue={summary.open} tone="info" />
-        <SummaryCard label="Atrasado" moneyValue={summary.late} tone="danger" icon={<AlertCircle size={18} />} />
-        <SummaryCard label="Já recebido" moneyValue={summary.received} tone="success" icon={<Check size={18} />} />
+      <div className="pg-topo">
+        <PanelEyebrow>Resumo de recebimentos</PanelEyebrow>
+        <div className="pg-topo-acoes">
+          {podeReceber && <Button size="sm" leadingIcon={<Plus size={15} />} onClick={() => setAcao({ tipo: "nova" })}>Nova conta</Button>}
+          <IconButton icon={<RefreshCw size={16} />} label="Atualizar" size="sm" onClick={() => void recarregar()} disabled={carregando} />
+        </div>
       </div>
 
-      <Card>
-        <div className="df-filter-bar">
-          <Select
-            label="Status"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            options={[
-              { value: "", label: "Todos" },
-              { value: "OPEN", label: "Em aberto" },
-              { value: "PARTIALLY_RECEIVED", label: "Parcial" },
-              { value: "RECEIVED", label: "Recebido" },
-              { value: "CANCELLED", label: "Cancelado" }
-            ]}
+      <PanoramaReceber
+        resumo={resumo}
+        agenda={agenda}
+        hoje={hoje}
+        carregando={carregando}
+        foco={vista === "pendentes" ? foco : null}
+        recebidoAtivo={vista === "recebidas" && preset === "mes"}
+        diaFoco={vista === "pendentes" ? diaFoco : null}
+        onFoco={alternarFoco}
+        onRecebidoMes={verRecebidoNoMes}
+        onDia={alternarDia}
+      />
+
+      <div className="pg-barra">
+        <div className="pg-busca">
+          <Search size={16} aria-hidden="true" />
+          <input
+            ref={buscaRef}
+            type="search"
+            aria-label="Buscar contas a receber"
+            placeholder="Buscar descrição, cliente, referência ou valor…"
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Escape") setBusca(""); }}
           />
-          <Select
-            label="Origem"
-            value={sourceFilter}
-            onChange={(e) => setSourceFilter(e.target.value)}
-            options={[
-              { value: "", label: "Todas" },
-              { value: "IFOOD_SETTLEMENT", label: "Repasse iFood" },
-              { value: "NOVENTA_NOVE_SETTLEMENT", label: "Repasse 99 Food" },
-              { value: "KEETA_SETTLEMENT", label: "Repasse Keeta" },
-              { value: "EVENT", label: "Evento / Empreitada" },
-              { value: "DIRECT", label: "Direto" },
-              { value: "OTHER", label: "Outro" }
-            ]}
-          />
-          <div className="df-filter-actions">
-            <Button variant="secondary" onClick={reload} leadingIcon={<RefreshCw size={16} />}>Atualizar</Button>
-          </div>
+          {!busca && <kbd className="pg-atalho-tecla" aria-hidden="true" title="Atalho: tecla /">/</kbd>}
+          {busca && (
+            <button type="button" className="pg-busca-limpar" onClick={() => setBusca("")} aria-label="Limpar busca"><X size={14} /></button>
+          )}
         </div>
-      </Card>
+        {temFiltro && <button type="button" className="pg-link" onClick={limparFiltros}>Limpar filtros</button>}
+      </div>
 
-      <Card>
-        <PanelEyebrow>Contas a receber</PanelEyebrow>
-        <h3 style={{ margin: "4px 0 12px 0", fontSize: "16px" }}>
-          {rows.length} registro(s)
-        </h3>
-
-        {loading ? (
-          <p style={{ padding: "16px", textAlign: "center", color: "var(--color-text-muted, #6b7280)" }}>Carregando…</p>
-        ) : rows.length === 0 ? (
-          <div style={{ padding: "24px", textAlign: "center", color: "var(--color-text-muted, #6b7280)" }}>
-            Nenhum recebível cadastrado. Recebimentos do iFood aparecem aqui automaticamente após a sync.
+      <div className="pg-vistas">
+        <div className="pg-segmento" role="group" aria-label="Situação das contas">
+          {VISTAS.map((v) => (
+            <button key={v.chave} type="button" aria-pressed={vista === v.chave} onClick={() => trocarVista(v.chave)}>{v.rotulo}</button>
+          ))}
+        </div>
+        {vista !== "pendentes" && (
+          <div className="rc-periodo">
+            <Select aria-label="Período" value={preset} onChange={(e) => setPreset(e.target.value as PresetPeriodo)} options={PRESETS_PERIODO} />
+            {preset === "custom" && (
+              <>
+                <label className="pg-filtro-data">De<input type="date" value={datas.startDate} onChange={(e) => setDatas((d) => ({ ...d, startDate: e.target.value }))} /></label>
+                <label className="pg-filtro-data">Até<input type="date" value={datas.endDate} onChange={(e) => setDatas((d) => ({ ...d, endDate: e.target.value }))} /></label>
+              </>
+            )}
           </div>
-        ) : (
-          <>
-            {/* DESKTOP — tabela */}
-            <div className="df-table-wrap">
-              <Table>
-                <thead>
-                  <tr>
-                    <th>Origem</th>
-                    <th>Descrição</th>
-                    <th>Empresa</th>
-                    <th>Cliente</th>
-                    <th>Previsto</th>
-                    <th style={{ textAlign: "right" }}>Valor</th>
-                    <th>Status</th>
-                    <th style={{ textAlign: "right" }}>Ações</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((r) => (
-                    <tr key={r.id}>
-                      <td><b>{SOURCE_LABEL[r.sourceType]}</b></td>
-                      <td>
-                        {r.description}
-                        {r.installmentNumber && r.totalInstallments && (
-                          <div style={{ fontSize: "11px", color: "var(--color-text-muted, #6b7280)" }}>
-                            Parcela {r.installmentNumber}/{r.totalInstallments}
-                          </div>
-                        )}
-                      </td>
-                      <td>{r.companyName ?? "—"}</td>
-                      <td>{r.customerName ?? "—"}</td>
-                      <td>
-                        {r.expectedDate}
-                        <div style={{ fontSize: "11px" }}>
-                          <DueDateHint row={r} />
-                        </div>
-                      </td>
-                      <td style={{ textAlign: "right" }}>
-                        <b><Money value={r.netAmount} /></b>
-                        {r.paidAmount !== null && r.paidAmount !== r.netAmount && (
-                          <div style={{ fontSize: "11px", color: "var(--color-text-muted, #6b7280)" }}>
-                            pago: <Money value={r.paidAmount} />
-                          </div>
-                        )}
-                      </td>
-                      <td><StatusPill status={r.status} isLate={r.isLate} /></td>
-                      <td>
-                        <div style={{ display: "flex", gap: "6px", justifyContent: "flex-end" }}>
-                          {r.status !== "RECEIVED" && r.status !== "CANCELLED" && (
-                            <>
-                              <Button size="sm" variant="primary" leadingIcon={<Check size={14} />} onClick={() => setPayingId(r.id)}>Baixar</Button>
-                              {r.status === "OPEN" && <Button size="sm" variant="secondary" leadingIcon={<Ban size={14} />} onClick={() => handleCancel(r)}>Cancelar</Button>}
-                            </>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </Table>
-            </div>
-
-            {/* MOBILE — cards empilhados */}
-            <div className="df-card-list">
-              {rows.map((r) => (
-                <div key={r.id} className="df-card">
-                  <div className="df-card-header">
-                    <div>
-                      <div className="df-card-title">{r.description}</div>
-                      <div className="df-card-subtitle">
-                        {SOURCE_LABEL[r.sourceType]}
-                        {r.installmentNumber && r.totalInstallments && ` · parcela ${r.installmentNumber}/${r.totalInstallments}`}
-                      </div>
-                    </div>
-                    <StatusPill status={r.status} isLate={r.isLate} />
-                  </div>
-
-                  <div className="df-card-meta">
-                    <div>
-                      <span className="label">Empresa</span>
-                      <span className="value">{r.companyName ?? "—"}</span>
-                    </div>
-                    <div>
-                      <span className="label">Cliente</span>
-                      <span className="value">{r.customerName ?? "—"}</span>
-                    </div>
-                    <div>
-                      <span className="label">Data prevista</span>
-                      <span className="value">
-                        {r.expectedDate}
-                        <span style={{ marginLeft: 6, fontWeight: 400, fontSize: 11 }}>
-                          <DueDateHint row={r} />
-                        </span>
-                      </span>
-                    </div>
-                    <div>
-                      <span className="label">Valor</span>
-                      <span className="value"><Money value={r.netAmount} /></span>
-                    </div>
-                  </div>
-
-                  {r.status !== "RECEIVED" && r.status !== "CANCELLED" && (
-                    <div className="df-card-actions">
-                      <Button size="sm" variant="primary" leadingIcon={<Check size={14} />} onClick={() => setPayingId(r.id)}>Baixar</Button>
-                      {r.status === "OPEN" && <Button size="sm" variant="secondary" leadingIcon={<Ban size={14} />} onClick={() => handleCancel(r)}>Cancelar</Button>}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </>
         )}
-      </Card>
+        <div className="pg-atalhos" role="group" aria-label="Plataforma">
+          <button type="button" className="pg-chip" aria-pressed={origem === "all"} onClick={() => setOrigem("all")}>Todas</button>
+          {ORIGENS.filter((o) => porOrigem[o] > 0 || origem === o).map((o) => (
+            <button key={o} type="button" className="pg-chip" aria-pressed={origem === o} onClick={() => setOrigem(origem === o ? "all" : o)}>
+              {ORIGEM_ROTULO[o]} <span className="rc-chip-qtd">{porOrigem[o]}</span>
+            </button>
+          ))}
+          {foco && vista === "pendentes" && (
+            <button type="button" className="pg-chip" aria-pressed onClick={() => setFoco(null)} aria-label={`Remover filtro ${ROTULO_FOCO[foco]}`}>{ROTULO_FOCO[foco]} <X size={11} aria-hidden="true" /></button>
+          )}
+          {diaFoco && vista === "pendentes" && (
+            <button type="button" className="pg-chip" aria-pressed onClick={() => setDiaFoco(null)} aria-label={`Remover filtro do dia ${formatDate(diaFoco)}`}>Dia {formatDate(diaFoco)} <X size={11} aria-hidden="true" /></button>
+          )}
+        </div>
+      </div>
 
-      {paying && (
-        <MarkReceivedModal
-          receivable={paying}
-          onClose={() => setPayingId(null)}
-          onSubmit={(values) => handleMarkReceived(paying, values)}
+      <div className="pg-resultado" aria-live="polite">
+        {podeReceber && vista === "pendentes" && selecionaveis.length > 0 && !carregando && (
+          <input
+            type="checkbox"
+            className="pg-check"
+            checked={selecionaveis.every((c) => selecionados.has(c.id))}
+            ref={(el) => { if (el) el.indeterminate = selecionaveis.some((c) => selecionados.has(c.id)) && !selecionaveis.every((c) => selecionados.has(c.id)); }}
+            onChange={() => alternarGrupo(selecionaveis.map((c) => c.id), !selecionaveis.every((c) => selecionados.has(c.id)))}
+            aria-label={`Selecionar todas as ${selecionaveis.length} contas a receber`}
+          />
+        )}
+        <span className="pg-resultado-qtd">{carregando ? "Carregando…" : `${exibidas.length} ${exibidas.length === 1 ? "conta" : "contas"}`}</span>
+        {!carregando && exibidas.length > 0 && <strong className="pg-num"><Money value={totalExibido} /></strong>}
+        {!carregando && exibidas.length > 0 && <span className="pg-resultado-qtd">{vista === "pendentes" ? "a receber" : vista === "recebidas" ? "recebidos" : ""}</span>}
+        <span className="pg-resultado-periodo">{periodoTexto}</span>
+      </div>
+
+      {!carregando && !erro && truncado && (
+        <Alert tone="warning" role="alert">A lista passou de {LIMITE_DA_LISTA} contas e foi cortada: escolha um período menor.</Alert>
+      )}
+
+      {carregando && !resumo ? (
+        <div className="pg-carregando" role="status" aria-label="Carregando contas a receber">
+          {[0, 1, 2, 3].map((i) => <div key={i} className="pg-esqueleto" />)}
+        </div>
+      ) : erro ? (
+        <div className="pg-erro" role="alert">
+          <AlertTriangle size={20} aria-hidden="true" />
+          <div><strong>Não foi possível carregar as contas a receber.</strong><p>{erro}</p></div>
+          <Button variant="secondary" size="sm" leadingIcon={<RefreshCw size={14} />} onClick={() => void recarregar()}>Tentar de novo</Button>
+        </div>
+      ) : grupos.length === 0 ? (
+        <EmptyState
+          title={busca ? `Nenhuma conta encontrada para "${busca}".` : vista === "pendentes" ? "Tudo recebido: nada a receber agora." : "Nenhuma conta neste período."}
+          description={temFiltro ? "Ajuste a busca ou limpe os filtros." : "Repasses do iFood, 99 Food e Keeta, eventos e a coleta de óleo aparecem aqui."}
+        />
+      ) : (
+        <ListaContas
+          grupos={grupos}
+          hoje={hoje}
+          rotuloTotal={vista === "pendentes" ? "Falta receber" : "Total do mês"}
+          rotuloData={vista === "pendentes" ? "Previsto" : vista === "recebidas" ? "Recebido em" : "Data"}
+          podeReceber={podeReceber}
+          podeDesfazer={podeDesfazer}
+          selecionados={selecionados}
+          onAlternar={alternar}
+          onAlternarGrupo={alternarGrupo}
+          onReceberGrupo={(ids) => setAcao({ tipo: "lote", ids })}
+          onVer={(c) => setDetalheId(c.id)}
+          onReceber={(c) => setAcao({ tipo: "receber", conta: c })}
+          onCancelar={(c) => setAcao({ tipo: "cancelar", conta: c })}
+          onEstornar={(c) => setDetalheId(c.id)}
         />
       )}
-    </div>
-  );
-}
 
-type MarkReceivedModalProps = {
-  receivable: ReceivableView;
-  onClose: () => void;
-  onSubmit: (values: { receivedDate: string; paidAmount: number; paymentMethod: string; notes: string; differenceReason: string }) => void;
-};
-
-function MarkReceivedModal({ receivable, onClose, onSubmit }: MarkReceivedModalProps) {
-  const today = hojeLocalIso();
-  const [receivedDate, setReceivedDate] = useState(today);
-  const [paidAmount, setPaidAmount] = useState(String(receivable.remainingAmount || receivable.netAmount));
-  const [paymentMethod, setPaymentMethod] = useState(receivable.paymentMethod ?? "");
-  const [notes, setNotes] = useState("");
-  const [differenceReason, setDifferenceReason] = useState("");
-  const passaDoSaldo = (Number(paidAmount) || 0) > receivable.remainingAmount + 0.005;
-
-  return (
-    <div className="df-modal-overlay" onClick={onClose}>
-      <div className="df-modal" onClick={(e) => e.stopPropagation()}>
-        <h3>Registrar recebimento</h3>
-        <p className="df-modal-subtitle">{receivable.description}</p>
-        <div className="df-modal-fields">
-          <TextField
-            label="Data do recebimento"
-            type="date"
-            value={receivedDate}
-            onChange={(e) => setReceivedDate(e.target.value)}
-          />
-          <TextField
-            label="Valor recebido (R$)"
-            type="number"
-            step="0.01"
-            value={paidAmount}
-            onChange={(e) => setPaidAmount(e.target.value)}
-            hint={`Falta receber: R$ ${receivable.remainingAmount.toFixed(2)}`}
-          />
-          <TextField
-            label="Método de pagamento"
-            value={paymentMethod}
-            onChange={(e) => setPaymentMethod(e.target.value)}
-            placeholder="PIX, TED, iFood repasse, etc"
-          />
-          {passaDoSaldo && (
-            <TextField
-              label="Motivo da diferença"
-              value={differenceReason}
-              onChange={(e) => setDifferenceReason(e.target.value)}
-              hint="O valor passa do que falta receber; explique a diferença."
-            />
-          )}
-          <TextField
-            label="Observações"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-          />
+      {escolhidas.length > 0 && (
+        <div className="pg-selecao" role="region" aria-label="Contas selecionadas">
+          <span className="pg-selecao-info"><strong>{escolhidas.length}</strong> selecionada(s) · <strong className="pg-num"><Money value={totalEscolhido} /></strong></span>
+          <span className="pg-selecao-acoes">
+            <Button variant="secondary" size="sm" onClick={() => setSelecionados(new Set())}>Limpar seleção</Button>
+            <Button size="sm" leadingIcon={<CheckCircle2 size={14} />} onClick={() => setAcao({ tipo: "lote", ids: escolhidas.map((c) => c.id) })}>Receber selecionadas</Button>
+          </span>
         </div>
-        <div className="df-modal-actions">
-          <Button variant="secondary" onClick={onClose}>Cancelar</Button>
-          <Button variant="primary" leadingIcon={<Check size={16} />} onClick={() => onSubmit({
-            receivedDate,
-            paidAmount: Number(paidAmount) || 0,
-            paymentMethod,
-            notes,
-            differenceReason: passaDoSaldo ? differenceReason : ""
-          })}>
-            Confirmar baixa
-          </Button>
-        </div>
-      </div>
-    </div>
+      )}
+
+      {detalheId && (
+        <DetalheConta
+          id={detalheId}
+          versao={versao}
+          podeReceber={podeReceber}
+          podeDesfazer={podeDesfazer}
+          onFechar={() => setDetalheId(null)}
+          onReceber={(c: ReceivableDetail) => setAcao({ tipo: "receber", conta: c })}
+          onCancelar={(c: ReceivableDetail) => setAcao({ tipo: "cancelar", conta: c })}
+          onEstornar={(c, recebimento) => setAcao({ tipo: "estornar", conta: c, recebimento })}
+        />
+      )}
+
+      {acao?.tipo === "receber" && <ModalReceber conta={acao.conta} hoje={hoje} onFechar={() => setAcao(null)} onConfirmar={(v) => receber(acao.conta, v)} />}
+      {acao?.tipo === "nova" && <ModalNova hoje={hoje} onFechar={() => setAcao(null)} onConfirmar={lancar} />}
+      {acao?.tipo === "cancelar" && (
+        <ModalMotivo
+          eyebrow="Cancelar conta a receber"
+          titulo={tituloDaConta(acao.conta.description)}
+          contexto={contexto(acao.conta)}
+          nota="A conta deixa de contar como a receber. O motivo fica registrado na auditoria. Só é possível cancelar conta sem recebimento."
+          rotuloMotivo="Motivo do cancelamento"
+          placeholder="Ex.: evento desmarcado, lançado em duplicidade…"
+          rotuloConfirmar="Cancelar conta"
+          rotuloEnviando="Cancelando…"
+          icone={<Ban size={16} />}
+          onFechar={() => setAcao(null)}
+          onConfirmar={(motivo) => cancelar(acao.conta, motivo)}
+        />
+      )}
+      {acao?.tipo === "estornar" && (
+        <ModalMotivo
+          eyebrow="Estorno de recebimento"
+          titulo={tituloDaConta(acao.conta.description)}
+          contexto={
+            <>
+              <div><span>Valor recebido</span><strong><Money value={acao.recebimento.amount} /></strong></div>
+              <div><span>Data</span><strong>{formatDate(acao.recebimento.receivedDate)}</strong></div>
+            </>
+          }
+          nota="O recebimento é desfeito e a conta volta a ter esse valor a receber. O lançamento continua no histórico, marcado como estornado."
+          rotuloMotivo="Motivo do estorno"
+          placeholder="Ex.: valor digitado errado, o dinheiro não caiu…"
+          rotuloConfirmar="Confirmar estorno"
+          rotuloEnviando="Estornando…"
+          icone={<RotateCcw size={16} />}
+          onFechar={() => setAcao(null)}
+          onConfirmar={(motivo) => estornar(acao.conta, acao.recebimento, motivo)}
+        />
+      )}
+      {acao?.tipo === "lote" && (
+        <ModalLote
+          contas={pendentes.filter((c) => acao.ids.includes(c.id))}
+          hoje={hoje}
+          onFechar={() => setAcao(null)}
+          onConcluir={({ feitas, falhas }) => {
+            setSelecionados(new Set());
+            setVersao((v) => v + 1);
+            void recarregar();
+            if (falhas.length === 0) {
+              setAcao(null);
+              setNotice({ tone: "success", message: `${feitas} ${feitas === 1 ? "recebimento registrado" : "recebimentos registrados"}.` });
+            }
+          }}
+        />
+      )}
+    </section>
   );
 }

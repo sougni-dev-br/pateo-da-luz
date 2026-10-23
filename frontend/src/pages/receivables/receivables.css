@@ -1,0 +1,109 @@
+/* ═══════════════════════════════════════════════════════════════════
+   Contas a Receber — redesenho no padrão de Contas a Pagar (prefixo rc-).
+   A maior parte vem das classes pg- de payables.css; aqui só o que é específico.
+   Só tokens de styles/tokens (sem hex soltos).
+═══════════════════════════════════════════════════════════════════ */
+
+/* Cinco totais (em Contas a Pagar são seis): o último, "Recebido no mês", é o bloco à parte. */
+@media (min-width: 1181px) {
+  .pg-kpis.rc-kpis { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+}
+
+.rc-chip-qtd {
+  display: inline-block;
+  margin-left: 4px;
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-pill);
+  background: var(--paper-soft);
+  color: var(--muted);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-semibold);
+  line-height: 18px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.pg-chip[aria-pressed="true"] .rc-chip-qtd { background: var(--paper); color: var(--gold-dark); }
+.pg-chip svg { margin-left: 2px; vertical-align: -1px; }
+
+/* Período das vistas de histórico, ao lado do seletor de situação. */
+.rc-periodo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+}
+.rc-periodo .ds-select { min-width: 160px; }
+
+/* Formulários das janelas: duas colunas (a janela estreita não comporta quatro campos lado a lado). */
+.pg-janela .form-grid.rc-form { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+@media (max-width: 520px) { .pg-janela .form-grid.rc-form { grid-template-columns: 1fr; } }
+
+/* Campo que ocupa a linha inteira nos formulários das janelas. */
+.rc-form .rc-campo-largo { grid-column: 1 / -1; }
+.rc-valor { display: grid; gap: 2px; align-content: start; }
+.rc-valor .pg-link { justify-self: start; padding: 2px 0; font-size: var(--fs-xs); }
+
+/* ── Detalhe ─────────────────────────────────────────────────────── */
+.rc-detalhe-topo { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 4px; }
+
+.rc-detalhe .modal-section-title:not(.pg-sec-primeira) { margin-top: 20px; }
+.rc-detalhe .pg-sec-primeira { margin-top: 12px; }
+.rc-detalhe .pg-nota { margin: 12px 0 0; }
+
+.rc-composicao {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-radius: var(--radius-md);
+  outline: 1px solid var(--line);
+  outline-offset: -1px;
+  overflow: hidden;
+  background: var(--paper);
+}
+.rc-composicao > div {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  box-shadow: inset -1px -1px 0 var(--line);
+}
+.rc-composicao span {
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.rc-composicao strong { font-size: var(--fs-body); font-variant-numeric: tabular-nums; color: var(--ink); }
+.rc-composicao-menos strong { color: var(--danger); }
+.rc-composicao-total { background: var(--app-bg-from); }
+.rc-composicao-total strong { font-size: 17px; }
+.rc-composicao-falta strong { color: var(--warning); }
+
+.rc-recebimentos { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.rc-recebimento {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+  font-size: var(--fs-sm);
+}
+.rc-recebimento > div { display: grid; gap: 2px; min-width: 0; }
+.rc-recebimento small { color: var(--muted); font-size: var(--fs-xs); }
+.rc-recebimento-obs { overflow-wrap: anywhere; }
+.rc-recebimento--estornado { background: var(--paper-soft); color: var(--muted); }
+.rc-recebimento--estornado strong { text-decoration: line-through; }
+
+@media (max-width: 760px) {
+  /* Quatro opções num celular de 375 px: sem quebrar "A receber" em duas linhas. */
+  .rc-tela .pg-segmento button { padding: 0 6px; font-size: var(--fs-xs); white-space: nowrap; }
+  .rc-composicao { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rc-recebimento { flex-wrap: wrap; }
+  .rc-periodo { width: 100%; }
+  .rc-periodo .ds-select { flex: 1; }
+}
+
+.rc-motivo { margin-top: 10px; }

@@ -7109,8 +7109,11 @@ export function getReceivables(filters: {
   endDate?: string;
   dateField?: "expected" | "received";
   search?: string;
+  /** Até 1000; o servidor usa 500 quando omitido. */
+  limit?: number;
 } = {}) {
-  return request<ReceivableView[]>(`/receivables${toQueryString(filters)}`);
+  const { limit, ...resto } = filters;
+  return request<ReceivableView[]>(`/receivables${toQueryString({ ...resto, limit: limit === undefined ? undefined : String(limit) })}`);
 }
 
 export function createReceivable(payload: {
