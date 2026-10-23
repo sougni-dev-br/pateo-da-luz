@@ -3211,6 +3211,19 @@ export type DashboardSummaryKpi = {
   deltaPercent: number | null;
 };
 
+export type DashboardChannelRevenue = {
+  canal: string;
+  grossAmount: number;
+  netAmount: number;
+  sharePercent: number | null;
+  count: number;
+  ultimoDia: string | null;
+  diaFuturo: string | null;
+  /** Só no mês corrente; null em mês passado. */
+  situacao: "EM_DIA" | "ATRASADO" | "SEM_DADOS" | null;
+  diasDesdeUltimo: number | null;
+};
+
 export type DashboardSummaryData = {
   year: number;
   month: number;
@@ -3224,6 +3237,8 @@ export type DashboardSummaryData = {
     salonTickets?: number;
     salonPeopleServed?: number;
     count: number;
+    /** Opcional: um backend anterior a este campo não o manda. */
+    byChannel?: DashboardChannelRevenue[];
     ticketAverage: number;
     ticketAveragePerTable: number;
     ticketAveragePerPerson: number;
