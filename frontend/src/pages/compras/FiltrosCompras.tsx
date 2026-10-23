@@ -96,7 +96,7 @@ export function FiltrosCompras(props: Props) {
           <input
             type="search"
             aria-label="Buscar compras"
-            placeholder="Buscar NF, pedido, fornecedor, CNPJ ou produto…"
+            placeholder="Buscar NF, pedido, fornecedor, CNPJ, produto ou valor…"
             value={busca}
             onChange={(e) => props.onBusca(e.target.value)}
           />
