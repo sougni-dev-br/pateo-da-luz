@@ -64,6 +64,8 @@ export const menuCatalog = [
   { id: "supplier-cycles", label: "Ciclos de fornecedor", group: "Financeiro" },
   // Compras pagas do bolso de um funcionario: conferir os comprovantes e fechar o titulo da pessoa.
   { id: "reimbursements", label: "Reembolsos a funcionário", group: "Financeiro" },
+  // Parcelamento em lote de uma dívida com um fornecedor: cada parcela vira uma conta a pagar. Cancelar e renegociar pedem "excluir".
+  { id: "installment-plans", label: "Parcelamentos", group: "Financeiro" },
   // Coleta de óleo de fritura (Retióleo): certificado de destino final e conferência do PIX. Cancelar pede "excluir".
   { id: "oil-collections", label: "Coleta de óleo", group: "Operacao" },
   { id: "dre", label: "DRE Gerencial", group: "Financeiro" },
@@ -436,6 +438,7 @@ function menuFromRequest(request: Request): MenuId | null {
   if (path.startsWith("/receivables")) return "receivables";
   if (path.startsWith("/ifood-expenses")) return "ifood-expenses";
   if (path.startsWith("/purchases")) return "purchases";
+  if (path.startsWith("/installment-plans")) return "installment-plans";
   if (path.startsWith("/cards")) return "cards";
   if (path.startsWith("/imports/suppliers") || path.startsWith("/imports/products") || path.startsWith("/imports/payment-methods") || path.startsWith("/imports/small-expense-types") || path.startsWith("/imports/catalog")) return "catalog-imports";
   if (path.startsWith("/imports") || path.startsWith("/import-conflicts")) return "import";
@@ -528,6 +531,8 @@ function actionFromRequest(request: Request, menuId: MenuId): PermissionAction {
 
   // Conferir comprovante e editar, nao criar. Fechar/reabrir caem na regra geral de "approve" abaixo.
   if (menuId === "reimbursements" && path.endsWith("/check-all")) return "edit";
+  // Renegociar cancela as parcelas abertas: é uma exclusão, como cancelar.
+  if (menuId === "installment-plans" && path.endsWith("/renegociar")) return "delete";
 
   // Concluir a ficha grava no cadastro de funcionários: é aprovar, não "criar um registro".
   if (menuId === "employee-forms" && path.endsWith("/concluir")) return "approve";

@@ -265,10 +265,13 @@ export function agruparPorVencimento(rows: Payable[], hoje: string): GrupoDeTitu
     });
 }
 
-export type Selo = { rotulo: string; tom: "imposto" | "folha" | "extra" | "fatura" | "legado" | "ciclo" };
+export type Selo = { rotulo: string; dica?: string; tom: "imposto" | "folha" | "extra" | "fatura" | "legado" | "ciclo" | "parcelamento" };
 
 /** Selo do tipo de título; título comum de compra não leva selo. */
 export function seloDoTitulo(p: Payable): Selo | null {
+  if (p.planDescription && p.planInstallmentNumber && p.planInstallmentCount) {
+    return { rotulo: `Parcelamento ${p.planInstallmentNumber}/${p.planInstallmentCount}`, tom: "parcelamento", dica: p.planDescription };
+  }
   switch (p.sourceType) {
     case "TAX_PAYMENT": return { rotulo: "Imposto", tom: "imposto" };
     case "PAYROLL": return { rotulo: p.taxDocumentType ? `Folha · ${p.taxDocumentType}` : "Folha", tom: "folha" };

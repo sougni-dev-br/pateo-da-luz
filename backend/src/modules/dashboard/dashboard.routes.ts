@@ -4,6 +4,7 @@ import { prisma } from "../../config/database.js";
 import { requireRole } from "../security/security-utils.js";
 import { getMonthlyCmv } from "../monthly/monthly.service.js";
 import { excludeAggregatorsSql } from "../purchases/purchase-aggregators.js";
+import { semParcelamentoForaDoDreSql } from "../parcelamentos/parcelamento-dre.js";
 import { montarRankings } from "./dashboard-rankings.js";
 import { carregarFerias, contarAlertas } from "../payroll/ferias.routes.js";
 import { calcularResultadoCompleto } from "./dashboard-resultado.js";
@@ -63,6 +64,7 @@ dashboardRouter.get("/purchases", async (request, response) => {
       : Prisma.sql`"purchaseDate" >= CAST(${startDate} AS timestamp) AND "purchaseDate" <= CAST(${endDate} AS timestamp)`}
       AND "status" = 'ACTIVE'
       AND ${excludeAggregatorsSql()}
+      AND ${semParcelamentoForaDoDreSql()}
   `;
 
   const previousIds = await prisma.$queryRaw<Array<{ id: string }>>`
@@ -71,6 +73,7 @@ dashboardRouter.get("/purchases", async (request, response) => {
       AND "competenceMonth" = ${previousMonth}
       AND "status" = 'ACTIVE'
       AND ${excludeAggregatorsSql()}
+      AND ${semParcelamentoForaDoDreSql()}
   `;
 
   const [revenue] = await prisma.$queryRaw<Array<{
@@ -343,6 +346,7 @@ dashboardRouter.get("/summary", async (request, response) => {
         AND "status" = 'ACTIVE'
         AND ("isSmallExpense" = false OR "isSmallExpense" IS NULL)
         AND ${excludeAggregatorsSql()}
+        AND ${semParcelamentoForaDoDreSql()}
     `,
     // Compras regulares mês anterior
     prisma.$queryRaw<Array<{ total: unknown }>>`
@@ -353,6 +357,7 @@ dashboardRouter.get("/summary", async (request, response) => {
         AND "status" = 'ACTIVE'
         AND ("isSmallExpense" = false OR "isSmallExpense" IS NULL)
         AND ${excludeAggregatorsSql()}
+        AND ${semParcelamentoForaDoDreSql()}
     `,
     // Pequenos gastos período atual
     prisma.$queryRaw<Array<{ total: unknown; cnt: unknown }>>`
@@ -363,6 +368,7 @@ dashboardRouter.get("/summary", async (request, response) => {
         AND "status" = 'ACTIVE'
         AND "isSmallExpense" = true
         AND ${excludeAggregatorsSql()}
+        AND ${semParcelamentoForaDoDreSql()}
     `,
     // Pequenos gastos mês anterior
     prisma.$queryRaw<Array<{ total: unknown }>>`
@@ -373,6 +379,7 @@ dashboardRouter.get("/summary", async (request, response) => {
         AND "status" = 'ACTIVE'
         AND "isSmallExpense" = true
         AND ${excludeAggregatorsSql()}
+        AND ${semParcelamentoForaDoDreSql()}
     `,
     // CMV Real (fechamento mensal)
     prisma.monthlyCmv.findFirst({

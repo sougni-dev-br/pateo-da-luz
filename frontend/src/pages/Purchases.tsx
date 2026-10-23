@@ -1727,6 +1727,7 @@ export function Purchases({ user }: { user: AppUser }) {
     onCopiar: (compra) => void openCopyPurchase(compra.id),
     onCancelar: handleCancel,
     onRestaurar: handleRestore,
+    onAbrirParcelamento: () => navigate("/financeiro/parcelamentos"),
     onNova: openNewPurchase
   };
 

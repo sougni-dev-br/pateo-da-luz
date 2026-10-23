@@ -29,6 +29,7 @@ import { REIMBURSEMENT_PAYMENT_TYPE, REIMBURSEMENT_SOURCE, ReimbursementError, e
 import { fornecedorDoFuncionario, reabrirReembolsoDoAgregador, retirarCompraCancelada, sincronizarCompraNoReembolso, validarQuemPagou } from "../reimbursements/reimbursement.service.js";
 import { vinculoPedidoRouter } from "./purchase-vinculo-pedido.routes.js";
 import { recalcularPedidosDaCompra } from "../purchase-orders/vinculo-nota.service.js";
+import { mensagemCompraDeParcelamento, parcelamentoDaCompra } from "../parcelamentos/compra-de-parcelamento.js";
 import { OFFICIAL_SMALL_EXPENSE_NORMALIZED_TYPES } from "../master-data/small-expense-type-options.js";
 import {
   buildReferenceLabel,
@@ -575,6 +576,10 @@ purchaseRouter.get("/payables", async (request, response) => {
           -- Empresa em que o título foi lançado (a baixa em lote pode pagar por ela).
           p."companyId",
           p."rawRow"->>'notes' AS "notes",
+          -- Parcela de um parcelamento em lote: a tela mostra "Parcelamento 2/12".
+          ip."description" AS "planDescription",
+          p."planInstallmentNumber" AS "planInstallmentNumber",
+          ip."installmentCount" AS "planInstallmentCount",
           NULL::text AS "taxDocumentType",
           NULL::text AS "taxDescription",
           NULL::text AS "taxCompanyName",
@@ -584,6 +589,7 @@ purchaseRouter.get("/payables", async (request, response) => {
         FROM "PaymentInstallment" pi
         JOIN "Purchase" p ON p."id" = pi."purchaseId"
         JOIN "Supplier" s ON s."id" = p."supplierId"
+        LEFT JOIN "InstallmentPlan" ip ON ip."id" = p."installmentPlanId"
         LEFT JOIN "PaymentMethod" pm ON pm."id" = pi."paymentMethodId"
         LEFT JOIN "PaymentMethod" ppm ON ppm."id" = pi."paidPaymentMethodId"
         WHERE ${supplierId ? Prisma.sql`s."id" = ${supplierId}` : Prisma.sql`true`}
@@ -2252,6 +2258,11 @@ purchaseRouter.put("/:id", async (request, response) => {
     response.status(400).json({ message: "Compra cancelada nao pode ser editada." });
     return;
   }
+  const doParcelamento = await parcelamentoDaCompra(request.params.id);
+  if (doParcelamento) {
+    response.status(409).json({ message: mensagemCompraDeParcelamento(doParcelamento, "editar") });
+    return;
+  }
 
   const currentSupplierId = String(previousRecord.supplierId);
   const nextSupplierId = asNullableText(request.body.supplierId) ?? currentSupplierId;
@@ -2859,6 +2870,11 @@ purchaseRouter.patch("/:id/cancel", async (request, response) => {
     response.status(404).json({ message: "Compra nao encontrada." });
     return;
   }
+  const doParcelamento = await parcelamentoDaCompra(request.params.id);
+  if (doParcelamento) {
+    response.status(409).json({ message: mensagemCompraDeParcelamento(doParcelamento, "cancelar") });
+    return;
+  }
   const cancellationCompetenceDate = previous.receivedAt
     ? parseDate(previous.receivedAt)
     : parseDate(previous.purchaseDate);
@@ -3074,6 +3090,11 @@ purchaseRouter.patch("/:id/restore", async (request, response) => {
   `;
   if (!previous) {
     response.status(404).json({ message: "Compra nao encontrada." });
+    return;
+  }
+  const doParcelamento = await parcelamentoDaCompra(request.params.id);
+  if (doParcelamento) {
+    response.status(409).json({ message: mensagemCompraDeParcelamento(doParcelamento, "restaurar") });
     return;
   }
   // O titulo de um reembolso cancelado nao revive: o reembolso ja voltou a aberto
