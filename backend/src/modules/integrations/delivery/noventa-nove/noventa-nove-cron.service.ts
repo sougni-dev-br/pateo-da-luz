@@ -143,7 +143,7 @@ async function runDailyMenuImport(): Promise<void> {
   try {
     const result = await importarCardapios();
     const lojas = result.perStore ?? [];
-    const resumo = lojas.map((loja) => `${loja.storeLabel}: ${loja.status} (${loja.listagensCriadas} novas, ${loja.listagensAtualizadas} atualizadas, ${loja.pratosCriados} pratos novos)`).join("; ");
+    const resumo = lojas.map((loja) => `${loja.storeLabel}: ${loja.status} (${loja.listagensCriadas} novas, ${loja.listagensAtualizadas} atualizadas, ${loja.pratosCriados} pratos novos)${loja.status === "SUCCESS" ? "" : ` — ${loja.message}`}`).join("; ");
     console.info(`[99cron] cardápio importado — ${resumo || "nenhuma loja"}.`);
   } catch (error: unknown) {
     console.error("[99cron] falha ao importar o cardápio —", error instanceof Error ? error.message : error);
