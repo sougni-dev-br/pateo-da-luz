@@ -7043,6 +7043,8 @@ export type ReceivableView = {
   fees: number;
   netAmount: number;
   paidAmount: number | null;
+  /** Quanto ainda falta receber (0 se recebida ou cancelada). */
+  remainingAmount: number;
   paymentMethod: string | null;
   bankAccountId: string | null;
   installmentNumber: number | null;
@@ -7050,17 +7052,63 @@ export type ReceivableView = {
   parentReceivableId: string | null;
   status: ReceivableStatus;
   notes: string | null;
+  cancelledAt: string | null;
+  cancellationReason: string | null;
   daysUntilExpected: number;
   isLate: boolean;
   createdAt: string;
 };
 
+export type ReceivableReceiptView = {
+  id: string;
+  receivedDate: string;
+  amount: number;
+  paymentMethod: string | null;
+  bankAccountId: string | null;
+  notes: string | null;
+  createdByUserId: string | null;
+  createdAt: string | null;
+  reversedAt: string | null;
+  reversalReason: string | null;
+  legacy: boolean;
+};
+
+export type ReceivableDetail = ReceivableView & { receipts: ReceivableReceiptView[] };
+
+export type ReceivableSummary = {
+  today: string;
+  overdue: { count: number; amount: number };
+  dueToday: { count: number; amount: number };
+  next7: { count: number; amount: number };
+  next30: { count: number; amount: number };
+  pending: { count: number; amount: number };
+  receivedThisMonth: { count: number; amount: number };
+};
+
+export function getReceivableSummary() {
+  return request<ReceivableSummary>("/receivables/summary");
+}
+
+export function getReceivableDetail(id: string) {
+  return request<ReceivableDetail>(`/receivables/${id}`);
+}
+
+export function reverseReceivableReceipt(id: string, receiptId: string, reason: string) {
+  return request<ReceivableView>(`/receivables/${id}/receipts/${receiptId}/reverse`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason })
+  });
+}
+
 export function getReceivables(filters: {
-  status?: ReceivableStatus;
+  status?: ReceivableStatus | "PENDING";
   sourceType?: ReceivableSourceType;
   companyId?: string;
   startDate?: string;
   endDate?: string;
+  dateField?: "expected" | "received";
+  search?: string;
 } = {}) {
   return request<ReceivableView[]>(`/receivables${toQueryString(filters)}`);
 }
@@ -7096,6 +7144,8 @@ export function markReceivableReceived(id: string, payload: {
   paymentMethod?: string | null;
   bankAccountId?: string | null;
   notes?: string | null;
+  /** Obrigatório só quando o valor passa do saldo a receber. */
+  differenceReason?: string | null;
 }) {
   return request<ReceivableView>(`/receivables/${id}/receive`, {
     method: "POST",
@@ -7104,7 +7154,7 @@ export function markReceivableReceived(id: string, payload: {
   });
 }
 
-export function cancelReceivable(id: string, reason?: string) {
+export function cancelReceivable(id: string, reason: string) {
   return request<ReceivableView>(`/receivables/${id}/cancel`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

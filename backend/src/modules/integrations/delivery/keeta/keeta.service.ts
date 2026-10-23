@@ -56,6 +56,7 @@ async function lerRepasses(year: number, month: number): Promise<KeetaRepasse[]>
     grossAmount: Number(r.grossAmount),
     fees: Number(r.fees),
     netAmount: Number(r.netAmount),
+    paidAmount: r.paidAmount === null ? null : Number(r.paidAmount),
     status: r.status
   }));
 }

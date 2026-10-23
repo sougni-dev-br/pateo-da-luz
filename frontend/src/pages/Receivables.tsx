@@ -82,14 +82,14 @@ export function Receivables() {
     for (const r of rows) {
       if (r.status === "CANCELLED") continue;
       s.total += r.netAmount;
-      if (r.status === "RECEIVED") s.received += r.netAmount;
-      else if (r.isLate) s.late += r.netAmount;
-      else s.open += r.netAmount;
+      s.received += r.paidAmount ?? 0;
+      if (r.isLate) s.late += r.remainingAmount;
+      else s.open += r.remainingAmount;
     }
     return s;
   }, [rows]);
 
-  async function handleMarkReceived(receivable: ReceivableView, values: { receivedDate: string; paidAmount: number; paymentMethod: string; notes: string }) {
+  async function handleMarkReceived(receivable: ReceivableView, values: { receivedDate: string; paidAmount: number; paymentMethod: string; notes: string; differenceReason: string }) {
     setError(null);
     setFeedback(null);
     try {
@@ -97,7 +97,8 @@ export function Receivables() {
         receivedDate: values.receivedDate,
         paidAmount: values.paidAmount,
         paymentMethod: values.paymentMethod || null,
-        notes: values.notes || null
+        notes: values.notes || null,
+        differenceReason: values.differenceReason || null
       });
       setFeedback(`Recebimento registrado: ${receivable.description}`);
       setPayingId(null);
@@ -108,8 +109,12 @@ export function Receivables() {
   }
 
   async function handleCancel(receivable: ReceivableView) {
-    const reason = window.prompt("Motivo do cancelamento?", "");
+    const reason = window.prompt("Motivo do cancelamento? (obrigatório)", "");
     if (reason === null) return;
+    if (reason.trim().length < 3) {
+      setError("Informe o motivo do cancelamento (mínimo 3 letras).");
+      return;
+    }
     setError(null);
     setFeedback(null);
     try {
@@ -156,6 +161,8 @@ export function Receivables() {
             options={[
               { value: "", label: "Todas" },
               { value: "IFOOD_SETTLEMENT", label: "Repasse iFood" },
+              { value: "NOVENTA_NOVE_SETTLEMENT", label: "Repasse 99 Food" },
+              { value: "KEETA_SETTLEMENT", label: "Repasse Keeta" },
               { value: "EVENT", label: "Evento / Empreitada" },
               { value: "DIRECT", label: "Direto" },
               { value: "OTHER", label: "Outro" }
@@ -230,7 +237,7 @@ export function Receivables() {
                           {r.status !== "RECEIVED" && r.status !== "CANCELLED" && (
                             <>
                               <Button size="sm" variant="primary" leadingIcon={<Check size={14} />} onClick={() => setPayingId(r.id)}>Baixar</Button>
-                              <Button size="sm" variant="secondary" leadingIcon={<Ban size={14} />} onClick={() => handleCancel(r)}>Cancelar</Button>
+                              {r.status === "OPEN" && <Button size="sm" variant="secondary" leadingIcon={<Ban size={14} />} onClick={() => handleCancel(r)}>Cancelar</Button>}
                             </>
                           )}
                         </div>
@@ -283,7 +290,7 @@ export function Receivables() {
                   {r.status !== "RECEIVED" && r.status !== "CANCELLED" && (
                     <div className="df-card-actions">
                       <Button size="sm" variant="primary" leadingIcon={<Check size={14} />} onClick={() => setPayingId(r.id)}>Baixar</Button>
-                      <Button size="sm" variant="secondary" leadingIcon={<Ban size={14} />} onClick={() => handleCancel(r)}>Cancelar</Button>
+                      {r.status === "OPEN" && <Button size="sm" variant="secondary" leadingIcon={<Ban size={14} />} onClick={() => handleCancel(r)}>Cancelar</Button>}
                     </div>
                   )}
                 </div>
@@ -307,20 +314,22 @@ export function Receivables() {
 type MarkReceivedModalProps = {
   receivable: ReceivableView;
   onClose: () => void;
-  onSubmit: (values: { receivedDate: string; paidAmount: number; paymentMethod: string; notes: string }) => void;
+  onSubmit: (values: { receivedDate: string; paidAmount: number; paymentMethod: string; notes: string; differenceReason: string }) => void;
 };
 
 function MarkReceivedModal({ receivable, onClose, onSubmit }: MarkReceivedModalProps) {
   const today = hojeLocalIso();
   const [receivedDate, setReceivedDate] = useState(today);
-  const [paidAmount, setPaidAmount] = useState(String(receivable.netAmount));
+  const [paidAmount, setPaidAmount] = useState(String(receivable.remainingAmount || receivable.netAmount));
   const [paymentMethod, setPaymentMethod] = useState(receivable.paymentMethod ?? "");
   const [notes, setNotes] = useState("");
+  const [differenceReason, setDifferenceReason] = useState("");
+  const passaDoSaldo = (Number(paidAmount) || 0) > receivable.remainingAmount + 0.005;
 
   return (
     <div className="df-modal-overlay" onClick={onClose}>
       <div className="df-modal" onClick={(e) => e.stopPropagation()}>
-        <h3>Dar baixa em recebível</h3>
+        <h3>Registrar recebimento</h3>
         <p className="df-modal-subtitle">{receivable.description}</p>
         <div className="df-modal-fields">
           <TextField
@@ -335,7 +344,7 @@ function MarkReceivedModal({ receivable, onClose, onSubmit }: MarkReceivedModalP
             step="0.01"
             value={paidAmount}
             onChange={(e) => setPaidAmount(e.target.value)}
-            hint={`Previsto: R$ ${receivable.netAmount.toFixed(2)}`}
+            hint={`Falta receber: R$ ${receivable.remainingAmount.toFixed(2)}`}
           />
           <TextField
             label="Método de pagamento"
@@ -343,6 +352,14 @@ function MarkReceivedModal({ receivable, onClose, onSubmit }: MarkReceivedModalP
             onChange={(e) => setPaymentMethod(e.target.value)}
             placeholder="PIX, TED, iFood repasse, etc"
           />
+          {passaDoSaldo && (
+            <TextField
+              label="Motivo da diferença"
+              value={differenceReason}
+              onChange={(e) => setDifferenceReason(e.target.value)}
+              hint="O valor passa do que falta receber; explique a diferença."
+            />
+          )}
           <TextField
             label="Observações"
             value={notes}
@@ -355,7 +372,8 @@ function MarkReceivedModal({ receivable, onClose, onSubmit }: MarkReceivedModalP
             receivedDate,
             paidAmount: Number(paidAmount) || 0,
             paymentMethod,
-            notes
+            notes,
+            differenceReason: passaDoSaldo ? differenceReason : ""
           })}>
             Confirmar baixa
           </Button>
