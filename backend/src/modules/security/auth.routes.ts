@@ -1,7 +1,8 @@
 import crypto from "node:crypto";
 import { Router } from "express";
+import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
-import { INACTIVITY_TIMEOUT_MS, auditLog, createToken, getSessionUser, hashPassword, hashToken, requestIp, requireAdmin, sessionExpiresAt, verifyPassword, type SessionUser } from "./security-utils.js";
+import { INACTIVITY_TIMEOUT_MINUTES, INACTIVITY_TIMEOUT_MS, auditLog, createToken, getSessionUser, hashPassword, hashToken, requestIp, requireAdmin, sessionExpiresAt, verifyPassword, type SessionUser } from "./security-utils.js";
 import {
   accessLevels,
   attachMenuPermissions,
@@ -383,7 +384,8 @@ authRouter.post("/login", async (request, response) => {
       email: user.email,
       role: user.role,
       mustChangePassword: user.mustChangePassword
-    })
+    }),
+    inactivityTimeoutMinutes: INACTIVITY_TIMEOUT_MINUTES
   });
 });
 
@@ -437,7 +439,7 @@ authRouter.post("/logout", async (request, response) => {
       await prisma.$executeRaw`DELETE FROM "UserSession" WHERE "tokenHash" = ${tokenHash}`;
       await auditLog({
         userId: session.userId,
-        action: "LOGOUT",
+        action: request.body?.reason === "inactivity" ? "LOGOUT_INACTIVITY" : "LOGOUT",
         entity: "Auth",
         entityId: session.userId,
         ipAddress: requestIp(request),
@@ -447,6 +449,40 @@ authRouter.post("/logout", async (request, response) => {
   }
 
   response.json({ ok: true });
+});
+
+const LOGIN_HISTORY_ACTIONS = [
+  "LOGIN",
+  "LOGIN_INVALID",
+  "LOGIN_BLOCKED",
+  "LOGIN_BLOCKED_SESSION_CONFLICT",
+  "LOGIN_AFTER_INACTIVITY_EXPIRY",
+  "SESSION_FORCE_REPLACED",
+  "LOGOUT",
+  "LOGOUT_INACTIVITY",
+  "SESSION_EXPIRED_BY_INACTIVITY"
+];
+
+// ADMIN: histórico de acessos de um usuário (logins, falhas, saídas e quedas por inatividade)
+authRouter.get("/login-history/:userId", async (request, response) => {
+  const admin = await requireAdmin(request, response);
+  if (!admin) return;
+
+  const events = await prisma.$queryRaw<Array<{
+    id: string;
+    action: string;
+    ipAddress: string | null;
+    userAgent: string | null;
+    createdAt: Date;
+  }>>`
+    SELECT "id", "action", "ipAddress", "userAgent", "createdAt"
+    FROM "AuditLog"
+    WHERE "userId" = ${request.params.userId}
+      AND "action" IN (${Prisma.join(LOGIN_HISTORY_ACTIONS)})
+    ORDER BY "createdAt" DESC
+    LIMIT 50
+  `;
+  response.json(events);
 });
 
 // ADMIN: encerrar sessão ativa de outro usuário
@@ -580,7 +616,10 @@ authRouter.get("/me", async (request, response) => {
     response.status(401).json({ message: "Sessao invalida." });
     return;
   }
-  response.json(await attachMenuPermissions(user as SessionUser));
+  response.json({
+    ...(await attachMenuPermissions(user as SessionUser)),
+    inactivityTimeoutMinutes: INACTIVITY_TIMEOUT_MINUTES
+  });
 });
 
 userRouter.get("/", async (request, response) => {

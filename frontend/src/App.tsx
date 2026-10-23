@@ -48,6 +48,7 @@ import { AppUser, addMenuFavorite, getMe, getMenuFavorites, getStockCountSession
 import { PageHeader } from "./components/ui";
 import { SessionContext } from "./context/SessionContext";
 import { MockUserBadge } from "./components/MockUserBadge";
+import { IdleSessionGuard } from "./components/IdleSessionGuard";
 import {
   Alert,
   AppShell,
@@ -678,6 +679,9 @@ export function App() {
     <SessionContext.Provider value={sessionContextValue}>
       <HideValuesProvider>
         <MockUserBadge />
+        {!mockMode && (
+          <IdleSessionGuard timeoutMinutes={user.inactivityTimeoutMinutes} onExpired={() => setUser(null)} />
+        )}
         <AppShell
           ref={contentRef}
           mobileHeader={mobileHeaderNode}
