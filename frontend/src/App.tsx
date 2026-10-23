@@ -20,6 +20,7 @@ import {
   FileSpreadsheet,
   FileScan,
   HandCoins,
+  Droplets,
   FileUser,
   Layers,
   LogOut,
@@ -119,6 +120,7 @@ const DRE = lazy(() => import("./pages/DRE").then((module) => ({ default: module
 const SupplierCycles = lazy(() => import("./pages/SupplierCycles").then((module) => ({ default: module.SupplierCycles })));
 const Desperdicio = lazy(() => import("./pages/desperdicio/Desperdicio").then((module) => ({ default: module.Desperdicio })));
 const Reimbursements = lazy(() => import("./pages/Reimbursements").then((module) => ({ default: module.Reimbursements })));
+const ColetaOleo = lazy(() => import("./pages/ColetaOleo").then((module) => ({ default: module.ColetaOleo })));
 const TaxPayments = lazy(() => import("./pages/TaxPayments").then((module) => ({ default: module.TaxPayments })));
 const Notifications = lazy(() => import("./pages/Notifications").then((module) => ({ default: module.Notifications })));
 // Rota /design-system: dev-only (isLocal). Em prod, o ternario resolve para null
@@ -163,6 +165,7 @@ const sections = [
   { id: "purchases", label: "Compras", icon: ReceiptText, showInSidebar: true, group: "Operação", path: "/compras", matchers: ["/compras", "/compras/nova", "/compras/:id/editar"], description: "Registro e controle de compras do período" },
   { id: "purchase-orders", label: "Pedidos de compra", icon: ClipboardList, showInSidebar: true, group: "Operação", path: "/compras/pedidos", matchers: ["/compras/pedidos"], description: "Pedidos operacionais gerados a partir da pré-lista do comprador. Ainda não integram contas a pagar." },
   { id: "events", label: "Painel de eventos", icon: CalendarDays, showInSidebar: true, group: "Operação", path: "/operacao/eventos", matchers: ["/operacao/eventos"], description: "Eventos do centro de convenções, do teatro e grupos: histórico de cada um e sugestão de buffet para cada dia" },
+  { id: "oil-collections", label: "Coleta de óleo", icon: Droplets, showInSidebar: true, group: "Operação", path: "/operacao/coleta-oleo", matchers: ["/operacao/coleta-oleo"], description: "Certificados de destino final do óleo de fritura e conferência do PIX da coleta" },
   { id: "payables", label: "Contas a pagar", icon: WalletCards, showInSidebar: true, group: "Financeiro", path: "/financeiro/contas-a-pagar", matchers: ["/financeiro/contas-a-pagar"] },
   { id: "receivables", label: "Contas a receber", icon: WalletCards, showInSidebar: true, group: "Financeiro", path: "/financeiro/contas-a-receber", matchers: ["/financeiro/contas-a-receber"], description: "Repasses iFood, 99 Food e Keeta, eventos e outros recebíveis" },
   { id: "ifood-expenses", label: "Despesas iFood", icon: WalletCards, showInSidebar: true, group: "Financeiro", path: "/financeiro/despesas-ifood", matchers: ["/financeiro/despesas-ifood"], description: "Comissão, entrega, marketing e taxas mensais iFood" },
@@ -783,6 +786,7 @@ export function App() {
               <Route path="/financeiro/impostos" element={<TaxPayments user={user} />} />
               <Route path="/financeiro/ciclos-fornecedor" element={<SupplierCycles />} />
               <Route path="/financeiro/reembolsos" element={<Reimbursements />} />
+              <Route path="/operacao/coleta-oleo" element={<ColetaOleo />} />
               <Route path="/estoque/produtos" element={<Products />} />
               <Route path="/estoque/produtos/novo" element={<ProductEditor />} />
               <Route path="/estoque/produtos/:id/editar" element={<ProductEditor />} />

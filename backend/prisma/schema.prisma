@@ -2657,6 +2657,7 @@ model Receivable {
   totalInstallments       Int?
   // Auto-relação usada por eventos parcelados: a parcela mãe é o próprio
   // contrato; parcelas filhas apontam pra ela via parentReceivableId.
+  oilCollection           OilCollection?
   parentReceivableId      String?
   parent                  Receivable?            @relation("ReceivableInstallments", fields: [parentReceivableId], references: [id], onDelete: SetNull)
   installments            Receivable[]           @relation("ReceivableInstallments")
@@ -4246,4 +4247,29 @@ model ProductConversionReview {
   note             String?
   reviewedByUserId String?
   reviewedAt       DateTime @default(now())
+}
+
+// Coleta de óleo de fritura (Retióleo): o coletor leva o óleo, deixa o CDF (certificado de destino
+// final) e paga o valor impresso nele por PIX ao longo do dia. Cada coleta tem um título no Contas a
+// Receber (receivableId): a baixa é feita lá e a situação do PIX desta tela vem do título. Nada aqui
+// entra no faturamento (RevenueEntry) nem no DRE.
+model OilCollection {
+  id                 String      @id @default(cuid())
+  collectionDate     DateTime    @db.Date
+  collectorName      String      @default("Retióleo")
+  certificateNumber  String?
+  volumeLiters       Decimal     @db.Decimal(10, 2)
+  amount             Decimal     @db.Decimal(12, 2)
+  receivableId       String?     @unique
+  receivable         Receivable? @relation(fields: [receivableId], references: [id], onDelete: SetNull)
+  notes              String?
+  registeredByUserId String?
+  cancelledAt        DateTime?
+  cancelledByUserId  String?
+  cancellationReason String?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+
+  @@unique([collectorName, certificateNumber])
+  @@index([collectionDate])
 }

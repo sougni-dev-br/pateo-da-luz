@@ -1,0 +1,38 @@
+.coleta { display: grid; gap: var(--space-5); align-content: start; }
+
+.coleta-intro { margin: 0; max-width: 760px; color: var(--ink-soft); font-size: 14px; line-height: 1.5; }
+
+.coleta-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-4); }
+.coleta-kpis .ds-kpi-card { min-height: 118px; }
+
+.coleta-barra { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.coleta-filtro { min-width: 170px; }
+.coleta-nova { margin-left: auto; }
+
+.coleta-situacao { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
+.coleta-situacao-fim { align-items: flex-end; text-align: right; }
+.coleta-nota { color: var(--muted); font-size: var(--fs-xs); line-height: 1.3; max-width: 220px; }
+
+.coleta-meses { display: grid; gap: 8px; }
+
+.coleta-conferencia { margin: 0 0 var(--space-4); padding: var(--space-4); display: grid; gap: 8px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--paper-soft); }
+.coleta-conferencia > div { display: flex; justify-content: space-between; gap: 12px; }
+.coleta-conferencia dt { color: var(--muted); font-size: var(--fs-sm); }
+.coleta-conferencia dd { margin: 0; font-weight: var(--fw-semibold); text-align: right; }
+.coleta-conferencia-valor { padding-top: 8px; border-top: 1px solid var(--line); }
+.coleta-conferencia-valor dd { font-size: 1.25rem; }
+
+.coleta-resumo-cancelar { margin: 0 0 var(--space-4); color: var(--ink-soft); font-size: var(--fs-sm); }
+
+.coleta-rodape { display: flex; justify-content: flex-end; gap: 8px; margin-top: var(--space-5); }
+
+@media (max-width: 1100px) { .coleta-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 720px) {
+  .coleta-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
+  .coleta-kpis .ds-kpi-card { min-height: 104px; padding: var(--space-4); }
+  .coleta-barra > * { flex: 1 1 100%; }
+  .coleta-nova { margin-left: 0; order: -1; }
+  .coleta-rodape { flex-direction: column-reverse; }
+  .coleta-rodape .ds-button { width: 100%; }
+}
+@media (max-width: 340px) { .coleta-kpis { grid-template-columns: 1fr; } }

@@ -10056,3 +10056,73 @@ export function confirmKeetaImport(file: File) {
     body: keetaFormData(file)
   });
 }
+
+// ── Coleta de óleo ──
+
+/** A situação do PIX vem do título no Contas a Receber, onde a baixa é feita. */
+export type OilCollectionStatus = "PENDING" | "PARTIAL" | "RECEIVED" | "CANCELLED";
+
+export type OilCollection = {
+  id: string;
+  collectionDate: string;
+  collectorName: string;
+  certificateNumber: string | null;
+  volumeLiters: number;
+  amount: number;
+  status: OilCollectionStatus;
+  receivableId: string | null;
+  receivedAt: string | null;
+  /** Quanto já foi baixado no título. */
+  paidAmount: number;
+  notes: string | null;
+  cancellationReason: string | null;
+};
+
+export type OilCollectionSummary = {
+  collections: number;
+  liters: number;
+  amount: number;
+  pricePerLiter: number | null;
+  pendingCount: number;
+  pendingAmount: number;
+  receivedCount: number;
+  receivedAmount: number;
+  lastCollectionDate: string | null;
+  months: Array<{ month: string; collections: number; liters: number; amount: number }>;
+};
+
+export type OilCollectionList = {
+  year: number;
+  minYear: number;
+  summary: OilCollectionSummary;
+  items: OilCollection[];
+  /** PIX ainda não conferido, de todos os anos. */
+  openPix: { count: number; amount: number };
+};
+
+export type OilCollectionInput = {
+  collectionDate: string;
+  collectorName: string;
+  certificateNumber: string;
+  volumeLiters: string;
+  amount: string;
+  notes: string;
+};
+
+const OIL_JSON = { "Content-Type": "application/json" };
+
+export function getOilCollections(year: number) {
+  return request<OilCollectionList>(`/oil-collections?year=${year}`);
+}
+
+export function createOilCollection(payload: OilCollectionInput) {
+  return request<OilCollection>("/oil-collections", { method: "POST", headers: OIL_JSON, body: JSON.stringify(payload) });
+}
+
+export function updateOilCollection(id: string, payload: OilCollectionInput) {
+  return request<OilCollection>(`/oil-collections/${id}`, { method: "PATCH", headers: OIL_JSON, body: JSON.stringify(payload) });
+}
+
+export function cancelOilCollection(id: string, reason: string) {
+  return request<OilCollection>(`/oil-collections/${id}/cancel`, { method: "POST", headers: OIL_JSON, body: JSON.stringify({ reason }) });
+}
