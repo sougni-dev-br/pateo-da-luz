@@ -66,3 +66,39 @@ body.fe-sem-rolagem { overflow: hidden; }
 .fe-resumo li { overflow-wrap: anywhere; }
 .fe-resumo--urgente { color: var(--danger); }
 .fe-resumo--urgente b::before { content: "! "; }
+
+/* Decidir hoje: atraso e quem já pode ter as férias programadas (tela) */
+.fe-decidir { align-items: start; display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 12px; margin: 0 0 12px; }
+.fe-decidir-lista { padding: 12px 14px; border: 1px solid var(--line-strong); border-top-width: 4px; border-radius: var(--radius-md); background: var(--paper); }
+.fe-decidir-lista--atraso { border-top-color: var(--danger); }
+.fe-decidir-lista--pode { border-top-color: var(--success); }
+.fe-decidir-lista h3 { margin: 0 0 8px; font-size: 16px; font-weight: var(--fw-semibold); display: flex; gap: 8px; align-items: center; }
+.fe-decidir-lista h3 span { display: inline-grid; place-items: center; min-width: 26px; height: 26px; padding: 0 6px; border-radius: var(--radius-pill); color: var(--paper); font-size: 14px; }
+.fe-decidir-lista--atraso h3 span { background: var(--danger); }
+.fe-decidir-lista--pode h3 span { background: var(--success); }
+.fe-decidir-lista ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.fe-decidir-lista li { display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 8px 0; border-top: 1px solid var(--line); }
+.fe-decidir-lista li:first-child { border-top: 0; }
+.fe-decidir-quem { display: grid; gap: 2px; min-width: 0; flex: 1 1 auto; }
+.fe-decidir-prazo { display: grid; gap: 1px; text-align: right; flex: 0 0 auto; }
+.fe-decidir-prazo b { font-size: 15px; }
+.fe-decidir-prazo span { font-size: 13px; color: var(--ink-soft); }
+.fe-decidir-prazo--vencido b { color: var(--danger); }
+.fe-decidir-prazo--urgente b { color: var(--danger); }
+.fe-decidir-prazo--atencao b { color: var(--warning); }
+.fe-decidir-prazo--calmo b { color: var(--success); }
+.fe-decidir-lista li strong { font-size: 15px; }
+.fe-decidir-lista li button { flex: 0 0 auto; white-space: nowrap; }
+.fe-decidir-quem span { font-size: 13px; color: var(--ink-soft); }
+.fe-decidir-vazio { margin: 0; font-size: 14px; color: var(--muted); }
+.fe-decidir-mais { margin-top: 6px; padding: 4px 0; border: 0; background: none; color: var(--info); font: inherit; font-size: 14px; cursor: pointer; text-decoration: underline; }
+.fe-mais { margin: 0 0 12px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--paper-soft, var(--paper)); }
+.fe-mais-corpo { display: grid; gap: 12px; padding: 4px 14px 14px; }
+
+/* Empresa e Mais detalhes na mesma faixa */
+.fe-faixa { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; margin: 0 0 12px; }
+.fe-faixa .fe-empresa { margin: 0; }
+.fe-mais-botao { padding: 6px 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--paper); font: inherit; font-size: 14px; font-weight: var(--fw-semibold); color: var(--ink); cursor: pointer; }
+.fe-mais-botao span { font-weight: 400; color: var(--muted); }
+
+.fe-mais--fechado { display: none; }

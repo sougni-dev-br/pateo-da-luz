@@ -14,6 +14,7 @@ import { ImpressaoTela } from "./ferias/ImpressaoTela";
 import { LinhaDoTempo } from "./ferias/LinhaDoTempo";
 import { LinhaPeriodo } from "./ferias/LinhaPeriodo";
 import { PlanejamentoFerias } from "./ferias/PlanejamentoFerias";
+import { DecidirHoje } from "./ferias/DecidirHoje";
 import { ResumoDoQueFazer } from "./ferias/ResumoDoQueFazer";
 import {
   FILTROS, type FiltroFerias, type LinhaFerias, contarPorFiltro, dataBr, linhasDaLista, pertenceAoFiltro, plural, resumoProgramacao, somaDias,
@@ -40,6 +41,7 @@ export function Ferias() {
   const visao = visaoValida(params.get("visao"));
   const empresa = params.get("empresa") ?? "";
   const filtro = filtroValido(params.get("filtro"), visao);
+  const [maisAberto, setMaisAberto] = useState(false);
   const [lista, setLista] = useState<ListaFerias | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
@@ -235,17 +237,40 @@ export function Ferias() {
     `exibindo: ${rotuloDoFiltro}`,
   ].filter(Boolean).join(" · ") + " — avisos, planejamento e filtros";
 
+  // Do topo: se o filtro de situação esconde o período, volta para "Todas" para a linha (e o formulário) aparecer.
+  const programarDoTopo = (pessoa: PessoaFerias, periodo: PeriodoFerias) => {
+    if (!pertenceAoFiltro(periodo, filtro)) gravarParams(visao, "TODAS");
+    programarPelaLinha(pessoa, periodo);
+  };
+
   // Avisos, planejamento e filtros: um bloco só, que a tela cheia recolhe atrás da linha-resumo.
   const blocoSuperior = (
     <>
+      {lista && pessoasDoResumo.length > 0 && <DecidirHoje pessoas={pessoasDoResumo} hoje={lista.hoje} onProgramar={programarDoTopo} />}
+      {lista && lista.semDataDeAdmissao.length > 0 && (
+        <Alert tone="info" role={undefined}>Sem data de admissão no cadastro (não entram no cálculo): {lista.semDataDeAdmissao.map((p) => p.nome).join(", ")}.</Alert>
+      )}
+      <div className="fe-faixa">
+        {lista && empresas.length > 1 && (
+        <label className="fe-empresa">Empresa
+          <select value={empresa} onChange={(e) => escolherEmpresa(e.target.value)}>
+            <option value="">Todas</option>
+            {empresas.map((nome) => <option key={nome} value={nome}>{nome}</option>)}
+          </select>
+        </label>
+      )}
+        <button type="button" className="fe-mais-botao" aria-expanded={maisAberto} aria-controls="fe-mais-corpo" onClick={() => setMaisAberto((v) => !v)}>
+          {maisAberto ? "Esconder detalhes" : "Mais detalhes"} <span>planejamento, resumo e situação dos períodos</span>
+        </button>
+      </div>
+      {(
+        <div className={`fe-mais${maisAberto ? "" : " fe-mais--fechado"}`} id="fe-mais-corpo">
+          <div className="fe-mais-corpo">
       {(vencidas > 0 || aVencer > 0) && (
         <Alert tone={vencidas > 0 ? "error" : "warning"} role={undefined}>
           {vencidas > 0 && <>{vencidas} {plural(vencidas, "período vencido ou programado", "períodos vencidos ou programados")} fora do prazo: férias pagas em dobro. </>}
           {aVencer > 0 && <>{aVencer} {plural(aVencer, "período chega", "períodos chegam")} ao limite em até 90 dias sem datas.</>}
         </Alert>
-      )}
-      {lista && lista.semDataDeAdmissao.length > 0 && (
-        <Alert tone="info" role={undefined}>Sem data de admissão no cadastro (não entram no cálculo): {lista.semDataDeAdmissao.map((p) => p.nome).join(", ")}.</Alert>
       )}
 
       {lista && todasAsLinhas.length > 0 && <PlanejamentoFerias lista={lista} ocupado={salvando} onAvisado={(id, avisado, nome) => void marcarAvisado(id, avisado, nome)} />}
@@ -265,13 +290,8 @@ export function Ferias() {
           </div>
         </div>
       )}
-      {lista && empresas.length > 1 && (
-        <label className="fe-empresa">Empresa
-          <select value={empresa} onChange={(e) => escolherEmpresa(e.target.value)}>
-            <option value="">Todas</option>
-            {empresas.map((nome) => <option key={nome} value={nome}>{nome}</option>)}
-          </select>
-        </label>
+        </div>
+        </div>
       )}
     </>
   );

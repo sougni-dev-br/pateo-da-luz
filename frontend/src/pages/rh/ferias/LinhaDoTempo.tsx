@@ -105,7 +105,6 @@ export function LinhaDoTempo({ lista, pessoas, ocupado, abertoDe, previa, formul
   return (
     <div className="fe-tl-conjunto">
       <div className="fe-tl-barra-ferramentas">
-        <Legenda />
         <div className="fe-tl-controles">
           <div className="fe-tl-zoom" role="group" aria-label="Escala da linha do tempo">
             {ZOOMS.map((z) => (
@@ -128,11 +127,16 @@ export function LinhaDoTempo({ lista, pessoas, ocupado, abertoDe, previa, formul
           <Button size="sm" variant="secondary" onClick={() => irParaHoje(true)}>Ir para hoje</Button>
         </div>
       </div>
-      <p className="fe-tl-dica">
+
+      <details className="fe-tl-como-ler">
+        <summary>Como ler: legenda das cores e dicas</summary>
+        <Legenda />
+        <p className="fe-tl-dica">
         <Sparkles size={13} aria-hidden="true" />
         <span className="fe-tl-dica-mouse">Arraste sobre a linha de uma pessoa para escolher os dias, ou clique na faixa tracejada (menos colegas fora). Arraste uma barra azul para mudar a data.</span>
         <span className="fe-tl-dica-toque">Toque na linha de uma pessoa para escolher o início, ou na faixa tracejada (menos colegas fora). Toque numa barra para ver as opções e mudar a data.</span>
       </p>
+      </details>
 
       <div className="fe-tl" ref={rolagem} style={estilo}>
         <div className="fe-tl-quadro">
@@ -140,7 +144,7 @@ export function LinhaDoTempo({ lista, pessoas, ocupado, abertoDe, previa, formul
             <div className="fe-tl-canto" />
             <div className="fe-tl-meses" aria-hidden="true">
               {meses.map((m, i) => (
-                <div key={m.iso} className={`fe-tl-mes${m.viraAno ? " fe-tl-mes--ano" : ""}`} style={{ left: m.x, width: m.largura }}>
+                <div key={m.iso} className={`fe-tl-mes${m.viraAno ? " fe-tl-mes--ano" : ""}${m.largura < 96 ? " fe-tl-mes--empilhado" : ""}`} style={{ left: m.x, width: m.largura }}>
                   {m.largura >= 26 && <span>{rotulos[i].nome}{rotulos[i].ano && <b>{rotulos[i].ano}</b>}</span>}
                 </div>
               ))}
@@ -213,7 +217,7 @@ function LinhaDaPessoa({ eixo, lista, pessoa, ausencias, ocupado, aberto, previa
             <li className="fe-tl-ficha--pedido"><b>Pediu</b> {resumoDoPedido(ficha.periodo.solicitacao as NonNullable<PeriodoFerias["solicitacao"]>)}</li>
             <li className="fe-tl-ficha--empresa"><b>Empresa quer</b> {ficha.comparacao.programacao ? resumoProgramacao(ficha.comparacao.programacao) : "ainda sem data"}</li>
             <li className="fe-tl-ficha--limite"><b>Limite</b> começar até {dataBr(ficha.periodo.limiteInicioGozo)}</li>
-            {sugestao?.motivoDoPedido && alvo?.solicitacao && <li className="fe-tl-ficha--aviso"><b>Pedido não serve</b> {sugestao.motivoDoPedido}</li>}
+            {sugestao?.motivoDoPedido && alvo?.solicitacao && <li className="fe-tl-ficha--aviso" title={sugestao.motivoDoPedido}><b>Pedido não serve</b> {sugestao.motivoDoPedido}</li>}
             <li><span className={`fe-tl-situacao fe-tl-situacao--${ficha.comparacao.situacao.toLowerCase()}`}>{ROTULO_DA_SITUACAO_DO_PEDIDO[ficha.comparacao.situacao]}</span>
               {ficha.comparacao.situacao === "DIFERENTE" && diferencaEmPalavras(ficha.comparacao.diferencaEmDias) ? <span className="fe-sub"> · {diferencaEmPalavras(ficha.comparacao.diferencaEmDias)}</span> : null}
               {ficha.comparacao.passaDoPrazo && <span className="fe-tl-situacao fe-tl-situacao--prazo">pedido passa do prazo</span>}
