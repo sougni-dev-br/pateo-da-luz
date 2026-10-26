@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { PeriodoFerias, PessoaFerias } from "../../../../api/client";
-import { ciclosCompletos, contarPorSituacao, quemTemDireito } from "../direito";
+import { ciclosCompletos, contarPorSituacao, decidirHoje, quemTemDireito } from "../direito";
 
 const HOJE = "2026-10-26";
 const periodo = (o: Partial<PeriodoFerias> = {}): PeriodoFerias => ({
@@ -54,5 +54,19 @@ describe("quem tem direito", () => {
     const [linha] = quemTemDireito([dois], HOJE);
     expect(linha).toMatchObject({ aGozar: expect.any(Array), diasPendentes: 60, limite: "2026-01-30", situacao: "vencido", ciclosCompletos: 2 });
     expect(linha.aGozar).toHaveLength(2);
+  });
+
+  test("decidir hoje: atraso (vencido ou programado depois do prazo) separado de quem ainda pode programar", () => {
+    const dois = pessoa("Fabi", "2024-03-01", [
+      periodo({ aquisitivoInicio: "2024-03-01", aquisitivoFim: "2025-02-28", limiteInicioGozo: "2026-01-30", situacao: "VENCIDA", nivel: "perigo", diasParaLimite: -269 }),
+      periodo({ aquisitivoInicio: "2025-03-01" }),
+    ]);
+    const foraDoPrazo = pessoa("Gil", "2025-03-01", [periodo({ situacao: "PROGRAMADA", diasPendentes: 0, foraDoPrazo: true })]);
+    const { atraso, podeProgramar } = decidirHoje([completa, dois, foraDoPrazo, semDireito], HOJE);
+    expect(atraso.map((i) => i.pessoa.nome)).toEqual(["Fabi", "Gil"]);
+    expect(atraso[0].texto).toBe("prazo venceu em 30/01/2026 (há 269 dias)");
+    expect(atraso[1].texto).toContain("programadas depois do prazo");
+    expect(podeProgramar.map((i) => i.pessoa.nome)).toEqual(["Ana", "Fabi"]); // Fabi: o ciclo seguinte ainda tem tempo
+    expect(podeProgramar[0].texto).toBe("ciclo completo em 28/02/2026 · 30 dias a gozar · começar até 30/01/2027 (faltam 96 dias)");
   });
 });

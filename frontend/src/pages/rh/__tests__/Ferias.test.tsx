@@ -38,20 +38,21 @@ describe("Ferias", () => {
   test("mostra o limite, o prazo e avisa quando há férias vencidas", async () => {
     vi.mocked(getFerias).mockResolvedValue(lista([periodo({ situacao: "VENCIDA", nivel: "perigo", diasParaLimite: -12 })], { vencidas: 1, aVencer: 0 }));
     render(<Ferias />);
-    expect((await screen.findAllByText("30/01/2027")).length).toBeGreaterThan(0); // na lista e no quadro "Quem tem direito"
+    expect((await screen.findAllByText("30/01/2027")).length).toBeGreaterThan(0);
     expect(screen.getAllByText("venceu há 12 dias").length).toBeGreaterThan(0);
     expect(screen.getByText("Vencida")).toBeInTheDocument();
-    expect(within(screen.getByRole("region", { name: "Quem tem direito a férias" })).getByText("Prazo vencido")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Em atraso" })).getByText(/prazo venceu em 30\/01\/2027 \(há 12 dias\)/)).toBeInTheDocument();
     expect(screen.getByText(/1 período vencido ou programado fora do prazo/)).toBeInTheDocument();
   });
 
-  test("o quadro Quem tem direito responde à busca por nome, com ou sem acento", async () => {
+  test("o topo separa o atraso de quem já pode ter as férias programadas, e Escolher datas abre o formulário", async () => {
     vi.mocked(getFerias).mockResolvedValue(lista([periodo()]));
     render(<Ferias />);
-    const quadro = await screen.findByRole("region", { name: "Quem tem direito a férias" });
-    expect(within(quadro).getByText("Ainda há tempo")).toBeInTheDocument();
-    fireEvent.change(within(quadro).getByRole("searchbox"), { target: { value: "zzz" } });
-    expect(within(quadro).getByText("Ninguém com esse nome na lista.")).toBeInTheDocument();
+    const pode = await screen.findByRole("region", { name: "Pode programar agora" });
+    expect(within(pode).getByText(/ciclo completo em 28\/02\/2026 · 30 dias a gozar · começar até 30\/01\/2027/)).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Em atraso" })).getByText("Ninguém com prazo vencido.")).toBeInTheDocument();
+    fireEvent.click(within(pode).getByRole("button", { name: /Escolher datas das férias de/ }));
+    expect(await screen.findByRole("form", { name: /Programar férias de/ })).toBeInTheDocument();
   });
 
   test("programa as férias pelo formulário e recarrega a lista", async () => {

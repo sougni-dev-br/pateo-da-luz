@@ -60,3 +60,40 @@ export const contarPorSituacao = (linhas: LinhaDeDireito[]): Record<SituacaoDoDi
   perto: linhas.filter((l) => l.situacao === "perto").length,
   tempo: linhas.filter((l) => l.situacao === "tempo").length,
 });
+
+export type ItemDeDecisao = { pessoa: PessoaFerias; periodo: PeriodoFerias; /** Uma frase com o motivo. */ texto: string };
+
+const dataCurta = (iso: string) => iso.split("-").reverse().join("/");
+const emDias = (n: number) => `${n} ${n === 1 ? "dia" : "dias"}`;
+
+/**
+ * O que decidir hoje, em duas listas:
+ * - atraso: o prazo para começar as férias já venceu (ou a data programada passa dele);
+ * - podeProgramar: ciclo completo, dias a gozar, e ainda há tempo; o prazo mais curto vem primeiro.
+ */
+export function decidirHoje(pessoas: PessoaFerias[], hoje: string): { atraso: ItemDeDecisao[]; podeProgramar: ItemDeDecisao[] } {
+  const atraso: ItemDeDecisao[] = [];
+  const podeProgramar: ItemDeDecisao[] = [];
+  for (const pessoa of pessoas) {
+    const noAtraso = new Set<string>();
+    for (const periodo of pessoa.periodos) {
+      if (periodo.situacao === "EM_AQUISICAO" || periodo.doHistorico) continue;
+      if (periodo.situacao === "VENCIDA" && periodo.diasPendentes > 0) {
+        const atrasado = periodo.diasParaLimite === null ? "" : ` (há ${emDias(-periodo.diasParaLimite)})`;
+        atraso.push({ pessoa, periodo, texto: `prazo venceu em ${dataCurta(periodo.limiteInicioGozo)}${atrasado}` });
+        noAtraso.add(periodo.aquisitivoInicio);
+      } else if (periodo.foraDoPrazo) {
+        atraso.push({ pessoa, periodo, texto: `férias programadas depois do prazo (${dataCurta(periodo.limiteInicioGozo)})` });
+        noAtraso.add(periodo.aquisitivoInicio);
+      }
+    }
+    const livre = pessoa.periodos.filter(PENDENTE).filter((p) => p.situacao !== "VENCIDA" && !noAtraso.has(p.aquisitivoInicio))
+      .sort((a, b) => a.aquisitivoInicio.localeCompare(b.aquisitivoInicio))[0];
+    if (livre) {
+      const faltam = livre.diasParaLimite === null ? "" : ` (faltam ${emDias(livre.diasParaLimite)})`;
+      podeProgramar.push({ pessoa, periodo: livre, texto: `ciclo completo em ${dataCurta(livre.aquisitivoFim)} · ${emDias(livre.diasPendentes)} a gozar · começar até ${dataCurta(livre.limiteInicioGozo)}${faltam}` });
+    }
+  }
+  const porPrazo = (a: ItemDeDecisao, b: ItemDeDecisao) => a.periodo.limiteInicioGozo.localeCompare(b.periodo.limiteInicioGozo) || a.pessoa.nome.localeCompare(b.pessoa.nome, "pt-BR");
+  return { atraso: atraso.sort(porPrazo), podeProgramar: podeProgramar.sort(porPrazo) };
+}
