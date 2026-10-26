@@ -6,7 +6,7 @@ import { getMonthlyCmv } from "../monthly/monthly.service.js";
 import { excludeAggregatorsSql } from "../purchases/purchase-aggregators.js";
 import { semParcelamentoForaDoDreSql } from "../parcelamentos/parcelamento-dre.js";
 import { montarRankings } from "./dashboard-rankings.js";
-import { carregarFerias, contarAlertas } from "../payroll/ferias.routes.js";
+import { carregarFerias, contarAlertas, contarDireitoChegando, JANELA_DIREITO_CHEGANDO_DIAS } from "../payroll/ferias.routes.js";
 import { calcularResultadoCompleto } from "./dashboard-resultado.js";
 import { montarFaturamentoPorCanal, type SomaPorOrigem } from "./dashboard-canais.js";
 import { calcularTicketsSalao, variacaoPercentual, type BaseTicketSalao } from "./dashboard-ticket.js";
@@ -819,7 +819,9 @@ dashboardRouter.get("/alerts", async (request, response) => {
 
   // Férias: só contagem (sem nomes) e nunca derruba o painel se a leitura falhar.
   try {
-    const { vencidas, aVencer } = contarAlertas(await carregarFerias(undefined, { comEscala: false }));
+    const pessoasFerias = await carregarFerias(undefined, { comEscala: false });
+    const { vencidas, aVencer } = contarAlertas(pessoasFerias);
+    const direitoChegando = contarDireitoChegando(pessoasFerias);
     const plural = (n: number) => (n !== 1 ? "s" : "");
     if (vencidas > 0) {
       alerts.push({
@@ -840,6 +842,17 @@ dashboardRouter.get("/alerts", async (request, response) => {
         description: `${aVencer} período${plural(aVencer)} de férias chega${aVencer !== 1 ? "m" : ""} ao limite para gozo em até 90 dias e ainda não ${aVencer !== 1 ? "têm" : "tem"} datas.`,
         count: aVencer,
         actionLabel: "Programar férias",
+        actionPath: "/rh/ferias"
+      });
+    }
+    if (direitoChegando > 0) {
+      alerts.push({
+        type: "info",
+        code: "VACATION_RIGHT_COMING",
+        title: "Direito a férias chegando",
+        description: `${direitoChegando} período${plural(direitoChegando)} aquisitivo${plural(direitoChegando)} se completa${direitoChegando !== 1 ? "m" : ""} em até ${JANELA_DIREITO_CHEGANDO_DIAS} dias: a pessoa passa a ter direito a férias.`,
+        count: direitoChegando,
+        actionLabel: "Ver férias",
         actionPath: "/rh/ferias"
       });
     }

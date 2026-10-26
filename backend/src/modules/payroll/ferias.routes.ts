@@ -5,7 +5,7 @@ import { auditLog, getSessionUser, requestIp } from "../security/security-utils.
 import { hojeEmSaoPaulo } from "./extras-comum.js";
 import {
   DIAS_ABONO, diaValido, periodosDeFerias, piorNivel, somarDias, somarMeses,
-  type HistoricoFerias, type NivelAlerta, type PeriodoFerias, type Programacao, type ProgramacaoNoPeriodo,
+  type HistoricoFerias, type NivelAlerta, type PeriodoFerias, type Programacao, type ProgramacaoNoPeriodo, type Solicitacao,
 } from "./ferias-calc.js";
 import { SEMANAS_DE_ESCALA_LIDAS, feriadosEntre, motivoInicioVedado, repousoDaPessoa } from "./ferias-vedados.js";
 
@@ -61,6 +61,7 @@ const SELECT_PESSOA = {
   id: true, firstName: true, lastName: true, displayName: true, sector: true, scheduleRegime: true, admissionDate: true, admissaoCarteira: true,
   company: { select: { tradeName: true } },
   feriasProgramadas: { orderBy: { gozoInicio: "asc" as const } },
+  feriasSolicitadas: true,
   feriasRegistradas: { select: { aquisitivoInicio: true, gozoInicio: true, gozoFim: true, abonoInicio: true, abonoFim: true } },
 } as const;
 
@@ -72,6 +73,7 @@ type LinhaPessoa = {
   company: { tradeName: string | null } | null;
   feriasProgramadas: Array<{ id: string; aquisitivoInicio: Date; gozoInicio: Date | null; dias: number; diasAbono: number; status: string; observacao: string | null; avisadoEm?: Date | null }>;
   feriasRegistradas: Array<{ aquisitivoInicio: Date; gozoInicio: Date | null; gozoFim: Date | null; abonoInicio: Date | null; abonoFim: Date | null }>;
+  feriasSolicitadas?: Array<{ id: string; aquisitivoInicio: Date; inicio: Date; dias: number; diasAbono: number; observacao: string | null; createdAt: Date }>;
 };
 
 export function montarPessoa(e: LinhaPessoa, hoje: string): PessoaFerias {
@@ -91,7 +93,11 @@ export function montarPessoa(e: LinhaPessoa, hoje: string): PessoaFerias {
     gozoInicio: isoDia(h.gozoInicio), gozoFim: isoDia(h.gozoFim),
     abonoInicio: isoDia(h.abonoInicio), abonoFim: isoDia(h.abonoFim),
   }));
-  const periodos = base ? periodosDeFerias({ admissao: base, hoje, programacoes, historico }) : [];
+  const solicitacoes: Solicitacao[] = (e.feriasSolicitadas ?? []).map((x) => ({
+    id: x.id, aquisitivoInicio: isoDia(x.aquisitivoInicio) as string, inicio: isoDia(x.inicio) as string,
+    dias: x.dias, diasAbono: x.diasAbono, observacao: x.observacao, registradaEm: x.createdAt.toISOString(),
+  }));
+  const periodos = base ? periodosDeFerias({ admissao: base, hoje, programacoes, historico, solicitacoes }) : [];
   const repouso = repousoDaPessoa((e.scheduleDays ?? []).map((d) => isoDia(d.date) as string), e.scheduleRegime === "CINCO_POR_DOIS");
   return {
     employeeId: e.id, nome: nomeDe(e), empresa: e.company?.tradeName ?? null, setor: e.sector?.trim() || null,
@@ -117,6 +123,14 @@ export function contarAlertas(pessoas: PessoaFerias[]) {
   const vencidas = periodos.filter((p) => p.situacao === "VENCIDA" || p.foraDoPrazo).length;
   const aVencer = periodos.filter((p) => p.situacao === "A_VENCER" && !p.foraDoPrazo).length;
   return { vencidas, aVencer };
+}
+
+/** Dias de antecedência com que o sistema avisa que um período aquisitivo está para ser concluído. */
+export const JANELA_DIREITO_CHEGANDO_DIAS = 90;
+
+/** Períodos ainda em aquisição que se completam (e dão direito a férias) dentro da janela. */
+export function contarDireitoChegando(pessoas: PessoaFerias[], janela = JANELA_DIREITO_CHEGANDO_DIAS): number {
+  return pessoas.flatMap((p) => p.periodos).filter((p) => p.situacao === "EM_AQUISICAO" && p.diasParaCompletar !== null && p.diasParaCompletar <= janela).length;
 }
 
 // ─── GET /payroll/ferias ────────────────────────────────────────────────────────
@@ -323,6 +337,65 @@ feriasRouter.patch("/:id", async (request, response) => {
   } catch (err) {
     return responderRecusa(err, response);
   }
+});
+
+// ─── PUT /payroll/ferias/solicitacao — registrar (ou trocar) o pedido do colaborador ──────────
+// O pedido não passa pelas regras de dia vedado nem de colegas: ele é só o que a pessoa pediu. A empresa decide
+// na programação, e é lá que o dia vedado, o prazo e a cobertura valem.
+feriasRouter.put("/solicitacao", async (request, response) => {
+  const user = await getSessionUser(request);
+  if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
+  const b = (request.body ?? {}) as Record<string, unknown>;
+  try {
+    const employeeId = idDe(b.employeeId);
+    const hoje = hojeEmSaoPaulo();
+    const { salva, anterior } = await comTrava(employeeId, async (tx) => {
+      const pessoa = await pessoaDe(tx, employeeId, hoje);
+      if (!diaValido(b.aquisitivoInicio)) throw new Recusa(400, "Período aquisitivo inválido.");
+      const periodo = pessoa.periodos.find((p) => p.aquisitivoInicio === b.aquisitivoInicio);
+      if (!periodo) throw new Recusa(400, "Período aquisitivo inválido para este funcionário.");
+      if (periodo.situacao === "EM_AQUISICAO") throw new Recusa(400, "Esse período aquisitivo ainda não terminou: o pedido só vale depois.");
+      if (!diaValido(b.inicio)) throw new Recusa(400, "Informe a data de início pedida.");
+      const dias = inteiro(b.dias, "Dias pedidos", 1, 30);
+      const diasAbono = b.diasAbono === undefined || b.diasAbono === null || b.diasAbono === "" ? 0 : inteiro(b.diasAbono, "Dias de abono", 0, DIAS_ABONO);
+      if (dias + diasAbono > 30) throw new Recusa(400, "O pedido (dias de férias mais abono) passa de 30 dias.");
+      if (b.inicio <= periodo.aquisitivoFim) throw new Recusa(400, "O pedido começa depois do fim do período aquisitivo.");
+      if (b.inicio > somarMeses(hoje, 12 * ANOS_A_FRENTE)) throw new Recusa(400, `A data pedida não pode passar de ${ANOS_A_FRENTE} anos à frente.`);
+      const observacao = typeof b.observacao === "string" && b.observacao.trim() ? b.observacao.trim().slice(0, 300) : null;
+      const chave = { employeeId_aquisitivoInicio: { employeeId, aquisitivoInicio: paraData(b.aquisitivoInicio) } };
+      const anterior = await tx.feriasSolicitacao.findUnique({ where: chave });
+      const dados = { inicio: paraData(b.inicio), dias, diasAbono, observacao };
+      const salva = await tx.feriasSolicitacao.upsert({
+        where: chave, update: dados,
+        create: { employeeId, aquisitivoInicio: paraData(b.aquisitivoInicio), ...dados, createdById: user.id },
+      });
+      return { salva, anterior };
+    });
+    await auditLog({
+      userId: user.id, action: anterior ? "UPDATE_VACATION_REQUEST" : "REGISTER_VACATION_REQUEST", entity: "FeriasSolicitacao", entityId: salva.id,
+      previousValue: anterior ? { inicio: isoDia(anterior.inicio), dias: anterior.dias, diasAbono: anterior.diasAbono, observacao: anterior.observacao } : undefined,
+      newValue: { employeeId, aquisitivoInicio: b.aquisitivoInicio, inicio: b.inicio, dias: salva.dias, diasAbono: salva.diasAbono, observacao: salva.observacao },
+      ...auditoria(request),
+    });
+    return response.status(anterior ? 200 : 201).json({ id: salva.id });
+  } catch (err) {
+    return responderRecusa(err, response);
+  }
+});
+
+// ─── DELETE /payroll/ferias/solicitacao/:id — retirar o pedido ───────────────────────────────
+feriasRouter.delete("/solicitacao/:id", async (request, response) => {
+  const user = await getSessionUser(request);
+  if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
+  const atual = await prisma.feriasSolicitacao.findUnique({ where: { id: request.params.id } });
+  if (!atual) return response.status(404).json({ message: "Pedido não encontrado." });
+  await prisma.feriasSolicitacao.delete({ where: { id: atual.id } });
+  await auditLog({
+    userId: user.id, action: "CANCEL_VACATION_REQUEST", entity: "FeriasSolicitacao", entityId: atual.id,
+    previousValue: { employeeId: atual.employeeId, inicio: isoDia(atual.inicio), dias: atual.dias, diasAbono: atual.diasAbono, observacao: atual.observacao },
+    ...auditoria(request),
+  });
+  return response.json({ ok: true });
 });
 
 // ─── POST /payroll/ferias/:id/avisado — marcar (ou desmarcar) que a pessoa foi avisada ──────

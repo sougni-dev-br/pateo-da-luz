@@ -32,6 +32,19 @@ export type Programacao = {
   /** ISO de quando a pessoa foi avisada das datas; null/ausente = ainda não avisada. */
   avisadoEm?: string | null;
 };
+/** O que o colaborador pediu para um período aquisitivo; a empresa decide pela programação. */
+export type Solicitacao = {
+  id: string;
+  aquisitivoInicio: string;
+  inicio: string;
+  dias: number;
+  diasAbono: number;
+  observacao: string | null;
+  /** ISO de quando o pedido foi registrado. */
+  registradaEm: string;
+};
+export type SolicitacaoNoPeriodo = Omit<Solicitacao, "aquisitivoInicio"> & { fim: string };
+
 export type HistoricoFerias = {
   aquisitivoInicio: string;
   gozoInicio: string | null;
@@ -63,6 +76,8 @@ export type PeriodoFerias = {
   foraDoPrazo: boolean;
   doHistorico: boolean;
   programacoes: ProgramacaoNoPeriodo[];
+  /** O pedido do colaborador para este período, se houver. */
+  solicitacao?: SolicitacaoNoPeriodo | null;
 };
 
 const DIA_MS = 86_400_000;
@@ -100,9 +115,10 @@ export type EntradaPeriodos = {
   hoje: string;
   programacoes: Programacao[];
   historico: HistoricoFerias[];
+  solicitacoes?: Solicitacao[];
 };
 
-export function periodosDeFerias({ admissao, hoje, programacoes, historico }: EntradaPeriodos): PeriodoFerias[] {
+export function periodosDeFerias({ admissao, hoje, programacoes, historico, solicitacoes = [] }: EntradaPeriodos): PeriodoFerias[] {
   const periodos: PeriodoFerias[] = [];
   const corte = somarMeses(hoje, -MESES_DE_HISTORICO);
   for (let n = 0; ; n++) {
@@ -158,9 +174,17 @@ export function periodosDeFerias({ admissao, hoje, programacoes, historico }: En
         gozoFim: p.gozoInicio ? somarDias(p.gozoInicio, p.dias - 1) : null,
         passouDaData: p.status === "PROGRAMADA" && p.gozoInicio !== null && p.gozoInicio <= hoje,
       })),
+      solicitacao: solicitacaoDoPeriodo(solicitacoes, inicio),
     });
   }
   return periodos;
+}
+
+function solicitacaoDoPeriodo(solicitacoes: Solicitacao[], aquisitivoInicio: string): SolicitacaoNoPeriodo | null {
+  const s = solicitacoes.find((x) => x.aquisitivoInicio === aquisitivoInicio);
+  if (!s) return null;
+  const { aquisitivoInicio: _fora, ...resto } = s;
+  return { ...resto, fim: somarDias(s.inicio, s.dias - 1) };
 }
 
 const PESO: Record<NivelAlerta, number> = { perigo: 2, atencao: 1, ok: 0 };

@@ -6,7 +6,7 @@ import { Button } from "../../../design-system";
 import type { Ausencia } from "./eixoDoTempo";
 import type { LinhaFerias } from "./feriasFormato";
 import { FolhaTelaLinhaDoTempo, FolhaTelaLista } from "./FolhaTela";
-import { MESES_OPCOES, type MesesNaFolha, OPCOES_PADRAO, type OpcoesTela, type Orientacao, type Papel, eixoDaFolha, estiloDePagina, larguraUtilPx, nomeDoArquivo } from "./opcoesDaFolha";
+import { LETRAS, MESES_OPCOES, type MesesNaFolha, type TamanhoDaLetra, OPCOES_PADRAO, type OpcoesTela, type Orientacao, type Papel, eixoDaFolha, estiloDePagina, larguraUtilPx, nomeDoArquivo } from "./opcoesDaFolha";
 import "./impressao.css";
 import "./impressaoTela.css";
 
@@ -18,6 +18,8 @@ type Props = {
   visao: "linha" | "lista";
   /** O que a tela mostra agora (já com o filtro de situação e de empresa aplicados). */
   pessoas: PessoaFerias[];
+  /** Todas as pessoas da empresa escolhida (o resumo "O que fazer" não depende do filtro de situação). */
+  pessoasDoResumo?: PessoaFerias[];
   linhas: LinhaFerias[];
   filtroRotulo: string;
   empresaDaTela: string;
@@ -29,7 +31,7 @@ const empresaDe = (p: PessoaFerias) => p.empresa ?? "Sem empresa";
 const mesmas = (a: OpcoesTela, b: OpcoesTela) => JSON.stringify(a) === JSON.stringify(b);
 
 /** Imprime (ou salva em PDF) a tela de férias como ela se apresenta: linha do tempo ou lista. */
-export function ImpressaoTela({ lista, visao, pessoas, linhas, filtroRotulo, empresaDaTela, ausencias, onClose }: Props) {
+export function ImpressaoTela({ lista, visao, pessoas, pessoasDoResumo, linhas, filtroRotulo, empresaDaTela, ausencias, onClose }: Props) {
   const [opcoes, setOpcoes] = useState<OpcoesTela>(OPCOES_PADRAO);
   const primeiro = useRef<HTMLInputElement>(null);
   const mudou = !mesmas(opcoes, OPCOES_PADRAO);
@@ -41,6 +43,7 @@ export function ImpressaoTela({ lista, visao, pessoas, linhas, filtroRotulo, emp
   const empresas = useMemo(() => [...new Set((visao === "linha" ? pessoas.map(empresaDe) : linhas.map((l) => empresaDe(l.pessoa))))], [visao, pessoas, linhas]);
   const marcada = (empresa: string) => !opcoes.semEmpresa.includes(empresa);
   const pessoasSel = pessoas.filter((p) => marcada(empresaDe(p)));
+  const resumoSel = (pessoasDoResumo ?? pessoas).filter((p) => marcada(empresaDe(p)));
   const linhasSel = linhas.filter((l) => marcada(empresaDe(l.pessoa)));
   const total = visao === "linha" ? pessoasSel.length : linhasSel.length;
   const eixo = useMemo(() => eixoDaFolha(lista.hoje, opcoes), [lista.hoje, opcoes]);
@@ -66,7 +69,7 @@ export function ImpressaoTela({ lista, visao, pessoas, linhas, filtroRotulo, emp
   }
 
   const folha = visao === "linha"
-    ? <FolhaTelaLinhaDoTempo lista={lista} opcoes={opcoes} filtroRotulo={filtroRotulo} empresaDaTela={empresaDaTela} pessoas={pessoasSel} eixo={eixo} ausencias={ausencias} />
+    ? <FolhaTelaLinhaDoTempo lista={lista} opcoes={opcoes} filtroRotulo={filtroRotulo} empresaDaTela={empresaDaTela} pessoas={pessoasSel} pessoasDoResumo={resumoSel} eixo={eixo} ausencias={ausencias} />
     : <FolhaTelaLista lista={lista} opcoes={opcoes} filtroRotulo={filtroRotulo} empresaDaTela={empresaDaTela} linhas={linhasSel} />;
   const zoom = Math.min(0.8, LARGURA_DA_PREVIA_PX / larguraUtilPx(opcoes));
   const podeImprimir = total > 0;
@@ -104,6 +107,18 @@ export function ImpressaoTela({ lista, visao, pessoas, linhas, filtroRotulo, emp
                   <label key={o} className="fe-imp-opcao">
                     <input type="radio" name="fe-it-orientacao" checked={opcoes.orientacao === o} onChange={() => mudar({ orientacao: o })} />
                     <span><strong>{rotulo}</strong></span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+
+            <fieldset className="fe-imp-grupo">
+              <legend>Tamanho da letra</legend>
+              <div className="fe-it-grupo-linha">
+                {LETRAS.map((l) => (
+                  <label key={l.id} className="fe-imp-opcao">
+                    <input type="radio" name="fe-it-letra" checked={opcoes.letra === l.id} onChange={() => mudar({ letra: l.id as TamanhoDaLetra })} />
+                    <span><strong>{l.rotulo}</strong></span>
                   </label>
                 ))}
               </div>
