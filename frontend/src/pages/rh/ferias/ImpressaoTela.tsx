@@ -18,6 +18,8 @@ type Props = {
   visao: "linha" | "lista";
   /** O que a tela mostra agora (já com o filtro de situação e de empresa aplicados). */
   pessoas: PessoaFerias[];
+  /** Todas as pessoas da empresa escolhida (o resumo "O que fazer" não depende do filtro de situação). */
+  pessoasDoResumo?: PessoaFerias[];
   linhas: LinhaFerias[];
   filtroRotulo: string;
   empresaDaTela: string;
@@ -29,7 +31,7 @@ const empresaDe = (p: PessoaFerias) => p.empresa ?? "Sem empresa";
 const mesmas = (a: OpcoesTela, b: OpcoesTela) => JSON.stringify(a) === JSON.stringify(b);
 
 /** Imprime (ou salva em PDF) a tela de férias como ela se apresenta: linha do tempo ou lista. */
-export function ImpressaoTela({ lista, visao, pessoas, linhas, filtroRotulo, empresaDaTela, ausencias, onClose }: Props) {
+export function ImpressaoTela({ lista, visao, pessoas, pessoasDoResumo, linhas, filtroRotulo, empresaDaTela, ausencias, onClose }: Props) {
   const [opcoes, setOpcoes] = useState<OpcoesTela>(OPCOES_PADRAO);
   const primeiro = useRef<HTMLInputElement>(null);
   const mudou = !mesmas(opcoes, OPCOES_PADRAO);
@@ -41,6 +43,7 @@ export function ImpressaoTela({ lista, visao, pessoas, linhas, filtroRotulo, emp
   const empresas = useMemo(() => [...new Set((visao === "linha" ? pessoas.map(empresaDe) : linhas.map((l) => empresaDe(l.pessoa))))], [visao, pessoas, linhas]);
   const marcada = (empresa: string) => !opcoes.semEmpresa.includes(empresa);
   const pessoasSel = pessoas.filter((p) => marcada(empresaDe(p)));
+  const resumoSel = (pessoasDoResumo ?? pessoas).filter((p) => marcada(empresaDe(p)));
   const linhasSel = linhas.filter((l) => marcada(empresaDe(l.pessoa)));
   const total = visao === "linha" ? pessoasSel.length : linhasSel.length;
   const eixo = useMemo(() => eixoDaFolha(lista.hoje, opcoes), [lista.hoje, opcoes]);
@@ -66,7 +69,7 @@ export function ImpressaoTela({ lista, visao, pessoas, linhas, filtroRotulo, emp
   }
 
   const folha = visao === "linha"
-    ? <FolhaTelaLinhaDoTempo lista={lista} opcoes={opcoes} filtroRotulo={filtroRotulo} empresaDaTela={empresaDaTela} pessoas={pessoasSel} eixo={eixo} ausencias={ausencias} />
+    ? <FolhaTelaLinhaDoTempo lista={lista} opcoes={opcoes} filtroRotulo={filtroRotulo} empresaDaTela={empresaDaTela} pessoas={pessoasSel} pessoasDoResumo={resumoSel} eixo={eixo} ausencias={ausencias} />
     : <FolhaTelaLista lista={lista} opcoes={opcoes} filtroRotulo={filtroRotulo} empresaDaTela={empresaDaTela} linhas={linhasSel} />;
   const zoom = Math.min(0.8, LARGURA_DA_PREVIA_PX / larguraUtilPx(opcoes));
   const podeImprimir = total > 0;

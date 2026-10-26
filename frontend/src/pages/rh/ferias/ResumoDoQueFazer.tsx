@@ -1,11 +1,12 @@
 import type { PessoaFerias } from "../../../api/client";
 import { plural } from "./feriasFormato";
-import { type ItemDoResumo, resumoDoQueFazer } from "./proximoPasso";
+import { type ItemDoResumo, JANELA_DIREITO_DIAS, resumoDoQueFazer } from "./proximoPasso";
 
 const ROTULO_DO_RESUMO: Record<ItemDoResumo["tipo"], (n: number) => string> = {
   vencido: (n) => `${n} ${plural(n, "prazo vencido", "prazos vencidos")}, definir a data já`,
   responder: (n) => `${n} ${plural(n, "pedido para responder", "pedidos para responder")}`,
-  definir: (n) => `${n} ${plural(n, "pessoa para definir a data", "pessoas para definir a data")}`,
+  definir: (n) => `${n} ${plural(n, "pessoa com direito a férias, definir a data", "pessoas com direito a férias, definir a data")}`,
+  completar: (n) => `${n} ${plural(n, "pessoa completa", "pessoas completam")} o período aquisitivo em até ${JANELA_DIREITO_DIAS} dias e passa${n === 1 ? "" : "m"} a ter direito`,
   avisar: (n) => `${n} ${plural(n, "aviso a fazer", "avisos a fazer")}`,
   confirmar: (n) => `${n} ${plural(n, "gozo para confirmar", "gozos para confirmar")}`,
 };

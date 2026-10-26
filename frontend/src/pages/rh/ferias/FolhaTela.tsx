@@ -15,7 +15,7 @@ const resumoDoTopo = ({ lista, filtroRotulo, empresaDaTela }: Comum) =>
 
 // ── Linha do tempo ─────────────────────────────────────────────────────────────────
 
-type PropsLinha = Comum & { pessoas: PessoaFerias[]; eixo: Eixo; ausencias: Ausencia[] };
+type PropsLinha = Comum & { pessoas: PessoaFerias[]; pessoasDoResumo?: PessoaFerias[]; eixo: Eixo; ausencias: Ausencia[] };
 
 const LEGENDA: Array<[string, string]> = [
   ["seguro", "No prazo"], ["atencao", "Menos de 90 dias"], ["urgente", "Menos de 30 dias"], ["estouro", "Passou do prazo"],
@@ -54,7 +54,7 @@ export function FolhaTelaLinhaDoTempo(props: PropsLinha) {
         <h2>{tituloDaFolha("linha")}</h2>
         <p>{resumoDoTopo(props)}</p>
       </header>
-      <ResumoDoQueFazer pessoas={pessoas} hoje={lista.hoje} classe="fe-ti-resumo" />
+      <ResumoDoQueFazer pessoas={props.pessoasDoResumo ?? pessoas} hoje={lista.hoje} classe="fe-ti-resumo" />
       {opcoes.legenda && (
         <ul className="fe-ti-legenda" aria-label="Legenda">
           {LEGENDA.map(([tom, rotulo]) => <li key={tom}><i className={`fe-ti-amostra fe-ti-amostra--${tom}`} />{rotulo}</li>)}

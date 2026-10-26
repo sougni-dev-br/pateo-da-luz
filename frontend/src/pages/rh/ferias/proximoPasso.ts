@@ -1,6 +1,6 @@
 // O que fazer a seguir com as férias de cada pessoa, em uma frase (vai na folha impressa, ao lado de cada nome).
 import type { PeriodoFerias, PessoaFerias } from "../../../api/client";
-import { dataBr } from "./feriasFormato";
+import { dataBr, somaDias } from "./feriasFormato";
 import { compararPedido } from "./pedido";
 import { prazoParaAvisar } from "./regrasFerias";
 
@@ -66,7 +66,10 @@ export function ordenarPorUrgencia(pessoas: PessoaFerias[], hoje: string): Pesso
     .map((x) => x.p);
 }
 
-export type ItemDoResumo = { tipo: "vencido" | "responder" | "definir" | "avisar" | "confirmar"; urgente: boolean; nomes: string[] };
+/** Quantos dias antes de o período aquisitivo se completar a tela já avisa que a pessoa vai ter direito. */
+export const JANELA_DIREITO_DIAS = 90;
+
+export type ItemDoResumo = { tipo: "vencido" | "responder" | "definir" | "completar" | "avisar" | "confirmar"; urgente: boolean; nomes: string[] };
 
 /** O que fazer agora, somando as providências da folha por tipo (só os tipos que têm gente). */
 export function resumoDoQueFazer(pessoas: PessoaFerias[], hoje: string): ItemDoResumo[] {
@@ -80,6 +83,18 @@ export function resumoDoQueFazer(pessoas: PessoaFerias[], hoje: string): ItemDoR
     const atual = itens.get(tipo) ?? { tipo, urgente: false, nomes: [] };
     itens.set(tipo, { ...atual, urgente: atual.urgente || passo.urgente, nomes: [...atual.nomes, pessoa.nome] });
   }
-  const ordem: ItemDoResumo["tipo"][] = ["vencido", "responder", "definir", "avisar", "confirmar"];
+  const completando = pessoas
+    .flatMap((pessoa) => pessoa.periodos
+      .filter((p) => p.situacao === "EM_AQUISICAO" && p.diasParaCompletar !== null && p.diasParaCompletar <= JANELA_DIREITO_DIAS)
+      .map((p) => ({ pessoa, dias: p.diasParaCompletar as number, direito: somaDias(p.aquisitivoFim, 1) })))
+    .sort((a, b) => a.dias - b.dias);
+  if (completando.length > 0) {
+    itens.set("completar", {
+      tipo: "completar",
+      urgente: completando.some((c) => c.dias <= 30),
+      nomes: completando.map((c) => `${c.pessoa.nome} (${dataBr(c.direito)}, em ${c.dias} ${c.dias === 1 ? "dia" : "dias"})`),
+    });
+  }
+  const ordem: ItemDoResumo["tipo"][] = ["vencido", "responder", "definir", "completar", "avisar", "confirmar"];
   return ordem.flatMap((t) => itens.get(t) ?? []);
 }

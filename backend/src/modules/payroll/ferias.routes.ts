@@ -125,6 +125,14 @@ export function contarAlertas(pessoas: PessoaFerias[]) {
   return { vencidas, aVencer };
 }
 
+/** Dias de antecedência com que o sistema avisa que um período aquisitivo está para ser concluído. */
+export const JANELA_DIREITO_CHEGANDO_DIAS = 90;
+
+/** Períodos ainda em aquisição que se completam (e dão direito a férias) dentro da janela. */
+export function contarDireitoChegando(pessoas: PessoaFerias[], janela = JANELA_DIREITO_CHEGANDO_DIAS): number {
+  return pessoas.flatMap((p) => p.periodos).filter((p) => p.situacao === "EM_AQUISICAO" && p.diasParaCompletar !== null && p.diasParaCompletar <= janela).length;
+}
+
 // ─── GET /payroll/ferias ────────────────────────────────────────────────────────
 feriasRouter.get("/", async (_request, response) => {
   const hoje = hojeEmSaoPaulo();

@@ -91,4 +91,14 @@ describe("urgência e resumo da folha", () => {
       { tipo: "responder", urgente: false, nomes: ["Bia"] },
     ]);
   });
+
+  test("quem completa o período aquisitivo em até 90 dias entra no resumo, do mais próximo ao mais distante", () => {
+    const completa = (dias: number, fim: string) => periodo({ situacao: "EM_AQUISICAO", diasPendentes: 0, diasParaCompletar: dias, aquisitivoFim: fim });
+    const itens = resumoDoQueFazer([
+      nomeado("Longe", null, [completa(120, "2027-02-18")]),
+      nomeado("Perto", null, [completa(20, "2026-11-09")]),
+      nomeado("Meio", null, [completa(70, "2027-01-01")]),
+    ], HOJE);
+    expect(itens).toEqual([{ tipo: "completar", urgente: true, nomes: ["Perto (10/11/2026, em 20 dias)", "Meio (02/01/2027, em 70 dias)"] }]);
+  });
 });

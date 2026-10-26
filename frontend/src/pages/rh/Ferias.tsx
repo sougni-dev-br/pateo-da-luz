@@ -186,6 +186,9 @@ export function Ferias() {
     return visiveis.flatMap((l) => (vistos.has(l.pessoa.employeeId) ? [] : (vistos.add(l.pessoa.employeeId), [l.pessoa])));
   }, [visiveis]);
 
+  // O resumo olha todas as pessoas da empresa escolhida, não só as do filtro de situação: quem está completando o período não aparece em "A programar".
+  const pessoasDoResumo = useMemo(() => (lista ? lista.pessoas.filter((p) => !empresa || (p.empresa ?? "Sem empresa") === empresa) : []), [lista, empresa]);
+
   const regrasDa = (pessoa: PessoaFerias) => (lista ? { hoje: lista.hoje, feriados: lista.feriados, repousos: pessoa.repousoSemanal, repousoPelaEscala: pessoa.repousoPelaEscala } : undefined);
   const formulario = (l: LinhaFerias, ab: Aberto) => (ab.pedido ? (
     <PedidoDoColaborador key={`pedido-${l.periodo.solicitacao?.id ?? "novo"}`} nome={l.pessoa.nome} periodo={l.periodo} regras={regrasDa(l.pessoa)} conflitos={conflitosDe(l.pessoa)}
@@ -247,7 +250,7 @@ export function Ferias() {
 
       {lista && todasAsLinhas.length > 0 && <PlanejamentoFerias lista={lista} ocupado={salvando} onAvisado={(id, avisado, nome) => void marcarAvisado(id, avisado, nome)} />}
 
-      {lista && pessoasVisiveis.length > 0 && <ResumoDoQueFazer pessoas={pessoasVisiveis} hoje={lista.hoje} classe="fe-resumo" />}
+      {lista && pessoasDoResumo.length > 0 && <ResumoDoQueFazer pessoas={pessoasDoResumo} hoje={lista.hoje} classe="fe-resumo" />}
 
       {lista && linhas.length > 0 && (
         <div className="fe-filtros" role="group" aria-label="Filtrar por situação">
@@ -347,7 +350,7 @@ export function Ferias() {
         </ul>
       )}
       {imprimindoTela && lista && (
-        <ImpressaoTela lista={lista} visao={visao} pessoas={pessoasVisiveis} linhas={visiveis} filtroRotulo={rotuloDoFiltro} empresaDaTela={empresa} ausencias={ausencias}
+        <ImpressaoTela lista={lista} visao={visao} pessoas={pessoasVisiveis} pessoasDoResumo={pessoasDoResumo} linhas={visiveis} filtroRotulo={rotuloDoFiltro} empresaDaTela={empresa} ausencias={ausencias}
           onClose={() => { setImprimindoTela(false); devolverFoco(); }} />
       )}
       {imprimindo && lista && (

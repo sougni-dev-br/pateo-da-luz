@@ -22,7 +22,7 @@ vi.mock("../extras-comum.js", () => ({ hojeEmSaoPaulo: () => "2026-10-15" }));
 
 import { prisma } from "../../../config/database.js";
 import { auditLog, getSessionUser } from "../../security/security-utils.js";
-import { carregarFerias, contarAlertas, feriasRouter, montarPessoa } from "../ferias.routes.js";
+import { carregarFerias, contarAlertas, contarDireitoChegando, feriasRouter, montarPessoa } from "../ferias.routes.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = prisma as any;
@@ -67,6 +67,17 @@ describe("GET /payroll/ferias", () => {
     const aVencer = montarPessoa(eliana() as never, "2026-12-15");
     expect(contarAlertas([vencida])).toEqual({ vencidas: 1, aVencer: 0 });
     expect(contarAlertas([aVencer])).toEqual({ vencidas: 0, aVencer: 1 });
+  });
+});
+
+describe("direito a férias chegando", () => {
+  test("conta só os períodos em aquisição que se completam dentro da janela de 90 dias", () => {
+    const longe = montarPessoa(eliana() as never, "2026-10-15");
+    const perto = montarPessoa(eliana() as never, "2026-12-15");
+    expect(contarDireitoChegando([longe])).toBe(0);
+    expect(contarDireitoChegando([perto])).toBe(1);
+    expect(contarDireitoChegando([longe, perto])).toBe(1);
+    expect(contarDireitoChegando([longe], 200)).toBe(1);
   });
 });
 
