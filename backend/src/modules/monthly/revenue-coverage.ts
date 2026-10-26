@@ -43,8 +43,13 @@ export type EntradaDaCobertura = {
   ultimoDiaGeral: Partial<Record<CanalDeCobertura, string | null>>;
 };
 
-/** Atraso máximo, em dias, para o canal ainda contar como em dia (ontem). */
-const MAX_DIAS_EM_DIA = 1;
+/**
+ * Atraso máximo, em dias, para o canal ainda contar como em dia (padrão: ontem).
+ * A 99 libera a fatura diária na API financeira com um dia a mais de atraso que o portal
+ * (26/10/2026: portal já tinha o dia 25; a API, mesmo após sync manual, ainda não).
+ */
+const MAX_DIAS_EM_DIA_PADRAO = 1;
+const MAX_DIAS_EM_DIA_POR_CANAL: Partial<Record<CanalDeCobertura, number>> = { "99Food": 2 };
 const DIA_EM_MS = 86_400_000;
 
 const toMs = (ymd: string) => Date.parse(`${ymd}T00:00:00Z`);
@@ -80,9 +85,10 @@ export function canalDaLinha(linha: LinhaDeReceita): CanalDeCobertura | null {
   return (CANAIS_DE_COBERTURA as readonly string[]).includes(plataforma) ? (plataforma as CanalDeCobertura) : null;
 }
 
-function situacaoDe(diasDesdeUltimo: number | null): SituacaoDoCanal {
+function situacaoDe(canal: CanalDeCobertura, diasDesdeUltimo: number | null): SituacaoDoCanal {
   if (diasDesdeUltimo === null) return "SEM_DADOS";
-  return diasDesdeUltimo <= MAX_DIAS_EM_DIA ? "EM_DIA" : "ATRASADO";
+  const limite = MAX_DIAS_EM_DIA_POR_CANAL[canal] ?? MAX_DIAS_EM_DIA_PADRAO;
+  return diasDesdeUltimo <= limite ? "EM_DIA" : "ATRASADO";
 }
 
 export function calcularCobertura(entrada: EntradaDaCobertura): CoberturaDoCanal[] {
@@ -128,7 +134,7 @@ export function calcularCobertura(entrada: EntradaDaCobertura): CoberturaDoCanal
       .sort((a, b) => b.dias - a.dias || a.origem.localeCompare(b.origem));
     return {
       canal,
-      situacao: situacaoDe(diasDesdeUltimo),
+      situacao: situacaoDe(canal, diasDesdeUltimo),
       ultimoDia,
       diasDesdeUltimo,
       diasNoPeriodo: diasDaJanela.length,

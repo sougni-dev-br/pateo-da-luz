@@ -13,7 +13,7 @@ const SITUACAO: Record<CoberturaCanal["situacao"], { tone: StatusTone; rotulo: s
 /** O que fazer quando o canal atrasa — cada um entra por um caminho diferente. */
 const DICA_DE_ATRASO: Record<CoberturaCanal["canal"], string> = {
   Salão: "O Agile PDV deixou de sincronizar. Confira o agente na PDVTOUCH.",
-  "99Food": "A sincronização diária da 99 (04h) não gravou. Rode Sincronizar em Integrações Delivery.",
+  "99Food": "A 99 libera a fatura do dia na API com 1–2 dias de atraso. Se passar disso, rode Sincronizar em Integrações Delivery e confira o log da rodada das 04h.",
   iFood: "O iFood ainda não tem integração ativa; o faturamento entra por importação.",
   Keeta: "Importe o relatório diário do portal em Delivery → Keeta → Importar do portal."
 };
