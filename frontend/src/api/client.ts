@@ -7271,7 +7271,7 @@ export type WhatsAppRecipient = {
 };
 
 export type WhatsAppStatus = {
-  status: "starting" | "waiting_qr" | "connecting" | "open" | "closed" | "logged_out";
+  status: "starting" | "waiting_qr" | "connecting" | "open" | "closed" | "logged_out" | "suspended";
   sessionName: string;
   hasQr: boolean;
   lastError: string | null;

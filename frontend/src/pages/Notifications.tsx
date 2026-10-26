@@ -127,6 +127,13 @@ function statusView(status: WhatsAppStatus["status"]): {
         helper: "O WhatsApp encerrou a sessão. Escaneie um QR novo para reconectar.",
         live: false
       };
+    case "suspended":
+      return {
+        label: "Reconexão suspensa",
+        tone: "danger",
+        helper: "Várias tentativas falharam. Gere um QR novo (logout) ou reinicie o serviço.",
+        live: false
+      };
     case "closed":
     default:
       return {
