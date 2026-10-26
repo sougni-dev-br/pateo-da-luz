@@ -69,7 +69,8 @@ function buildDailyRows(entries: RevenueEntry[]): DailyRow[] {
     row.salesSecondShift += Number(entry.salesSecondShift ?? 0);
     map.set(date, row);
   }
-  return [...map.values()].sort((a, b) => a.date.localeCompare(b.date));
+  // Do dia mais recente para o mais antigo: o que se procura quase sempre é o último dia lançado.
+  return [...map.values()].sort((a, b) => b.date.localeCompare(a.date));
 }
 
 function buildWeekdayRows(dailyRows: DailyRow[]): WeekdayRow[] {

@@ -740,10 +740,6 @@ export function App() {
                       setCashEntryId(entryId ?? null);
                       handleNavigate("cash");
                     }}
-                    onOpenImports={(tab) => {
-                      setImportsTab(tab);
-                      handleNavigate("import");
-                    }}
                   />
                 )}
               />

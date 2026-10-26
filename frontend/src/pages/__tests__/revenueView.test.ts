@@ -20,12 +20,15 @@ describe("revenueView", () => {
     const filter = describeAppliedFilter({ month: "2026-10", period: period("currentMonth", "2026-10-01", "2026-10-31"), channel: "" });
     expect(filter.periodLabel).toBe("outubro de 2026");
     expect(filter.channelLabel).toBe("Todos os canais");
+    expect(filter.isCompetence).toBe(true);
+    expect(filter.month).toBe("2026-10");
   });
 
   it("descreve o filtro por intervalo e canal", () => {
     const filter = describeAppliedFilter({ month: "2026-10", period: period("custom", "2026-10-14", "2026-10-17"), channel: "Delivery" });
     expect(filter.periodLabel).toBe("14/10/2026 a 17/10/2026");
     expect(filter.channelLabel).toBe("Delivery");
+    expect(filter.isCompetence).toBe(false);
   });
 
   it("muda a chave quando qualquer filtro muda", () => {

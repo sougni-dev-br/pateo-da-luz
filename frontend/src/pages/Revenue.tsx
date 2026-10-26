@@ -1,13 +1,14 @@
-import { BadgeDollarSign, CalendarPlus, Upload } from "lucide-react";
+import { BadgeDollarSign, CalendarPlus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AppUser, cancelRevenueEntry, getCmvPeriods, getRevenue, RevenueEntry, RevenueSummary } from "../api/client";
+import { MonthHeader } from "../components/MonthHeader";
 import { Notice, useNotice } from "../components/Notice";
-import { Button, Card, PanelEyebrow, PageHeader, Tabs } from "../design-system";
+import { Button, Card, Tabs } from "../design-system";
 import { hasPermission } from "../lib/permissions";
-import type { ImportTab } from "./ImportsHub";
 import { formatDate } from "../utils/format";
-import { currentMonthPeriod, periodForPreset, type PeriodState } from "../utils/period";
+import { currentMonthPeriod, type PeriodState } from "../utils/period";
 import { buildRevenueAnalytics } from "./revenueAnalytics";
+import { shiftCompetence } from "./dashboard/logic";
 import { EVENT_CHANNEL } from "./revenueBits";
 import { previousCompetence, type EntryGroup } from "./revenueGroups";
 import { describeAppliedFilter, monthLabel, type AppliedFilter } from "./revenueView";
@@ -57,11 +58,10 @@ function storedCmvPeriod(): { id: string; name: string; dataInicial: string; dat
 
 type RevenueProps = {
   user: AppUser;
-  onOpenImports?: (tab: ImportTab) => void;
   onOpenCash?: (entryId?: string) => void;
 };
 
-export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
+export function Revenue({ user, onOpenCash }: RevenueProps) {
   const canEdit = hasPermission(user, "revenue", "edit");
   // Lançar evento cria um RevenueEntry: além da regra de negócio ("Aprovar"), precisa da
   // ação que o POST /monthly/revenue exige, senão o botão aparece e falha ao salvar.
@@ -73,6 +73,7 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
   const [summary, setSummary] = useState<RevenueSummary | null>(null);
   const [appliedFilter, setAppliedFilter] = useState<AppliedFilter | null>(null);
   const [previous, setPrevious] = useState<PreviousPeriod | null>(null);
+  const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
   const [tab, setTab] = useState<RevenueTab>("overview");
   const [showEventModal, setShowEventModal] = useState(false);
   const { notice, setNotice } = useNotice();
@@ -80,15 +81,16 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
   const autoLoadedInitialMonthRef = useRef(false);
   const requestSeqRef = useRef(0);
 
-  async function load(options?: { allowAutoFallback?: boolean }) {
+  /** `month`/`period` permitem carregar um valor recém-escolhido antes de o estado React ser atualizado. */
+  async function load(options?: { allowAutoFallback?: boolean; month?: string; period?: PeriodState }) {
     const requestSeq = ++requestSeqRef.current;
     loadControllerRef.current?.abort();
     const controller = new AbortController();
     loadControllerRef.current = controller;
     setLoading(true);
     try {
-      let nextMonth = month;
-      let nextPeriod = period;
+      let nextMonth = options?.month ?? month;
+      let nextPeriod = options?.period ?? period;
       let response = await getRevenue(buildRevenueFilters(nextMonth, nextPeriod, channelFilter), controller.signal);
       if (
         options?.allowAutoFallback === true &&
@@ -96,16 +98,15 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
         nextPeriod.preset === "currentMonth" &&
         nextMonth === currentMonth()
       ) {
-        const fallback = periodForPreset("previousMonth");
-        nextMonth = monthFromDate(fallback.startDate);
-        nextPeriod = fallback;
+        const before = previousCompetence(nextMonth);
+        nextMonth = `${before.year}-${String(before.month).padStart(2, "0")}`;
         setMonth(nextMonth);
-        setPeriod(nextPeriod);
         response = await getRevenue(buildRevenueFilters(nextMonth, nextPeriod, channelFilter), controller.signal);
       }
       if (requestSeq !== requestSeqRef.current) return;
       setSummary(response);
       setAppliedFilter(describeAppliedFilter({ month: nextMonth, period: nextPeriod, channel: channelFilter }));
+      setUpdatedAt(new Date());
 
       // A comparação só faz sentido para um mês de competência; intervalo livre fica sem variação.
       if (!usesCompetenceMonth(nextPeriod)) {
@@ -122,7 +123,7 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
           setPrevious({
             label: monthLabel(before.year, before.month),
             summary: beforeResponse.summary,
-            inProgress: nextPeriod.preset === "currentMonth"
+            inProgress: nextMonth === currentMonth()
           });
         }
       } catch (compareError) {
@@ -150,15 +151,13 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
     void load({ allowAutoFallback: true });
   }, []);
 
-  useEffect(() => {
-    if (period.preset === "currentMonth") {
-      setMonth(currentMonth());
-      return;
-    }
-    if (period.preset === "previousMonth") {
-      setMonth(monthFromDate(period.startDate));
-    }
-  }, [period.preset, period.startDate]);
+  /** Escolher um mês no cabeçalho volta ao modo "mês da competência" e já carrega, como no Dashboard. */
+  function goToMonth(next: string) {
+    const competencePeriod = currentMonthPeriod();
+    setMonth(next);
+    setPeriod(competencePeriod);
+    void load({ month: next, period: competencePeriod });
+  }
 
   async function handleCancel(entry: RevenueEntry) {
     const reason = window.prompt("Informe o motivo para cancelar este faturamento:");
@@ -213,7 +212,7 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
   const entries = (summary?.entries ?? []).filter((entry) => canLaunchEvent || entry.channel !== EVENT_CHANNEL);
   const filterIsDirty =
     appliedFilter !== null && appliedFilter.key !== describeAppliedFilter({ month, period, channel: channelFilter }).key;
-  const competence = splitMonth(month);
+  const competence = splitMonth(appliedFilter?.month ?? month);
   const tabs = [
     { value: "overview", label: "Visão geral" },
     { value: "daily", label: "Por dia" },
@@ -222,10 +221,17 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
 
   return (
     <div className="revenue-page">
-      <PageHeader
-        eyebrow="Financeiro"
-        title="Faturamento"
-        description="Receita por canal, por dia e por lançamento: salão, delivery e eventos."
+      <MonthHeader
+        eyebrow="Financeiro · Faturamento"
+        competence={appliedFilter?.month ?? month}
+        loading={loading}
+        updatedAt={updatedAt}
+        onChange={goToMonth}
+        onStep={(delta) => goToMonth(shiftCompetence(appliedFilter?.month ?? month, delta))}
+        onToday={() => goToMonth(currentMonth())}
+        onRefresh={() => load({ allowAutoFallback: false })}
+        rangeTitle={appliedFilter && !appliedFilter.isCompetence ? appliedFilter.periodLabel : undefined}
+        rangeStatus="Período livre"
         actions={
           <>
             {canEdit && (
@@ -238,11 +244,6 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
                 Lançar evento
               </Button>
             )}
-            {canEdit && onOpenImports && (
-              <Button variant="secondary" leadingIcon={<Upload size={16} />} onClick={() => onOpenImports("revenue")}>
-                Importar faturamento
-              </Button>
-            )}
           </>
         }
       />
@@ -250,8 +251,6 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
       <Notice notice={notice} />
 
       <RevenueFilters
-        month={month}
-        onMonthChange={setMonth}
         period={period}
         onPeriodChange={setPeriod}
         channel={channelFilter}
@@ -259,12 +258,17 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
         loading={loading}
         onApply={() => load({ allowAutoFallback: false })}
         onUseCmvPeriod={useCmvPeriod}
-        applied={appliedFilter}
-        isDirty={filterIsDirty}
-        entriesCount={entries.length}
       />
 
-      <Tabs tabs={tabs} value={tab} onChange={(value) => setTab(value as RevenueTab)} aria-label="Seções do faturamento" />
+      <div className="revenue-tabs-row">
+        <Tabs tabs={tabs} value={tab} onChange={(value) => setTab(value as RevenueTab)} aria-label="Seções do faturamento" />
+        {appliedFilter && (
+          <p className="revenue-contexto" aria-live="polite">
+            Canal: <strong>{appliedFilter.channelLabel}</strong>
+            {filterIsDirty && <span className="revenue-contexto-aviso"> — filtros alterados: clique em Aplicar</span>}
+          </p>
+        )}
+      </div>
 
       {tab === "overview" && (
         <div role="tabpanel">
@@ -288,8 +292,6 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
       {tab === "entries" && (
         <div role="tabpanel">
           <Card>
-            <PanelEyebrow>Lançamentos</PanelEyebrow>
-            <h2 className="revenue-card-title">{entries.length} {entries.length === 1 ? "lançamento" : "lançamentos"}</h2>
             <RevenueEntriesTable
               entries={entries}
               eventChannel={EVENT_CHANNEL}

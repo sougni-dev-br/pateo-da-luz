@@ -36,7 +36,9 @@ describe("buildRevenueAnalytics", () => {
       ])
     );
     expect(dailyRows).toHaveLength(2);
-    expect(dailyRows[0]).toMatchObject({ date: "2026-10-14", weekdayName: "QUARTA-FEIRA", netAmount: 150, tickets: 3 });
+    // mais recente primeiro
+    expect(dailyRows.map((row) => row.date)).toEqual(["2026-10-15", "2026-10-14"]);
+    expect(dailyRows[1]).toMatchObject({ weekdayName: "QUARTA-FEIRA", netAmount: 150, tickets: 3 });
   });
 
   it("agrupa por dia da semana, do maior líquido para o menor", () => {

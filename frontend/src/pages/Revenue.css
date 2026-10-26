@@ -15,6 +15,10 @@
 .revenue-contexto strong { color: var(--ink); font-weight: 600; }
 .revenue-contexto-aviso { color: var(--warning); font-weight: 600; }
 
+/* ── Abas e contexto do filtro ─────────────────────────────────────── */
+.revenue-tabs-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 16px; }
+.revenue-tabs-row .revenue-contexto { margin: 0; }
+
 /* ── Cabeçalho e filtros ───────────────────────────────────────────── */
 
 .revenue-filter-bar {
@@ -24,13 +28,17 @@
   align-items: flex-end;
 }
 .revenue-filter-bar > .ds-text-field,
-.revenue-filter-bar > .ds-select { flex: 1 1 170px; max-width: 280px; min-width: 0; }
+.revenue-filter-bar > .ds-select { flex: 1 1 150px; max-width: 280px; min-width: 0; }
+/* Campos e botão com a mesma altura: o desnível de 2px entre eles aparecia na linha. */
+.revenue-filter-bar .ds-text-field-input,
+.revenue-filter-bar .ds-select-native { min-height: 40px; }
 .revenue-filter-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   margin-left: auto;
 }
+
 
 /* ── Indicadores ───────────────────────────────────────────────────── */
 .revenue-kpis {
@@ -63,50 +71,80 @@
 }
 
 /* ── Lançamentos ───────────────────────────────────────────────────── */
-.revenue-entry-description {
-  display: block;
-  margin-top: 2px;
-  max-width: 340px;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.35;
-  white-space: normal;
-}
-.revenue-entry-group td { background: rgba(185, 154, 88, 0.08); }
-.revenue-entry-nested td:first-child { padding-left: 28px; }
-.revenue-group-toggle {
-  display: inline-flex;
+.revenue-entries-toolbar {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 12px 20px;
+  margin-bottom: 14px;
+}
+.revenue-title-note { font-size: 13px; font-weight: 400; color: var(--muted); }
+.revenue-entries-search { flex: 1 1 280px; max-width: 420px; }
+.revenue-entries-zero { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); cursor: pointer; }
+
+.revenue-cell-sub {
+  display: block;
+  margin-top: 1px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.revenue-cell-toggle { width: 32px; padding-right: 0; }
+.revenue-row-toggle {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
   padding: 0;
   border: 0;
+  border-radius: 6px;
   background: transparent;
-  color: inherit;
-  font: inherit;
+  color: var(--muted);
   cursor: pointer;
-  text-align: left;
 }
-.revenue-group-toggle:focus-visible { outline: 2px solid rgba(185, 154, 88, 0.6); outline-offset: 2px; }
+.revenue-row-toggle:hover { background: var(--paper-soft); color: var(--ink); }
+.revenue-row-toggle:focus-visible { outline: 2px solid rgba(185, 154, 88, 0.6); outline-offset: 1px; }
 .revenue-chevron { transition: transform 0.15s ease; }
 .revenue-chevron.open { transform: rotate(180deg); }
+
+.revenue-entry-group td { background: rgba(185, 154, 88, 0.08); }
+.revenue-entry-nested td:first-child { padding-left: 12px; }
+.revenue-entry-nested td { background: var(--paper-soft); }
+.revenue-entry-detail-row td { padding-top: 0; background: var(--paper-soft); }
+
+.revenue-entry-details {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px 20px;
+  margin: 0;
+  padding: 4px 0 6px 32px;
+}
+.revenue-entry-details > div { display: grid; gap: 1px; }
+.revenue-entry-details dt { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.revenue-entry-details dd { margin: 0; font-size: 13.5px; color: var(--ink); overflow-wrap: anywhere; }
 
 .revenue-mobile-list { display: none; }
 .revenue-desktop-entries { display: block; }
 .revenue-mobile-card {
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  padding: 12px;
   display: grid;
   gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
   background: var(--paper);
 }
-.revenue-mobile-row { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
-.revenue-mobile-row > span:first-child { color: var(--muted); }
-.revenue-mobile-row--highlight { font-size: 15px; }
-.revenue-mobile-actions { display: flex; gap: 8px; margin-top: 6px; }
+.revenue-mobile-card > header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.revenue-mobile-amount { font-size: 17px; font-weight: 700; color: var(--ink); white-space: nowrap; }
+.revenue-mobile-card p { margin: 0; font-size: 13px; }
+.revenue-mobile-origin { display: flex; align-items: center; gap: 8px; color: var(--ink); }
+.revenue-mobile-desc { color: var(--ink-soft); }
+.revenue-mobile-meta { color: var(--muted); }
+.revenue-mobile-details summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+.revenue-mobile-details .revenue-entry-details { padding-left: 0; margin-top: 8px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.revenue-mobile-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.revenue-mobile-actions:empty { display: none; }
 .revenue-mobile-group { border: 1px solid var(--line); border-radius: var(--radius-md); padding: 10px 12px; display: grid; gap: 10px; }
-.revenue-mobile-group > summary { display: flex; flex-direction: column; gap: 2px; cursor: pointer; }
-.revenue-mobile-group > summary span { color: var(--muted); font-size: 13px; }
+.revenue-mobile-group > summary { display: grid; gap: 2px; cursor: pointer; }
+.revenue-mobile-group > summary span:not(.revenue-mobile-amount) { color: var(--muted); font-size: 13px; }
 
 /* ── Gráfico diário (mesma linguagem do gráfico da Análise do Salão) ── */
 .revenue-chart { margin: 0; }
@@ -166,10 +204,6 @@
 }
 
 @media (max-width: 720px) {
-  /* Título em cima, ações embaixo: lado a lado elas espremem o título e a descrição. */
-  .revenue-page .ds-page-header { flex-direction: column; align-items: stretch; gap: 12px; }
-  .revenue-page .ds-page-header-actions { justify-content: stretch; }
-  .revenue-page .ds-page-header-actions > * { flex: 1 1 auto; }
   .revenue-filter-bar > .ds-text-field,
   .revenue-filter-bar > .ds-select { flex-basis: 100%; max-width: none; }
 }

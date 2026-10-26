@@ -37,7 +37,7 @@ export function describeAppliedFilter(input: { month: string; period: PeriodStat
     ? `${MONTH_NAMES[(monthNumber ?? 1) - 1] ?? month} de ${year}`
     : `${brDate(period.startDate)} a ${brDate(period.endDate)}`;
   const channelLabel = channel || "Todos os canais";
-  return { periodLabel, channelLabel, key: `${periodLabel}|${channelLabel}|${month}|${period.startDate}|${period.endDate}` };
+  return { periodLabel, channelLabel, month, isCompetence: usesCompetence, key: `${periodLabel}|${channelLabel}|${month}|${period.startDate}|${period.endDate}` };
 }
 
 type DayTotal = { date: string; netAmount: number };
