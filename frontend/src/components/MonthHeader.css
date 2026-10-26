@@ -1,0 +1,152 @@
+/* Cabeçalho de mês — mesmo desenho do cabeçalho do Dashboard, em versão compacta. */
+
+.mh {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.mh-titles { min-width: 0; }
+
+.mh-eyebrow {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.mh-title {
+  margin: 2px 0 4px;
+  color: var(--ink);
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.mh-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+.mh-updated { color: var(--muted); }
+
+.mh-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--mh-accent, #a8781f);
+  box-shadow: 0 0 0 3px rgba(168, 120, 31, 0.18);
+  animation: mh-pulse 1.8s ease-in-out infinite;
+}
+@keyframes mh-pulse { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .mh-live-dot { animation: none; } }
+
+.mh-progress {
+  position: relative;
+  width: 72px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+.mh-progress > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: var(--mh-accent, #a8781f);
+}
+
+.mh-controls { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.mh-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-right: 8px; }
+
+.mh-stepper {
+  display: inline-flex;
+  align-items: stretch;
+  height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  overflow: hidden;
+}
+.mh-stepper-btn {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.mh-stepper-btn:hover { background: var(--row-hover); color: var(--ink); }
+.mh-stepper-btn:active { background: #fbf6ea; }
+.mh-stepper-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border-inline: 1px solid var(--line);
+  color: var(--muted);
+}
+.mh-stepper-field input {
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  min-width: 0;
+}
+.mh-stepper-field input:focus { outline: none; }
+.mh-stepper-field:focus-within { background: #fbf6ea; }
+
+.mh-stepper-btn:focus-visible,
+.mh-today-btn:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+.mh-today-btn {
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.mh-today-btn:hover { border-color: var(--line-strong); background: var(--row-hover); }
+
+.mh-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 720px) {
+  .mh { align-items: stretch; }
+  .mh-controls { width: 100%; justify-content: stretch; }
+  .mh-actions { width: 100%; margin-right: 0; }
+  .mh-actions > * { flex: 1 1 auto; }
+  .mh-stepper { flex: 1 1 0; min-width: 0; }
+  .mh-stepper-field { flex: 1; justify-content: center; }
+  .mh-stepper-field input { width: 100%; text-align: center; }
+  .mh-today-btn { flex: 1; }
+}

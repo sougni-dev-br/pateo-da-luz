@@ -1,6 +1,7 @@
 import { PeriodPreset, PeriodState, periodForPreset } from "../utils/period";
 
-const options: Array<{ value: PeriodPreset; label: string }> = [
+/** Lista de períodos pré-definidos; telas com o Select do design system reaproveitam esta lista. */
+export const periodPresetOptions: Array<{ value: PeriodPreset; label: string }> = [
   { value: "today", label: "Hoje" },
   { value: "yesterday", label: "Ontem" },
   { value: "last7", label: "Últimos 7 dias" },
@@ -34,7 +35,7 @@ export function PeriodFilter({ value, onChange, hideCustomFields = false }: Peri
       <label>
         Período
         <select value={value.preset} onChange={(event) => changePreset(event.target.value as PeriodPreset)}>
-          {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          {periodPresetOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
         </select>
       </label>
       {value.preset === "custom" && !hideCustomFields && (

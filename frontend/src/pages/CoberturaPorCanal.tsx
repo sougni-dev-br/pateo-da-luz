@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { getRevenueCoverage, type CoberturaCanal, type CoberturaFaturamento, type SaudeDoAgente } from "../api/client";
-import { PanelEyebrow, StatusBadge } from "../design-system";
+import { StatusBadge } from "../design-system";
 import type { StatusTone } from "../design-system";
 import "./CoberturaPorCanal.css";
 
@@ -101,11 +101,22 @@ export function CoberturaPorCanal({ year, month }: { year: number; month: number
     };
   }, [year, month]);
 
+  const pendentes = dados?.channels.filter((canal) => canal.situacao !== "EM_DIA") ?? [];
+
   return (
-    <section className="panel cobertura-painel" aria-label="Cobertura do faturamento por canal">
-      <PanelEyebrow>Cobertura por canal</PanelEyebrow>
-      {erro && <p role="alert">{erro}</p>}
-      {!erro && !dados && <p className="cobertura-vazio">Carregando…</p>}
+    <details className="panel cobertura-painel" aria-label="Cobertura do faturamento por canal">
+      <summary className="cobertura-resumo">
+        <span className="cobertura-titulo">Cobertura por canal</span>
+        {erro && <span role="alert">{erro}</span>}
+        {!erro && !dados && <span className="cobertura-vazio">Carregando…</span>}
+        {dados && pendentes.length === 0 && <span className="cobertura-vazio">Todos os canais em dia</span>}
+        {pendentes.map((canal) => (
+          <StatusBadge key={canal.canal} tone={SITUACAO[canal.situacao].tone}>
+            {canal.canal}: {SITUACAO[canal.situacao].rotulo.toLowerCase()}
+          </StatusBadge>
+        ))}
+        {dados && <span className="cobertura-ver">ver detalhes</span>}
+      </summary>
       {dados && (
         <div className="cobertura-grade">
           {dados.channels.map((canal) => (
@@ -113,6 +124,6 @@ export function CoberturaPorCanal({ year, month }: { year: number; month: number
           ))}
         </div>
       )}
-    </section>
+    </details>
   );
 }
