@@ -96,3 +96,75 @@ export function buildVoucherEntries(input: BuildInput): VoucherEntryPayload[] {
   }
   return entries;
 }
+
+const PRICES_STORAGE_KEY = "pateo_revenue_voucher_prices";
+
+/** Preço guardado do último evento por categoria; valor inválido (zero, negativo, tipo errado) é ignorado. */
+export function applyRememberedPrices(categories: VoucherCategory[], stored: unknown): VoucherCategory[] {
+  if (typeof stored !== "object" || stored === null) return categories;
+  const prices = stored as Record<string, unknown>;
+  return categories.map((cat) => {
+    const raw = prices[cat.id];
+    const price = typeof raw === "number" || typeof raw === "string" ? parsePrice(String(raw)) : 0;
+    return price > 0 ? { ...cat, price: String(raw) } : cat;
+  });
+}
+
+export function loadRememberedPrices(categories: VoucherCategory[]): VoucherCategory[] {
+  try {
+    const raw = localStorage.getItem(PRICES_STORAGE_KEY);
+    return raw ? applyRememberedPrices(categories, JSON.parse(raw)) : categories;
+  } catch {
+    // Armazenamento bloqueado ou JSON corrompido: segue com os preços padrão.
+    return categories;
+  }
+}
+
+export function rememberPrices(categories: VoucherCategory[]): void {
+  try {
+    const prices = Object.fromEntries(categories.filter((cat) => parsePrice(cat.price) > 0).map((cat) => [cat.id, cat.price]));
+    localStorage.setItem(PRICES_STORAGE_KEY, JSON.stringify(prices));
+  } catch {
+    // Não guardar o preço não pode impedir o lançamento.
+  }
+}
+
+function toIsoDate(year: number, month: number, day: number): string | null {
+  const date = new Date(Date.UTC(year, month - 1, day));
+  const valid = date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+  return valid ? `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}` : null;
+}
+
+function parseCellDate(cell: string, defaultYear: number): string | null {
+  const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(cell);
+  if (iso) return toIsoDate(Number(iso[1]), Number(iso[2]), Number(iso[3]));
+  const br = /^(\d{1,2})\/(\d{1,2})(?:\/(\d{2}|\d{4}))?$/.exec(cell);
+  if (!br) return null;
+  const year = br[3] ? (br[3].length === 2 ? 2000 + Number(br[3]) : Number(br[3])) : defaultYear;
+  return toIsoDate(year, Number(br[2]), Number(br[1]));
+}
+
+/**
+ * Lê dias colados de uma planilha: cada linha é "data, qtd. da 1ª categoria, qtd. da 2ª...", separados por
+ * tab, ponto e vírgula, vírgula ou espaços. Linha sem data válida (cabeçalho, total) é pulada e contada.
+ */
+export function parsePastedDays(text: string, categories: VoucherCategory[], defaultYear: number): { days: VoucherDay[]; ignored: number } {
+  const days: VoucherDay[] = [];
+  let ignored = 0;
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const cells = line.trim().split(/[\t;,]+|\s+/).filter(Boolean);
+    const date = parseCellDate(cells[0], defaultYear);
+    if (!date) {
+      ignored += 1;
+      continue;
+    }
+    const qty: Record<string, string> = {};
+    categories.forEach((cat, index) => {
+      const quantity = parseQty(cells[index + 1]);
+      qty[cat.id] = quantity > 0 ? String(quantity) : "";
+    });
+    days.push({ date, qty });
+  }
+  return { days, ignored };
+}

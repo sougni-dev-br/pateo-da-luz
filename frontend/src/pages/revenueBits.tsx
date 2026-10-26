@@ -1,6 +1,8 @@
 import { Money, StatusBadge as DsStatusBadge } from "../design-system";
 import type { StatusTone } from "../design-system";
 
+export const EVENT_CHANNEL = "Eventos / Empreitada";
+
 /** Zero em tabela vira traço: números reais se destacam em vez de ficarem entre "R$ 0,00". */
 export function MoneyOrDash({ value }: { value: number }) {
   return value === 0 ? <span className="revenue-dash" aria-label="zero">—</span> : <Money value={value} />;

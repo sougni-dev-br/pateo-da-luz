@@ -4257,6 +4257,15 @@ export function closeDailyRevenue(date: string) {
   });
 }
 
+/** Grava o evento inteiro (um lançamento por dia e público) numa transação: entra tudo ou nada. */
+export function saveRevenueEventGroup(entries: Array<Record<string, unknown>>) {
+  return request<{ ids: string[] }>("/monthly/revenue/event-group", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ entries })
+  });
+}
+
 export function cancelRevenueEntry(id: string, reason: string) {
   return request<{ id: string; status: string }>(`/monthly/revenue/${id}`, {
     method: "DELETE",

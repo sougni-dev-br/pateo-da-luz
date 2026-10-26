@@ -26,6 +26,8 @@ import {
   undoInventorySnapshot
 } from "./monthly.service.js";
 import { getRevenueCoverage } from "./revenue-coverage.service.js";
+import { normalizeEventGroup } from "./revenue-event-group.js";
+import { createEventGroup } from "./revenue-event-group.service.js";
 import { confirmRevenueImport, previewRevenueImport, undoRevenueImportBatch } from "./revenue-import.service.js";
 
 const upload = multer({ dest: "uploads/" });
@@ -520,6 +522,28 @@ monthlyRouter.post("/revenue", async (request, response) => {
     response.status(201).json({ id });
   } catch (error) {
     response.status(400).json({ message: error instanceof Error ? error.message : "Erro ao salvar faturamento." });
+  }
+});
+
+// Lançamento de evento por dia/público: o grupo inteiro entra ou nada entra (uma transação).
+monthlyRouter.post("/revenue/event-group", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  if (!user) return;
+  try {
+    const rows = normalizeEventGroup(request.body);
+    const ids = await createEventGroup(rows, user.id);
+    await auditLog({
+      userId: user.id,
+      action: "CREATE_REVENUE_EVENT_GROUP",
+      entity: "RevenueEntry",
+      entityId: ids[0],
+      newValue: { ids, rows: rows.map((row) => ({ date: row.dateKey, description: row.description, grossAmount: row.grossAmount, tickets: row.tickets })) },
+      ipAddress: requestIp(request),
+      userAgent: String(request.headers["user-agent"] ?? "")
+    });
+    response.status(201).json({ ids });
+  } catch (error) {
+    response.status(400).json({ message: error instanceof Error ? error.message : "Erro ao salvar o evento." });
   }
 });
 
