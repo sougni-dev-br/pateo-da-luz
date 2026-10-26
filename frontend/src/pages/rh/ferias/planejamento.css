@@ -66,3 +66,29 @@ body.fe-sem-rolagem { overflow: hidden; }
 .fe-resumo li { overflow-wrap: anywhere; }
 .fe-resumo--urgente { color: var(--danger); }
 .fe-resumo--urgente b::before { content: "! "; }
+
+/* Quem tem direito a férias: ciclos completos e tempo que falta (tela) */
+.fe-direito { margin: 0 0 var(--space-3, 12px); padding: 12px 14px; border: 1px solid var(--line-strong); border-left: 4px solid var(--success); border-radius: var(--radius-md); background: var(--paper); display: grid; gap: 10px; }
+.fe-direito-topo { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; }
+.fe-direito h3 { margin: 0 0 2px; font-size: var(--fs-xs); letter-spacing: var(--ls-eyebrow); text-transform: uppercase; color: var(--ink-soft); }
+.fe-direito-topo p { margin: 0; font-size: 14px; }
+.fe-direito-n { font-weight: var(--fw-semibold); }
+.fe-direito-n--tempo { color: var(--success); }
+.fe-direito-n--perto { color: var(--warning); }
+.fe-direito-n--vencido { color: var(--danger); }
+.fe-direito-busca { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--paper); color: var(--ink-soft); }
+.fe-direito-busca input { border: 0; outline: 0; background: transparent; font: inherit; font-size: 14px; color: var(--ink); min-width: 170px; }
+.fe-direito-tabela { width: 100%; border-collapse: collapse; font-size: 14px; }
+.fe-direito-tabela th { text-align: left; font-size: var(--fs-xs); font-weight: var(--fw-semibold); color: var(--ink-soft); padding: 4px 8px; border-bottom: 1px solid var(--line-strong); }
+.fe-direito-tabela td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.fe-direito-tabela small { display: block; font-size: var(--fs-xs); color: var(--muted); }
+.fe-direito-selo { display: inline-block; padding: 2px 10px; border-radius: var(--radius-pill); font-size: 13px; font-weight: var(--fw-semibold); border: 1px solid currentColor; }
+.fe-direito-selo--tempo { color: var(--success); }
+.fe-direito-selo--perto { color: var(--warning); }
+.fe-direito-selo--vencido { color: var(--danger); }
+.fe-direito-vazio { margin: 0; font-size: 14px; color: var(--ink-soft); }
+@media (max-width: 720px) {
+  .fe-direito-tabela thead { display: none; }
+  .fe-direito-tabela tr { display: block; padding: 6px 0; border-bottom: 1px solid var(--line); }
+  .fe-direito-tabela td { display: block; padding: 2px 8px; border: 0; }
+}

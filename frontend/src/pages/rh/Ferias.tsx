@@ -14,6 +14,7 @@ import { ImpressaoTela } from "./ferias/ImpressaoTela";
 import { LinhaDoTempo } from "./ferias/LinhaDoTempo";
 import { LinhaPeriodo } from "./ferias/LinhaPeriodo";
 import { PlanejamentoFerias } from "./ferias/PlanejamentoFerias";
+import { QuemTemDireito } from "./ferias/QuemTemDireito";
 import { ResumoDoQueFazer } from "./ferias/ResumoDoQueFazer";
 import {
   FILTROS, type FiltroFerias, type LinhaFerias, contarPorFiltro, dataBr, linhasDaLista, pertenceAoFiltro, plural, resumoProgramacao, somaDias,
@@ -251,6 +252,7 @@ export function Ferias() {
       {lista && todasAsLinhas.length > 0 && <PlanejamentoFerias lista={lista} ocupado={salvando} onAvisado={(id, avisado, nome) => void marcarAvisado(id, avisado, nome)} />}
 
       {lista && pessoasDoResumo.length > 0 && <ResumoDoQueFazer pessoas={pessoasDoResumo} hoje={lista.hoje} classe="fe-resumo" />}
+      {lista && pessoasDoResumo.length > 0 && <QuemTemDireito pessoas={pessoasDoResumo} hoje={lista.hoje} />}
 
       {lista && linhas.length > 0 && (
         <div className="fe-filtros-bloco">
