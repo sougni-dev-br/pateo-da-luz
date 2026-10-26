@@ -5,12 +5,12 @@ export type FiltroFerias = "PENDENTES" | "PROGRAMADAS" | "EM_AQUISICAO" | "GOZAD
 
 export type LinhaFerias = { pessoa: PessoaFerias; periodo: PeriodoFerias };
 
-export const FILTROS: Array<{ id: FiltroFerias; rotulo: string; tom: "danger" | "warning" | "info" | "success" | "neutral" }> = [
-  { id: "PENDENTES", rotulo: "A programar", tom: "warning" },
-  { id: "PROGRAMADAS", rotulo: "Programadas", tom: "info" },
-  { id: "EM_AQUISICAO", rotulo: "Em aquisição", tom: "neutral" },
-  { id: "GOZADAS", rotulo: "Já gozadas", tom: "success" },
-  { id: "TODAS", rotulo: "Todas", tom: "neutral" },
+export const FILTROS: Array<{ id: FiltroFerias; rotulo: string; /** Em uma frase, o que a contagem significa. */ ajuda: string; tom: "danger" | "warning" | "info" | "success" | "neutral" }> = [
+  { id: "PENDENTES", rotulo: "A programar", ajuda: "já têm direito, falta marcar a data", tom: "warning" },
+  { id: "PROGRAMADAS", rotulo: "Programadas", ajuda: "data marcada, ainda não gozaram", tom: "info" },
+  { id: "EM_AQUISICAO", rotulo: "Em aquisição", ajuda: "ainda não completaram os 12 meses", tom: "neutral" },
+  { id: "GOZADAS", rotulo: "Já gozadas", ajuda: "férias já tiradas", tom: "success" },
+  { id: "TODAS", rotulo: "Todas", ajuda: "todos os períodos", tom: "neutral" },
 ];
 
 const PRECISA_PROGRAMAR: SituacaoFerias[] = ["VENCIDA", "A_VENCER", "DISPONIVEL"];

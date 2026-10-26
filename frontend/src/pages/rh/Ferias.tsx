@@ -253,12 +253,16 @@ export function Ferias() {
       {lista && pessoasDoResumo.length > 0 && <ResumoDoQueFazer pessoas={pessoasDoResumo} hoje={lista.hoje} classe="fe-resumo" />}
 
       {lista && linhas.length > 0 && (
-        <div className="fe-filtros" role="group" aria-label="Filtrar por situação">
-          {FILTROS.map((f) => (
-            <button key={f.id} type="button" className={`fe-filtro fe-filtro--${f.tom}`} aria-pressed={filtro === f.id} onClick={() => escolherFiltro(f.id)}>
-              <strong>{contagem[f.id]}</strong> {f.rotulo}
-            </button>
-          ))}
+        <div className="fe-filtros-bloco">
+          <p className="fe-filtros-titulo">Períodos por situação <span>(cada pessoa pode ter mais de um período; clique para filtrar)</span></p>
+          <div className="fe-filtros" role="group" aria-label="Filtrar por situação">
+            {FILTROS.map((f) => (
+              <button key={f.id} type="button" className={`fe-filtro fe-filtro--${f.tom}`} aria-pressed={filtro === f.id} onClick={() => escolherFiltro(f.id)}>
+                <strong>{contagem[f.id]}</strong>
+                <span className="fe-filtro-texto">{f.rotulo}<small>{f.ajuda}</small></span>
+              </button>
+            ))}
+          </div>
         </div>
       )}
       {lista && empresas.length > 1 && (
