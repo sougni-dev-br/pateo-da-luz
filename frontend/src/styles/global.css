@@ -16556,3 +16556,83 @@ td.count-list-divergent {
 .idle-guard-card { width: min(420px, 100%); padding: 24px; border-radius: 14px; background: var(--surface, #fff); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3); display: flex; flex-direction: column; gap: 12px; }
 .idle-guard-card h2 { margin: 0; font-size: 1.15rem; }
 .idle-guard-card p { margin: 0; color: var(--muted); }
+
+/* Lançar evento: blocos próprios ocupam a linha toda do form-grid */
+.form-grid > div.full-width,
+.form-grid > .event-launch-preview {
+  grid-column: 1 / -1;
+}
+
+.voucher-table table {
+  min-width: 0;
+}
+
+.voucher-table th {
+  vertical-align: bottom;
+  white-space: normal;
+}
+
+.voucher-table th input {
+  display: block;
+  margin-top: 4px;
+  font-weight: 400;
+}
+
+.voucher-table td input {
+  min-width: 72px;
+}
+
+.voucher-table td:last-child,
+.voucher-table th:last-child {
+  width: 1%;
+  white-space: nowrap;
+}
+
+/* Faturamento: hierarquia dos indicadores e da tabela de entradas */
+.revenue-applied-filter {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.revenue-filter-dirty {
+  color: var(--color-warning-text, #92400e);
+  font-weight: 600;
+}
+.revenue-kpi-hero {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+}
+.revenue-kpi-hero .revenue-kpi-primary {
+  grid-column: span 2;
+}
+.revenue-kpi-hero .revenue-kpi-primary .ds-summary-card-value {
+  font-size: clamp(1.75rem, 1.2rem + 1.4vw, 2.5rem);
+}
+.revenue-dash {
+  color: var(--muted);
+}
+.revenue-entry-description {
+  display: block;
+  margin-top: 2px;
+  max-width: 340px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: normal;
+}
+.revenue-day-mark {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  vertical-align: middle;
+}
+.revenue-day-mark--best { background: #e6f4ea; color: #1e6b34; }
+.revenue-day-mark--worst { background: #fdecea; color: #9b2c1f; }
+
+@media (max-width: 900px) {
+  .revenue-kpi-hero { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

@@ -19,6 +19,14 @@ import { formatDate, formatNumber, formatPercent } from "../utils/format";
 import { currentMonthPeriod, periodForPreset, type PeriodState } from "../utils/period";
 import { hojeLocalIso } from "../lib/datas";
 import { CoberturaPorCanal } from "./CoberturaPorCanal";
+import { describeAppliedFilter, hasAnyValue, pickBestAndWorstDay, weekdayFromIso } from "./revenueView";
+import {
+  buildVoucherEntries,
+  defaultVoucherCategories,
+  voucherTotals,
+  type VoucherCategory,
+  type VoucherDay
+} from "./eventVouchers";
 
 const channels = ["Salão", "Delivery", "Eventos / Empreitada", "Outros"];
 
@@ -37,7 +45,14 @@ function todayInputDate() {
   return hojeLocalIso();
 }
 
+type EventLaunchMode = "valor" | "vouchers";
+
+function emptyVoucherDays(): VoucherDay[] {
+  return [{ date: todayInputDate(), qty: {} }];
+}
+
 const emptyEventForm = {
+  mode: "valor" as EventLaunchMode,
   date: todayInputDate(),
   description: "",
   eventType: eventTypes[0] as string,
@@ -120,8 +135,13 @@ function SectionHeader({ eyebrow, title }: { eyebrow?: string; title: string }) 
   );
 }
 
-function MetricCard({ label, value, detail }: { label: string; value: string; detail?: string }) {
-  return <SummaryCard label={label} value={value} detail={detail} />;
+function MetricCard({ label, value, detail, className }: { label: string; value: string; detail?: string; className?: string }) {
+  return <SummaryCard label={label} value={value} detail={detail} className={className} />;
+}
+
+/** Zero em tabela vira traço: números reais se destacam em vez de ficarem entre "R$ 0,00". */
+function MoneyOrDash({ value }: { value: number }) {
+  return value === 0 ? <span className="revenue-dash" aria-label="zero">—</span> : <Money value={value} />;
 }
 
 function EmptyTableRow({ colSpan, message }: { colSpan: number; message: string }) {
@@ -161,12 +181,18 @@ function RevenueEntryMobileCard({
       </div>
       <div className="revenue-mobile-row">
         <span>Dia da semana</span>
-        <span>{entry.weekdayName ?? "-"}</span>
+        <span>{entry.weekdayName ?? weekdayFromIso(entry.date)}</span>
       </div>
       <div className="revenue-mobile-row">
         <span>Canal</span>
         <span>{displayChannel(entry.channel)}</span>
       </div>
+      {entry.description && (
+        <div className="revenue-mobile-row">
+          <span>Descrição</span>
+          <span>{entry.description}</span>
+        </div>
+      )}
       <div className="revenue-mobile-row">
         <span>1º turno</span>
         <span><Money value={entry.salesFirstShift ?? 0} /></span>
@@ -231,9 +257,12 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
   const [channelFilter, setChannelFilter] = useState("");
   const [loading, setLoading] = useState(false);
   const [summary, setSummary] = useState<RevenueSummary | null>(null);
+  const [appliedFilter, setAppliedFilter] = useState<ReturnType<typeof describeAppliedFilter> | null>(null);
   const [showEventModal, setShowEventModal] = useState(false);
   const [eventForm, setEventForm] = useState(emptyEventForm);
   const [savingEvent, setSavingEvent] = useState(false);
+  const [voucherCategories, setVoucherCategories] = useState<VoucherCategory[]>(defaultVoucherCategories);
+  const [voucherDays, setVoucherDays] = useState<VoucherDay[]>(emptyVoucherDays);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const { notice, setNotice } = useNotice();
   const loadControllerRef = useRef<AbortController | null>(null);
@@ -265,6 +294,7 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
       }
       if (requestSeq !== requestSeqRef.current) return;
       setSummary(response);
+      setAppliedFilter(describeAppliedFilter({ month: nextMonth, period: nextPeriod, channel: channelFilter }));
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
       if (requestSeq !== requestSeqRef.current) return;
@@ -308,14 +338,78 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
     }
   }
 
-  const eventGross = Number(eventForm.grossAmount || 0);
+  const isVoucherMode = eventForm.mode === "vouchers";
+  const voucherSummary = voucherTotals(voucherCategories, voucherDays);
+  const eventGross = isVoucherMode ? voucherSummary.gross : Number(eventForm.grossAmount || 0);
   const eventService = eventForm.includeService ? Number((eventGross * 0.1).toFixed(2)) : 0;
   const eventNet = Number((eventGross - eventService).toFixed(2));
-  const eventTicketAverage = eventForm.tickets && Number(eventForm.tickets) > 0
-    ? Number((eventNet / Number(eventForm.tickets)).toFixed(2))
-    : null;
+  const eventPeople = isVoucherMode ? voucherSummary.people : Number(eventForm.tickets || 0);
+  const eventTicketAverage = eventPeople > 0 ? Number((eventNet / eventPeople).toFixed(2)) : null;
+  const canSaveEvent = !!eventForm.description.trim() && eventGross > 0 && (isVoucherMode || !!eventForm.date);
+
+  function closeEventModal() {
+    setShowEventModal(false);
+    setEventForm(emptyEventForm);
+    setVoucherCategories(defaultVoucherCategories);
+    setVoucherDays(emptyVoucherDays());
+  }
+
+  function updateVoucherDay(index: number, patch: (day: VoucherDay) => VoucherDay) {
+    setVoucherDays((days) => days.map((day, i) => (i === index ? patch(day) : day)));
+  }
+
+  function addVoucherDay() {
+    setVoucherDays((days) => {
+      const last = days[days.length - 1]?.date;
+      const next = last ? new Date(`${last}T12:00:00`) : new Date();
+      if (last) next.setDate(next.getDate() + 1);
+      const iso = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-${String(next.getDate()).padStart(2, "0")}`;
+      return [...days, { date: iso, qty: {} }];
+    });
+  }
+
+  async function handleSaveVoucherEvent() {
+    const entries = buildVoucherEntries({
+      channel: EVENT_CHANNEL,
+      eventType: eventForm.eventType,
+      eventName: eventForm.description,
+      categories: voucherCategories,
+      days: voucherDays,
+      includeService: eventForm.includeService,
+      paymentMethod: eventForm.paymentMethod,
+      notes: eventForm.notes
+    });
+    if (entries.length === 0) {
+      setNotice({ tone: "error", message: "Informe a data e a quantidade de pelo menos um dia." });
+      return;
+    }
+    setSavingEvent(true);
+    const saved: number[] = [];
+    try {
+      // Sequencial: se um falhar, o aviso diz quantos já entraram para não duplicar ao tentar de novo.
+      for (const entry of entries) {
+        await saveRevenueEntry(entry);
+        saved.push(1);
+      }
+      setNotice({ tone: "success", message: `Evento lançado: ${entries.length} lançamentos (${voucherSummary.people} pessoas).` });
+      closeEventModal();
+      await load({ allowAutoFallback: false });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "Erro ao lançar evento.";
+      setNotice({
+        tone: "error",
+        message: saved.length > 0
+          ? `${detail} Já foram lançados ${saved.length} de ${entries.length}; confira a lista antes de tentar de novo.`
+          : detail
+      });
+      if (saved.length > 0) await load({ allowAutoFallback: false });
+    } finally {
+      setSavingEvent(false);
+    }
+  }
 
   async function handleSaveEvent() {
+    if (isVoucherMode) return handleSaveVoucherEvent();
     if (!eventForm.date || !eventForm.description.trim() || !eventForm.grossAmount || eventGross <= 0) {
       setNotice({ tone: "error", message: "Preencha data, descrição e valor bruto do evento." });
       return;
@@ -341,8 +435,7 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
         notes: eventForm.notes.trim() || null
       });
       setNotice({ tone: "success", message: "Evento lançado com sucesso." });
-      setShowEventModal(false);
-      setEventForm(emptyEventForm);
+      closeEventModal();
       await load({ allowAutoFallback: false });
     } catch (error) {
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao lançar evento." });
@@ -405,7 +498,7 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
       const key = String(entry.date).slice(0, 10);
       const current = map.get(key) ?? {
         date: key,
-        weekdayName: (entry.weekdayName ?? new Intl.DateTimeFormat("pt-BR", { weekday: "long" }).format(new Date(entry.date))).toUpperCase(),
+        weekdayName: (entry.weekdayName ?? weekdayFromIso(entry.date)).toUpperCase(),
         grossAmount: 0,
         serviceAmount: 0,
         repiqueAmount: 0,
@@ -435,8 +528,6 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
     return [...map.values()].sort((a, b) => a.date.localeCompare(b.date));
   }, [summary]);
 
-  const bestDays = useMemo(() => [...dailyAnalytics].sort((a, b) => b.netAmount - a.netAmount).slice(0, 5), [dailyAnalytics]);
-  const worstDays = useMemo(() => [...dailyAnalytics].sort((a, b) => a.netAmount - b.netAmount).slice(0, 5), [dailyAnalytics]);
   const weekdayRows = useMemo(() => {
     const map = new Map<string, { weekdayName: string; grossAmount: number; serviceAmount: number; netAmount: number; tickets: number }>();
     dailyAnalytics.forEach((row) => {
@@ -450,17 +541,6 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
     });
     return [...map.values()].sort((a, b) => b.netAmount - a.netAmount);
   }, [dailyAnalytics]);
-
-  const topCards = useMemo(() => [
-    { label: "Faturamento bruto", value: fmt(summaryData?.grossAmount ?? 0) },
-    { label: "Serviço", value: fmt(summaryData?.serviceAmount ?? 0) },
-    { label: "Faturamento líquido", value: fmt(summaryData?.netAmount ?? 0) },
-    { label: "TCs / Pessoas", value: formatNumber(summaryData?.tickets ?? 0) },
-    { label: "Ticket médio", value: fmt(summaryData?.ticketAverageGeneral ?? 0) },
-    { label: "Dias operados", value: formatNumber(dailyAnalytics.length) },
-    { label: "Total 1º turno", value: fmt(summaryData?.salesFirstShift ?? 0) },
-    { label: "Total 2º turno", value: fmt(summaryData?.salesSecondShift ?? 0) }
-  ], [summaryData, dailyAnalytics.length]);
 
   const channelCards = useMemo(() => {
     const rows = summary?.summary.byChannel ?? [];
@@ -507,11 +587,28 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
   const secondShiftShare = percent(summaryData?.salesSecondShift ?? 0, summaryData?.grossAmount ?? 0);
   const serviceShare = percent(summaryData?.serviceAmount ?? 0, summaryData?.grossAmount ?? 0);
 
+  const currentFilter = describeAppliedFilter({ month, period, channel: channelFilter });
+  const filterIsDirty = appliedFilter !== null && appliedFilter.key !== currentFilter.key;
+
+  const activeChannelRows = channelCards.filter((card) => card.gross !== 0 || card.net !== 0 || card.tickets !== 0);
+  const idleChannelNames = channelCards.filter((card) => !activeChannelRows.includes(card)).map((card) => displayChannel(card.channel));
+  const channelNetTotal = activeChannelRows.reduce((sum, card) => sum + card.net, 0);
+  const sortedChannelRows = [...activeChannelRows].sort((a, b) => b.net - a.net);
+
+  const hasShiftSales = hasAnyValue([summaryData?.salesFirstShift, summaryData?.salesSecondShift]);
+  const dailyShowsShifts = hasAnyValue(dailyRows.flatMap((row) => [row.salesFirstShift, row.salesSecondShift]));
+  const dailyShowsService = hasAnyValue(dailyRows.map((row) => row.serviceAmount));
+  const weekdayShowsService = hasAnyValue(weekdayRows.map((row) => row.serviceAmount));
+  const dayMarks = pickBestAndWorstDay(dailyRows);
+
+  const entriesShowShifts = hasAnyValue(entries.flatMap((entry) => [entry.salesFirstShift, entry.salesSecondShift]));
+  const entriesShowService = hasAnyValue(entries.map((entry) => entry.serviceAmount));
+  const entriesShowAccumulated = hasAnyValue(entries.map((entry) => entry.accumulatedAmount));
+  const entriesColumnCount = 8 + Number(entriesShowShifts) * 2 + Number(entriesShowService) + Number(entriesShowAccumulated);
+
   return (
     <div className="stack">
       <Notice notice={notice} />
-
-      <CoberturaPorCanal year={splitMonth(month).year} month={splitMonth(month).month} />
 
       <section className="panel">
         <div className="section-heading">
@@ -560,17 +657,19 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
             />
           </label>
           <PeriodFilter value={period} onChange={setPeriod} hideCustomFields />
-          <div className="custom-period-filter">
-            <span>Período personalizado</span>
-            <label>
-              Data inicial
-              <input type="date" value={period.startDate} onChange={(event) => setCustomPeriodField("startDate", event.target.value)} />
-            </label>
-            <label>
-              Data final
-              <input type="date" value={period.endDate} onChange={(event) => setCustomPeriodField("endDate", event.target.value)} />
-            </label>
-          </div>
+          {period.preset === "custom" && (
+            <div className="custom-period-filter">
+              <span>Período personalizado</span>
+              <label>
+                Data inicial
+                <input type="date" value={period.startDate} onChange={(event) => setCustomPeriodField("startDate", event.target.value)} />
+              </label>
+              <label>
+                Data final
+                <input type="date" value={period.endDate} onChange={(event) => setCustomPeriodField("endDate", event.target.value)} />
+              </label>
+            </div>
+          )}
           <label>
             Canal
             <select value={channelFilter} onChange={(event) => setChannelFilter(event.target.value)}>
@@ -594,24 +693,66 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
       <section className="panel">
         <SectionHeader eyebrow="Resumo aplicado" title="Indicadores" />
 
-        <div className="summary-grid financial-summary revenue-kpi-grid">
-          {topCards.map((card) => (
-            <MetricCard key={card.label} label={card.label} value={card.value} />
-          ))}
+        {appliedFilter && (
+          <p className="revenue-applied-filter" aria-live="polite">
+            Exibindo <strong>{appliedFilter.periodLabel}</strong> · <strong>{appliedFilter.channelLabel}</strong> ·{" "}
+            {formatNumber(entries.length)} {entries.length === 1 ? "lançamento" : "lançamentos"}
+            {filterIsDirty && <span className="revenue-filter-dirty"> — filtros alterados, clique em Filtrar para atualizar</span>}
+          </p>
+        )}
+
+        <div className="revenue-kpi-hero">
+          <MetricCard
+            className="revenue-kpi-primary"
+            label="Faturamento líquido"
+            value={fmt(summaryData?.netAmount ?? 0)}
+            detail={`Bruto ${fmt(summaryData?.grossAmount ?? 0)} · Serviço ${fmt(summaryData?.serviceAmount ?? 0)} (${formatPercent(serviceShare)} das vendas)`}
+          />
+          <MetricCard label="Ticket médio" value={fmt(summaryData?.ticketAverageGeneral ?? 0)} />
+          <MetricCard label="TCs / Pessoas" value={formatNumber(summaryData?.tickets ?? 0)} />
+          <MetricCard label="Dias operados" value={formatNumber(dailyAnalytics.length)} />
+          {hasShiftSales && (
+            <>
+              <MetricCard label="1º turno" value={fmt(summaryData?.salesFirstShift ?? 0)} detail={`${formatPercent(firstShiftShare)} das vendas`} />
+              <MetricCard label="2º turno" value={fmt(summaryData?.salesSecondShift ?? 0)} detail={`${formatPercent(secondShiftShare)} das vendas`} />
+            </>
+          )}
         </div>
 
         <div className="subsection">
-          <h3>Canais</h3>
-          <div className="summary-grid financial-summary">
-            {channelCards.map((card) => (
-              <MetricCard
-                key={card.channel}
-                label={displayChannel(card.channel)}
-                value={fmt(card.net)}
-                detail={`Bruto ${fmt(card.gross)} | Serviço ${fmt(card.service)} | TCs ${formatNumber(card.tickets)} | TM ${fmt(card.average)}`}
-              />
-            ))}
+          <h3>Por canal</h3>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Canal</th>
+                  <th>Líquido</th>
+                  <th>% do total</th>
+                  <th>Bruto</th>
+                  <th>Serviço</th>
+                  <th>TCs</th>
+                  <th>TM</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedChannelRows.map((card) => (
+                  <tr key={`${card.channel}-row`}>
+                    <td>{displayChannel(card.channel)}</td>
+                    <td><strong><Money value={card.net} /></strong></td>
+                    <td>{formatPercent(percent(card.net, channelNetTotal))}</td>
+                    <td><MoneyOrDash value={card.gross} /></td>
+                    <td><MoneyOrDash value={card.service} /></td>
+                    <td>{formatNumber(card.tickets)}</td>
+                    <td><MoneyOrDash value={card.average} /></td>
+                  </tr>
+                ))}
+                {sortedChannelRows.length === 0 && <EmptyTableRow colSpan={7} message="Nenhum canal com movimento no período." />}
+              </tbody>
+            </table>
           </div>
+          {idleChannelNames.length > 0 && sortedChannelRows.length > 0 && (
+            <p className="hint">Sem movimento no período: {idleChannelNames.join(", ")}.</p>
+          )}
         </div>
 
         {(channelFilter === "Delivery" || platformCards.length > 0) && (
@@ -635,44 +776,12 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
           </div>
         )}
 
-        <div className="subsection">
-          <h3>Participação e serviço</h3>
-          <div className="summary-grid financial-summary">
-            <MetricCard label="1º turno sobre vendas" value={formatPercent(firstShiftShare)} />
-            <MetricCard label="2º turno sobre vendas" value={formatPercent(secondShiftShare)} />
-            <MetricCard label="Serviço sobre vendas" value={formatPercent(serviceShare)} />
-          </div>
-        </div>
+      </section>
 
-        <div className="subsection">
-          <h3>Detalhamento por canal</h3>
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Canal</th>
-                  <th>Bruto</th>
-                  <th>Serviço</th>
-                  <th>Líquido</th>
-                  <th>TCs</th>
-                  <th>TM</th>
-                </tr>
-              </thead>
-              <tbody>
-                {channelCards.map((card) => (
-                  <tr key={`${card.channel}-row`}>
-                    <td>{displayChannel(card.channel)}</td>
-                    <td><Money value={card.gross} /></td>
-                    <td><Money value={card.service} /></td>
-                    <td><Money value={card.net} /></td>
-                    <td>{formatNumber(card.tickets)}</td>
-                    <td><Money value={card.average} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+      <CoberturaPorCanal year={splitMonth(month).year} month={splitMonth(month).month} />
+
+      <section className="panel">
+        <SectionHeader eyebrow="Detalhamento" title="Dia a dia" />
 
         <div className="subsection">
           <h3>Resumo por dia</h3>
@@ -682,9 +791,9 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
                 <tr>
                   <th>Dia</th>
                   <th>Dia da semana</th>
-                  <th>1º turno</th>
-                  <th>2º turno</th>
-                  <th>Serviço</th>
+                  {dailyShowsShifts && <th>1º turno</th>}
+                  {dailyShowsShifts && <th>2º turno</th>}
+                  {dailyShowsService && <th>Serviço</th>}
                   <th>Bruto</th>
                   <th>TCs</th>
                   <th>Líquido</th>
@@ -693,75 +802,23 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
               <tbody>
                 {dailyRows.map((item) => (
                   <tr key={String(item.date)}>
-                    <td>{formatDate(String(item.date ?? ""))}</td>
+                    <td>
+                      {formatDate(String(item.date ?? ""))}
+                      {item.date === dayMarks.best && <span className="revenue-day-mark revenue-day-mark--best">Melhor dia</span>}
+                      {item.date === dayMarks.worst && <span className="revenue-day-mark revenue-day-mark--worst">Menor dia</span>}
+                    </td>
                     <td>{String(item.weekdayName ?? "-")}</td>
-                    <td><Money value={item.salesFirstShift ?? 0} /></td>
-                    <td><Money value={item.salesSecondShift ?? 0} /></td>
-                    <td><Money value={item.serviceAmount ?? 0} /></td>
-                    <td><Money value={item.grossAmount ?? 0} /></td>
+                    {dailyShowsShifts && <td><MoneyOrDash value={item.salesFirstShift ?? 0} /></td>}
+                    {dailyShowsShifts && <td><MoneyOrDash value={item.salesSecondShift ?? 0} /></td>}
+                    {dailyShowsService && <td><MoneyOrDash value={item.serviceAmount ?? 0} /></td>}
+                    <td><MoneyOrDash value={item.grossAmount ?? 0} /></td>
                     <td>{formatNumber(Number(item.tickets ?? 0))}</td>
-                    <td><Money value={item.netAmount ?? 0} /></td>
+                    <td><strong><MoneyOrDash value={item.netAmount ?? 0} /></strong></td>
                   </tr>
                 ))}
-                {dailyRows.length === 0 && <EmptyTableRow colSpan={8} message="Nenhum faturamento encontrado." />}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div className="subsection">
-          <h3>Melhores e piores dias</h3>
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Ranking</th>
-                  <th>Dia</th>
-                  <th>Dia da semana</th>
-                  <th>Bruto</th>
-                  <th>Líquido</th>
-                  <th>TCs</th>
-                </tr>
-              </thead>
-              <tbody>
-                {bestDays.map((item, index) => (
-                  <tr key={`best-${item.date}`}>
-                    <td>{index + 1}</td>
-                    <td>{formatDate(item.date)}</td>
-                    <td>{item.weekdayName}</td>
-                    <td><Money value={item.grossAmount} /></td>
-                    <td><Money value={item.netAmount} /></td>
-                    <td>{formatNumber(item.tickets)}</td>
-                  </tr>
-                ))}
-                {bestDays.length === 0 && <EmptyTableRow colSpan={6} message="Sem dados." />}
-              </tbody>
-            </table>
-          </div>
-          <div className="table-wrap subsection">
-            <table>
-              <thead>
-                <tr>
-                  <th>Ranking</th>
-                  <th>Dia</th>
-                  <th>Dia da semana</th>
-                  <th>Bruto</th>
-                  <th>Líquido</th>
-                  <th>TCs</th>
-                </tr>
-              </thead>
-              <tbody>
-                {worstDays.map((item, index) => (
-                  <tr key={`worst-${item.date}`}>
-                    <td>{index + 1}</td>
-                    <td>{formatDate(item.date)}</td>
-                    <td>{item.weekdayName}</td>
-                    <td><Money value={item.grossAmount} /></td>
-                    <td><Money value={item.netAmount} /></td>
-                    <td>{formatNumber(item.tickets)}</td>
-                  </tr>
-                ))}
-                {worstDays.length === 0 && <EmptyTableRow colSpan={6} message="Sem dados." />}
+                {dailyRows.length === 0 && (
+                  <EmptyTableRow colSpan={5 + Number(dailyShowsShifts) * 2 + Number(dailyShowsService)} message="Nenhum faturamento encontrado." />
+                )}
               </tbody>
             </table>
           </div>
@@ -777,7 +834,7 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
                   <th>Bruto</th>
                   <th>Líquido</th>
                   <th>TCs</th>
-                  <th>Serviço %</th>
+                  {weekdayShowsService && <th>Serviço %</th>}
                 </tr>
               </thead>
               <tbody>
@@ -787,10 +844,10 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
                     <td><Money value={row.grossAmount} /></td>
                     <td><Money value={row.netAmount} /></td>
                     <td>{formatNumber(row.tickets)}</td>
-                    <td>{row.grossAmount > 0 ? formatPercent((row.serviceAmount / row.grossAmount) * 100) : "0,0%"}</td>
+                    {weekdayShowsService && <td>{row.grossAmount > 0 ? formatPercent((row.serviceAmount / row.grossAmount) * 100) : "—"}</td>}
                   </tr>
                 ))}
-                {weekdayRows.length === 0 && <EmptyTableRow colSpan={5} message="Sem dados." />}
+                {weekdayRows.length === 0 && <EmptyTableRow colSpan={4 + Number(weekdayShowsService)} message="Sem dados." />}
               </tbody>
             </table>
           </div>
@@ -805,14 +862,14 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
                 <Table.Row>
                   <Table.Th>Data</Table.Th>
                   <Table.Th>Dia da semana</Table.Th>
-                  <Table.Th>Canal</Table.Th>
-                  <Table.Th align="right">1º turno</Table.Th>
-                  <Table.Th align="right">2º turno</Table.Th>
-                  <Table.Th align="right">Serviço</Table.Th>
+                  <Table.Th>Canal / descrição</Table.Th>
+                  {entriesShowShifts && <Table.Th align="right">1º turno</Table.Th>}
+                  {entriesShowShifts && <Table.Th align="right">2º turno</Table.Th>}
+                  {entriesShowService && <Table.Th align="right">Serviço</Table.Th>}
                   <Table.Th align="right">Venda total</Table.Th>
                   <Table.Th align="right">TCs</Table.Th>
                   <Table.Th align="right">TM</Table.Th>
-                  <Table.Th align="right">Acumulado</Table.Th>
+                  {entriesShowAccumulated && <Table.Th align="right">Acumulado</Table.Th>}
                   <Table.Th>Status</Table.Th>
                   <Table.Th actions>Ações</Table.Th>
                 </Table.Row>
@@ -821,15 +878,18 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
                 {entries.map((entry) => (
                   <Table.Row key={entry.id}>
                     <Table.Td style={{ whiteSpace: "nowrap" }}>{formatDate(entry.date)}</Table.Td>
-                    <Table.Td>{entry.weekdayName ?? "-"}</Table.Td>
-                    <Table.Td>{displayChannel(entry.channel)}</Table.Td>
-                    <Table.Td align="right"><Money value={Number(entry.salesFirstShift ?? 0)} /></Table.Td>
-                    <Table.Td align="right"><Money value={Number(entry.salesSecondShift ?? 0)} /></Table.Td>
-                    <Table.Td align="right"><Money value={Number(entry.serviceAmount ?? 0)} /></Table.Td>
-                    <Table.Td align="right"><strong><Money value={Number(entry.grossAmount ?? 0)} /></strong></Table.Td>
+                    <Table.Td>{entry.weekdayName ?? weekdayFromIso(entry.date)}</Table.Td>
+                    <Table.Td>
+                      <span>{displayChannel(entry.channel)}</span>
+                      {entry.description && <small className="revenue-entry-description">{entry.description}</small>}
+                    </Table.Td>
+                    {entriesShowShifts && <Table.Td align="right"><MoneyOrDash value={Number(entry.salesFirstShift ?? 0)} /></Table.Td>}
+                    {entriesShowShifts && <Table.Td align="right"><MoneyOrDash value={Number(entry.salesSecondShift ?? 0)} /></Table.Td>}
+                    {entriesShowService && <Table.Td align="right"><MoneyOrDash value={Number(entry.serviceAmount ?? 0)} /></Table.Td>}
+                    <Table.Td align="right"><strong><MoneyOrDash value={Number(entry.grossAmount ?? 0)} /></strong></Table.Td>
                     <Table.Td align="right">{formatNumber(Number(entry.tickets ?? 0))}</Table.Td>
-                    <Table.Td align="right"><Money value={Number(entry.ticketAverage ?? 0)} /></Table.Td>
-                    <Table.Td align="right"><Money value={Number(entry.accumulatedAmount ?? 0)} /></Table.Td>
+                    <Table.Td align="right"><MoneyOrDash value={Number(entry.ticketAverage ?? 0)} /></Table.Td>
+                    {entriesShowAccumulated && <Table.Td align="right"><MoneyOrDash value={Number(entry.accumulatedAmount ?? 0)} /></Table.Td>}
                     <Table.Td><StatusBadge status={entry.status} /></Table.Td>
                     <Table.Td actions>
                       {entry.status !== "CANCELLED" && (canEdit || canLaunchEvent) ? (
@@ -847,7 +907,7 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
                     </Table.Td>
                   </Table.Row>
                 ))}
-                {entries.length === 0 && <EmptyTableRow colSpan={12} message="Nenhum faturamento lançado." />}
+                {entries.length === 0 && <EmptyTableRow colSpan={entriesColumnCount} message="Nenhum faturamento lançado." />}
               </Table.Body>
             </Table>
           </div>
@@ -875,20 +935,41 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
                 <p>Gerência</p>
                 <h2>Lançar evento / empreitada</h2>
               </div>
-              <button className="secondary-button" type="button" onClick={() => { setShowEventModal(false); setEventForm(emptyEventForm); }}>
+              <button className="secondary-button" type="button" onClick={closeEventModal}>
                 Fechar
               </button>
             </div>
 
             <div className="form-grid">
-              <label>
-                Data do evento
-                <input
-                  type="date"
-                  value={eventForm.date}
-                  onChange={(event) => setEventForm({ ...eventForm, date: event.target.value })}
-                />
-              </label>
+              <div className="full-width" role="group" aria-label="Como lançar">
+                <button
+                  type="button"
+                  className={isVoucherMode ? "secondary-button" : "primary-button"}
+                  aria-pressed={!isVoucherMode}
+                  onClick={() => setEventForm({ ...eventForm, mode: "valor" })}
+                >
+                  Valor fechado
+                </button>{" "}
+                <button
+                  type="button"
+                  className={isVoucherMode ? "primary-button" : "secondary-button"}
+                  aria-pressed={isVoucherMode}
+                  onClick={() => setEventForm({ ...eventForm, mode: "vouchers" })}
+                >
+                  Consumo por voucher (por dia)
+                </button>
+              </div>
+
+              {!isVoucherMode && (
+                <label>
+                  Data do evento
+                  <input
+                    type="date"
+                    value={eventForm.date}
+                    onChange={(event) => setEventForm({ ...eventForm, date: event.target.value })}
+                  />
+                </label>
+              )}
 
               <label>
                 Tipo de evento
@@ -912,31 +993,121 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
                 />
               </label>
 
-              <label>
-                Valor bruto (R$)
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  min="0"
-                  step="0.01"
-                  placeholder="0,00"
-                  value={eventForm.grossAmount}
-                  onChange={(event) => setEventForm({ ...eventForm, grossAmount: event.target.value })}
-                />
-              </label>
+              {!isVoucherMode && (
+                <>
+                  <label>
+                    Valor bruto (R$)
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      min="0"
+                      step="0.01"
+                      placeholder="0,00"
+                      value={eventForm.grossAmount}
+                      onChange={(event) => setEventForm({ ...eventForm, grossAmount: event.target.value })}
+                    />
+                  </label>
 
-              <label>
-                Número de pessoas
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  min="0"
-                  step="1"
-                  placeholder="0"
-                  value={eventForm.tickets}
-                  onChange={(event) => setEventForm({ ...eventForm, tickets: event.target.value })}
-                />
-              </label>
+                  <label>
+                    Número de pessoas
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min="0"
+                      step="1"
+                      placeholder="0"
+                      value={eventForm.tickets}
+                      onChange={(event) => setEventForm({ ...eventForm, tickets: event.target.value })}
+                    />
+                  </label>
+                </>
+              )}
+
+              {isVoucherMode && (
+                <div className="full-width">
+                  <p className="hint">
+                    Pacote de almoço por voucher da organização. Informe o preço de cada público e, por dia, quantos vouchers foram usados.
+                  </p>
+                  <div className="table-wrap voucher-table"><table>
+                    <thead>
+                      <tr>
+                        <th scope="col">Dia</th>
+                        {voucherCategories.map((cat) => (
+                          <th scope="col" key={cat.id}>
+                            {cat.label}
+                            <input
+                              aria-label={`Preço unitário — ${cat.label}`}
+                              type="number"
+                              inputMode="decimal"
+                              min="0"
+                              step="0.01"
+                              value={cat.price}
+                              onChange={(event) =>
+                                setVoucherCategories((cats) =>
+                                  cats.map((c) => (c.id === cat.id ? { ...c, price: event.target.value } : c))
+                                )
+                              }
+                            />
+                          </th>
+                        ))}
+                        <th scope="col">Total do dia</th>
+                        <th scope="col" aria-label="Remover dia" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {voucherDays.map((day, index) => {
+                        const dayTotals = voucherTotals(voucherCategories, [day]);
+                        return (
+                          <tr key={index}>
+                            <td>
+                              <input
+                                aria-label={`Data do dia ${index + 1}`}
+                                type="date"
+                                value={day.date}
+                                onChange={(event) => updateVoucherDay(index, (d) => ({ ...d, date: event.target.value }))}
+                              />
+                            </td>
+                            {voucherCategories.map((cat) => (
+                              <td key={cat.id}>
+                                <input
+                                  aria-label={`${cat.label} em ${day.date || `dia ${index + 1}`}`}
+                                  type="number"
+                                  inputMode="numeric"
+                                  min="0"
+                                  step="1"
+                                  placeholder="0"
+                                  value={day.qty[cat.id] ?? ""}
+                                  onChange={(event) =>
+                                    updateVoucherDay(index, (d) => ({ ...d, qty: { ...d.qty, [cat.id]: event.target.value } }))
+                                  }
+                                />
+                              </td>
+                            ))}
+                            <td>
+                              {dayTotals.people} pessoas · <Money value={dayTotals.gross} />
+                            </td>
+                            <td>
+                              {voucherDays.length > 1 && (
+                                <button
+                                  type="button"
+                                  className="secondary-button"
+                                  aria-label={`Remover dia ${index + 1}`}
+                                  onClick={() => setVoucherDays((days) => days.filter((_, i) => i !== index))}
+                                >
+                                  Remover
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table></div>
+                  <button type="button" className="secondary-button" onClick={addVoucherDay}>
+                    + Adicionar dia
+                  </button>
+                </div>
+              )}
 
               <label>
                 Forma de recebimento
@@ -974,7 +1145,13 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
                     <span>Valor líquido</span>
                     <strong><Money value={eventNet} /></strong>
                   </article>
-                  {eventTicketAverage !== null && Number(eventForm.tickets) > 0 && (
+                  {isVoucherMode && (
+                    <article>
+                      <span>Pessoas</span>
+                      <strong>{eventPeople}</strong>
+                    </article>
+                  )}
+                  {eventTicketAverage !== null && (
                     <article>
                       <span>Ticket médio</span>
                       <strong><Money value={eventTicketAverage} /></strong>
@@ -995,13 +1172,13 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
             </div>
 
             <div className="modal-actions">
-              <button className="secondary-button" type="button" onClick={() => { setShowEventModal(false); setEventForm(emptyEventForm); }}>
+              <button className="secondary-button" type="button" onClick={closeEventModal}>
                 Cancelar
               </button>
               <button
                 className="primary-button"
                 type="button"
-                disabled={savingEvent || !eventForm.date || !eventForm.description.trim() || eventGross <= 0}
+                disabled={savingEvent || !canSaveEvent}
                 onClick={handleSaveEvent}
               >
                 {savingEvent ? "Salvando..." : "Confirmar lançamento"}
