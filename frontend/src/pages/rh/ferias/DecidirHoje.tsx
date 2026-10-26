@@ -17,7 +17,8 @@ function Lista({ titulo, vazio, tom, itens, onProgramar }: { titulo: string; vaz
         <ul>
           {visiveis.map((i) => (
             <li key={`${i.pessoa.employeeId}|${i.periodo.aquisitivoInicio}`}>
-              <div><strong>{i.pessoa.nome}</strong><span>{i.texto}</span></div>
+              <div className="fe-decidir-quem"><strong>{i.pessoa.nome}</strong><span>{i.detalhe}</span></div>
+              <div className={`fe-decidir-prazo fe-decidir-prazo--${i.tom}`}><b>{i.destaque}</b><span>{i.prazo}</span></div>
               <Button size="sm" variant={tom === "atraso" ? "primary" : "secondary"} aria-label={`Escolher datas das férias de ${i.pessoa.nome}`} onClick={() => onProgramar(i.pessoa, i.periodo)}>Escolher datas</Button>
             </li>
           ))}

@@ -41,7 +41,7 @@ describe("Ferias", () => {
     expect((await screen.findAllByText("30/01/2027")).length).toBeGreaterThan(0);
     expect(screen.getAllByText("venceu há 12 dias").length).toBeGreaterThan(0);
     expect(screen.getByText("Vencida")).toBeInTheDocument();
-    expect(within(screen.getByRole("region", { name: "Em atraso" })).getByText(/prazo venceu em 30\/01\/2027 \(há 12 dias\)/)).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Em atraso" })).getByText("venceu há 12 dias")).toBeInTheDocument();
     expect(screen.getByText(/1 período vencido ou programado fora do prazo/)).toBeInTheDocument();
   });
 
@@ -49,7 +49,7 @@ describe("Ferias", () => {
     vi.mocked(getFerias).mockResolvedValue(lista([periodo()]));
     render(<Ferias />);
     const pode = await screen.findByRole("region", { name: "Pode programar agora" });
-    expect(within(pode).getByText(/ciclo completo em 28\/02\/2026 · 30 dias a gozar · começar até 30\/01\/2027/)).toBeInTheDocument();
+    expect(within(pode).getByText("começar até 30/01/2027")).toBeInTheDocument();
     expect(within(screen.getByRole("region", { name: "Em atraso" })).getByText("Ninguém com prazo vencido.")).toBeInTheDocument();
     fireEvent.click(within(pode).getByRole("button", { name: /Escolher datas das férias de/ }));
     expect(await screen.findByRole("form", { name: /Programar férias de/ })).toBeInTheDocument();
@@ -109,6 +109,7 @@ describe("Ferias", () => {
     const programada = { id: "f1", aquisitivoInicio: "2025-03-01", gozoInicio: "2026-10-01", gozoFim: "2026-10-30", dias: 30, diasAbono: 0, status: "PROGRAMADA" as const, observacao: null, passouDaData: true };
     vi.mocked(getFerias).mockResolvedValue(lista([periodo({ situacao: "PROGRAMADA", diasPendentes: 0, diasProgramados: 30, diasParaLimite: null, programacoes: [programada] })]));
     render(<Ferias />);
+    fireEvent.click(await screen.findByRole("button", { name: /Mais detalhes/ }));
     fireEvent.click(await screen.findByRole("button", { name: /Programadas/ }));
     fireEvent.click(await screen.findByRole("button", { name: /^Confirmar que gozou/ }));
     await waitFor(() => expect(atualizarFerias).toHaveBeenCalledWith("f1", { status: "GOZADA" }));
@@ -129,6 +130,7 @@ describe("Ferias", () => {
     vi.mocked(getFerias).mockResolvedValue(lista([periodo({ situacao: "PROGRAMADA", diasPendentes: 0, diasProgramados: 30, diasParaLimite: null, programacoes: [programada] })]));
     render(<Ferias />, "/rh/ferias?filtro=PROGRAMADAS");
     expect(await screen.findByText("01/12/2026 a 30/12/2026 · 30 dias")).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: /Mais detalhes/ }));
     fireEvent.click(screen.getByRole("button", { name: /A programar/ }));
     expect(await screen.findByText("Nada neste filtro")).toBeInTheDocument();
   });

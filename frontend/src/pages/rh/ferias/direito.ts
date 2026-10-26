@@ -61,10 +61,22 @@ export const contarPorSituacao = (linhas: LinhaDeDireito[]): Record<SituacaoDoDi
   tempo: linhas.filter((l) => l.situacao === "tempo").length,
 });
 
-export type ItemDeDecisao = { pessoa: PessoaFerias; periodo: PeriodoFerias; /** Uma frase com o motivo. */ texto: string };
+export type ItemDeDecisao = {
+  pessoa: PessoaFerias;
+  periodo: PeriodoFerias;
+  /** O que pesa na decisão, em poucas palavras: "faltam 6 dias", "venceu há 20 dias". */
+  destaque: string;
+  /** Quão urgente é: pinta o destaque. */
+  tom: "vencido" | "urgente" | "atencao" | "calmo";
+  /** "começar até 01/11/2026". */
+  prazo: string;
+  /** "ciclo completo em 30/11/2025 · 30 dias a gozar". */
+  detalhe: string;
+};
 
 const dataCurta = (iso: string) => iso.split("-").reverse().join("/");
 const emDias = (n: number) => `${n} ${n === 1 ? "dia" : "dias"}`;
+const detalheDoCiclo = (p: PeriodoFerias) => `ciclo completo em ${dataCurta(p.aquisitivoFim)} · ${emDias(p.diasPendentes || p.diasDireito)} a gozar`;
 
 /**
  * O que decidir hoje, em duas listas:
@@ -79,19 +91,20 @@ export function decidirHoje(pessoas: PessoaFerias[], hoje: string): { atraso: It
     for (const periodo of pessoa.periodos) {
       if (periodo.situacao === "EM_AQUISICAO" || periodo.doHistorico) continue;
       if (periodo.situacao === "VENCIDA" && periodo.diasPendentes > 0) {
-        const atrasado = periodo.diasParaLimite === null ? "" : ` (há ${emDias(-periodo.diasParaLimite)})`;
-        atraso.push({ pessoa, periodo, texto: `prazo venceu em ${dataCurta(periodo.limiteInicioGozo)}${atrasado}` });
+        const destaque = periodo.diasParaLimite === null ? "prazo vencido" : `venceu há ${emDias(-periodo.diasParaLimite)}`;
+        atraso.push({ pessoa, periodo, destaque, tom: "vencido", prazo: `o prazo era ${dataCurta(periodo.limiteInicioGozo)}`, detalhe: detalheDoCiclo(periodo) });
         noAtraso.add(periodo.aquisitivoInicio);
       } else if (periodo.foraDoPrazo) {
-        atraso.push({ pessoa, periodo, texto: `férias programadas depois do prazo (${dataCurta(periodo.limiteInicioGozo)})` });
+        atraso.push({ pessoa, periodo, destaque: "programada fora do prazo", tom: "vencido", prazo: `o prazo era ${dataCurta(periodo.limiteInicioGozo)}`, detalhe: detalheDoCiclo(periodo) });
         noAtraso.add(periodo.aquisitivoInicio);
       }
     }
     const livre = pessoa.periodos.filter(PENDENTE).filter((p) => p.situacao !== "VENCIDA" && !noAtraso.has(p.aquisitivoInicio))
       .sort((a, b) => a.aquisitivoInicio.localeCompare(b.aquisitivoInicio))[0];
     if (livre) {
-      const faltam = livre.diasParaLimite === null ? "" : ` (faltam ${emDias(livre.diasParaLimite)})`;
-      podeProgramar.push({ pessoa, periodo: livre, texto: `ciclo completo em ${dataCurta(livre.aquisitivoFim)} · ${emDias(livre.diasPendentes)} a gozar · começar até ${dataCurta(livre.limiteInicioGozo)}${faltam}` });
+      const dias = livre.diasParaLimite;
+      const tom = dias === null || dias > 90 ? "calmo" : dias > 30 ? "atencao" : "urgente";
+      podeProgramar.push({ pessoa, periodo: livre, destaque: dias === null ? "" : `faltam ${emDias(dias)}`, tom, prazo: `começar até ${dataCurta(livre.limiteInicioGozo)}`, detalhe: detalheDoCiclo(livre) });
     }
   }
   const porPrazo = (a: ItemDeDecisao, b: ItemDeDecisao) => a.periodo.limiteInicioGozo.localeCompare(b.periodo.limiteInicioGozo) || a.pessoa.nome.localeCompare(b.pessoa.nome, "pt-BR");

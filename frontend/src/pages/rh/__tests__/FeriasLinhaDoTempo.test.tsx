@@ -156,6 +156,7 @@ describe("Férias — linha do tempo", () => {
     const { container } = render(<Ferias />);
     await screen.findByRole("button", { name: /Férias programadas de Bruno Lima/ });
     container.querySelector<HTMLElement>(".fe-plano > summary")?.click();
+    fireEvent.click(await screen.findByRole("button", { name: /Mais detalhes/ }));
     fireEvent.click(await screen.findByRole("button", { name: "Marcar que Bruno Lima foi avisado" }));
     await waitFor(() => expect(marcarFeriasAvisado).toHaveBeenCalledWith("g1", true));
     // Com o aviso devolvido pelo servidor a linha passa a mostrar a data e a opção de desfazer.

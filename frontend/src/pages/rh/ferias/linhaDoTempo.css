@@ -56,7 +56,7 @@
 
 /* Cabeçalho: meses (fica no topo ao rolar para baixo) */
 .fe-tl-cab { position: sticky; top: 0; z-index: 8; background: var(--paper); border-bottom: 1px solid var(--line-strong); }
-.fe-tl-meses { position: relative; height: 48px; }
+.fe-tl-meses { position: relative; height: 58px; }
 .fe-tl-mes { position: absolute; top: 0; bottom: 0; display: flex; align-items: flex-end; padding: 0 0 6px 6px; border-left: 1px solid var(--line); font-size: var(--fs-xs); color: var(--ink-soft); overflow: hidden; white-space: nowrap; }
 .fe-tl-mes span { display: inline-flex; align-items: baseline; gap: 5px; text-transform: uppercase; letter-spacing: var(--ls-eyebrow); font-size: var(--fs-2xs); font-weight: var(--fw-semibold); }
 .fe-tl-mes b { font-weight: var(--fw-semibold); color: var(--gold-dark); }
@@ -67,7 +67,7 @@
 }
 
 /* Faixa "Quem está fora" (mapa de calor) */
-.fe-tl-cob { position: sticky; top: 48px; z-index: 7; background: var(--paper-soft); border-bottom: 1px solid var(--line); }
+.fe-tl-cob { position: sticky; top: 58px; z-index: 7; background: var(--paper-soft); border-bottom: 1px solid var(--line); }
 .fe-tl-canto--cob { display: grid; align-content: center; gap: 1px; padding: 6px 12px; background: var(--paper-soft); font-size: var(--fs-xs); }
 .fe-tl-faixa { position: relative; height: 40px; cursor: crosshair; }
 .fe-tl-calor {
@@ -255,5 +255,14 @@ button.fe-tl-fantasma { cursor: pointer; }
 .fe-tl-situacao--prazo { margin-left: 4px; background: var(--tint-danger); color: var(--danger); }
 .fe-tl-programar--pedido { margin-right: 4px; }
 .fe-form-explica { margin: 0; font-size: var(--fs-sm); }
-.fe-tl-ficha--aviso { color: var(--danger); }
+.fe-tl-ficha--aviso { color: var(--danger); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
 .fe-tl-ficha--aviso b { color: var(--danger); min-width: 0; margin-right: 3px; }
+
+/* Mês em coluna estreita: nome em cima, ano embaixo (todos iguais, nada cortado) */
+.fe-tl-mes--empilhado span { flex-direction: column; align-items: flex-start; gap: 0; line-height: 1.15; }
+.fe-tl-mes--empilhado b { font-size: 11px; letter-spacing: 0; }
+
+/* Legenda e dicas recolhidas: quem precisa abre */
+.fe-tl-como-ler { margin: 0 0 8px; }
+.fe-tl-como-ler > summary { cursor: pointer; font-size: 14px; color: var(--ink-soft); padding: 4px 0; }
+.fe-tl-como-ler[open] { padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--paper-soft, var(--paper)); }

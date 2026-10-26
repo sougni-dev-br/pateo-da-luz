@@ -41,6 +41,7 @@ export function Ferias() {
   const visao = visaoValida(params.get("visao"));
   const empresa = params.get("empresa") ?? "";
   const filtro = filtroValido(params.get("filtro"), visao);
+  const [maisAberto, setMaisAberto] = useState(false);
   const [lista, setLista] = useState<ListaFerias | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
@@ -249,7 +250,8 @@ export function Ferias() {
       {lista && lista.semDataDeAdmissao.length > 0 && (
         <Alert tone="info" role={undefined}>Sem data de admissão no cadastro (não entram no cálculo): {lista.semDataDeAdmissao.map((p) => p.nome).join(", ")}.</Alert>
       )}
-      {lista && empresas.length > 1 && (
+      <div className="fe-faixa">
+        {lista && empresas.length > 1 && (
         <label className="fe-empresa">Empresa
           <select value={empresa} onChange={(e) => escolherEmpresa(e.target.value)}>
             <option value="">Todas</option>
@@ -257,9 +259,13 @@ export function Ferias() {
           </select>
         </label>
       )}
-      <details className="fe-mais">
-        <summary>Mais detalhes: planejamento, resumo e situação dos períodos</summary>
-        <div className="fe-mais-corpo">
+        <button type="button" className="fe-mais-botao" aria-expanded={maisAberto} aria-controls="fe-mais-corpo" onClick={() => setMaisAberto((v) => !v)}>
+          {maisAberto ? "Esconder detalhes" : "Mais detalhes"} <span>planejamento, resumo e situação dos períodos</span>
+        </button>
+      </div>
+      {(
+        <div className={`fe-mais${maisAberto ? "" : " fe-mais--fechado"}`} id="fe-mais-corpo">
+          <div className="fe-mais-corpo">
       {(vencidas > 0 || aVencer > 0) && (
         <Alert tone={vencidas > 0 ? "error" : "warning"} role={undefined}>
           {vencidas > 0 && <>{vencidas} {plural(vencidas, "período vencido ou programado", "períodos vencidos ou programados")} fora do prazo: férias pagas em dobro. </>}
@@ -285,7 +291,8 @@ export function Ferias() {
         </div>
       )}
         </div>
-      </details>
+        </div>
+      )}
     </>
   );
 

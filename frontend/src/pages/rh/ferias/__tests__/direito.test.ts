@@ -64,9 +64,9 @@ describe("quem tem direito", () => {
     const foraDoPrazo = pessoa("Gil", "2025-03-01", [periodo({ situacao: "PROGRAMADA", diasPendentes: 0, foraDoPrazo: true })]);
     const { atraso, podeProgramar } = decidirHoje([completa, dois, foraDoPrazo, semDireito], HOJE);
     expect(atraso.map((i) => i.pessoa.nome)).toEqual(["Fabi", "Gil"]);
-    expect(atraso[0].texto).toBe("prazo venceu em 30/01/2026 (há 269 dias)");
-    expect(atraso[1].texto).toContain("programadas depois do prazo");
+    expect(atraso[0]).toMatchObject({ destaque: "venceu há 269 dias", tom: "vencido", prazo: "o prazo era 30/01/2026" });
+    expect(atraso[1]).toMatchObject({ destaque: "programada fora do prazo", tom: "vencido" });
     expect(podeProgramar.map((i) => i.pessoa.nome)).toEqual(["Ana", "Fabi"]); // Fabi: o ciclo seguinte ainda tem tempo
-    expect(podeProgramar[0].texto).toBe("ciclo completo em 28/02/2026 · 30 dias a gozar · começar até 30/01/2027 (faltam 96 dias)");
+    expect(podeProgramar[0]).toMatchObject({ destaque: "faltam 96 dias", tom: "calmo", prazo: "começar até 30/01/2027", detalhe: "ciclo completo em 28/02/2026 · 30 dias a gozar" });
   });
 });
