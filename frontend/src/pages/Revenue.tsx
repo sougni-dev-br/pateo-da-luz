@@ -1,17 +1,14 @@
-import { BadgeDollarSign, CalendarPlus, ChevronDown, Pencil, RefreshCw, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { BadgeDollarSign, CalendarPlus, ChevronDown, RefreshCw } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AppUser, cancelRevenueEntry, getCmvPeriods, getRevenue, RevenueEntry, RevenueSummary, saveRevenueEntry } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
 import {
-  IconButton,
   Money,
   PanelEyebrow,
-  StatusBadge as DsStatusBadge,
   SummaryCard,
-  Table,
+  Tabs,
   useFormatCurrency
 } from "../design-system";
-import type { StatusTone } from "../design-system";
 import { hasPermission } from "../lib/permissions";
 import { PeriodFilter } from "../components/PeriodFilter";
 import type { ImportTab } from "./ImportsHub";
@@ -19,7 +16,11 @@ import { formatDate, formatNumber, formatPercent } from "../utils/format";
 import { currentMonthPeriod, periodForPreset, type PeriodState } from "../utils/period";
 import { hojeLocalIso } from "../lib/datas";
 import { CoberturaPorCanal } from "./CoberturaPorCanal";
-import { describeAppliedFilter, hasAnyValue, pickBestAndWorstDay, weekdayFromIso } from "./revenueView";
+import { describeAppliedFilter, hasAnyValue, monthLabel, pickBestAndWorstDay, weekdayFromIso } from "./revenueView";
+import { buildDailySeries, deltaPercent, previousCompetence, type EntryGroup } from "./revenueGroups";
+import { displayChannel, MoneyOrDash } from "./revenueBits";
+import { RevenueEntriesTable } from "./RevenueEntriesTable";
+import { RevenueDailyChart } from "./RevenueDailyChart";
 import {
   buildVoucherEntries,
   defaultVoucherCategories,
@@ -46,6 +47,14 @@ function todayInputDate() {
 }
 
 type EventLaunchMode = "valor" | "vouchers";
+
+type RevenueTab = "overview" | "daily" | "entries";
+
+const REVENUE_TABS: Array<{ value: RevenueTab; label: string }> = [
+  { value: "overview", label: "Visão geral" },
+  { value: "daily", label: "Por dia" },
+  { value: "entries", label: "Lançamentos" }
+];
 
 function emptyVoucherDays(): VoucherDay[] {
   return [{ date: todayInputDate(), qty: {} }];
@@ -97,31 +106,12 @@ function storedCmvPeriod(): { id: string; name: string; dataInicial: string; dat
   }
 }
 
-function displayChannel(value: string) {
-  return value === "Salao" ? "Salão" : value;
-}
-
 function averageTicket(netAmount: number, tickets: number) {
   return tickets > 0 ? netAmount / tickets : 0;
 }
 
 function percent(part: number, total: number) {
   return total > 0 ? (part / total) * 100 : 0;
-}
-
-function formatStatusLabel(status: string) {
-  if (status === "CANCELLED") return "Cancelado";
-  if (status === "ACTIVE") return "Ativo";
-  return status
-    .replace(/_/g, " ")
-    .toLowerCase()
-    .replace(/^\w|\s\w/g, (letter) => letter.toUpperCase());
-}
-
-function statusToneClass(status: string) {
-  if (status === "CANCELLED") return "cancelled tone-neutral";
-  if (status === "ACTIVE") return "tone-success";
-  return "tone-info";
 }
 
 function SectionHeader({ eyebrow, title }: { eyebrow?: string; title: string }) {
@@ -135,13 +125,8 @@ function SectionHeader({ eyebrow, title }: { eyebrow?: string; title: string }) 
   );
 }
 
-function MetricCard({ label, value, detail, className }: { label: string; value: string; detail?: string; className?: string }) {
+function MetricCard({ label, value, detail, className }: { label: string; value: string; detail?: ReactNode; className?: string }) {
   return <SummaryCard label={label} value={value} detail={detail} className={className} />;
-}
-
-/** Zero em tabela vira traço: números reais se destacam em vez de ficarem entre "R$ 0,00". */
-function MoneyOrDash({ value }: { value: number }) {
-  return value === 0 ? <span className="revenue-dash" aria-label="zero">—</span> : <Money value={value} />;
 }
 
 function EmptyTableRow({ colSpan, message }: { colSpan: number; message: string }) {
@@ -149,94 +134,6 @@ function EmptyTableRow({ colSpan, message }: { colSpan: number; message: string 
     <tr>
       <td colSpan={colSpan}>{message}</td>
     </tr>
-  );
-}
-
-function statusTone(status: string): StatusTone {
-  if (status === "CANCELLED") return "neutral";
-  if (status === "ACTIVE") return "success";
-  return "info";
-}
-
-function StatusBadge({ status }: { status: string }) {
-  return <DsStatusBadge tone={statusTone(status)}>{formatStatusLabel(status)}</DsStatusBadge>;
-}
-
-function RevenueEntryMobileCard({
-  entry,
-  canEdit,
-  onEdit,
-  onCancel
-}: {
-  entry: RevenueEntry;
-  canEdit: boolean;
-  onEdit: (entryId: string) => void;
-  onCancel: (entry: RevenueEntry) => void;
-}) {
-  return (
-    <article className="revenue-mobile-card">
-      <div className="revenue-mobile-row">
-        <span>Data</span>
-        <strong>{formatDate(entry.date)}</strong>
-      </div>
-      <div className="revenue-mobile-row">
-        <span>Dia da semana</span>
-        <span>{entry.weekdayName ?? weekdayFromIso(entry.date)}</span>
-      </div>
-      <div className="revenue-mobile-row">
-        <span>Canal</span>
-        <span>{displayChannel(entry.channel)}</span>
-      </div>
-      {entry.description && (
-        <div className="revenue-mobile-row">
-          <span>Descrição</span>
-          <span>{entry.description}</span>
-        </div>
-      )}
-      <div className="revenue-mobile-row">
-        <span>1º turno</span>
-        <span><Money value={entry.salesFirstShift ?? 0} /></span>
-      </div>
-      <div className="revenue-mobile-row">
-        <span>2º turno</span>
-        <span><Money value={entry.salesSecondShift ?? 0} /></span>
-      </div>
-      <div className="revenue-mobile-row revenue-mobile-row--highlight">
-        <span>Venda total</span>
-        <strong><Money value={entry.grossAmount ?? 0} /></strong>
-      </div>
-      <div className="revenue-mobile-row">
-        <span>Serviço</span>
-        <span><Money value={entry.serviceAmount ?? 0} /></span>
-      </div>
-      <div className="revenue-mobile-row">
-        <span>TCs</span>
-        <span>{formatNumber(Number(entry.tickets ?? 0))}</span>
-      </div>
-      <div className="revenue-mobile-row">
-        <span>Ticket médio</span>
-        <span><Money value={entry.ticketAverage ?? 0} /></span>
-      </div>
-      <div className="revenue-mobile-row">
-        <span>Acumulado</span>
-        <span><Money value={entry.accumulatedAmount ?? 0} /></span>
-      </div>
-      <div className="revenue-mobile-row">
-        <span>Status</span>
-        <StatusBadge status={entry.status} />
-      </div>
-
-      {canEdit && entry.status !== "CANCELLED" ? (
-        <div className="revenue-mobile-actions">
-          <button className="secondary-button" type="button" onClick={() => onEdit(entry.id)}>
-            <Pencil size={15} /> Editar
-          </button>
-          <button className="danger-button" type="button" onClick={() => onCancel(entry)}>
-            <Trash2 size={15} /> Cancelar
-          </button>
-        </div>
-      ) : null}
-    </article>
   );
 }
 
@@ -258,6 +155,8 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
   const [loading, setLoading] = useState(false);
   const [summary, setSummary] = useState<RevenueSummary | null>(null);
   const [appliedFilter, setAppliedFilter] = useState<ReturnType<typeof describeAppliedFilter> | null>(null);
+  const [previous, setPrevious] = useState<{ label: string; summary: RevenueSummary["summary"]; inProgress: boolean } | null>(null);
+  const [tab, setTab] = useState<RevenueTab>("overview");
   const [showEventModal, setShowEventModal] = useState(false);
   const [eventForm, setEventForm] = useState(emptyEventForm);
   const [savingEvent, setSavingEvent] = useState(false);
@@ -295,6 +194,31 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
       if (requestSeq !== requestSeqRef.current) return;
       setSummary(response);
       setAppliedFilter(describeAppliedFilter({ month: nextMonth, period: nextPeriod, channel: channelFilter }));
+
+      // A comparação só faz sentido para um mês de competência; intervalo livre fica sem variação.
+      const comparesMonths = nextPeriod.preset === "currentMonth" || nextPeriod.preset === "previousMonth";
+      if (!comparesMonths) {
+        setPrevious(null);
+      } else {
+        const before = previousCompetence(nextMonth);
+        try {
+          const beforeResponse = await getRevenue(
+            { year: String(before.year), month: String(before.month), channel: channelFilter || undefined },
+            controller.signal
+          );
+          if (requestSeq === requestSeqRef.current) {
+            setPrevious({
+              label: monthLabel(before.year, before.month),
+              summary: beforeResponse.summary,
+              inProgress: nextPeriod.preset === "currentMonth"
+            });
+          }
+        } catch (compareError) {
+          if (compareError instanceof DOMException && compareError.name === "AbortError") return;
+          // Sem o mês anterior a tela segue sem variação; o faturamento principal já carregou.
+          if (requestSeq === requestSeqRef.current) setPrevious(null);
+        }
+      }
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
       if (requestSeq !== requestSeqRef.current) return;
@@ -335,6 +259,24 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
       await load({ allowAutoFallback: false });
     } catch (error) {
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao cancelar faturamento." });
+    }
+  }
+
+  async function handleCancelEvent(group: EntryGroup) {
+    const reason = window.prompt(`Informe o motivo para cancelar o evento "${group.name}" (${group.entries.length} lançamentos):`);
+    if (!reason?.trim()) return;
+    let cancelled = 0;
+    try {
+      for (const entry of group.entries) {
+        await cancelRevenueEntry(entry.id, reason);
+        cancelled += 1;
+      }
+      setNotice({ tone: "success", message: `Evento cancelado: ${cancelled} lançamentos.` });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "Erro ao cancelar o evento.";
+      setNotice({ tone: "error", message: `${detail} Foram cancelados ${cancelled} de ${group.entries.length}; confira a lista.` });
+    } finally {
+      await load({ allowAutoFallback: false });
     }
   }
 
@@ -601,10 +543,22 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
   const weekdayShowsService = hasAnyValue(weekdayRows.map((row) => row.serviceAmount));
   const dayMarks = pickBestAndWorstDay(dailyRows);
 
-  const entriesShowShifts = hasAnyValue(entries.flatMap((entry) => [entry.salesFirstShift, entry.salesSecondShift]));
-  const entriesShowService = hasAnyValue(entries.map((entry) => entry.serviceAmount));
-  const entriesShowAccumulated = hasAnyValue(entries.map((entry) => entry.accumulatedAmount));
-  const entriesColumnCount = 8 + Number(entriesShowShifts) * 2 + Number(entriesShowService) + Number(entriesShowAccumulated);
+  const dailySeries = useMemo(() => buildDailySeries(summary?.entries ?? []), [summary]);
+  const revenueTabs = REVENUE_TABS.map((item) => (item.value === "entries" ? { ...item, label: `${item.label} (${entries.length})` } : item));
+
+  function deltaNote(current: number, prior: number | undefined): ReactNode {
+    if (!previous) return null;
+    const delta = deltaPercent(current, prior ?? null);
+    if (delta === null) return null;
+    // Mês em andamento contra mês fechado: a queda é esperada, então não pinta de vermelho/verde.
+    const tone = previous.inProgress ? "" : delta >= 0 ? " revenue-kpi-delta--up" : " revenue-kpi-delta--down";
+    return (
+      <span className={`revenue-kpi-delta${tone}`}>
+        {delta >= 0 ? "▲" : "▼"} {formatPercent(Math.abs(delta))} vs. {previous.label}
+        {previous.inProgress ? " · mês em andamento" : ""}
+      </span>
+    );
+  }
 
   return (
     <div className="stack">
@@ -690,9 +644,7 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
         </div>
       </section>
 
-      <section className="panel">
-        <SectionHeader eyebrow="Resumo aplicado" title="Indicadores" />
-
+      <section className="panel revenue-tabs-panel">
         {appliedFilter && (
           <p className="revenue-applied-filter" aria-live="polite">
             Exibindo <strong>{appliedFilter.periodLabel}</strong> · <strong>{appliedFilter.channelLabel}</strong> ·{" "}
@@ -700,16 +652,42 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
             {filterIsDirty && <span className="revenue-filter-dirty"> — filtros alterados, clique em Filtrar para atualizar</span>}
           </p>
         )}
+        <Tabs
+          className="revenue-tabs"
+          aria-label="Seções do faturamento"
+          tabs={revenueTabs}
+          value={tab}
+          onChange={(value) => setTab(value as RevenueTab)}
+        />
+      </section>
+
+      {tab === "overview" && (
+        <div className="revenue-tabpanel" role="tabpanel">
+      <section className="panel">
+        <SectionHeader eyebrow="Resumo aplicado" title="Indicadores" />
 
         <div className="revenue-kpi-hero">
           <MetricCard
             className="revenue-kpi-primary"
             label="Faturamento líquido"
             value={fmt(summaryData?.netAmount ?? 0)}
-            detail={`Bruto ${fmt(summaryData?.grossAmount ?? 0)} · Serviço ${fmt(summaryData?.serviceAmount ?? 0)} (${formatPercent(serviceShare)} das vendas)`}
+            detail={
+              <>
+                {`Bruto ${fmt(summaryData?.grossAmount ?? 0)} · Serviço ${fmt(summaryData?.serviceAmount ?? 0)} (${formatPercent(serviceShare)} das vendas)`}
+                {deltaNote(summaryData?.netAmount ?? 0, previous?.summary.netAmount)}
+              </>
+            }
           />
-          <MetricCard label="Ticket médio" value={fmt(summaryData?.ticketAverageGeneral ?? 0)} />
-          <MetricCard label="TCs / Pessoas" value={formatNumber(summaryData?.tickets ?? 0)} />
+          <MetricCard
+            label="Ticket médio"
+            value={fmt(summaryData?.ticketAverageGeneral ?? 0)}
+            detail={deltaNote(summaryData?.ticketAverageGeneral ?? 0, previous?.summary.ticketAverageGeneral)}
+          />
+          <MetricCard
+            label="TCs / Pessoas"
+            value={formatNumber(summaryData?.tickets ?? 0)}
+            detail={deltaNote(summaryData?.tickets ?? 0, previous?.summary.tickets)}
+          />
           <MetricCard label="Dias operados" value={formatNumber(dailyAnalytics.length)} />
           {hasShiftSales && (
             <>
@@ -717,6 +695,10 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
               <MetricCard label="2º turno" value={fmt(summaryData?.salesSecondShift ?? 0)} detail={`${formatPercent(secondShiftShare)} das vendas`} />
             </>
           )}
+        </div>
+
+        <div className="subsection">
+          <RevenueDailyChart series={dailySeries} channelOrder={channels} />
         </div>
 
         <div className="subsection">
@@ -779,7 +761,11 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
       </section>
 
       <CoberturaPorCanal year={splitMonth(month).year} month={splitMonth(month).month} />
+        </div>
+      )}
 
+      {tab === "daily" && (
+        <div className="revenue-tabpanel" role="tabpanel">
       <section className="panel">
         <SectionHeader eyebrow="Detalhamento" title="Dia a dia" />
 
@@ -853,79 +839,26 @@ export function Revenue({ user, onOpenImports, onOpenCash }: RevenueProps) {
           </div>
         </div>
 
-        <div className="subsection">
-          <h3>Entradas</h3>
-
-          <div className="revenue-desktop-entries">
-            <Table>
-              <Table.Head>
-                <Table.Row>
-                  <Table.Th>Data</Table.Th>
-                  <Table.Th>Dia da semana</Table.Th>
-                  <Table.Th>Canal / descrição</Table.Th>
-                  {entriesShowShifts && <Table.Th align="right">1º turno</Table.Th>}
-                  {entriesShowShifts && <Table.Th align="right">2º turno</Table.Th>}
-                  {entriesShowService && <Table.Th align="right">Serviço</Table.Th>}
-                  <Table.Th align="right">Venda total</Table.Th>
-                  <Table.Th align="right">TCs</Table.Th>
-                  <Table.Th align="right">TM</Table.Th>
-                  {entriesShowAccumulated && <Table.Th align="right">Acumulado</Table.Th>}
-                  <Table.Th>Status</Table.Th>
-                  <Table.Th actions>Ações</Table.Th>
-                </Table.Row>
-              </Table.Head>
-              <Table.Body>
-                {entries.map((entry) => (
-                  <Table.Row key={entry.id}>
-                    <Table.Td style={{ whiteSpace: "nowrap" }}>{formatDate(entry.date)}</Table.Td>
-                    <Table.Td>{entry.weekdayName ?? weekdayFromIso(entry.date)}</Table.Td>
-                    <Table.Td>
-                      <span>{displayChannel(entry.channel)}</span>
-                      {entry.description && <small className="revenue-entry-description">{entry.description}</small>}
-                    </Table.Td>
-                    {entriesShowShifts && <Table.Td align="right"><MoneyOrDash value={Number(entry.salesFirstShift ?? 0)} /></Table.Td>}
-                    {entriesShowShifts && <Table.Td align="right"><MoneyOrDash value={Number(entry.salesSecondShift ?? 0)} /></Table.Td>}
-                    {entriesShowService && <Table.Td align="right"><MoneyOrDash value={Number(entry.serviceAmount ?? 0)} /></Table.Td>}
-                    <Table.Td align="right"><strong><MoneyOrDash value={Number(entry.grossAmount ?? 0)} /></strong></Table.Td>
-                    <Table.Td align="right">{formatNumber(Number(entry.tickets ?? 0))}</Table.Td>
-                    <Table.Td align="right"><MoneyOrDash value={Number(entry.ticketAverage ?? 0)} /></Table.Td>
-                    {entriesShowAccumulated && <Table.Td align="right"><MoneyOrDash value={Number(entry.accumulatedAmount ?? 0)} /></Table.Td>}
-                    <Table.Td><StatusBadge status={entry.status} /></Table.Td>
-                    <Table.Td actions>
-                      {entry.status !== "CANCELLED" && (canEdit || canLaunchEvent) ? (
-                        <>
-                          {canEdit && entry.channel !== EVENT_CHANNEL && (
-                            <IconButton icon={<Pencil size={16} />} label="Editar no Caixa" size="sm" onClick={() => onOpenCash?.(entry.id)} />
-                          )}
-                          {(canEdit || (canLaunchEvent && entry.channel === EVENT_CHANNEL)) && (
-                            <IconButton icon={<Trash2 size={16} />} label="Cancelar lançamento" size="sm" variant="danger" onClick={() => handleCancel(entry)} />
-                          )}
-                        </>
-                      ) : (
-                        "-"
-                      )}
-                    </Table.Td>
-                  </Table.Row>
-                ))}
-                {entries.length === 0 && <EmptyTableRow colSpan={entriesColumnCount} message="Nenhum faturamento lançado." />}
-              </Table.Body>
-            </Table>
-          </div>
-
-          <div className="revenue-mobile-list">
-            {entries.map((entry) => (
-              <RevenueEntryMobileCard
-                key={`${entry.id}-mobile`}
-                entry={entry}
-                canEdit={canEdit && entry.channel !== EVENT_CHANNEL}
-                onEdit={(entryId) => onOpenCash?.(entryId)}
-                onCancel={handleCancel}
-              />
-            ))}
-            {entries.length === 0 && <div className="alert warning">Nenhum faturamento lançado.</div>}
-          </div>
-        </div>
       </section>
+        </div>
+      )}
+
+      {tab === "entries" && (
+        <div className="revenue-tabpanel" role="tabpanel">
+          <section className="panel">
+            <SectionHeader eyebrow="Detalhamento" title="Lançamentos" />
+            <RevenueEntriesTable
+              entries={entries}
+              eventChannel={EVENT_CHANNEL}
+              canEdit={canEdit}
+              canLaunchEvent={canLaunchEvent}
+              onEdit={(entryId) => onOpenCash?.(entryId)}
+              onCancel={handleCancel}
+              onCancelEvent={handleCancelEvent}
+            />
+          </section>
+        </div>
+      )}
 
       {showEventModal && (
         <div className="modal-backdrop">

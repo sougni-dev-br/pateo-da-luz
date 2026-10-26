@@ -19,6 +19,11 @@ export function hasAnyValue(values: Array<number | string | null | undefined>): 
   return values.some((value) => Number(value ?? 0) !== 0);
 }
 
+/** "2026-10" ou (2026, 10) -> "outubro de 2026". */
+export function monthLabel(year: number, month: number): string {
+  return `${MONTH_NAMES[month - 1] ?? month} de ${year}`;
+}
+
 function brDate(ymd: string): string {
   const [year, month, day] = ymd.split("-");
   return `${day}/${month}/${year}`;
