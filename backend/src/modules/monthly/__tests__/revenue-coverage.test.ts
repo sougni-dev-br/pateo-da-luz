@@ -61,6 +61,18 @@ describe("calcularCobertura", () => {
     expect(canal(r, "iFood").situacao).toBe("SEM_DADOS");
   });
 
+  test("99Food tolera 2 dias: a API financeira da 99 libera a fatura do dia com atraso; os demais canais não", () => {
+    const r = calcularCobertura({
+      ...BASE,
+      rows: [],
+      ultimoDiaGeral: { "Salão": "2026-10-04", "99Food": "2026-10-04", Keeta: "2026-10-04" }
+    });
+    expect(canal(r, "99Food").diasDesdeUltimo).toBe(2);
+    expect(canal(r, "99Food").situacao).toBe("EM_DIA");
+    expect(canal(r, "Salão").situacao).toBe("ATRASADO");
+    expect(canal(r, "Keeta").situacao).toBe("ATRASADO");
+  });
+
   test("o último dia vem do histórico inteiro, não só da janela", () => {
     const r = calcularCobertura({ ...BASE, rows: [], ultimoDiaGeral: { Keeta: "2026-09-18" } });
     expect(canal(r, "Keeta").ultimoDia).toBe("2026-09-18");
@@ -150,13 +162,13 @@ describe("resumoDeAtrasos", () => {
   test("lista só os canais atrasados, com o tempo de atraso", () => {
     const rows = [
       linha(dia("21"), "Salão", "AGILE_PDV"),
-      linha(dia("20"), "Delivery", "NOVENTA_NOVE"),
+      linha(dia("19"), "Delivery", "NOVENTA_NOVE"),
       linha(dia("18"), "Delivery", "Keeta"),
       linha(dia("31"), "Delivery", "iFood")
     ];
     const r = resumoDeAtrasos(calcularCobertura({ ...MES, rows, ultimoDiaGeral: {} }));
     expect(r?.count).toBe(3);
-    expect(r?.description).toContain("99Food (há 2 dias)");
+    expect(r?.description).toContain("99Food (há 3 dias)");
     expect(r?.description).toContain("iFood (sem dados)");
     expect(r?.description).toContain("Keeta (há 4 dias)");
     expect(r?.description).not.toContain("Salão");
