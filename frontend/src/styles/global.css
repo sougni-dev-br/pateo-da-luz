@@ -187,7 +187,6 @@ select {
 .tabs-row,
 .upload-row,
 .mobile-drawer,
-.revenue-mobile-card,
 .cmv-mobile-card,
 .mobile-note-panel,
 .mobile-count-bottom-actions {
@@ -207,7 +206,6 @@ select {
 .tabs-row,
 .upload-row,
 .mobile-drawer,
-.revenue-mobile-card,
 .cmv-mobile-card,
 .mobile-note-panel {
   overflow-wrap: anywhere;
@@ -6679,24 +6677,11 @@ details[open] .modal-section-summary::before {
   padding: 6px 8px;
 }
 
-.revenue-header-actions {
-  justify-content: flex-end;
-}
 
-.revenue-filters > * {
-  min-width: 0;
-}
 
-.revenue-filter-button {
-  white-space: normal;
-}
 
-.revenue-mobile-list {
-  display: none;
-}
 
 .mobile-list-card,
-.revenue-mobile-card,
 .cmv-mobile-card {
   display: grid;
   gap: 10px;
@@ -6710,58 +6695,18 @@ details[open] .modal-section-summary::before {
   box-shadow: var(--shadow-soft);
 }
 
-.revenue-mobile-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  min-width: 0;
-  font-size: 0.9rem;
-}
 
-.revenue-mobile-row span:first-child {
-  color: var(--muted);
-}
 
-.revenue-mobile-row strong,
-.revenue-mobile-row span:last-child {
-  min-width: 0;
-  text-align: right;
-  overflow-wrap: anywhere;
-}
 
-.revenue-mobile-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 4px;
-}
 
 /* Revenue: toggle de filtros — oculto por padrão no desktop */
-.revenue-filter-toggle {
-  display: none;
-}
 
-.revenue-filter-chevron {
-  flex-shrink: 0;
-  transition: transform 150ms ease;
-}
 
-.revenue-filter-chevron.open {
-  transform: rotate(180deg);
-}
+
 
 /* Revenue: linha de venda total com destaque visual */
-.revenue-mobile-row--highlight {
-  border-top: 1px solid var(--line);
-  margin-top: 6px;
-  padding-top: 10px;
-}
 
-.revenue-mobile-row--highlight strong {
-  color: #1d3d6b;
-  font-size: 1.05rem;
-  font-variant-numeric: tabular-nums;
-}
+
 
 .cmv-mobile-list {
   display: none;
@@ -7777,19 +7722,11 @@ details[open] .modal-section-summary::before {
     min-height: 38px;
   }
 
-  .revenue-desktop-entries {
-    display: none;
-  }
+  
 
-  .revenue-mobile-list {
-    display: grid;
-    gap: 8px;
-  }
+  
 
-  .revenue-mobile-actions button {
-    flex: 1 1 auto;
-    min-height: 38px;
-  }
+  
 
   .count-session-launch {
     gap: 12px;
@@ -8599,25 +8536,13 @@ details[open] .modal-section-summary::before {
     width: 100%;
   }
 
-  .revenue-header-actions {
-    width: 100%;
-  }
+  
 
-  .revenue-header-actions .primary-button,
-  .revenue-header-actions .secondary-button {
-    flex: 1 1 100%;
-  }
+  
 
-  .revenue-header-actions .icon-button {
-    flex: 0 0 40px;
-    align-self: flex-start;
-  }
+  
 
-  .revenue-filters .custom-period-filter,
-  .revenue-filters label,
-  .revenue-filters .revenue-filter-button {
-    width: 100%;
-  }
+  
 
   .simple-chart-row {
     grid-template-columns: 1fr;
@@ -8651,61 +8576,31 @@ details[open] .modal-section-summary::before {
     display: block;
   }
 
-  .revenue-desktop-entries {
-    display: block;
-  }
+  
 }
 
 /* ─── Revenue: melhorias mobile ─────────────────────────────────────────── */
 
 @media (max-width: 640px) {
   /* Toggle de filtros visível e compacto no mobile */
-  .revenue-filter-toggle {
-    align-items: center;
-    display: flex;
-    gap: 6px;
-    justify-content: center;
-    margin-bottom: 4px;
-    min-height: 40px;
-    width: 100%;
-  }
+  
 
   /* Filtros ocultos quando o painel está fechado */
-  .revenue-filters[data-open="false"] {
-    display: none;
-  }
+  
 
   /* KPI grid: 2 colunas com Bruto e Líquido em destaque */
-  .revenue-kpi-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-  }
+  
 
   /* Faturamento bruto (1º card) e Faturamento líquido (3º card) — full-width, destacados */
-  .revenue-kpi-grid > article:nth-child(1),
-  .revenue-kpi-grid > article:nth-child(3) {
-    background: rgba(47, 95, 152, 0.04) !important;
-    border-color: rgba(47, 95, 152, 0.2) !important;
-    grid-column: 1 / -1;
-  }
+  
 
-  .revenue-kpi-grid > article:nth-child(1) strong,
-  .revenue-kpi-grid > article:nth-child(3) strong {
-    color: #1d3d6b;
-    font-size: 1.35rem;
-    font-variant-numeric: tabular-nums;
-  }
+  
 
   /* Cards de entradas: padding mais generoso */
-  .revenue-mobile-card {
-    padding: 14px !important;
-  }
+  
 
   /* Inputs dos filtros de Faturamento: font-size 16px para evitar zoom iOS */
-  .revenue-filters input,
-  .revenue-filters select {
-    font-size: 16px;
-    min-height: 40px;
-  }
+  
 }
 
 /* ─── Radix UI Components ──────────────────────────────────────────────── */
@@ -16556,169 +16451,3 @@ td.count-list-divergent {
 .idle-guard-card { width: min(420px, 100%); padding: 24px; border-radius: 14px; background: var(--surface, #fff); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3); display: flex; flex-direction: column; gap: 12px; }
 .idle-guard-card h2 { margin: 0; font-size: 1.15rem; }
 .idle-guard-card p { margin: 0; color: var(--muted); }
-
-/* Lançar evento: blocos próprios ocupam a linha toda do form-grid */
-.form-grid > div.full-width,
-.form-grid > .event-launch-preview {
-  grid-column: 1 / -1;
-}
-
-.voucher-table table {
-  min-width: 0;
-}
-
-.voucher-table th {
-  vertical-align: bottom;
-  white-space: normal;
-}
-
-.voucher-table th input {
-  display: block;
-  margin-top: 4px;
-  font-weight: 400;
-}
-
-.voucher-table td input {
-  min-width: 72px;
-}
-
-.voucher-table td:last-child,
-.voucher-table th:last-child {
-  width: 1%;
-  white-space: nowrap;
-}
-
-/* Faturamento: hierarquia dos indicadores e da tabela de entradas */
-.revenue-applied-filter {
-  margin: 0 0 12px;
-  font-size: 13px;
-  color: var(--muted);
-}
-.revenue-filter-dirty {
-  color: var(--color-warning-text, #92400e);
-  font-weight: 600;
-}
-.revenue-kpi-hero {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 12px;
-}
-.revenue-kpi-hero .revenue-kpi-primary {
-  grid-column: span 2;
-}
-.revenue-kpi-hero .revenue-kpi-primary .ds-summary-card-value {
-  font-size: clamp(1.75rem, 1.2rem + 1.4vw, 2.5rem);
-}
-.revenue-dash {
-  color: var(--muted);
-}
-.revenue-entry-description {
-  display: block;
-  margin-top: 2px;
-  max-width: 340px;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.35;
-  white-space: normal;
-}
-.revenue-day-mark {
-  display: inline-block;
-  margin-left: 8px;
-  padding: 1px 8px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 600;
-  vertical-align: middle;
-}
-.revenue-day-mark--best { background: #e6f4ea; color: #1e6b34; }
-.revenue-day-mark--worst { background: #fdecea; color: #9b2c1f; }
-
-@media (max-width: 900px) {
-  .revenue-kpi-hero { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-
-/* Faturamento nível 2: abas, grupos de evento e gráfico diário */
-.revenue-tabs { margin: 4px 0 12px; }
-.revenue-tabpanel { display: flex; flex-direction: column; gap: 16px; }
-
-.revenue-kpi-delta {
-  display: block;
-  margin-top: 2px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--muted);
-}
-.revenue-kpi-delta--up { color: #1e6b34; }
-.revenue-kpi-delta--down { color: #9b2c1f; }
-
-.revenue-entry-group td { background: rgba(185, 154, 88, 0.08); }
-.revenue-entry-nested td:first-child { padding-left: 28px; }
-.revenue-group-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-  text-align: left;
-}
-.revenue-group-toggle:focus-visible { outline: 2px solid rgba(185, 154, 88, 0.6); outline-offset: 2px; }
-.revenue-mobile-group { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
-.revenue-mobile-group > summary { display: flex; flex-direction: column; gap: 2px; cursor: pointer; }
-.revenue-mobile-group > summary span { color: var(--muted); font-size: 13px; }
-.revenue-mobile-group[open] > summary { margin-bottom: 10px; }
-
-.revenue-chart { margin: 0; }
-.revenue-chart figcaption { margin-bottom: 8px; font-size: 13px; font-weight: 600; color: var(--muted); }
-.revenue-chart-plot {
-  display: flex;
-  align-items: flex-end;
-  gap: 4px;
-  height: 160px;
-  padding-bottom: 20px;
-  border-bottom: 1px solid var(--line);
-}
-.revenue-chart-col {
-  position: relative;
-  flex: 1 1 0;
-  min-width: 0;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  align-items: stretch;
-}
-.revenue-chart-bar {
-  display: flex;
-  flex-direction: column-reverse;
-  width: 100%;
-  max-width: 44px;
-  margin: 0 auto;
-  border-radius: 4px 4px 0 0;
-  overflow: hidden;
-}
-.revenue-chart-seg { display: block; flex-basis: 0; min-height: 2px; }
-.revenue-chart-seg--0 { background: #2f5d8a; }
-.revenue-chart-seg--1 { background: #c9863a; }
-.revenue-chart-seg--2 { background: #5b8c5a; }
-.revenue-chart-seg--3 { background: #8a6bb0; }
-.revenue-chart-label {
-  position: absolute;
-  bottom: -20px;
-  left: 0;
-  right: 0;
-  text-align: center;
-  font-size: 11px;
-  color: var(--muted);
-}
-.revenue-chart-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 10px 0 0; padding: 0; list-style: none; font-size: 12.5px; color: var(--muted); }
-.revenue-chart-legend li { display: inline-flex; align-items: center; gap: 6px; }
-.revenue-chart-swatch { width: 10px; height: 10px; border-radius: 2px; flex-basis: auto; min-height: 0; }
-
-/* Lançar evento: colar dias de uma planilha */
-.voucher-paste { margin: 0 0 12px; }
-.voucher-paste summary { cursor: pointer; font-size: 13px; color: var(--muted); }
-.voucher-paste textarea { width: 100%; margin: 8px 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; font-family: inherit; font-size: 13px; }

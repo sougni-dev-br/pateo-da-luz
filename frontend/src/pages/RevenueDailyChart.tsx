@@ -1,68 +1,66 @@
 import { useFormatCurrency } from "../design-system";
 import { displayChannel } from "./revenueBits";
+import { REVENUE_CHANNELS } from "./revenueAnalytics";
 import type { DaySeriesPoint } from "./revenueGroups";
-
-type Props = { series: DaySeriesPoint[]; channelOrder: string[] };
 
 const MIN_POINTS = 2;
 const LABEL_EVERY_FROM = 16;
+const MAX_LABELS = 12;
 
-function dayNumber(ymd: string) {
-  return ymd.slice(8, 10);
-}
+const shortDate = (ymd: string) => `${ymd.slice(8, 10)}/${ymd.slice(5, 7)}`;
 
-function shortDate(ymd: string) {
-  return `${ymd.slice(8, 10)}/${ymd.slice(5, 7)}`;
-}
-
-/** Líquido por dia, empilhado por canal. Com menos de 2 dias não há o que comparar, então não aparece. */
-export function RevenueDailyChart({ series, channelOrder }: Props) {
+/**
+ * Líquido por dia em barras, empilhado por canal quando há mais de um. A linha tracejada é a média dos dias
+ * com movimento (mesma convenção do gráfico da Análise do Salão). Menos de 2 dias não tem o que comparar.
+ */
+export function RevenueDailyChart({ series }: { series: DaySeriesPoint[] }) {
   const fmt = useFormatCurrency();
-  if (series.length < MIN_POINTS) return null;
-
   const max = Math.max(...series.map((point) => point.total), 0);
-  if (max <= 0) return null;
+  if (series.length < MIN_POINTS || max <= 0) return null;
 
-  const channels = channelOrder.filter((channel) => series.some((point) => (point.byChannel[channel] ?? 0) > 0));
-  const labelStep = series.length >= LABEL_EVERY_FROM ? Math.ceil(series.length / 12) : 1;
+  const channels = REVENUE_CHANNELS.filter((channel) => series.some((point) => (point.byChannel[channel] ?? 0) > 0));
+  const average = series.reduce((sum, point) => sum + point.total, 0) / series.length;
+  const labelStep = series.length >= LABEL_EVERY_FROM ? Math.ceil(series.length / MAX_LABELS) : 1;
   const best = series.reduce((a, b) => (b.total > a.total ? b : a));
-  const summary = `Líquido por dia, de ${shortDate(series[0].date)} a ${shortDate(series[series.length - 1].date)}. Melhor dia: ${shortDate(best.date)}, ${fmt(best.total)}.`;
+  const worst = series.reduce((a, b) => (b.total < a.total ? b : a));
+  const summary = `Líquido por dia, de ${shortDate(series[0].date)} a ${shortDate(series[series.length - 1].date)}. Média ${fmt(average)}. Maior: ${shortDate(best.date)}, ${fmt(best.total)}. Menor: ${shortDate(worst.date)}, ${fmt(worst.total)}.`;
 
   return (
     <figure className="revenue-chart">
-      <figcaption>Líquido por dia</figcaption>
+      <figcaption>
+        <ul className="revenue-chart-legend">
+          {channels.map((channel, index) => (
+            <li key={channel}>
+              <i className={`revenue-chart-swatch revenue-chart-seg--${index % 4}`} aria-hidden="true" />
+              {displayChannel(channel)}
+            </li>
+          ))}
+          <li>
+            <i className="revenue-chart-swatch revenue-chart-swatch--media" aria-hidden="true" />
+            média dos dias com movimento ({fmt(average)})
+          </li>
+        </ul>
+      </figcaption>
       <div className="revenue-chart-plot" role="img" aria-label={summary}>
-        {series.map((point, index) => (
-          <div
-            key={point.date}
-            className="revenue-chart-col"
-            title={`${shortDate(point.date)} — ${fmt(point.total)}`}
-          >
+        <span className="revenue-chart-media" style={{ bottom: `${(average / max) * 100}%` }} aria-hidden="true" />
+        {series.map((point) => (
+          <div key={point.date} className="revenue-chart-col" title={`${shortDate(point.date)} — ${fmt(point.total)}`}>
             <div className="revenue-chart-bar" style={{ height: `${Math.max((point.total / max) * 100, 2)}%` }}>
-              {channels.map((channel, channelIndex) => {
+              {channels.map((channel, index) => {
                 const value = point.byChannel[channel] ?? 0;
-                if (value <= 0) return null;
-                return (
-                  <span
-                    key={channel}
-                    className={`revenue-chart-seg revenue-chart-seg--${channelIndex % 4}`}
-                    style={{ flexGrow: value }}
-                  />
-                );
+                return value > 0 ? (
+                  <span key={channel} className={`revenue-chart-seg revenue-chart-seg--${index % 4}`} style={{ flexGrow: value }} />
+                ) : null;
               })}
             </div>
-            <span className="revenue-chart-label">{index % labelStep === 0 ? dayNumber(point.date) : ""}</span>
           </div>
         ))}
       </div>
-      <ul className="revenue-chart-legend">
-        {channels.map((channel, index) => (
-          <li key={channel}>
-            <span className={`revenue-chart-swatch revenue-chart-seg--${index % 4}`} aria-hidden="true" />
-            {displayChannel(channel)}
-          </li>
+      <div className="revenue-chart-days" aria-hidden="true">
+        {series.map((point, index) => (
+          <span key={point.date}>{index % labelStep === 0 ? point.date.slice(8, 10) : ""}</span>
         ))}
-      </ul>
+      </div>
     </figure>
   );
 }

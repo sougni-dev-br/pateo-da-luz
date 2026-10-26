@@ -1,0 +1,79 @@
+/* Lançar evento — modal. Só tokens do design system. */
+
+.em-form { display: grid; gap: 20px; }
+.em-hint { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--muted); }
+.em-vouchers { display: grid; gap: 14px; }
+.em-vouchers > .ds-button { justify-self: start; }
+
+.em-paste { display: grid; gap: 8px; }
+.em-paste summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+.em-paste[open] { padding: 12px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--paper-soft); }
+.em-paste[open] > * + * { margin-top: 8px; }
+
+/* Dias: linhas em grade (cabeçalho + uma linha por dia); no celular cada dia vira um cartão. */
+.em-days { display: grid; gap: 8px; --em-cols: minmax(150px, 1.2fr) repeat(var(--em-cats), minmax(90px, 1fr)) minmax(150px, 1.2fr) 40px; }
+.em-day {
+  display: grid;
+  grid-template-columns: var(--em-cols);
+  gap: 10px;
+  align-items: center;
+}
+.em-day-head {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+}
+.em-day-total { font-size: 13px; color: var(--ink-soft); }
+
+/* Rodapé fixo no fim da rolagem do diálogo: o resumo acompanha quem está preenchendo. */
+.em-footer {
+  position: sticky;
+  bottom: -24px;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 24px;
+  margin: 0 -24px -24px;
+  padding: 14px 24px;
+  background: var(--paper);
+  border-top: 1px solid var(--line);
+}
+.em-summary { display: flex; flex-wrap: wrap; gap: 4px 24px; margin: 0; }
+.em-summary > div { display: grid; gap: 1px; }
+.em-summary dt { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.em-summary dd { margin: 0; font-size: 15px; font-weight: 600; color: var(--ink); }
+.em-actions { display: flex; gap: 8px; margin-left: auto; }
+
+@media (max-width: 720px) {
+  .em-day-head { display: none; }
+  .em-day {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    align-items: end;
+  }
+  /* Sem o cabeçalho, cada campo mostra o próprio rótulo. */
+  .em-cell::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 4px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .em-day > .em-cell:first-child,
+  .em-day > .em-day-total,
+  .em-day > :last-child { grid-column: 1 / -1; }
+}
+
+@media (max-width: 600px) {
+  .em-footer { margin: 0 -24px -24px; padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }
+  .em-actions { width: 100%; }
+  .em-actions > * { flex: 1; }
+}

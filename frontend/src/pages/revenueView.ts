@@ -51,3 +51,20 @@ export function pickBestAndWorstDay(days: DayTotal[]): { best: string | null; wo
   if (best.netAmount === worst.netAmount) return { best: null, worst: null };
   return { best: best.date, worst: worst.date };
 }
+
+const MAX_DELTA = 999;
+
+/** "+12,3%", "−5,0%"; variação acima de 999% vira "+999% ou mais" (base pequena demais para o número dizer algo). */
+export function formatDeltaText(delta: number): string {
+  const sign = delta >= 0 ? "+" : "−";
+  const abs = Math.abs(delta);
+  if (abs > MAX_DELTA) return `${sign}${MAX_DELTA}% ou mais`;
+  return `${sign}${abs.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+}
+
+export function deltaDirection(delta: number): "up" | "down" | "flat" {
+  if (Math.abs(delta) < 0.05) return "flat";
+  return delta > 0 ? "up" : "down";
+}
+
+export type AppliedFilter = ReturnType<typeof describeAppliedFilter>;

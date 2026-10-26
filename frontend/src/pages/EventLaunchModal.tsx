@@ -1,7 +1,10 @@
+import { Plus, Trash2 } from "lucide-react";
 import { useState, type WheelEvent } from "react";
 import { saveRevenueEntry, saveRevenueEventGroup } from "../api/client";
-import { Money } from "../design-system";
+import { Dialog } from "../components/ui/Dialog";
+import { Alert, Button, FormField, FormGrid, FormSection, Money, Select, Switch, Tabs, TextField, Textarea } from "../design-system";
 import { hojeLocalIso } from "../lib/datas";
+import { formatNumber } from "../utils/format";
 import { EVENT_CHANNEL } from "./revenueBits";
 import {
   buildVoucherEntries,
@@ -13,17 +16,21 @@ import {
   type VoucherCategory,
   type VoucherDay
 } from "./eventVouchers";
+import "./EventLaunchModal.css";
 
-const eventTypes = [
-  "Evento — Centro de Convenções",
-  "Reserva de grupo",
-  "Empreitada",
-  "Outros"
-] as const;
+const EVENT_TYPE_OPTIONS = ["Evento — Centro de Convenções", "Reserva de grupo", "Empreitada", "Outros"].map((label) => ({ value: label, label }));
 
-const eventPaymentMethods = ["PIX", "Transferência bancária", "Dinheiro", "Boleto", "A receber", "Outro"];
+const PAYMENT_OPTIONS = [
+  { value: "", label: "Não informado" },
+  ...["PIX", "Transferência bancária", "Dinheiro", "Boleto", "A receber", "Outro"].map((label) => ({ value: label, label }))
+];
 
-type EventLaunchMode = "valor" | "vouchers";
+type Mode = "valor" | "vouchers";
+
+const MODE_TABS = [
+  { value: "valor", label: "Valor fechado" },
+  { value: "vouchers", label: "Consumo por voucher" }
+];
 
 /** Rolar a página com o cursor num campo numérico em foco altera o valor sem ninguém perceber. */
 function blurOnWheel(event: WheelEvent<HTMLInputElement>) {
@@ -37,10 +44,10 @@ function emptyVoucherDays(): VoucherDay[] {
 // Função, e não constante: a data de hoje é lida quando o modal abre, não quando o módulo carrega.
 function emptyEventForm() {
   return {
-    mode: "valor" as EventLaunchMode,
+    mode: "valor" as Mode,
     date: hojeLocalIso(),
     description: "",
-    eventType: eventTypes[0] as string,
+    eventType: EVENT_TYPE_OPTIONS[0].value,
     grossAmount: "",
     includeService: false,
     tickets: "",
@@ -56,59 +63,65 @@ type Props = {
 };
 
 export function EventLaunchModal({ onClose, onSaved }: Props) {
-  const [eventForm, setEventForm] = useState(emptyEventForm);
-  const [voucherCategories, setVoucherCategories] = useState<VoucherCategory[]>(() => loadRememberedPrices(defaultVoucherCategories));
-  const [voucherDays, setVoucherDays] = useState<VoucherDay[]>(emptyVoucherDays);
+  const [form, setForm] = useState(emptyEventForm);
+  const [categories, setCategories] = useState<VoucherCategory[]>(() => loadRememberedPrices(defaultVoucherCategories));
+  const [days, setDays] = useState<VoucherDay[]>(emptyVoucherDays);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pasteText, setPasteText] = useState("");
   const [pasteNote, setPasteNote] = useState<string | null>(null);
 
-  const isVoucherMode = eventForm.mode === "vouchers";
-  const voucherSummary = voucherTotals(voucherCategories, voucherDays);
-  const eventGross = isVoucherMode ? voucherSummary.gross : Number(eventForm.grossAmount || 0);
-  const eventService = eventForm.includeService ? Number((eventGross * 0.1).toFixed(2)) : 0;
-  const eventNet = Number((eventGross - eventService).toFixed(2));
-  const eventPeople = isVoucherMode ? voucherSummary.people : Number(eventForm.tickets || 0);
-  const eventTicketAverage = eventPeople > 0 ? Number((eventNet / eventPeople).toFixed(2)) : null;
-  const canSaveEvent = !!eventForm.description.trim() && eventGross > 0 && (isVoucherMode || !!eventForm.date);
+  const isVoucherMode = form.mode === "vouchers";
+  const voucherSummary = voucherTotals(categories, days);
+  const gross = isVoucherMode ? voucherSummary.gross : Number(form.grossAmount || 0);
+  const service = form.includeService ? Number((gross * 0.1).toFixed(2)) : 0;
+  const net = Number((gross - service).toFixed(2));
+  const people = isVoucherMode ? voucherSummary.people : Number(form.tickets || 0);
+  const ticketAverage = people > 0 ? Number((net / people).toFixed(2)) : null;
+  const canSave = !!form.description.trim() && gross > 0 && (isVoucherMode || !!form.date);
 
-  function updateVoucherDay(index: number, patch: (day: VoucherDay) => VoucherDay) {
-    setVoucherDays((days) => days.map((day, i) => (i === index ? patch(day) : day)));
+  function patch(changes: Partial<ReturnType<typeof emptyEventForm>>) {
+    setForm((current) => ({ ...current, ...changes }));
   }
 
-  function addVoucherDay() {
-    setVoucherDays((days) => {
-      const last = days[days.length - 1]?.date;
+  function updateDay(index: number, change: (day: VoucherDay) => VoucherDay) {
+    setDays((current) => current.map((day, i) => (i === index ? change(day) : day)));
+  }
+
+  function addDay() {
+    setDays((current) => {
+      const last = current[current.length - 1]?.date;
       const next = last ? new Date(`${last}T12:00:00`) : new Date();
       if (last) next.setDate(next.getDate() + 1);
       const iso = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-${String(next.getDate()).padStart(2, "0")}`;
-      return [...days, { date: iso, qty: {} }];
+      return [...current, { date: iso, qty: {} }];
     });
   }
 
   function applyPastedDays() {
-    const year = Number((voucherDays[0]?.date || hojeLocalIso()).slice(0, 4));
-    const { days, ignored } = parsePastedDays(pasteText, voucherCategories, year);
-    if (days.length === 0) {
+    const year = Number((days[0]?.date || hojeLocalIso()).slice(0, 4));
+    const parsed = parsePastedDays(pasteText, categories, year);
+    if (parsed.days.length === 0) {
       setPasteNote("Nenhum dia reconhecido. Use uma linha por dia: data, convidados, staff.");
       return;
     }
-    setVoucherDays(days);
+    setDays(parsed.days);
     setPasteText("");
-    setPasteNote(`${days.length} ${days.length === 1 ? "dia importado" : "dias importados"}${ignored > 0 ? `; ${ignored} ${ignored === 1 ? "linha ignorada" : "linhas ignoradas"}` : ""}.`);
+    const imported = `${parsed.days.length} ${parsed.days.length === 1 ? "dia importado" : "dias importados"}`;
+    const skipped = parsed.ignored > 0 ? `; ${parsed.ignored} ${parsed.ignored === 1 ? "linha ignorada" : "linhas ignoradas"}` : "";
+    setPasteNote(`${imported}${skipped}.`);
   }
 
   async function saveVoucherEvent() {
     const entries = buildVoucherEntries({
       channel: EVENT_CHANNEL,
-      eventType: eventForm.eventType,
-      eventName: eventForm.description,
-      categories: voucherCategories,
-      days: voucherDays,
-      includeService: eventForm.includeService,
-      paymentMethod: eventForm.paymentMethod,
-      notes: eventForm.notes
+      eventType: form.eventType,
+      eventName: form.description,
+      categories,
+      days,
+      includeService: form.includeService,
+      paymentMethod: form.paymentMethod,
+      notes: form.notes
     });
     if (entries.length === 0) {
       setError("Informe a data e a quantidade de pelo menos um dia.");
@@ -116,32 +129,32 @@ export function EventLaunchModal({ onClose, onSaved }: Props) {
     }
     // O servidor grava o grupo todo numa transação: se algo falhar, nada entra e dá para tentar de novo.
     await saveRevenueEventGroup(entries);
-    rememberPrices(voucherCategories);
+    rememberPrices(categories);
     await onSaved(`Evento lançado: ${entries.length} lançamentos (${voucherSummary.people} pessoas).`);
   }
 
   async function saveFixedValueEvent() {
-    if (!eventForm.date || !eventForm.description.trim() || !eventForm.grossAmount || eventGross <= 0) {
-      setError("Preencha data, descrição e valor bruto do evento.");
+    if (!form.date || !form.description.trim() || !form.grossAmount || gross <= 0) {
+      setError("Preencha data, nome e valor bruto do evento.");
       return;
     }
-    const [year, month] = eventForm.date.split("-").map(Number);
+    const [year, month] = form.date.split("-").map(Number);
     await saveRevenueEntry({
-      date: eventForm.date,
+      date: form.date,
       competenceYear: year,
       competenceMonth: month,
       channel: EVENT_CHANNEL,
-      sourcePlatform: eventForm.eventType,
-      description: eventForm.description.trim(),
-      grossAmount: eventGross,
+      sourcePlatform: form.eventType,
+      description: form.description.trim(),
+      grossAmount: gross,
       discounts: 0,
       platformFees: 0,
-      serviceAmount: eventService,
-      netAmount: eventNet,
-      tickets: eventForm.tickets ? Number(eventForm.tickets) : 0,
-      ticketAverage: eventTicketAverage,
-      paymentMethod: eventForm.paymentMethod || null,
-      notes: eventForm.notes.trim() || null
+      serviceAmount: service,
+      netAmount: net,
+      tickets: form.tickets ? Number(form.tickets) : 0,
+      ticketAverage,
+      paymentMethod: form.paymentMethod || null,
+      notes: form.notes.trim() || null
     });
     await onSaved("Evento lançado com sucesso.");
   }
@@ -160,285 +173,219 @@ export function EventLaunchModal({ onClose, onSaved }: Props) {
   }
 
   return (
-    <div className="modal-backdrop">
-      <section className="panel modal-panel">
-        <div className="section-heading">
-          <div>
-            <p>Gerência</p>
-            <h2>Lançar evento / empreitada</h2>
-          </div>
-          <button className="secondary-button" type="button" onClick={onClose}>
-            Fechar
-          </button>
-        </div>
-
-        <div className="form-grid">
-          <div className="full-width" role="group" aria-label="Como lançar">
-            <button
-              type="button"
-              className={isVoucherMode ? "secondary-button" : "primary-button"}
-              aria-pressed={!isVoucherMode}
-              onClick={() => setEventForm({ ...eventForm, mode: "valor" })}
-            >
-              Valor fechado
-            </button>{" "}
-            <button
-              type="button"
-              className={isVoucherMode ? "primary-button" : "secondary-button"}
-              aria-pressed={isVoucherMode}
-              onClick={() => setEventForm({ ...eventForm, mode: "vouchers" })}
-            >
-              Consumo por voucher (por dia)
-            </button>
-          </div>
-
-          {!isVoucherMode && (
-            <label>
-              Data do evento
-              <input
-                type="date"
-                value={eventForm.date}
-                onChange={(event) => setEventForm({ ...eventForm, date: event.target.value })}
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open && !saving) onClose();
+      }}
+      title="Lançar evento / empreitada"
+      description="Receita de evento do centro de convenções, reserva de grupo ou empreitada."
+      size="xl"
+    >
+      <div className="em-form">
+        <FormSection eyebrow="Passo 1" title="Evento">
+          <FormGrid cols={2}>
+            <FormField label="Nome do evento" required className="ds-form-grid-span-all">
+              <TextField
+                autoFocus
+                placeholder="Ex.: Congresso de Cardiologia, Casamento Silva…"
+                value={form.description}
+                onChange={(event) => patch({ description: event.target.value })}
               />
-            </label>
-          )}
+            </FormField>
+            <Select label="Tipo de evento" value={form.eventType} options={EVENT_TYPE_OPTIONS} onChange={(event) => patch({ eventType: event.target.value })} />
+            <Select label="Forma de recebimento" value={form.paymentMethod} options={PAYMENT_OPTIONS} onChange={(event) => patch({ paymentMethod: event.target.value })} />
+          </FormGrid>
+        </FormSection>
 
-          <label>
-            Tipo de evento
-            <select
-              value={eventForm.eventType}
-              onChange={(event) => setEventForm({ ...eventForm, eventType: event.target.value })}
-            >
-              {eventTypes.map((type) => (
-                <option key={type} value={type}>{type}</option>
-              ))}
-            </select>
-          </label>
-
-          <label className="full-width">
-            Descrição / Nome do evento
-            <input
-              autoFocus
-              placeholder="Ex.: Casamento Silva — Salão A, Centro de Convenções..."
-              value={eventForm.description}
-              onChange={(event) => setEventForm({ ...eventForm, description: event.target.value })}
-            />
-          </label>
+        <FormSection eyebrow="Passo 2" title="Como lançar">
+          <Tabs
+            tabs={MODE_TABS}
+            value={form.mode}
+            onChange={(value) => patch({ mode: value as Mode })}
+            aria-label="Forma de lançar o evento"
+          />
 
           {!isVoucherMode && (
-            <>
-              <label>
-                Valor bruto (R$)
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  min="0"
-                  step="0.01"
-                  placeholder="0,00"
-                  value={eventForm.grossAmount}
-                  onChange={(event) => setEventForm({ ...eventForm, grossAmount: event.target.value })}
-                />
-              </label>
-
-              <label>
-                Número de pessoas
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  min="0"
-                  step="1"
-                  placeholder="0"
-                  value={eventForm.tickets}
-                  onChange={(event) => setEventForm({ ...eventForm, tickets: event.target.value })}
-                />
-              </label>
-            </>
+            <FormGrid cols={3}>
+              <TextField label="Data do evento" type="date" value={form.date} onChange={(event) => patch({ date: event.target.value })} />
+              <TextField
+                label="Valor bruto (R$)"
+                type="number"
+                inputMode="decimal"
+                min="0"
+                step="0.01"
+                placeholder="0,00"
+                value={form.grossAmount}
+                onWheel={blurOnWheel}
+                onChange={(event) => patch({ grossAmount: event.target.value })}
+              />
+              <TextField
+                label="Número de pessoas"
+                type="number"
+                inputMode="numeric"
+                min="0"
+                step="1"
+                placeholder="0"
+                value={form.tickets}
+                onWheel={blurOnWheel}
+                onChange={(event) => patch({ tickets: event.target.value })}
+              />
+            </FormGrid>
           )}
 
           {isVoucherMode && (
-            <div className="full-width">
-              <p className="hint">
-                Pacote de almoço por voucher da organização. Informe o preço de cada público e, por dia, quantos vouchers foram usados.
-              </p>
-              <details className="voucher-paste">
+            <div className="em-vouchers">
+              <p className="em-hint">Pacote de almoço por voucher da organização: informe o preço de cada público e, por dia, quantos vouchers foram usados.</p>
+
+              <FormGrid cols={2}>
+                {categories.map((category) => (
+                  <TextField
+                    key={category.id}
+                    label={`Preço — ${category.label} (R$)`}
+                    type="number"
+                    inputMode="decimal"
+                    min="0"
+                    step="0.01"
+                    value={category.price}
+                    onWheel={blurOnWheel}
+                    onChange={(event) =>
+                      setCategories((current) => current.map((item) => (item.id === category.id ? { ...item, price: event.target.value } : item)))
+                    }
+                  />
+                ))}
+              </FormGrid>
+
+              <details className="em-paste">
                 <summary>Colar de uma planilha</summary>
-                <p className="hint">
-                  Uma linha por dia: data (14/10 ou 14/10/2026), {voucherCategories.map((cat) => cat.label).join(", ")} — nessa ordem. Copie as células direto do Excel ou do Google Sheets.
+                <p className="em-hint">
+                  Uma linha por dia: data (14/10 ou 14/10/2026), {categories.map((category) => category.label).join(", ")} — nessa ordem. Copie as
+                  células direto do Excel ou do Google Sheets.
                 </p>
-                <textarea
+                <Textarea
                   rows={4}
                   aria-label="Dias colados da planilha"
                   placeholder={"14/10  14  5\n15/10  56  6"}
                   value={pasteText}
                   onChange={(event) => setPasteText(event.target.value)}
                 />
-                <button type="button" className="secondary-button" disabled={!pasteText.trim()} onClick={applyPastedDays}>
+                <Button variant="secondary" size="sm" disabled={!pasteText.trim()} onClick={applyPastedDays}>
                   Usar estes dias
-                </button>
-                {pasteNote && <p className="hint" role="status">{pasteNote}</p>}
+                </Button>
+                {pasteNote && <p className="em-hint" role="status">{pasteNote}</p>}
               </details>
 
-              <div className="table-wrap voucher-table"><table>
-                <thead>
-                  <tr>
-                    <th scope="col">Dia</th>
-                    {voucherCategories.map((cat) => (
-                      <th scope="col" key={cat.id}>
-                        {cat.label}
-                        <input
-                          aria-label={`Preço unitário — ${cat.label}`}
-                          type="number"
-                          inputMode="decimal"
-                          min="0"
-                          step="0.01"
-                          value={cat.price}
-                          onWheel={blurOnWheel}
-                          onChange={(event) =>
-                            setVoucherCategories((cats) =>
-                              cats.map((c) => (c.id === cat.id ? { ...c, price: event.target.value } : c))
-                            )
-                          }
+              <div className="em-days" role="group" aria-label="Dias do evento" style={{ ["--em-cats" as string]: categories.length }}>
+                <div className="em-day em-day-head" aria-hidden="true">
+                  <span>Dia</span>
+                  {categories.map((category) => (
+                    <span key={category.id}>{category.label}</span>
+                  ))}
+                  <span>Total do dia</span>
+                  <span />
+                </div>
+                {days.map((day, index) => {
+                  const dayTotals = voucherTotals(categories, [day]);
+                  return (
+                    <div className="em-day" key={index}>
+                      <div className="em-cell" data-label="Dia">
+                        <TextField
+                          aria-label={`Data do dia ${index + 1}`}
+                          type="date"
+                          value={day.date}
+                          onChange={(event) => updateDay(index, (current) => ({ ...current, date: event.target.value }))}
                         />
-                      </th>
-                    ))}
-                    <th scope="col">Total do dia</th>
-                    <th scope="col" aria-label="Remover dia" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {voucherDays.map((day, index) => {
-                    const dayTotals = voucherTotals(voucherCategories, [day]);
-                    return (
-                      <tr key={index}>
-                        <td>
-                          <input
-                            aria-label={`Data do dia ${index + 1}`}
-                            type="date"
-                            value={day.date}
-                            onChange={(event) => updateVoucherDay(index, (d) => ({ ...d, date: event.target.value }))}
+                      </div>
+                      {categories.map((category) => (
+                        <div className="em-cell" key={category.id} data-label={category.label}>
+                          <TextField
+                            aria-label={`${category.label} em ${day.date || `dia ${index + 1}`}`}
+                            type="number"
+                            inputMode="numeric"
+                            min="0"
+                            step="1"
+                            placeholder="0"
+                            value={day.qty[category.id] ?? ""}
+                            onWheel={blurOnWheel}
+                            onChange={(event) =>
+                              updateDay(index, (current) => ({ ...current, qty: { ...current.qty, [category.id]: event.target.value } }))
+                            }
                           />
-                        </td>
-                        {voucherCategories.map((cat) => (
-                          <td key={cat.id}>
-                            <input
-                              aria-label={`${cat.label} em ${day.date || `dia ${index + 1}`}`}
-                              type="number"
-                              inputMode="numeric"
-                              min="0"
-                              step="1"
-                              placeholder="0"
-                              value={day.qty[cat.id] ?? ""}
-                              onWheel={blurOnWheel}
-                              onChange={(event) =>
-                                updateVoucherDay(index, (d) => ({ ...d, qty: { ...d.qty, [cat.id]: event.target.value } }))
-                              }
-                            />
-                          </td>
-                        ))}
-                        <td>
-                          {dayTotals.people} pessoas · <Money value={dayTotals.gross} />
-                        </td>
-                        <td>
-                          {voucherDays.length > 1 && (
-                            <button
-                              type="button"
-                              className="secondary-button"
-                              aria-label={`Remover dia ${index + 1}`}
-                              onClick={() => setVoucherDays((days) => days.filter((_, i) => i !== index))}
-                            >
-                              Remover
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table></div>
-              <button type="button" className="secondary-button" onClick={addVoucherDay}>
-                + Adicionar dia
-              </button>
+                        </div>
+                      ))}
+                      <span className="em-day-total">
+                        {formatNumber(dayTotals.people)} pessoas · <Money value={dayTotals.gross} />
+                      </span>
+                      {days.length > 1 ? (
+                        <Button variant="icon" aria-label={`Remover dia ${index + 1}`} onClick={() => setDays((current) => current.filter((_, i) => i !== index))}>
+                          <Trash2 size={16} />
+                        </Button>
+                      ) : (
+                        <span />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              <Button variant="secondary" size="sm" leadingIcon={<Plus size={14} />} onClick={addDay}>
+                Adicionar dia
+              </Button>
             </div>
           )}
+        </FormSection>
 
-          <label>
-            Forma de recebimento
-            <select
-              value={eventForm.paymentMethod}
-              onChange={(event) => setEventForm({ ...eventForm, paymentMethod: event.target.value })}
-            >
-              <option value="">Não informado</option>
-              {eventPaymentMethods.map((method) => (
-                <option key={method} value={method}>{method}</option>
-              ))}
-            </select>
-          </label>
+        <FormSection eyebrow="Passo 3" title="Opções">
+          <FormField label="Cobrar taxa de serviço (10%)" inline>
+            <Switch label="Cobrar taxa de serviço (10%)" checked={form.includeService} onChange={(checked) => patch({ includeService: checked })} />
+          </FormField>
+          <Textarea
+            label="Observações internas"
+            rows={2}
+            placeholder="Informações adicionais — visível apenas à gerência"
+            value={form.notes}
+            onChange={(event) => patch({ notes: event.target.value })}
+          />
+        </FormSection>
 
-          <label className="checkbox-label full-width">
-            <input
-              type="checkbox"
-              checked={eventForm.includeService}
-              onChange={(event) => setEventForm({ ...eventForm, includeService: event.target.checked })}
-            />
-            Cobrar taxa de serviço (10%)
-          </label>
+        {error && <Alert tone="error">{error}</Alert>}
 
-          {eventGross > 0 && (
-            <div className="summary-grid event-launch-preview">
-              <article>
-                <span>Valor bruto</span>
-                <strong><Money value={eventGross} /></strong>
-              </article>
-              <article>
-                <span>Taxa de serviço</span>
-                <strong><Money value={eventService} /></strong>
-              </article>
-              <article>
-                <span>Valor líquido</span>
-                <strong><Money value={eventNet} /></strong>
-              </article>
-              {isVoucherMode && (
-                <article>
-                  <span>Pessoas</span>
-                  <strong>{eventPeople}</strong>
-                </article>
-              )}
-              {eventTicketAverage !== null && (
-                <article>
-                  <span>Ticket médio</span>
-                  <strong><Money value={eventTicketAverage} /></strong>
-                </article>
-              )}
+        <div className="em-footer">
+          <dl className="em-summary" aria-label="Resumo do lançamento">
+            <div>
+              <dt>Bruto</dt>
+              <dd><Money value={gross} /></dd>
             </div>
-          )}
-
-          <label className="full-width">
-            Observações internas
-            <textarea
-              rows={2}
-              placeholder="Informações adicionais — visível apenas à gerência"
-              value={eventForm.notes}
-              onChange={(event) => setEventForm({ ...eventForm, notes: event.target.value })}
-            />
-          </label>
+            {form.includeService && (
+              <div>
+                <dt>Serviço</dt>
+                <dd><Money value={service} /></dd>
+              </div>
+            )}
+            <div>
+              <dt>Líquido</dt>
+              <dd><Money value={net} /></dd>
+            </div>
+            <div>
+              <dt>Pessoas</dt>
+              <dd>{formatNumber(people)}</dd>
+            </div>
+            {ticketAverage !== null && (
+              <div>
+                <dt>Ticket médio</dt>
+                <dd><Money value={ticketAverage} /></dd>
+              </div>
+            )}
+          </dl>
+          <div className="em-actions">
+            <Button variant="secondary" onClick={onClose} disabled={saving}>
+              Cancelar
+            </Button>
+            <Button onClick={handleSave} disabled={saving || !canSave}>
+              {saving ? "Salvando…" : "Confirmar lançamento"}
+            </Button>
+          </div>
         </div>
-
-        {error && <p className="alert error" role="alert">{error}</p>}
-
-        <div className="modal-actions">
-          <button className="secondary-button" type="button" onClick={onClose}>
-            Cancelar
-          </button>
-          <button
-            className="primary-button"
-            type="button"
-            disabled={saving || !canSaveEvent}
-            onClick={handleSave}
-          >
-            {saving ? "Salvando..." : "Confirmar lançamento"}
-          </button>
-        </div>
-      </section>
-    </div>
+      </div>
+    </Dialog>
   );
 }

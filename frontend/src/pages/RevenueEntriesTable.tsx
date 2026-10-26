@@ -1,7 +1,7 @@
 import { ChevronDown, Pencil, Trash2 } from "lucide-react";
 import { Fragment, useMemo, useState } from "react";
 import type { RevenueEntry } from "../api/client";
-import { IconButton, Money, Table } from "../design-system";
+import { EmptyState, IconButton, Money, Table } from "../design-system";
 import { formatDate, formatNumber } from "../utils/format";
 import { displayChannel, MoneyOrDash, RevenueStatusBadge } from "./revenueBits";
 import { groupEventEntries, type EntryGroup } from "./revenueGroups";
@@ -164,7 +164,7 @@ export function RevenueEntriesTable({ entries, eventChannel, canEdit, canLaunchE
               aria-expanded={open}
               onClick={() => toggleGroup(group.name)}
             >
-              <ChevronDown size={15} className={`revenue-filter-chevron${open ? " open" : ""}`} />
+              <ChevronDown size={15} className={`revenue-chevron${open ? " open" : ""}`} />
               <strong>{group.name}</strong>
             </button>
             <small className="revenue-entry-description">{displayChannel(eventChannel)}</small>
@@ -212,7 +212,9 @@ export function RevenueEntriesTable({ entries, eventChannel, canEdit, canLaunchE
             {rows.map((row) => (row.kind === "group" ? renderGroupRow(row.group) : renderEntryRow(row.entry, false)))}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={columnCount}>Nenhum faturamento lançado.</td>
+                <td colSpan={columnCount}>
+                  <EmptyState title="Nenhum faturamento lançado" description="Os lançamentos do período aparecem aqui." />
+                </td>
               </tr>
             )}
           </Table.Body>
@@ -252,7 +254,7 @@ export function RevenueEntriesTable({ entries, eventChannel, canEdit, canLaunchE
             />
           )
         )}
-        {rows.length === 0 && <div className="alert warning">Nenhum faturamento lançado.</div>}
+        {rows.length === 0 && <EmptyState title="Nenhum faturamento lançado" description="Os lançamentos do período aparecem aqui." />}
       </div>
     </>
   );

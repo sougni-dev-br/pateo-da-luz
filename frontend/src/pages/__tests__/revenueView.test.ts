@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeAppliedFilter, hasAnyValue, pickBestAndWorstDay, weekdayFromIso } from "../revenueView";
+import { deltaDirection, describeAppliedFilter, formatDeltaText, hasAnyValue, pickBestAndWorstDay, weekdayFromIso } from "../revenueView";
 
 const period = (preset: string, startDate: string, endDate: string) =>
   ({ preset, startDate, endDate }) as Parameters<typeof describeAppliedFilter>[0]["period"];
@@ -39,5 +39,25 @@ describe("revenueView", () => {
     expect(
       pickBestAndWorstDay([{ date: "a", netAmount: 10 }, { date: "b", netAmount: 90 }, { date: "c", netAmount: 50 }])
     ).toEqual({ best: "b", worst: "a" });
+  });
+});
+
+describe("variação", () => {
+  it("formata com sinal e uma casa decimal", () => {
+    expect(formatDeltaText(12.34)).toBe("+12,3%");
+    expect(formatDeltaText(-5)).toBe("−5,0%");
+    expect(formatDeltaText(0)).toBe("+0,0%");
+  });
+
+  it("limita variação acima de 999%", () => {
+    expect(formatDeltaText(2828.7)).toBe("+999% ou mais");
+    expect(formatDeltaText(-1500)).toBe("−999% ou mais");
+    expect(formatDeltaText(999)).toBe("+999,0%");
+  });
+
+  it("diz a direção, tratando variação desprezível como estável", () => {
+    expect(deltaDirection(3)).toBe("up");
+    expect(deltaDirection(-3)).toBe("down");
+    expect(deltaDirection(0.02)).toBe("flat");
   });
 });
