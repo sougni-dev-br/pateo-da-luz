@@ -88,13 +88,13 @@ export function composicaoAPagar(aPagar: APagar): { total: number; qtd: number; 
 }
 
 // ─── cobertura: quais competências já têm guia ──────────────────────────────────
-export type LinhaCobertura = { mes: string; grupo: string; qtd: number; pagas: number; vencidas: number; valor: number };
+export type LinhaCobertura = { mes: string; grupo: string; categoriaId?: string | null; qtd: number; pagas: number; vencidas: number; valor: number };
 
 export type EstadoCelula = "pago" | "aberto" | "vencido" | "vazio";
 
 export type CelulaGrade = { mes: string; estado: EstadoCelula; qtd: number; valor: number; lacuna: boolean };
 
-export type LinhaGrade = { grupo: string; celulas: CelulaGrade[]; mensal: boolean };
+export type LinhaGrade = { grupo: string; categoriaId: string | null; celulas: CelulaGrade[]; mensal: boolean };
 
 // Ordem em que o dono pensa nos impostos; o resto vem em ordem alfabética.
 const ORDEM_GRUPOS = ["Simples Nacional", "FGTS", "INSS", "IRRF / DARF", "GARE / ICMS", "IPTU"];
@@ -130,7 +130,7 @@ export function montarGrade(cobertura: LinhaCobertura[], meses: string[], hoje: 
       const estado: EstadoCelula = c.vencidas > 0 ? "vencido" : c.pagas < c.qtd ? "aberto" : "pago";
       return { mes, estado, qtd: c.qtd, valor: c.valor, lacuna: false };
     });
-    return { grupo, celulas, mensal };
+    return { grupo, categoriaId: doGrupo.find((c) => c.categoriaId)?.categoriaId ?? null, celulas, mensal };
   });
 }
 
@@ -141,4 +141,18 @@ export function lacunasPorImposto(grade: LinhaGrade[]): LacunaDoImposto[] {
   return grade
     .map((linha) => ({ grupo: linha.grupo, meses: linha.celulas.filter((c) => c.lacuna).map((c) => c.mes) }))
     .filter((l) => l.meses.length > 0);
+}
+
+// Link para a guia em Contas a Pagar, onde a baixa é registrada: filtra pelo número do documento (ou pelo tipo)
+// e pelo mês do vencimento, e abre em "Todos" para a guia aparecer aberta ou paga.
+export function linkContasAPagar(guia: { id: string; documentNumber: string | null; documentType: string; dueDate: string }): string {
+  const mes = mesDaData(guia.dueDate);
+  // titulo + abrir=baixa: Contas a Pagar abre direto a baixa desta guia (a busca por texto fica de reserva);
+  // origem=impostos mostra o caminho de volta.
+  const params = new URLSearchParams({ busca: guia.documentNumber?.trim() || guia.documentType, aba: "todos", titulo: guia.id, abrir: "baixa", origem: "impostos" });
+  if (mes) {
+    params.set("de", `${mes}-01`);
+    params.set("ate", ultimoDiaDoMes(mes));
+  }
+  return `/financeiro/contas-a-pagar?${params.toString()}`;
 }

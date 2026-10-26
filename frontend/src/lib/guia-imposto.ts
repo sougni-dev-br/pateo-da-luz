@@ -41,6 +41,8 @@ type GuiaParaResumo = {
   dueDate: string;
   competenceDate: string;
   categoriaNome: string | null;
+  /** Quantas linhas tem a composição da guia (para dizer que o valor é a soma delas). */
+  linhas?: number;
 };
 
 // "O que vai acontecer" ao salvar: a pessoa vê, antes de clicar, para onde a guia vai.
@@ -48,7 +50,8 @@ export function resumoDaGuia(guia: GuiaParaResumo): string[] {
   const linhas: string[] = [];
   const valor = formatarReais(guia.amount);
   if (valor && DIA_ISO.test(guia.dueDate)) {
-    linhas.push(`Conta a pagar de ${valor}, vencendo em ${formatarDiaDaGuia(guia.dueDate)}. Aparece em Contas a Pagar assim que salvar.`);
+    const soma = guia.linhas && guia.linhas > 1 ? ` (soma de ${guia.linhas} linhas)` : "";
+    linhas.push(`Conta a pagar de ${valor}${soma}, vencendo em ${formatarDiaDaGuia(guia.dueDate)}. A baixa é registrada em Contas a Pagar e esta tela passa a mostrar a guia como paga.`);
   }
   if (DIA_ISO.test(guia.competenceDate)) {
     linhas.push(

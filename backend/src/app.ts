@@ -30,9 +30,11 @@ import { paymentMethodRouter } from "./modules/payment-methods/payment-method.ro
 import { productRouter } from "./modules/products/product.routes.js";
 import { purchaseOrderRouter } from "./modules/purchase-orders/purchase-order.routes.js";
 import { purchaseRouter } from "./modules/purchases/purchase.routes.js";
+import { parcelamentoRouter } from "./modules/parcelamentos/parcelamento.routes.js";
 import { supplierRouter } from "./modules/suppliers/supplier.routes.js";
 import { supplierCyclesRouter } from "./modules/suppliers/supplier-cycles.routes.js";
 import { reimbursementsRouter } from "./modules/reimbursements/reimbursement.routes.js";
+import { oilCollectionsRouter } from "./modules/oil-collections/oil-collection.routes.js";
 import { taxPaymentRouter } from "./modules/tax-payments/tax-payment.routes.js";
 import { companyRouter } from "./modules/companies/company.routes.js";
 import { employeeRouter } from "./modules/payroll/employee.routes.js";
@@ -79,7 +81,7 @@ app.use(cors({
   },
   credentials: true,
   // Cabeçalhos que a tela lê da resposta (sem isto o navegador os esconde em outra origem).
-  exposedHeaders: ["X-Payables-Truncado"],
+  exposedHeaders: ["X-Payables-Truncado", "X-Purchases-Truncado"],
 }));
 // A ficha cadastral pública é aberta por qualquer um que tenha o link: corpo JSON pequeno (o
 // formulário inteiro tem poucos KB). Vem antes do parser geral, que então pula o corpo já lido.
@@ -166,6 +168,7 @@ app.use("/notifications", notificationsAdminRouter);
 app.use("/suppliers", supplierRouter);
 app.use("/supplier-cycles", supplierCyclesRouter);
 app.use("/reimbursements", reimbursementsRouter);
+app.use("/oil-collections", oilCollectionsRouter);
 app.use("/companies", companyRouter);
 app.use("/employees", employeeRouter);
 app.use("/employee-forms", fichaCadastralRouter);
@@ -185,6 +188,7 @@ app.use("/products", productRouter);
 app.use("/payment-methods", paymentMethodRouter);
 app.use("/purchase-orders", purchaseOrderRouter);
 app.use("/purchases", purchaseRouter);
+app.use("/installment-plans", parcelamentoRouter);
 app.use("/cards", cardsRouter);
 app.use("/imports", importRouter);
 app.use("/doc-intake", docIntakeRouter);

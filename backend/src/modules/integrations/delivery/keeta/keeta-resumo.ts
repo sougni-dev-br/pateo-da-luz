@@ -31,6 +31,33 @@ export type KeetaTotais = {
   netPercent: number;
 };
 
+/** Fatura semanal da Keeta, espelhada em Contas a Receber (`KEETA_SETTLEMENT`). */
+export type KeetaRepasse = {
+  id: string;
+  description: string;
+  /** Data prevista (ou de pagamento) do repasse, `YYYY-MM-DD`. */
+  expectedDate: string;
+  receivedDate: string | null;
+  grossAmount: number;
+  fees: number;
+  netAmount: number;
+  /** Já recebido (cobre o recebimento parcial). Ausente = só vale o status. */
+  paidAmount?: number | null;
+  status: "OPEN" | "RECEIVED" | "OVERDUE" | string;
+};
+
+export type KeetaRepassesTotais = {
+  received: number;
+  pending: number;
+  total: number;
+  count: number;
+};
+
+export type KeetaRepassesBloco = {
+  items: KeetaRepasse[];
+  totals: KeetaRepassesTotais;
+};
+
 export type KeetaResumo = {
   period: { year: number; month: number };
   totals: KeetaTotais;
@@ -43,6 +70,8 @@ export type KeetaResumo = {
     deltaNet: Variacao;
     deltaOrders: Variacao;
   };
+  /** Repasses (faturas semanais) com pagamento previsto no mês — visão de caixa, não de competência. */
+  settlements: KeetaRepassesBloco;
   /** `true` quando o mês não tem nenhuma linha — a tela avisa em vez de mostrar zeros mudos. */
   semDados: boolean;
 };
@@ -63,6 +92,14 @@ export function somarTotais(dias: KeetaDia[]): KeetaTotais {
   };
 }
 
+export function totalizarRepasses(repasses: KeetaRepasse[]): KeetaRepassesTotais {
+  // Parcial: o que entrou conta como recebido e só o saldo fica pendente.
+  const recebido = (r: KeetaRepasse) => (r.status === "RECEIVED" ? r.netAmount : Math.min(r.netAmount, Math.max(0, r.paidAmount ?? 0)));
+  const received = round2(repasses.reduce((s, r) => s + recebido(r), 0));
+  const pending = round2(repasses.reduce((s, r) => s + (r.netAmount - recebido(r)), 0));
+  return { received, pending, total: round2(received + pending), count: repasses.length };
+}
+
 export function mesAnterior(year: number, month: number): { year: number; month: number } {
   const total = year * 12 + (month - 1) - 1;
   return { year: Math.floor(total / 12), month: (total % 12) + 1 };
@@ -73,10 +110,12 @@ export function montarResumo(input: {
   month: number;
   dias: KeetaDia[];
   diasAnteriores: KeetaDia[];
+  repasses?: KeetaRepasse[];
 }): KeetaResumo {
   const totals = somarTotais(input.dias);
   const anteriores = somarTotais(input.diasAnteriores);
   const ref = mesAnterior(input.year, input.month);
+  const repasses = [...(input.repasses ?? [])].sort((a, b) => a.expectedDate.localeCompare(b.expectedDate));
   return {
     period: { year: input.year, month: input.month },
     totals,
@@ -89,6 +128,7 @@ export function montarResumo(input: {
       deltaNet: variacao(totals.netAmount, anteriores.netAmount),
       deltaOrders: variacao(totals.orders, anteriores.orders)
     },
+    settlements: { items: repasses, totals: totalizarRepasses(repasses) },
     semDados: input.dias.length === 0
   };
 }

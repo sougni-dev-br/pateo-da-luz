@@ -9,6 +9,7 @@ import { excludeAggregatorsWhere } from "./purchase-aggregators.js";
 import { lotesParaPayables, lotesParaPayablesPdf } from "../payroll/folha-lote-payables.js";
 import { extrasParaPayables, extrasParaPayablesPdf } from "../payroll/extras-payables.js";
 import { LIMITE_POR_ORIGEM } from "./payables-limite.js";
+import { decidirParcelasNaEdicao, EdicaoComParcelaPagaError, MENSAGEM_PARCELA_PAGA, type DecisaoParcelas } from "./parcelas-pagas-na-edicao.js";
 import {
   formatPaymentMethodWithInstallments,
   getPaymentMethodBaseName,
@@ -22,12 +23,13 @@ import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
 import { gravarConversaoDoItemDeCompra, recordPurchaseInventoryEntry } from "../inventory/inventory.routes.js";
 import { detectarEmbalagem, normalizarUnidade } from "../../shared/unidades/conversao.js";
 import { fatorSugeridoPeloPreco, linhasSuspeitas, pareceEmbalagem, precoDeReferencia, precoNaContagem, precoNormal, validarEmbalagem } from "./revisao-embalagem.js";
-import { removeCardStatementItemsForPurchase, syncCardStatementItemForPurchase, syncCardStatementItemsForPurchase } from "../cards/cards.service.js";
+import { guardarSnapshotDasLinhas, reconstruirLinhasDaCompra, removeCardStatementItemsForPurchase, syncCardStatementItemForPurchase, syncCardStatementItemsForPurchase } from "../cards/cards.service.js";
 import { addPurchaseToCycle, findOrCreateOpenCycle, updatePurchaseInCycle } from "../suppliers/supplier-billing-cycle.service.js";
 import { REIMBURSEMENT_PAYMENT_TYPE, REIMBURSEMENT_SOURCE, ReimbursementError, ehCategoriaFuncionario } from "../reimbursements/reimbursement-rules.js";
 import { fornecedorDoFuncionario, reabrirReembolsoDoAgregador, retirarCompraCancelada, sincronizarCompraNoReembolso, validarQuemPagou } from "../reimbursements/reimbursement.service.js";
 import { vinculoPedidoRouter } from "./purchase-vinculo-pedido.routes.js";
 import { recalcularPedidosDaCompra } from "../purchase-orders/vinculo-nota.service.js";
+import { mensagemCompraDeParcelamento, parcelamentoDaCompra } from "../parcelamentos/compra-de-parcelamento.js";
 import { OFFICIAL_SMALL_EXPENSE_NORMALIZED_TYPES } from "../master-data/small-expense-type-options.js";
 import {
   buildReferenceLabel,
@@ -391,6 +393,8 @@ purchaseRouter.get("/", async (request, response) => {
     // somam. Os dois sao veiculo de pagamento: o lugar deles e Contas a Pagar e
     // a tela do proprio ciclo/fatura.
     ...excludeAggregatorsWhere,
+    // Canceladas saem na consulta: filtrar depois do corte fazia elas ocuparem vagas.
+    ...(showCancelled ? {} : { status: { not: "CANCELLED" } }),
     ...(year ? { competenceYear: year } : {}),
     ...(month ? { competenceMonth: month } : {}),
     ...((startDate || endDate)
@@ -423,12 +427,17 @@ purchaseRouter.get("/", async (request, response) => {
       : {})
   };
 
-  const purchases = await prisma.purchase.findMany({
+  // Sem paginação: a tela soma os cartões de resumo sobre a lista inteira do período.
+  // O limite é só de segurança (+1 para saber se estourou) e é avisado por cabeçalho.
+  const fetched = await prisma.purchase.findMany({
     where,
     include: { supplier: true, items: { include: { product: true } }, installments: true },
     orderBy: { purchaseDate: "desc" },
-    take: 100
+    take: LIMITE_POR_ORIGEM + 1
   });
+  const truncado = fetched.length > LIMITE_POR_ORIGEM;
+  const purchases = truncado ? fetched.slice(0, LIMITE_POR_ORIGEM) : fetched;
+  if (truncado) response.setHeader("X-Purchases-Truncado", "1");
 
   const statusRows = purchases.length
     ? await prisma.$queryRaw<Array<{ id: string; status: string; cancelledAt: Date | null; cancellationReason: string | null; purchaseNumber: string | null; workflowStatus: string | null; cycleStatus: string | null }>>`
@@ -438,7 +447,7 @@ purchaseRouter.get("/", async (request, response) => {
            JOIN "SupplierBillingCycle" sbc ON sbc."id" = sbi."cycleId"
            WHERE sbi."purchaseId" = p."id" LIMIT 1) AS "cycleStatus"
         FROM "Purchase" p
-        WHERE p."id" IN (${Prisma.join(purchases.map((purchase) => purchase.id))})
+        WHERE p."id" = ANY(${purchases.map((purchase) => purchase.id)}::text[])
       `
     : [];
   const statusById = new Map(statusRows.map((row) => [row.id, row]));
@@ -470,7 +479,7 @@ purchaseRouter.get("/", async (request, response) => {
       "conversionFactorUsed"::text AS "conversionFactorUsed",
       "conversionMissing"
     FROM "PurchaseItem"
-    WHERE "id" IN (${Prisma.join(itemIds)})
+    WHERE "id" = ANY(${itemIds}::text[])
   `;
   const conversionByItemId = new Map(conversionFields.map((item) => [item.id, item]));
 
@@ -567,6 +576,10 @@ purchaseRouter.get("/payables", async (request, response) => {
           -- Empresa em que o título foi lançado (a baixa em lote pode pagar por ela).
           p."companyId",
           p."rawRow"->>'notes' AS "notes",
+          -- Parcela de um parcelamento em lote: a tela mostra "Parcelamento 2/12".
+          ip."description" AS "planDescription",
+          p."planInstallmentNumber" AS "planInstallmentNumber",
+          ip."installmentCount" AS "planInstallmentCount",
           NULL::text AS "taxDocumentType",
           NULL::text AS "taxDescription",
           NULL::text AS "taxCompanyName",
@@ -576,6 +589,7 @@ purchaseRouter.get("/payables", async (request, response) => {
         FROM "PaymentInstallment" pi
         JOIN "Purchase" p ON p."id" = pi."purchaseId"
         JOIN "Supplier" s ON s."id" = p."supplierId"
+        LEFT JOIN "InstallmentPlan" ip ON ip."id" = p."installmentPlanId"
         LEFT JOIN "PaymentMethod" pm ON pm."id" = pi."paymentMethodId"
         LEFT JOIN "PaymentMethod" ppm ON ppm."id" = pi."paidPaymentMethodId"
         WHERE ${supplierId ? Prisma.sql`s."id" = ${supplierId}` : Prisma.sql`true`}
@@ -647,6 +661,7 @@ purchaseRouter.get("/payables", async (request, response) => {
           tp."description" AS "taxDescription",
           COALESCE(tp."tradeName", tp."legalName", tp."cnpj") AS "taxCompanyName",
           tp."cnpj" AS "taxCnpj",
+          tp."documentNumber" AS "taxDocumentNumber",
           tp."competenceDate" AS "taxCompetenceDate",
           dc."name" AS "taxDreCategoryName"
         FROM "TaxPayment" tp
@@ -1921,7 +1936,8 @@ purchaseRouter.post("/", async (request, response) => {
           totalAmount,
           numberOfInstallments,
           categoryName: firstItem?.rawCategory ?? null,
-          notes: paymentMethodName ?? null
+          notes: paymentMethodName ?? null,
+          cardFinalId: request.body.creditCardFinalId ? String(request.body.creditCardFinalId) : null
         });
       } else if (isSmallExpense) {
         await syncCardStatementItemForPurchase(tx, {
@@ -2242,6 +2258,11 @@ purchaseRouter.put("/:id", async (request, response) => {
     response.status(400).json({ message: "Compra cancelada nao pode ser editada." });
     return;
   }
+  const doParcelamento = await parcelamentoDaCompra(request.params.id);
+  if (doParcelamento) {
+    response.status(409).json({ message: mensagemCompraDeParcelamento(doParcelamento, "editar") });
+    return;
+  }
 
   const currentSupplierId = String(previousRecord.supplierId);
   const nextSupplierId = asNullableText(request.body.supplierId) ?? currentSupplierId;
@@ -2490,12 +2511,28 @@ purchaseRouter.put("/:id", async (request, response) => {
     return;
   }
 
+  // Decidida dentro da transacao, com as parcelas travadas: uma baixa que entrasse entre
+  // a leitura e o delete seria apagada do mesmo jeito.
+  let decisaoParcelas: DecisaoParcelas = "RECRIAR";
+  const cobrancaSemParcelaPropria = isCycleSupplier || isNormalCreditCard || isReimbursement || Boolean(isSmallExpense && creditCardId);
+
   const previousItems = Array.isArray(previousRecord.items) ? previousRecord.items : [];
   // A edicao recria os itens; a conversao para a unidade de contagem e
   // recalculada depois da transacao (antes ela sumia e a nota editada voltava
   // a quantidade bruta).
   const itensRecriados: Array<{ id: string; productId: string; quantity: number; unit: string | null; totalPrice: number }> = [];
   await prisma.$transaction(async (tx) => {
+    const parcelasAtuais = await tx.$queryRaw<Array<{ dueDate: Date | null; amount: string; status: string; paidDate: Date | null }>>`
+      SELECT "dueDate", "amount"::text AS "amount", "status", "paidDate"
+      FROM "PaymentInstallment"
+      WHERE "purchaseId" = ${request.params.id}
+      FOR UPDATE
+    `;
+    decisaoParcelas = decidirParcelasNaEdicao(parcelasAtuais, installments);
+    if (decisaoParcelas === "BLOQUEAR" || (decisaoParcelas === "MANTER" && cobrancaSemParcelaPropria)) {
+      throw new EdicaoComParcelaPagaError();
+    }
+
     await tx.purchase.update({
       where: { id: request.params.id },
       data: {
@@ -2526,8 +2563,12 @@ purchaseRouter.put("/:id", async (request, response) => {
     });
 
     await tx.purchaseItem.deleteMany({ where: { purchaseId: request.params.id } });
-    await tx.paymentInstallment.deleteMany({ where: { purchaseId: request.params.id } });
-    await removeCardStatementItemsForPurchase(request.params.id, tx);
+    // Parcela paga so e preservada (nao apagada) quando a edicao nao mexe na cobranca.
+    if (decisaoParcelas === "RECRIAR") {
+      await tx.paymentInstallment.deleteMany({ where: { purchaseId: request.params.id } });
+    }
+    // A linha antiga some aqui; o cartao (fisico/virtual) dela precisa chegar ao sync abaixo.
+    const linhaRemovida = await removeCardStatementItemsForPurchase(request.params.id, tx);
 
     for (const item of validItems) {
       const created = await tx.purchaseItem.create({
@@ -2558,7 +2599,16 @@ purchaseRouter.put("/:id", async (request, response) => {
       });
     }
 
-    if (installments.length && !isCycleSupplier) {
+    // MANTER nao recria a parcela: a forma de pagamento planejada acompanha a compra
+    // (a forma efetivamente paga fica em paidPaymentMethod*, intacta).
+    if (decisaoParcelas === "MANTER" && paymentMethodId) {
+      await tx.paymentInstallment.updateMany({
+        where: { purchaseId: request.params.id, status: { not: "CANCELLED" } },
+        data: { paymentMethodId, paymentMethodName: basePaymentMethodName }
+      });
+    }
+
+    if (decisaoParcelas === "RECRIAR" && installments.length && !isCycleSupplier) {
       await tx.paymentInstallment.createMany({
         data: installments.map((installment) => ({
           purchaseId: request.params.id,
@@ -2638,7 +2688,8 @@ purchaseRouter.put("/:id", async (request, response) => {
           totalAmount,
           numberOfInstallments,
           categoryName: firstItem?.rawCategory ?? null,
-          notes: paymentMethodName ?? null
+          notes: paymentMethodName ?? null,
+          cardFinalId: request.body.creditCardFinalId ? String(request.body.creditCardFinalId) : linhaRemovida.cardFinalId
         });
       } else if (isSmallExpense) {
         await syncCardStatementItemForPurchase(tx, {
@@ -2648,6 +2699,7 @@ purchaseRouter.put("/:id", async (request, response) => {
           description: firstItem?.rawProductName || invoiceNumber || asNullableText(previousRecord.purchaseNumber) || "Pequeno gasto no cartao",
           supplierName,
           value: totalAmount,
+          cardFinalId: linhaRemovida.cardFinalId,
           categoryName: firstItem?.rawCategory ?? null,
           smallExpenseTypeId,
           responsibleName: effectiveSmallExpenseResponsible,
@@ -2709,6 +2761,10 @@ purchaseRouter.put("/:id", async (request, response) => {
 
   response.json(await getPurchaseDetail(request.params.id));
   } catch (error) {
+    if (error instanceof EdicaoComParcelaPagaError) {
+      response.status(409).json({ message: MENSAGEM_PARCELA_PAGA });
+      return;
+    }
     if (error instanceof ReimbursementError) {
       response.status(error.status).json({ message: error.message });
       return;
@@ -2812,6 +2868,11 @@ purchaseRouter.patch("/:id/cancel", async (request, response) => {
   `;
   if (!previous) {
     response.status(404).json({ message: "Compra nao encontrada." });
+    return;
+  }
+  const doParcelamento = await parcelamentoDaCompra(request.params.id);
+  if (doParcelamento) {
+    response.status(409).json({ message: mensagemCompraDeParcelamento(doParcelamento, "cancelar") });
     return;
   }
   const cancellationCompetenceDate = previous.receivedAt
@@ -2980,7 +3041,11 @@ purchaseRouter.patch("/:id/cancel", async (request, response) => {
   }
 
   await adjustStockForPurchase(request.params.id, -1);
-  await removeCardStatementItemsForPurchase(request.params.id);
+  // As linhas vao sumir da fatura: guarda antes quantas parcelas eram e em qual cartao, para a restauracao.
+  await prisma.$transaction(async (tx) => {
+    await guardarSnapshotDasLinhas(tx, request.params.id);
+    await removeCardStatementItemsForPurchase(request.params.id, tx);
+  });
 
   // Parcela paga sobrevive ao cancelamento de proposito (ver comentario acima),
   // mas isso deixa um buraco silencioso: o dinheiro saiu do banco e a despesa
@@ -3025,6 +3090,11 @@ purchaseRouter.patch("/:id/restore", async (request, response) => {
   `;
   if (!previous) {
     response.status(404).json({ message: "Compra nao encontrada." });
+    return;
+  }
+  const doParcelamento = await parcelamentoDaCompra(request.params.id);
+  if (doParcelamento) {
+    response.status(409).json({ message: mensagemCompraDeParcelamento(doParcelamento, "restaurar") });
     return;
   }
   // O titulo de um reembolso cancelado nao revive: o reembolso ja voltou a aberto
@@ -3094,9 +3164,11 @@ purchaseRouter.patch("/:id/restore", async (request, response) => {
     supplierName: string;
     invoiceNumber: string | null;
     purchaseNumber: string | null;
+    rawRow: unknown;
   }>>`
     SELECT p."id", p."purchaseDate", p."creditCardId", p."smallExpenseMoneyOrigin", p."smallExpenseResponsibleName",
-           p."smallExpenseNotes", p."smallExpenseTypeId", p."totalAmount", s."name" AS "supplierName", p."invoiceNumber", p."purchaseNumber"
+           p."smallExpenseNotes", p."smallExpenseTypeId", p."totalAmount", s."name" AS "supplierName", p."invoiceNumber", p."purchaseNumber",
+           p."rawRow"
     FROM "Purchase" p
     JOIN "Supplier" s ON s."id" = p."supplierId"
     WHERE p."id" = ${request.params.id}
@@ -3104,17 +3176,7 @@ purchaseRouter.patch("/:id/restore", async (request, response) => {
   `;
   if (restored?.creditCardId) {
     await prisma.$transaction(async (tx) => {
-      await syncCardStatementItemForPurchase(tx, {
-        purchaseId: restored.id,
-        cardId: restored.creditCardId,
-        purchaseDate: restored.purchaseDate,
-        description: restored.invoiceNumber || restored.purchaseNumber || "Pequeno gasto no cartao",
-        supplierName: restored.supplierName,
-        value: Number(restored.totalAmount),
-        smallExpenseTypeId: restored.smallExpenseTypeId,
-        responsibleName: restored.smallExpenseResponsibleName,
-        notes: restored.smallExpenseNotes
-      });
+      await reconstruirLinhasDaCompra(tx, restored);
     });
   }
   await auditLog({

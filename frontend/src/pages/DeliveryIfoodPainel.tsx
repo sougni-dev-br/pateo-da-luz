@@ -252,14 +252,16 @@ export function DeliveryIfoodPainel({ year, month }: Props) {
             minWidth: "180px",
             textAlign: "right"
           }}>
-            <PanelEyebrow>Projeção fechamento</PanelEyebrow>
-            <div style={{
-              fontSize: "clamp(20px, 4vw, 24px)",
-              fontWeight: 700,
-              marginTop: "4px"
-            }}>
-              <Money value={insights.projection.netAmount} />
-            </div>
+            <PanelEyebrow>{insights.granularidade === "mensal" ? "Fechamento" : "Projeção fechamento"}</PanelEyebrow>
+            {insights.granularidade !== "mensal" && (
+              <div style={{
+                fontSize: "clamp(20px, 4vw, 24px)",
+                fontWeight: 700,
+                marginTop: "4px"
+              }}>
+                <Money value={insights.projection.netAmount} />
+              </div>
+            )}
             <div style={{
               fontSize: "11px",
               color: "var(--color-text-muted, #6b7280)",
@@ -360,13 +362,15 @@ export function DeliveryIfoodPainel({ year, month }: Props) {
 
       {/* Weekday + Simulador */}
       <div style={{ display: "grid", gap: "20px", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))" }}>
-        <Card>
-          <PanelEyebrow>Dias da semana</PanelEyebrow>
-          <h3 style={{ margin: "4px 0 12px 0", fontSize: "16px", display: "flex", alignItems: "center", gap: "6px" }}>
-            <CalendarDays size={16} /> Líquido médio por dia
-          </h3>
-          <WeekdayHeatmap weekday={insights.weekday} />
-        </Card>
+        {insights.granularidade !== "mensal" && (
+          <Card>
+            <PanelEyebrow>Dias da semana</PanelEyebrow>
+            <h3 style={{ margin: "4px 0 12px 0", fontSize: "16px", display: "flex", alignItems: "center", gap: "6px" }}>
+              <CalendarDays size={16} /> Líquido médio por dia
+            </h3>
+            <WeekdayHeatmap weekday={insights.weekday} />
+          </Card>
+        )}
 
         <Card>
           <PanelEyebrow>Simulador "e se...?"</PanelEyebrow>

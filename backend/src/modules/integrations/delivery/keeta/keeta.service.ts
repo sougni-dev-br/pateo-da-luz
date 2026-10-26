@@ -8,7 +8,7 @@
 // dobraria abril e maio.
 
 import { prisma } from "../../../../config/database.js";
-import { montarResumo, type KeetaDia, type KeetaResumo } from "./keeta-resumo.js";
+import { montarResumo, type KeetaDia, type KeetaRepasse, type KeetaResumo } from "./keeta-resumo.js";
 
 export const KEETA_SOURCE_PLATFORM = "Keeta";
 
@@ -36,12 +36,38 @@ async function lerDias(year: number, month: number): Promise<KeetaDia[]> {
   }));
 }
 
+// Repasses ficam em Contas a Receber (sem tabela própria): cada fatura semanal do
+// portal vira um `Receivable` KEETA_SETTLEMENT, com a competência no mês do pagamento.
+async function lerRepasses(year: number, month: number): Promise<KeetaRepasse[]> {
+  const rows = await prisma.receivable.findMany({
+    where: {
+      sourceType: "KEETA_SETTLEMENT",
+      competenceYear: year,
+      competenceMonth: month,
+      status: { not: "CANCELLED" }
+    },
+    orderBy: { expectedDate: "asc" }
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    description: r.description,
+    expectedDate: r.expectedDate.toISOString().slice(0, 10),
+    receivedDate: r.receivedDate ? r.receivedDate.toISOString().slice(0, 10) : null,
+    grossAmount: Number(r.grossAmount),
+    fees: Number(r.fees),
+    netAmount: Number(r.netAmount),
+    paidAmount: r.paidAmount === null ? null : Number(r.paidAmount),
+    status: r.status
+  }));
+}
+
 export async function getKeetaSummary(params: { year: number; month: number }): Promise<KeetaResumo> {
   const total = params.year * 12 + (params.month - 1) - 1;
   const anterior = { year: Math.floor(total / 12), month: (total % 12) + 1 };
-  const [dias, diasAnteriores] = await Promise.all([
+  const [dias, diasAnteriores, repasses] = await Promise.all([
     lerDias(params.year, params.month),
-    lerDias(anterior.year, anterior.month)
+    lerDias(anterior.year, anterior.month),
+    lerRepasses(params.year, params.month)
   ]);
-  return montarResumo({ year: params.year, month: params.month, dias, diasAnteriores });
+  return montarResumo({ year: params.year, month: params.month, dias, diasAnteriores, repasses });
 }

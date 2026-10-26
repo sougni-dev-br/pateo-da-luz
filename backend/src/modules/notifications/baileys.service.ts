@@ -3,6 +3,7 @@ import makeWASocket, {
   DisconnectReason,
   initAuthCreds,
   BufferJSON,
+  fetchLatestWaWebVersion,
   type AuthenticationCreds,
   type AuthenticationState,
   type SignalDataTypeMap,
@@ -10,6 +11,7 @@ import makeWASocket, {
 } from "@whiskeysockets/baileys";
 import qrcode from "qrcode";
 import { prisma } from "../../config/database.js";
+import { decideReconnect } from "./baileys-reconnect.js";
 
 // Integração WhatsApp usando Baileys como biblioteca embarcada no backend.
 // Substitui o OpenWA HTTP: uma conexão WhatsApp por processo, auth persistido
@@ -28,7 +30,7 @@ const CREDS_KEY = "main";
 
 type State = {
   socket: WASocket | null;
-  status: "starting" | "waiting_qr" | "connecting" | "open" | "closed" | "logged_out";
+  status: "starting" | "waiting_qr" | "connecting" | "open" | "closed" | "logged_out" | "suspended";
   lastQr: string | null; // string do QR bruto (não a imagem)
   lastError: string | null;
   startedAt: Date | null;
@@ -37,6 +39,9 @@ type State = {
   // corre com o wipe e a sessão volta a "open" sem re-scan). É zerado
   // depois do initBaileys() de forceLogout() acionar um novo socket.
   logoutInFlight: boolean;
+  // Desconexões seguidas sem chegar a "open"; alimenta o backoff.
+  failedAttempts: number;
+  reconnectTimer: NodeJS.Timeout | null;
 };
 
 const state: State = {
@@ -45,7 +50,9 @@ const state: State = {
   lastQr: null,
   lastError: null,
   startedAt: null,
-  logoutInFlight: false
+  logoutInFlight: false,
+  failedAttempts: 0,
+  reconnectTimer: null
 };
 
 // ─── Auth state adapter (Postgres) ─────────────────────────────────────────
@@ -198,6 +205,11 @@ export async function forceLogout(): Promise<void> {
     currentSocket?.end?.(undefined as unknown as Error);
   } catch { /* noop */ }
   state.socket = null;
+  if (state.reconnectTimer) {
+    clearTimeout(state.reconnectTimer);
+    state.reconnectTimer = null;
+  }
+  state.failedAttempts = 0;
   await wipeAuthState();
   starting = null;
   // Solta o freio ANTES de inicializar — a próxima instância precisa
@@ -210,6 +222,27 @@ export async function forceLogout(): Promise<void> {
 
 let starting: Promise<void> | null = null;
 
+function scheduleReconnect(delayMs: number): void {
+  if (state.reconnectTimer) clearTimeout(state.reconnectTimer);
+  state.reconnectTimer = setTimeout(() => {
+    state.reconnectTimer = null;
+    starting = null;
+    initBaileys().catch((e) => console.error("[baileys] reconexão falhou", e));
+  }, delayMs);
+}
+
+// Busca a versão atual do WhatsApp Web; se falhar, devolve undefined e o
+// Baileys cai na versão embutida.
+async function resolveWaVersion(): Promise<[number, number, number] | undefined> {
+  try {
+    const result = await fetchLatestWaWebVersion({ signal: AbortSignal.timeout(5000) });
+    if (result.error || !result.version) return undefined;
+    return result.version as [number, number, number];
+  } catch {
+    return undefined;
+  }
+}
+
 export async function initBaileys(): Promise<void> {
   // Evita corridas: se já iniciou uma tentativa, aguarda ela.
   if (starting) return starting;
@@ -220,8 +253,12 @@ export async function initBaileys(): Promise<void> {
       state.startedAt = new Date();
 
       const auth = await readAuthState();
+      const version = await resolveWaVersion();
       const sock = makeWASocket({
         auth,
+        // 405 "Connection Failure" costuma ser versão do cliente WhatsApp Web
+        // rejeitada; sem `version` o Baileys usa a embutida na release.
+        ...(version ? { version } : {}),
         // Silencia o logger interno — Baileys usa pino por default e faz
         // bastante ruído em produção. Se um dia precisar debugar, trocar
         // para pino({ level: "debug" }).
@@ -253,6 +290,7 @@ export async function initBaileys(): Promise<void> {
           state.status = "connecting";
         } else if (connection === "open") {
           state.status = "open";
+          state.failedAttempts = 0;
           state.lastQr = null;
           state.lastError = null;
           console.info(`[baileys] conectado (sessão '${SESSION_NAME}')`);
@@ -283,11 +321,20 @@ export async function initBaileys(): Promise<void> {
               })
               .catch((e) => console.error("[baileys] falha ao reiniciar após logout", e));
           } else {
-            console.warn(`[baileys] desconectado (${statusCode ?? "?"}): ${state.lastError} — reconectando em 5s`);
-            setTimeout(() => {
-              starting = null;
-              initBaileys().catch((e) => console.error("[baileys] reconexão falhou", e));
-            }, 5000);
+            const decision = decideReconnect(statusCode, state.failedAttempts);
+            if (decision.action === "stop") {
+              state.status = "suspended";
+              console.error(`[baileys] ${decision.reason}. Use o admin (logout/QR) ou reinicie o serviço.`);
+              return;
+            }
+            state.failedAttempts = decision.attempt;
+            // Loga só a 1ª tentativa e as seguintes em potências de 2 (log limitado).
+            if (decision.attempt === 1 || (decision.attempt & (decision.attempt - 1)) === 0) {
+              console.warn(
+                `[baileys] desconectado (${statusCode ?? "?"}): ${state.lastError} — tentativa ${decision.attempt}, reconectando em ${Math.round(decision.delayMs / 1000)}s`
+              );
+            }
+            scheduleReconnect(decision.delayMs);
           }
         }
       });

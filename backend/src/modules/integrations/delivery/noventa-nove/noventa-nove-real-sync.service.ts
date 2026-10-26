@@ -7,6 +7,7 @@ import {
   type NoventaNoveSettlement
 } from "./noventa-nove-financial-api.js";
 import { hasValidCredential } from "./noventa-nove-http-client.js";
+import type { PoliticaDeRetry } from "./noventa-nove-retry.js";
 import { assertPeriodWritableForDate } from "../../../cmv-real/cmv-real.service.js";
 import { CANAIS_FATURADOS } from "./noventa-nove-canais.js";
 import { isPeriodLockedError } from "../../../cmv-real/period-locked-error.js";
@@ -64,7 +65,7 @@ const BRT_OFFSET_MS = 3 * 60 * 60 * 1000;
 
 type StoreStatus = "SUCCESS" | "PARTIAL" | "SKIPPED" | "ERROR";
 
-type StorePerResult = {
+export type StorePerResult = {
   storeId: string;
   storeLabel: string;
   externalId: string;
@@ -72,6 +73,24 @@ type StorePerResult = {
   itemsPersisted: { sales: number; settlements: number; fees: number };
   message: string;
 };
+
+// Lojas que precisam de atenção: SUCCESS e SKIPPED (loja aguardando autorização é estado normal) ficam de fora.
+export function lojasComProblema(perStore: StorePerResult[]): string[] {
+  return perStore
+    .filter((r) => r.status === "PARTIAL" || r.status === "ERROR")
+    .map((r) => `${r.storeLabel}: ${r.message}`);
+}
+
+// Texto do SyncLog: falhas (PARTIAL/ERROR) e também os avisos ⚠️ de lojas que terminaram em SUCCESS.
+// Antes só ERROR e ⚠️ entravam, e uma loja PARTIAL (ex.: billData falhou, repasses ok) deixava o log sem causa.
+export function mensagemDoSyncLog(perStore: StorePerResult[]): string | null {
+  const falhas = lojasComProblema(perStore);
+  const avisos = perStore
+    .filter((r) => (r.status === "SUCCESS" || r.status === "SKIPPED") && String(r.message ?? "").includes("⚠️"))
+    .map((r) => `${r.storeLabel}: ${r.message}`);
+  const todas = [...falhas, ...avisos];
+  return todas.length > 0 ? todas.join(" | ") : null;
+}
 
 export type RealSyncResult = {
   ranAt: string;
@@ -242,11 +261,12 @@ function composeSettlementTotals(
 // de 31 dias. Dedup por weekPaymentId porque um repasse pode cair nas duas.
 async function fetchSettlementsForMonth(
   appShopId: string,
-  monthPeriod: YmdWindow
+  monthPeriod: YmdWindow,
+  retry?: PoliticaDeRetry
 ): Promise<NoventaNoveSettlement[]> {
   const porId = new Map<string, NoventaNoveSettlement>();
   for (const window of settlementSearchWindows(monthPeriod)) {
-    const lote = await getSettlements({ appShopId, ...window });
+    const lote = await getSettlements({ appShopId, ...window }, retry);
     for (const settle of lote) {
       if (!settle.weekPaymentId) continue;
       porId.set(settle.weekPaymentId, settle);
@@ -646,7 +666,8 @@ function formatApiError(error: unknown): string {
 async function syncEligibleStore(
   store: { id: string; externalId: string; nickname: string; companyId: string | null },
   year: number,
-  month: number
+  month: number,
+  retry?: PoliticaDeRetry
 ): Promise<{ result: StorePerResult; persisted: number }> {
   const monthPeriod = { startDate: firstDayYmd(year, month), endDate: endDayYmdCapped(year, month) };
   const errors: string[] = [];
@@ -657,7 +678,7 @@ async function syncEligibleStore(
   // Bills do mês — base de sales/DRE/despesas.
   let monthlyBills: NoventaNoveBillDetail[] = [];
   try {
-    monthlyBills = await getBillDetails({ appShopId: store.externalId, ...monthPeriod });
+    monthlyBills = await getBillDetails({ appShopId: store.externalId, ...monthPeriod }, retry);
   } catch (error: unknown) {
     billDataFailed = true;
     if (isStoreNotAuthorized(error)) naoAutorizada = true;
@@ -683,14 +704,17 @@ async function syncEligibleStore(
   // Bills da borda anterior (~1 semana) — SÓ pra compor repasses semanais que
   // cruzam a virada do mês. Best-effort: falha aqui não invalida o sync.
   let edgeBills: NoventaNoveBillDetail[] = [];
+  let edgeFailed = false;
   if (!billDataFailed) {
     try {
       edgeBills = await getBillDetails({
         appShopId: store.externalId,
         ...edgeBillsWindow(monthPeriod.startDate)
-      });
-    } catch {
-      /* borda é best-effort */
+      }, retry);
+    } catch (error: unknown) {
+      // Best-effort, mas não mudo: sem a borda, o repasse da virada fica com bruto/taxas incompletos.
+      edgeFailed = true;
+      console.warn(`[99Food] ${store.nickname}: borda do mês anterior não sincronizada — ${formatApiError(error)}`);
     }
   }
   const settlementBills = monthlyBills.concat(edgeBills);
@@ -705,7 +729,7 @@ async function syncEligibleStore(
   let settlementsCount = 0;
   let settlementsIncomplete = 0;
   try {
-    const settlements = await fetchSettlementsForMonth(store.externalId, monthPeriod);
+    const settlements = await fetchSettlementsForMonth(store.externalId, monthPeriod, retry);
     const r = await persistSettlements(store, settlements, settlementBills, year, month);
     settlementsCount = r.count;
     settlementsIncomplete = r.incomplete;
@@ -757,6 +781,9 @@ async function syncEligibleStore(
   if (settlementsIncomplete > 0) {
     messageParts.push(`⚠️ ${settlementsIncomplete} repasse(s) com bruto/taxas incompletos (pedidos fora da janela sincronizada).`);
   }
+  if (edgeFailed) {
+    messageParts.push("⚠️ Borda do mês anterior não sincronizada; repasse da virada pode ficar com bruto/taxas incompletos.");
+  }
   if (naoAutorizada) {
     messageParts.push("Aguardando autorização no 99 Food. Gere a URL de autorização na linha desta loja, autorize no portal e sincronize de novo.");
   }
@@ -782,6 +809,7 @@ export async function runRealSync(params: {
   year: number;
   month: number;
   triggeredByUserId: string | null;
+  retry?: PoliticaDeRetry;
 }): Promise<RealSyncResult> {
   const startedAt = new Date();
   const hasCredential = await hasValidCredential();
@@ -807,7 +835,7 @@ export async function runRealSync(params: {
       });
       continue;
     }
-    const { result, persisted } = await syncEligibleStore(store, params.year, params.month);
+    const { result, persisted } = await syncEligibleStore(store, params.year, params.month, params.retry);
     perStore.push(result);
     totalPersisted += persisted;
   }
@@ -831,10 +859,7 @@ export async function runRealSync(params: {
       //
       // O status continua distinguindo o caso: SUCCESS com texto = aviso, PARTIAL ou
       // ERROR com texto = falha.
-      errorMessage:
-        perStore.filter((r) => r.status === "ERROR").map((r) => `${r.storeLabel}: ${r.message}`).join(" | ")
-        || perStore.filter((r) => String(r.message ?? "").includes("⚠️")).map((r) => `${r.storeLabel}: ${r.message}`).join(" | ")
-        || null
+      errorMessage: mensagemDoSyncLog(perStore)
     }
   });
 

@@ -1,0 +1,36 @@
+/* ═══════════════════════════════════════════════════════════════════
+   Grade de itens do lançamento de compra
+   As colunas de valor eram fixas em 96px e 82px: valor unitário com 4 casas
+   (13092,9420) e total acima de R$ 10 mil saíam cortados ("R$ 13.092…").
+   Aqui as colunas numéricas ganham largura para a maior compra e o produto
+   fica com o que sobra. No celular vale o layout em cartão do global.css.
+═══════════════════════════════════════════════════════════════════ */
+
+@media (min-width: 701px) {
+  /* Cód | Produto | Qtd | Un | Valor unit. | Total | Obs | excluir */
+  .pnova-items-grid .pnova-grid-header,
+  .pnova-items-grid .pnova-grid-row {
+    grid-template-columns: 56px minmax(150px, 1fr) 84px 76px 124px 132px 44px 36px;
+  }
+
+  .pnova-items-grid .pnova-gh-qty,
+  .pnova-items-grid .pnova-gh-price,
+  .pnova-items-grid .pnova-gh-total { text-align: right; }
+
+  /* O total nunca é cortado: se faltar espaço, é o nome do produto que cede. */
+  .pnova-items-grid .pnova-gr-total {
+    overflow: visible;
+    padding-right: 6px;
+  }
+
+  .pnova-items-grid .pnova-gr-price-input,
+  .pnova-items-grid .pnova-gr-qty-input { padding-right: 6px; }
+
+  /* A linha cresce se a prévia de conversão ("= 500 UN") pedir duas linhas. */
+  .pnova-items-grid .pnova-grid-row {
+    max-height: none;
+    padding-block: 2px;
+  }
+
+  .pnova-items-grid .pnova-gr-unidade { min-width: 0; }
+}

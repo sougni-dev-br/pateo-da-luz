@@ -1,0 +1,110 @@
+/* Página Cartões: resumo, lista de faturas e contas cadastradas. */
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+.cartoes-pagina { display: flex; flex-direction: column; gap: 16px; }
+.cartoes-pagina-acoes { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; align-items: center; }
+
+.cartoes-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+
+/* ---------- faturas ---------- */
+.cartoes-faturas { padding: 0; overflow: hidden; }
+.cartoes-faturas-barra {
+  display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;
+  padding: 14px 16px; border-bottom: 1px solid var(--border);
+}
+.cartoes-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.cartoes-chip {
+  border: 1px solid var(--border); background: transparent; color: var(--muted);
+  border-radius: 999px; padding: 6px 14px; min-height: 34px; cursor: pointer; font-weight: 500;
+  transition: background 120ms, color 120ms, border-color 120ms;
+}
+.cartoes-chip:hover { color: var(--text); border-color: var(--line-strong, var(--border)); }
+.cartoes-chip.ativo { background: var(--ink, #1a1a1a); border-color: var(--ink, #1a1a1a); color: #fff; }
+.cartoes-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.cartoes-faturas-filtros { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.cartoes-faturas-filtros select { min-height: 38px; }
+
+.fatura-linhas { list-style: none; margin: 0; padding: 0; }
+.fatura-linha {
+  display: grid;
+  grid-template-columns: minmax(150px, 1.2fr) minmax(130px, 1fr) minmax(150px, 1.2fr) minmax(110px, 0.9fr) 100px 150px;
+  gap: 12px; align-items: center; padding: 14px 16px;
+  border-bottom: 1px solid var(--border); transition: background 120ms;
+}
+.fatura-linha:last-child { border-bottom: 0; }
+.fatura-linha:hover { background: var(--row-hover); }
+.fatura-linha-titulo { display: flex; flex-direction: column; min-width: 0; }
+.fatura-linha-titulo strong { font-size: 17px; font-variant-numeric: tabular-nums; }
+.fatura-linha-titulo span, .fatura-linha-vencimento small, .fatura-linha-conferencia small { color: var(--muted); font-size: 12.5px; }
+.fatura-linha-titulo span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fatura-linha-vencimento { display: flex; flex-direction: column; font-variant-numeric: tabular-nums; }
+.prazo-atencao { color: var(--warning) !important; font-weight: 600; }
+.prazo-atraso { color: var(--danger) !important; font-weight: 600; }
+.fatura-linha-conferencia { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.fatura-linha-barra { height: 6px; border-radius: 999px; background: var(--line, #e5e7eb); overflow: hidden; }
+.fatura-linha-barra span { display: block; height: 100%; background: var(--success); border-radius: inherit; transition: width 200ms; }
+.fatura-linha-aviso { color: var(--warning) !important; font-weight: 600; }
+.fatura-linha-vazio { color: var(--muted); font-size: 13px; }
+.fatura-linha-total { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.fatura-linha-acoes { display: flex; gap: 6px; justify-content: flex-end; align-items: center; }
+
+/* ---------- contas cadastradas ---------- */
+.cartoes-secao-titulo { display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: flex-start; margin-bottom: 14px; }
+.cartoes-secao-titulo h2 { margin: 0; font-size: 18px; }
+.cartoes-secao-titulo p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+.cartoes-contas { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 12px; }
+.cartoes-conta {
+  border: 1px solid var(--border); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 12px;
+  background: var(--surface);
+}
+.cartoes-conta.inativa { opacity: 0.65; }
+.cartoes-conta header { display: flex; align-items: center; gap: 10px; }
+.cartoes-conta header > div { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.cartoes-conta header small { color: var(--muted); }
+.cartoes-conta-icone { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 10px; background: var(--row-hover); }
+.cartoes-conta-finais { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.cartoes-conta-finais li {
+  display: inline-flex; align-items: center; gap: 8px; padding: 5px 10px; border-radius: 8px;
+  border: 1px solid var(--border); font-size: 13px;
+}
+.cartoes-conta-finais li code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.04em; }
+.cartoes-conta-finais li.fisico { background: color-mix(in srgb, var(--gold, #b58b2a) 12%, transparent); }
+.cartoes-conta-finais li.virtual { background: color-mix(in srgb, var(--info, #2563eb) 10%, transparent); }
+.cartoes-conta-finais li.vazio { color: var(--muted); border-style: dashed; }
+.cartoes-conta-datas { display: flex; gap: 18px; margin: 0; }
+.cartoes-conta-datas div { display: flex; flex-direction: column; }
+.cartoes-conta-datas dt { color: var(--muted); font-size: 12px; }
+.cartoes-conta-datas dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+.cartoes-conta footer { display: flex; gap: 8px; }
+
+/* ---------- celular ---------- */
+@media (max-width: 900px) {
+  .fatura-linha { grid-template-columns: 1fr auto; row-gap: 10px; }
+  .fatura-linha-titulo { grid-column: 1; }
+  .fatura-linha-status { grid-column: 2; grid-row: 1; justify-self: end; }
+  .fatura-linha-vencimento { grid-column: 1; }
+  .fatura-linha-total { grid-column: 2; text-align: right; font-size: 17px; }
+  .fatura-linha-conferencia { grid-column: 1 / -1; }
+  .fatura-linha-acoes { grid-column: 1 / -1; justify-content: stretch; }
+  .fatura-linha-acoes > .ds-button { flex: 1; min-height: 42px; }
+  .cartoes-faturas-barra { padding: 12px; }
+  .cartoes-chips { overflow-x: auto; flex-wrap: nowrap; padding-bottom: 2px; width: 100%; }
+  .cartoes-chip { flex: none; }
+}
+
+.cartoes-faturas-filtros label { display: flex; flex-direction: row; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+.cartoes-faturas-filtros select, .cartoes-faturas-filtros input[type="date"] {
+  min-height: 36px; border-radius: 999px; padding: 0 14px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--text); font-size: 14px;
+}
+
+@media (max-width: 900px) {
+  .cartoes-chip { min-height: 40px; }
+}
+
+.realocar-modo { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; margin: 0 0 12px; }
+.realocar-modo legend { padding: 0 6px; font-weight: 600; }
+.realocar-modo label { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
+.realocar-modo label input { margin-top: 4px; }
+.realocar-modo label span { display: flex; flex-direction: column; gap: 2px; }
+.realocar-modo small { color: var(--muted); font-size: 12.5px; }

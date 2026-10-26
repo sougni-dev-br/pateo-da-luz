@@ -1,0 +1,220 @@
+/* Tela de conferência da fatura: cabeçalho, barra de ferramentas e uma lista por cartão. */
+.fatura-voltar {
+  all: unset; cursor: pointer; align-self: flex-start; color: var(--muted); font-weight: 500; padding: 4px 2px;
+}
+.fatura-voltar:hover { color: var(--text); }
+.fatura-voltar:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.fatura-pagina { padding: 24px 28px; display: flex; flex-direction: column; gap: 20px; }
+.fatura-cartoes { display: flex; flex-direction: column; gap: 16px; }
+
+/* ---------- cabeçalho ---------- */
+.fatura-detalhe-topo {
+  display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; justify-content: space-between;
+  padding-bottom: 18px; border-bottom: 1px solid var(--border);
+}
+.fatura-detalhe-titulo { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1 1 280px; }
+.fatura-detalhe-titulo p { margin: 0; color: var(--muted); font-size: 13px; }
+.fatura-detalhe-titulo h2 { margin: 0; font-size: 26px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.fatura-detalhe-titulo small { color: var(--muted); font-size: 13px; }
+.fatura-detalhe-total { display: flex; flex-direction: column; align-items: flex-end; font-variant-numeric: tabular-nums; }
+.fatura-detalhe-total span { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+.fatura-detalhe-total strong { font-size: 28px; }
+.fatura-detalhe-total small { color: var(--muted); font-size: 12.5px; }
+.fatura-detalhe-acoes { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+/* ---------- barra de ferramentas ---------- */
+.fatura-barra { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.fatura-busca {
+  flex: 1 1 280px; display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 14px;
+  border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--muted);
+}
+.fatura-busca:focus-within { border-color: var(--accent); }
+.fatura-busca input { all: unset; flex: 1; min-width: 0; color: var(--text); font-size: 14px; }
+.fatura-barra select {
+  min-height: 40px; border-radius: 999px; padding: 0 14px; border: 1px solid var(--border); background: var(--surface); color: var(--text);
+}
+.fatura-conciliar-botao {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 16px; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--text); font-weight: 500;
+}
+.fatura-conciliar-botao:hover, .fatura-conciliar-botao.ativo { border-color: var(--accent); }
+
+.fatura-aviso-sem-cartao {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 14px; border-radius: 12px; font-size: 13.5px;
+  background: color-mix(in srgb, var(--warning) 12%, transparent); color: var(--text);
+  border: 1px solid color-mix(in srgb, var(--warning) 40%, transparent);
+}
+.fatura-aviso-sem-cartao svg { color: var(--warning); flex: none; }
+.fatura-aviso-sem-cartao span { flex: 1 1 240px; }
+
+/* ---------- lote ---------- */
+.fatura-cartoes-lote {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 12px;
+  background: var(--ink, #1a1a1a); color: #fff; position: sticky; bottom: 8px; z-index: 5; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+.fatura-cartoes-lote button {
+  border: 1px solid rgba(255, 255, 255, 0.35); background: transparent; color: #fff; border-radius: 999px;
+  padding: 6px 14px; min-height: 36px; cursor: pointer;
+}
+.fatura-cartoes-lote button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.14); }
+.fatura-cartoes-lote button.limpar { border-color: transparent; margin-left: auto; text-decoration: underline; }
+
+/* ---------- listas por cartão ---------- */
+/* Duas colunas só quando cada lista tem largura para a descrição; senão uma embaixo da outra. */
+.fatura-listas { display: grid; grid-template-columns: repeat(auto-fit, minmax(660px, 1fr)); gap: 20px; align-items: start; }
+
+.fatura-resumo-nav { display: flex; flex-wrap: wrap; gap: 8px; }
+.fatura-resumo-nav button {
+  display: inline-flex; align-items: baseline; gap: 8px; border: 1px solid var(--border); background: var(--surface);
+  border-radius: 999px; padding: 6px 16px; min-height: 38px; cursor: pointer; color: var(--text);
+}
+.fatura-resumo-nav button:hover { border-color: var(--accent); }
+.fatura-resumo-nav button span { color: var(--muted); font-size: 13px; }
+.fatura-resumo-nav button strong { font-variant-numeric: tabular-nums; }
+.fatura-resumo-nav button.pendente { border-color: var(--warning); }
+
+.fatura-lista {
+  border: 1px solid var(--border); border-radius: 16px; background: var(--surface); overflow: hidden;
+  border-top-width: 4px; display: flex; flex-direction: column;
+}
+.fatura-lista.fisico { border-top-color: var(--gold, #b58b2a); }
+.fatura-lista.virtual { border-top-color: var(--info, #2563eb); }
+.fatura-lista.pendente { border-top-color: var(--warning); }
+.fatura-lista.unica { border-top-color: var(--line-strong, var(--border)); }
+
+.fatura-lista-topo { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; padding: 18px 20px 10px; }
+.fatura-lista-titulo h3 { margin: 0; font-size: 18px; display: flex; align-items: baseline; gap: 8px; }
+.fatura-lista-titulo code { color: var(--muted); font-size: 13px; font-weight: 400; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.fatura-lista-titulo span { color: var(--muted); font-size: 13px; }
+.fatura-lista-total { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; min-width: 120px; }
+.fatura-lista-total strong { font-size: 26px; font-variant-numeric: tabular-nums; line-height: 1; }
+.fatura-lista-parte { width: 100%; height: 4px; border-radius: 999px; background: var(--line, #e5e7eb); overflow: hidden; }
+.fatura-lista-parte i { display: block; height: 100%; background: currentColor; opacity: 0.55; }
+.fatura-lista.fisico .fatura-lista-parte { color: var(--gold, #b58b2a); }
+.fatura-lista.virtual .fatura-lista-parte { color: var(--info, #2563eb); }
+
+.fatura-lista-extrato { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 0 20px 14px; border-bottom: 1px solid var(--border); }
+.fatura-lista-extrato label { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); }
+.fatura-lista-extrato input {
+  width: 150px; height: 34px; text-align: right; font-variant-numeric: tabular-nums;
+  border: 1px solid var(--border); border-radius: 10px; padding: 0 10px; background: transparent; color: var(--text);
+}
+.fatura-cartao-ok, .fatura-cartao-gravado { color: var(--success); font-size: 13px; display: inline-flex; align-items: center; gap: 4px; font-weight: 500; }
+.fatura-cartao-diferenca { color: var(--danger); font-size: 13px; font-weight: 600; }
+
+.fatura-lista-todas { display: flex; align-items: center; gap: 8px; padding: 8px 20px; font-size: 12.5px; color: var(--muted); background: var(--row-hover); }
+.fatura-lista-vazia { margin: 0; padding: 28px 20px; text-align: center; color: var(--muted); }
+
+.fatura-lista-linhas { list-style: none; margin: 0; padding: 0; }
+.fatura-lista-linha {
+  display: grid; grid-template-columns: auto 78px minmax(0, 1fr) auto auto; gap: 4px 14px; align-items: center;
+  padding: 12px 20px; border-top: 1px solid var(--border); transition: background 120ms;
+}
+.fatura-lista-linha:first-child { border-top: 0; }
+.fatura-lista-linha:hover { background: var(--row-hover); }
+.fatura-lista-linha.selecionada { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.fatura-lista-linha:not(:has(.fatura-lista-check)) { grid-template-columns: 78px minmax(0, 1fr) auto auto; }
+.fatura-lista-data { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.fatura-lista-desc { display: flex; flex-direction: column; min-width: 0; }
+.fatura-lista-desc strong { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fatura-lista-desc small { color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fatura-sem-compra { color: var(--warning); display: inline-flex; align-items: center; gap: 3px; margin-left: 8px; }
+.fatura-lista-valor { font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.fatura-lista-acoes { display: flex; align-items: center; gap: 2px; justify-content: flex-end; }
+
+.fatura-lista-mover {
+  display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--border); background: transparent; color: var(--text);
+  border-radius: 999px; padding: 4px 12px; min-height: 32px; cursor: pointer; font-weight: 500; margin-right: 6px; white-space: nowrap;
+}
+.fatura-lista-mover:hover:not(:disabled) { border-color: var(--accent); background: var(--row-hover); }
+.fatura-lista-mover:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.fatura-icone {
+  display: inline-grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: 50%;
+  background: transparent; color: var(--line-strong, #c9ccd1); cursor: pointer; transition: color 120ms, background 120ms;
+}
+.fatura-icone:hover:not(:disabled) { background: var(--row-hover); color: var(--muted); }
+.fatura-icone.ligado { color: var(--success); }
+.fatura-icone.alerta.ligado { color: var(--danger); }
+.fatura-icone:disabled { cursor: default; }
+.fatura-icone:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.fatura-cartoes-dica { display: flex; align-items: center; gap: 6px; margin: 0; }
+
+/* ---------- conciliação ---------- */
+.fatura-conciliar {
+  border: 1px solid var(--border); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 10px; background: var(--surface);
+}
+.fatura-conciliar header { display: flex; justify-content: space-between; align-items: center; }
+.fatura-conciliar h3, .fatura-conciliar h4 { margin: 0; }
+.fatura-conciliar textarea { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; border: 1px solid var(--border); border-radius: 10px; padding: 10px; background: transparent; color: var(--text); }
+.fatura-conciliar-resultado { display: flex; flex-direction: column; gap: 10px; }
+.fatura-conciliar-resultado ul { margin: 4px 0; padding-left: 18px; font-size: 13px; }
+.fatura-conciliar-resumo { display: flex; flex-wrap: wrap; gap: 8px; font-weight: 600; font-size: 13px; }
+.fatura-conciliar-resumo span { padding: 4px 12px; border-radius: 999px; background: var(--row-hover); }
+.fatura-conciliar-resumo .ok { color: var(--success); display: inline-flex; align-items: center; gap: 4px; }
+.fatura-conciliar-resumo .alerta { color: var(--warning); }
+
+/* ---------- cadastro de cartões da conta e seleção na compra ---------- */
+.cartoes-vinculados-editor { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.cartoes-vinculados-editor h3 { margin: 0; font-size: 15px; }
+.cartoes-vinculados-linha { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
+.cartoes-vinculados-linha label { display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+.cartoes-vinculados-linha input, .cartoes-vinculados-linha select { min-width: 0; }
+
+/* ---------- telas menores ---------- */
+@media (max-width: 720px) {
+  .fatura-listas { grid-template-columns: minmax(0, 1fr); }
+  .fatura-pagina { padding: 16px 14px; gap: 14px; }
+  .fatura-detalhe-titulo h2 { font-size: 22px; }
+  .fatura-detalhe-total { align-items: flex-start; }
+  .fatura-lista-topo { padding: 14px 14px 8px; }
+  .fatura-lista-extrato { padding: 0 14px 12px; }
+  .fatura-lista-todas { padding: 8px 14px; }
+  .fatura-lista-linha, .fatura-lista-linha:not(:has(.fatura-lista-check)) {
+    grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "check data valor" "check desc desc" "acoes acoes acoes"; padding: 12px 14px;
+  }
+  .fatura-lista-linha:not(:has(.fatura-lista-check)) { grid-template-areas: "data data valor" "desc desc desc" "acoes acoes acoes"; }
+  .fatura-lista-check { grid-area: check; }
+  .fatura-lista-data { grid-area: data; }
+  .fatura-lista-valor { grid-area: valor; font-size: 16px; }
+  .fatura-lista-desc { grid-area: desc; }
+  .fatura-lista-acoes { grid-area: acoes; justify-content: space-between; padding-top: 4px; }
+  .fatura-lista-mover { min-height: 40px; flex: 1; justify-content: center; }
+  .fatura-icone { width: 42px; height: 42px; }
+  .fatura-cartoes-lote button { flex: 1 1 100%; min-height: 42px; }
+  .fatura-conciliar-botao { flex: 1 1 100%; justify-content: center; }
+  .fatura-barra select { flex: 1 1 100%; }
+}
+
+/* ---------- acessibilidade e toque (correções da auditoria) ---------- */
+.fatura-voltar { display: inline-flex; align-items: center; min-height: 40px; padding: 0 4px; }
+.fatura-icone { color: var(--muted); }
+.fatura-icone.ligado { color: var(--success); }
+.fatura-icone.alerta.ligado { color: var(--danger); }
+.fatura-lista-check { width: 20px; height: 20px; accent-color: var(--ink, #1a1a1a); cursor: pointer; }
+@media (max-width: 720px) {
+  .fatura-lista-check { width: 24px; height: 24px; }
+  .fatura-lista-desc strong, .fatura-lista-desc small { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+}
+
+/* ---------- conferido: o estado precisa saltar aos olhos ---------- */
+.fatura-conferir {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 12px; margin-right: 4px;
+  border: 1px solid var(--line-strong, var(--border)); border-radius: 999px; background: transparent;
+  color: var(--muted); font-weight: 500; cursor: pointer; white-space: nowrap;
+  transition: background 120ms, color 120ms, border-color 120ms;
+}
+.fatura-conferir:hover:not(:disabled) { border-color: var(--success); color: var(--success); }
+.fatura-conferir.ligado { background: var(--success); border-color: var(--success); color: #fff; font-weight: 600; }
+.fatura-conferir:disabled { cursor: default; }
+.fatura-conferir:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.fatura-lista-linha.conferida { background: color-mix(in srgb, var(--success) 8%, transparent); box-shadow: inset 4px 0 0 var(--success); }
+.fatura-lista-linha.divergente { background: color-mix(in srgb, var(--danger) 8%, transparent); box-shadow: inset 4px 0 0 var(--danger); }
+.fatura-lista-linha.conferida:hover, .fatura-lista-linha.divergente:hover { filter: brightness(0.98); }
+.fatura-lista-conferidas { color: var(--muted); font-weight: 600; }
+.fatura-lista-conferidas.completo { color: var(--success); }
+@media (max-width: 720px) {
+  .fatura-conferir { min-height: 40px; flex: 1; justify-content: center; }
+}

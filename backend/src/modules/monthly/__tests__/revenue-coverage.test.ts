@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { calcularCobertura, type LinhaDeReceita } from "../revenue-coverage.js";
+import { calcularCobertura, resumoDeAtrasos, type LinhaDeReceita } from "../revenue-coverage.js";
 
 const linha = (date: string, channel: string, sourcePlatform: string | null): LinhaDeReceita => ({
   date,
@@ -61,6 +61,18 @@ describe("calcularCobertura", () => {
     expect(canal(r, "iFood").situacao).toBe("SEM_DADOS");
   });
 
+  test("99Food tolera 2 dias: a API financeira da 99 libera a fatura do dia com atraso; os demais canais não", () => {
+    const r = calcularCobertura({
+      ...BASE,
+      rows: [],
+      ultimoDiaGeral: { "Salão": "2026-10-04", "99Food": "2026-10-04", Keeta: "2026-10-04" }
+    });
+    expect(canal(r, "99Food").diasDesdeUltimo).toBe(2);
+    expect(canal(r, "99Food").situacao).toBe("EM_DIA");
+    expect(canal(r, "Salão").situacao).toBe("ATRASADO");
+    expect(canal(r, "Keeta").situacao).toBe("ATRASADO");
+  });
+
   test("o último dia vem do histórico inteiro, não só da janela", () => {
     const r = calcularCobertura({ ...BASE, rows: [], ultimoDiaGeral: { Keeta: "2026-09-18" } });
     expect(canal(r, "Keeta").ultimoDia).toBe("2026-09-18");
@@ -104,5 +116,69 @@ describe("calcularCobertura", () => {
     });
     expect(r.map((c) => c.canal)).toEqual(["Salão", "99Food", "iFood", "Keeta"]);
     expect(canal(r, "iFood").diasComDado).toBe(0);
+  });
+});
+
+describe("lançamento com data futura", () => {
+  const MES = { from: "2026-10-01", to: "2026-10-31", today: "2026-10-22" };
+
+  test("importação mensal gravada em 31/10 não deixa o canal 'Em dia'", () => {
+    const r = calcularCobertura({ ...MES, rows: [linha("2026-10-31", "Delivery", "iFood")], ultimoDiaGeral: {} });
+    const ifood = canal(r, "iFood");
+    expect(ifood.situacao).toBe("SEM_DADOS");
+    expect(ifood.diasComDado).toBe(0);
+    expect(ifood.lancamentosFuturos).toEqual(["2026-10-31"]);
+    expect(ifood.origens).toEqual([]);
+  });
+
+  test("último dia do histórico no futuro é ignorado e o canal fica atrasado", () => {
+    const r = calcularCobertura({ ...MES, rows: [], ultimoDiaGeral: { iFood: "2026-10-31", Keeta: "2026-10-20" } });
+    expect(canal(r, "iFood").situacao).toBe("SEM_DADOS");
+    expect(canal(r, "Keeta").situacao).toBe("ATRASADO");
+    expect(canal(r, "Keeta").diasDesdeUltimo).toBe(2);
+  });
+
+  test("lançamento de hoje conta (o dia ainda não é cobrado, mas o dado existe)", () => {
+    const r = calcularCobertura({ ...MES, rows: [linha("2026-10-22", "Salão", "AGILE_PDV")], ultimoDiaGeral: { Salão: "2026-10-22" } });
+    expect(canal(r, "Salão").situacao).toBe("EM_DIA");
+    expect(canal(r, "Salão").lancamentosFuturos).toEqual([]);
+  });
+});
+
+describe("resumoDeAtrasos", () => {
+  const MES = { from: "2026-10-01", to: "2026-10-31", today: "2026-10-22" };
+  const dia = (d: string) => `2026-10-${d}`;
+
+  test("devolve null quando todos os canais estão em dia", () => {
+    const rows = [
+      linha(dia("21"), "Salão", "AGILE_PDV"),
+      linha(dia("21"), "Delivery", "NOVENTA_NOVE"),
+      linha(dia("21"), "Delivery", "iFood"),
+      linha(dia("21"), "Delivery", "Keeta")
+    ];
+    expect(resumoDeAtrasos(calcularCobertura({ ...MES, rows, ultimoDiaGeral: {} }))).toBeNull();
+  });
+
+  test("lista só os canais atrasados, com o tempo de atraso", () => {
+    const rows = [
+      linha(dia("21"), "Salão", "AGILE_PDV"),
+      linha(dia("19"), "Delivery", "NOVENTA_NOVE"),
+      linha(dia("18"), "Delivery", "Keeta"),
+      linha(dia("31"), "Delivery", "iFood")
+    ];
+    const r = resumoDeAtrasos(calcularCobertura({ ...MES, rows, ultimoDiaGeral: {} }));
+    expect(r?.count).toBe(3);
+    expect(r?.description).toContain("99Food (há 3 dias)");
+    expect(r?.description).toContain("iFood (sem dados)");
+    expect(r?.description).toContain("Keeta (há 4 dias)");
+    expect(r?.description).not.toContain("Salão");
+  });
+
+  test("canal que lançou no mês mas parou mostra o atraso; sem lançamento no mês, com histórico, avisa isso", () => {
+    const r = resumoDeAtrasos(
+      calcularCobertura({ ...MES, rows: [], ultimoDiaGeral: { iFood: "2026-09-30", Salão: "2026-10-21", "99Food": "2026-10-21", Keeta: "2026-10-21" } })
+    );
+    expect(r?.count).toBe(1);
+    expect(r?.description).toContain("iFood (sem lançamento no mês)");
   });
 });

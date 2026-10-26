@@ -538,6 +538,7 @@
 .pg-selo--fatura { background: var(--tint-info); color: var(--info); }
 .pg-selo--legado { background: var(--paper-soft); color: var(--ink-soft); }
 .pg-selo--ciclo { background: var(--tint-success); color: var(--success); }
+.pg-selo--parcelamento { background: var(--tint-info, var(--paper-soft)); color: var(--info, var(--ink-soft)); }
 
 .pg-c-status { min-width: 0; }
 
@@ -1215,3 +1216,8 @@
 @media (prefers-reduced-motion: reduce) {
   .pg-fatia, .pg-dia-barra { transition: none; }
 }
+
+/* Caminho de volta quando a tela foi aberta pelo link "Pagar" da tela de Impostos. */
+.pg-volta { margin: 0 0 8px; font-size: var(--fs-sm); }
+.pg-volta a { color: var(--info); text-decoration: underline; text-underline-offset: 2px; }
+.pg-volta a:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: 3px; }

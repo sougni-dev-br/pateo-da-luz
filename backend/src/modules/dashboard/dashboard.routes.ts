@@ -4,8 +4,15 @@ import { prisma } from "../../config/database.js";
 import { requireRole } from "../security/security-utils.js";
 import { getMonthlyCmv } from "../monthly/monthly.service.js";
 import { excludeAggregatorsSql } from "../purchases/purchase-aggregators.js";
+import { semParcelamentoForaDoDreSql } from "../parcelamentos/parcelamento-dre.js";
 import { montarRankings } from "./dashboard-rankings.js";
 import { carregarFerias, contarAlertas, contarDireitoChegando, JANELA_DIREITO_CHEGANDO_DIAS } from "../payroll/ferias.routes.js";
+import { calcularResultadoCompleto } from "./dashboard-resultado.js";
+import { montarFaturamentoPorCanal, type SomaPorOrigem } from "./dashboard-canais.js";
+import { calcularTicketsSalao, variacaoPercentual, type BaseTicketSalao } from "./dashboard-ticket.js";
+import { REVENUE_CHANNEL_SALON } from "../monthly/revenue-channels.js";
+import { getRevenueCoverage, hojeEmBrasilia } from "../monthly/revenue-coverage.service.js";
+import { resumoDeAtrasos } from "../monthly/revenue-coverage.js";
 
 export const dashboardRouter = Router();
 
@@ -57,6 +64,7 @@ dashboardRouter.get("/purchases", async (request, response) => {
       : Prisma.sql`"purchaseDate" >= CAST(${startDate} AS timestamp) AND "purchaseDate" <= CAST(${endDate} AS timestamp)`}
       AND "status" = 'ACTIVE'
       AND ${excludeAggregatorsSql()}
+      AND ${semParcelamentoForaDoDreSql()}
   `;
 
   const previousIds = await prisma.$queryRaw<Array<{ id: string }>>`
@@ -65,6 +73,7 @@ dashboardRouter.get("/purchases", async (request, response) => {
       AND "competenceMonth" = ${previousMonth}
       AND "status" = 'ACTIVE'
       AND ${excludeAggregatorsSql()}
+      AND ${semParcelamentoForaDoDreSql()}
   `;
 
   const [revenue] = await prisma.$queryRaw<Array<{
@@ -206,6 +215,68 @@ async function revenueByDay(year: number, month: number): Promise<RevenueDay[]> 
   }));
 }
 
+// Base do ticket médio: líquido (sem serviço e deduções) só do canal Salão (ver dashboard-ticket.ts).
+async function salonTicketBase(year: number, month: number): Promise<BaseTicketSalao> {
+  const [row] = await prisma.$queryRaw<Array<{ netAmount: unknown; tickets: unknown; peopleServed: unknown }>>`
+    SELECT
+      COALESCE(SUM("netAmount"), 0)     AS "netAmount",
+      COALESCE(SUM("tickets"), 0)       AS "tickets",
+      COALESCE(SUM("peopleServed"), 0)  AS "peopleServed"
+    FROM "RevenueEntry"
+    WHERE "competenceYear" = ${year}
+      AND "competenceMonth" = ${month}
+      AND "channel" = ${REVENUE_CHANNEL_SALON}
+      AND "status" <> 'CANCELLED'
+  `;
+  return {
+    netAmount: Number(row?.netAmount ?? 0),
+    tickets: Number(row?.tickets ?? 0),
+    peopleServed: Number(row?.peopleServed ?? 0),
+  };
+}
+
+// Faturamento do mês aberto nos canais, com o último dia lançado de cada um (ver dashboard-canais.ts).
+// A cobertura (atraso) só vale para o mês corrente; em mês passado só o valor e o último dia.
+// Falha ao calcular a cobertura não derruba o resumo: o canal aparece sem a situação.
+async function faturamentoPorCanal(year: number, month: number) {
+  const hoje = hojeEmBrasilia();
+  const fimDeHoje = new Date(`${hoje}T23:59:59Z`);
+  const rows = await prisma.$queryRaw<Array<Record<string, unknown>>>`
+    SELECT
+      "channel",
+      "sourcePlatform",
+      COALESCE(SUM("grossAmount"), 0) AS "grossAmount",
+      COALESCE(SUM("netAmount"), 0)   AS "netAmount",
+      COUNT(*)                        AS "count",
+      to_char(MAX("date") FILTER (WHERE "date" <= ${fimDeHoje}), 'YYYY-MM-DD') AS "ultimoDia",
+      to_char(MAX("date") FILTER (WHERE "date" > ${fimDeHoje}), 'YYYY-MM-DD')  AS "diaFuturo"
+    FROM "RevenueEntry"
+    WHERE "competenceYear" = ${year}
+      AND "competenceMonth" = ${month}
+      AND "status" <> 'CANCELLED'
+    GROUP BY "channel", "sourcePlatform"
+  `;
+  const somas: SomaPorOrigem[] = rows.map((row) => ({
+    channel: String(row.channel ?? ""),
+    sourcePlatform: row.sourcePlatform === null || row.sourcePlatform === undefined ? null : String(row.sourcePlatform),
+    grossAmount: Number(row.grossAmount ?? 0),
+    netAmount: Number(row.netAmount ?? 0),
+    count: Number(row.count ?? 0),
+    ultimoDia: row.ultimoDia ? String(row.ultimoDia) : null,
+    diaFuturo: row.diaFuturo ? String(row.diaFuturo) : null
+  }));
+
+  let cobertura = null;
+  if (hoje.startsWith(`${year}-${String(month).padStart(2, "0")}`)) {
+    try {
+      cobertura = (await getRevenueCoverage({ year, month })).channels;
+    } catch (error) {
+      console.error("[dashboard] cobertura de faturamento indisponível:", error);
+    }
+  }
+  return montarFaturamentoPorCanal(somas, cobertura);
+}
+
 // ─────────────────────────────────────────────
 // GET /dashboard/summary?year=YYYY&month=MM
 // Resumo financeiro consolidado do período:
@@ -236,6 +307,8 @@ dashboardRouter.get("/summary", async (request, response) => {
     monthlyCmvViews,
     dailyRows,
     prevDailyRows,
+    salonRow,
+    prevSalonRow,
   ] = await Promise.all([
     // Faturamento período atual (por competência)
     prisma.$queryRaw<Array<{ grossAmount: unknown; netAmount: unknown; serviceAmount: unknown; tickets: unknown; peopleServed: unknown; count: unknown }>>`
@@ -273,6 +346,7 @@ dashboardRouter.get("/summary", async (request, response) => {
         AND "status" = 'ACTIVE'
         AND ("isSmallExpense" = false OR "isSmallExpense" IS NULL)
         AND ${excludeAggregatorsSql()}
+        AND ${semParcelamentoForaDoDreSql()}
     `,
     // Compras regulares mês anterior
     prisma.$queryRaw<Array<{ total: unknown }>>`
@@ -283,6 +357,7 @@ dashboardRouter.get("/summary", async (request, response) => {
         AND "status" = 'ACTIVE'
         AND ("isSmallExpense" = false OR "isSmallExpense" IS NULL)
         AND ${excludeAggregatorsSql()}
+        AND ${semParcelamentoForaDoDreSql()}
     `,
     // Pequenos gastos período atual
     prisma.$queryRaw<Array<{ total: unknown; cnt: unknown }>>`
@@ -293,6 +368,7 @@ dashboardRouter.get("/summary", async (request, response) => {
         AND "status" = 'ACTIVE'
         AND "isSmallExpense" = true
         AND ${excludeAggregatorsSql()}
+        AND ${semParcelamentoForaDoDreSql()}
     `,
     // Pequenos gastos mês anterior
     prisma.$queryRaw<Array<{ total: unknown }>>`
@@ -303,6 +379,7 @@ dashboardRouter.get("/summary", async (request, response) => {
         AND "status" = 'ACTIVE'
         AND "isSmallExpense" = true
         AND ${excludeAggregatorsSql()}
+        AND ${semParcelamentoForaDoDreSql()}
     `,
     // CMV Real (fechamento mensal)
     prisma.monthlyCmv.findFirst({
@@ -322,6 +399,8 @@ dashboardRouter.get("/summary", async (request, response) => {
     // A serie permite comparar o mesmo trecho e desenhar o ritmo do mes.
     revenueByDay(year, month),
     revenueByDay(prevYear, prevMonth),
+    salonTicketBase(year, month),
+    salonTicketBase(prevYear, prevMonth),
   ]);
 
   // ── Extrair valores ──
@@ -336,6 +415,8 @@ dashboardRouter.get("/summary", async (request, response) => {
   const prevRevTickets = Number(prevRevRow[0]?.tickets       ?? 0);
   const prevRevPeople  = Number(prevRevRow[0]?.peopleServed  ?? 0);
   const revPeople      = Number(revRow[0]?.peopleServed ?? 0);
+  const ticketSalao     = calcularTicketsSalao(salonRow);
+  const prevTicketSalao = calcularTicketsSalao(prevSalonRow);
 
   const purchasesTotal     = Number(purchasesRow[0]?.total     ?? 0);
   const purchasesCount     = Number(purchasesRow[0]?.cnt       ?? 0);
@@ -372,8 +453,16 @@ dashboardRouter.get("/summary", async (request, response) => {
   const estimatedResult = revNet - purchasesTotal - smallExpTotal;
   const estimatedMargin = revNet > 0 ? (estimatedResult / revNet) * 100 : null;
 
+  const fullResult = await calcularResultadoCompleto(year, month, {
+    net: revNet,
+    purchasesTotal,
+    smallExpenses: smallExpTotal,
+  });
+
   const delta = (current: number, previous: number) =>
     previous > 0 ? ((current - previous) / previous) * 100 : null;
+
+  const byChannel = await faturamentoPorCanal(year, month);
 
   response.json({
     year,
@@ -384,30 +473,28 @@ dashboardRouter.get("/summary", async (request, response) => {
       serviceAmount: revService,
       tickets: revTickets,
       count: revCount,
-      ticketAverage: revTickets > 0 ? revGross / revTickets : 0,
+      byChannel,
+      ticketAverage: ticketSalao.perTable,
       peopleServed: revPeople,
-      ticketAveragePerTable: revTickets > 0 ? revGross / revTickets : 0,
-      ticketAveragePerPerson: revPeople > 0 ? revGross / revPeople : 0,
+      // Ticket de mesa e de pessoa é do salão; tickets/peopleServed acima seguem totais.
+      salonTickets: salonRow.tickets,
+      salonPeopleServed: salonRow.peopleServed,
+      ticketAveragePerTable: ticketSalao.perTable,
+      ticketAveragePerPerson: ticketSalao.perPerson,
       prev: {
         grossAmount: prevRevGross,
         netAmount: prevRevNet,
         serviceAmount: prevRevService,
         tickets: prevRevTickets,
         peopleServed: prevRevPeople,
-        ticketAveragePerTable: prevRevTickets > 0 ? prevRevGross / prevRevTickets : 0,
-        ticketAveragePerPerson: prevRevPeople > 0 ? prevRevGross / prevRevPeople : 0
+        ticketAveragePerTable: prevTicketSalao.perTable,
+        ticketAveragePerPerson: prevTicketSalao.perPerson
       },
       deltaPercent: delta(revNet, prevRevNet),
       deltaGrossPercent: delta(revGross, prevRevGross),
       deltaServicePercent: delta(revService, prevRevService),
-      deltaTicketAvgPerTablePercent: delta(
-        revTickets > 0 ? revGross / revTickets : 0,
-        prevRevTickets > 0 ? prevRevGross / prevRevTickets : 0
-      ),
-      deltaTicketAvgPerPersonPercent: delta(
-        revPeople > 0 ? revGross / revPeople : 0,
-        prevRevPeople > 0 ? prevRevGross / prevRevPeople : 0
-      ),
+      deltaTicketAvgPerTablePercent: variacaoPercentual(ticketSalao.perTable, prevTicketSalao.perTable),
+      deltaTicketAvgPerPersonPercent: variacaoPercentual(ticketSalao.perPerson, prevTicketSalao.perPerson),
     },
     purchases: {
       total: purchasesTotal,
@@ -446,6 +533,9 @@ dashboardRouter.get("/summary", async (request, response) => {
       value: estimatedResult,
       marginPercent: estimatedMargin,
     },
+    // Mesma conta com folha, impostos e ocupação. Compras já vem sem o que
+    // pertence a essas três linhas (ver dashboard-resultado.ts).
+    fullResult,
   });
 });
 
@@ -703,6 +793,28 @@ dashboardRouter.get("/alerts", async (request, response) => {
       actionLabel: "Ver faturamento",
       actionPath: "/financeiro/faturamento"
     });
+  }
+
+  // Canal que parou de lançar. "Dias sem lançamento" acima olha todos os canais juntos: com o
+  // Salão em dia, 99Food ou Keeta parados não apareciam e o líquido saía incompleto sem aviso.
+  // Só faz sentido no mês corrente; nunca derruba o painel se a leitura falhar.
+  try {
+    if (hojeEmBrasilia().slice(0, 7) === `${year}-${String(month).padStart(2, "0")}`) {
+      const atrasos = resumoDeAtrasos((await getRevenueCoverage({ year, month })).channels);
+      if (atrasos) {
+        alerts.push({
+          type: "warning",
+          code: "REVENUE_CHANNELS_LATE",
+          title: "Canal de faturamento atrasado",
+          description: atrasos.description,
+          count: atrasos.count,
+          actionLabel: "Ver cobertura",
+          actionPath: "/financeiro/faturamento"
+        });
+      }
+    }
+  } catch (err) {
+    console.error("[dashboard] alerta de cobertura indisponível:", err instanceof Error ? err.message : err);
   }
 
   // Férias: só contagem (sem nomes) e nunca derruba o painel se a leitura falhar.

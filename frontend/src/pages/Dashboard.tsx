@@ -12,8 +12,9 @@ import {
 import { useSession } from "../context/SessionContext";
 import { Alert, Button, useFormatCurrency } from "../design-system";
 import { AttentionList, type AttentionItem } from "./dashboard/AttentionList";
+import { CanaisPanel } from "./dashboard/CanaisPanel";
 import { PeriodBar } from "./dashboard/PeriodBar";
-import { CmvStrip, ResultPanel, RevenueHero, TicketPanel } from "./dashboard/Panels";
+import { CmvStrip, FullResultPanel, ResultPanel, RevenueHero, TicketPanel } from "./dashboard/Panels";
 import { PurchasesPanel, RecentPurchases } from "./dashboard/Purchases";
 import { RitmoDoMes } from "./dashboard/RitmoDoMes";
 import {
@@ -206,7 +207,7 @@ function DashboardContent({ loaded, info, navigate, pathAllowed, canAccessSectio
   if (!summary) {
     // sem o resumo não há base — o chip some em vez de dizer "sem comparação"
   } else if (daily) {
-    const cmp = compareRevenue(daily.current, daily.previous, "netAmount", info.isCurrent);
+    const cmp = compareRevenue(daily.current, daily.previous, "netAmount", info.isCurrent, info.elapsedDays);
     const against = cmp.throughDay ? `vs 1–${cmp.throughDay} de ${prevLabel}` : `vs ${prevLabel}`;
     revenueDelta = buildDelta(cmp.pct, true, against);
   } else if (rev) {
@@ -276,34 +277,39 @@ function DashboardContent({ loaded, info, navigate, pathAllowed, canAccessSectio
 
       {!noData && (
         <div className="dash-grid">
-          <RevenueHero
-            gross={gross}
-            service={service}
-            net={net}
-            delta={revenueDelta}
-            noDeltaText={summary ? "Sem base de comparação" : undefined}
-            emptyAction={canCreateRevenue ? { label: "Lançar faturamento", onClick: () => navigate("/financeiro/faturamento") } : undefined}
-            chart={
-              daily && (
-                <RitmoDoMes
-                  current={daily.current}
-                  previous={daily.previous}
-                  daysInMonth={info.daysInMonth}
-                  previousDaysInMonth={monthInfo(shiftCompetence(competence, -1), new Date()).daysInMonth}
-                  currentUntil={info.isCurrent ? info.elapsedDays : info.daysInMonth}
-                  currentLabel={info.shortLabel}
-                  previousLabel={prevLabel}
-                />
-              )
-            }
-          />
+          <div className="dash-main">
+            <RevenueHero
+              gross={gross}
+              service={service}
+              net={net}
+              delta={revenueDelta}
+              noDeltaText={summary ? "Sem base de comparação" : undefined}
+              emptyAction={canCreateRevenue ? { label: "Lançar faturamento", onClick: () => navigate("/financeiro/faturamento") } : undefined}
+              chart={
+                daily && (
+                  <RitmoDoMes
+                    current={daily.current}
+                    previous={daily.previous}
+                    daysInMonth={info.daysInMonth}
+                    previousDaysInMonth={monthInfo(shiftCompetence(competence, -1), new Date()).daysInMonth}
+                    currentUntil={info.isCurrent ? info.elapsedDays : info.daysInMonth}
+                    currentLabel={info.shortLabel}
+                    previousLabel={prevLabel}
+                  />
+                )
+              }
+            />
+            {summary?.revenue.byChannel && summary.revenue.byChannel.length > 0 && (
+              <CanaisPanel channels={summary.revenue.byChannel} />
+            )}
+          </div>
           <div className="dash-side">
             {summary && (
               <TicketPanel
                 perTable={summary.revenue.ticketAveragePerTable}
                 perPerson={summary.revenue.ticketAveragePerPerson}
-                tables={summary.revenue.tickets}
-                people={summary.revenue.peopleServed}
+                tables={summary.revenue.salonTickets ?? summary.revenue.tickets}
+                people={summary.revenue.salonPeopleServed ?? summary.revenue.peopleServed}
                 deltaTable={buildDelta(summary.revenue.deltaTicketAvgPerTablePercent, true, `vs ${prevLabel}`)}
                 deltaPerson={buildDelta(summary.revenue.deltaTicketAvgPerPersonPercent, true, `vs ${prevLabel}`)}
               />
@@ -315,6 +321,18 @@ function DashboardContent({ loaded, info, navigate, pathAllowed, canAccessSectio
                 smallExpenses={summary.smallExpenses.total}
                 result={summary.estimatedResult.value}
                 margin={summary.estimatedResult.marginPercent}
+              />
+            )}
+            {summary?.fullResult && (
+              <FullResultPanel
+                net={net}
+                purchases={summary.fullResult.purchases}
+                smallExpenses={summary.fullResult.smallExpenses}
+                payroll={summary.fullResult.payroll}
+                taxes={summary.fullResult.taxes}
+                occupancy={summary.fullResult.occupancy}
+                result={summary.fullResult.value}
+                margin={summary.fullResult.marginPercent}
               />
             )}
           </div>

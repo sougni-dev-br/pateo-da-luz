@@ -759,3 +759,55 @@ button.dash-attention-row:hover .dash-attention-go svg { transform: translateX(3
   .dash-link-btn svg,
   .dash-attention-go svg { transition: none; }
 }
+
+/* ── Faturamento por canal ─────────────────────────────── */
+.dash-canais-list {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dash-canal-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 52px;
+  grid-template-areas:
+    "name value share"
+    "bar  bar   bar"
+    "status status status";
+  align-items: baseline;
+  gap: 4px 10px;
+  font-size: 13px;
+}
+
+.dash-canal-name { grid-area: name; color: var(--ink); font-weight: 600; }
+.dash-canal-value { grid-area: value; font-weight: 600; white-space: nowrap; }
+.dash-canal-share { grid-area: share; color: var(--muted); font-size: 12px; text-align: right; }
+
+.dash-canal-track {
+  grid-area: bar;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--paper-soft);
+  overflow: hidden;
+}
+
+.dash-canal-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--dash-series-current);
+}
+
+.dash-canal-status { grid-area: status; color: var(--muted); font-size: 12px; }
+.dash-canal-status--late { color: var(--warning); font-weight: 600; }
+.dash-canal-status--none { color: var(--danger); }
+
+/* Coluna do faturamento: o card do gráfico fica no tamanho do conteúdo e o painel por canal ocupa o espaço de baixo. */
+.dash-main {
+  display: grid;
+  gap: var(--dash-gap);
+  align-content: start;
+  min-width: 0;
+}

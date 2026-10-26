@@ -1,5 +1,12 @@
-﻿import { ChevronDown, Copy, Eye, FileText, Package, PackageCheck, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
+﻿import { AlertTriangle, ChevronDown, FileText, PackageCheck, Plus, RefreshCw, Trash2, X } from "lucide-react";
 import { RevisaoEmbalagens } from "./compras/RevisaoEmbalagens";
+import { ResumoCompras } from "./compras/ResumoCompras";
+import { FiltrosCompras, type OrdenacaoCompras } from "./compras/FiltrosCompras";
+import { ListaCompras, type AcoesLista, type LinhaCompra } from "./compras/ListaCompras";
+import { combinaBusca, combinaForma } from "./compras/busca";
+import { formatarChave, pertenceFaixa, resumirVencimento, totalizar, type FaixaVencimento } from "./compras/vencimento";
+import "./compras/lista-compras.css";
+import "./compras/grade-itens.css";
 import { avisoDePreco, previaDaConversao } from "./compras/embalagem";
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { UNSAFE_NavigationContext, useLocation, useNavigate, useParams } from "react-router-dom";
@@ -20,7 +27,7 @@ import {
   getPrecosNormais,
   getProducts,
   getPurchase,
-  getPurchases,
+  getPurchasesComLimite,
   getSmallExpenseReport,
   getSmallExpenseTypes,
   getSupplierCycles,
@@ -55,12 +62,11 @@ import { montarParcelas } from "../lib/parcelas";
 import { Notice, useNotice } from "../components/Notice";
 import { StatusBadge } from "../components/ui/StatusBadge";
 import {
-  EmptyState as DsEmptyState,
+  Alert,
+  Button,
   IconButton,
   Money as DsMoney,
-  RowMenu,
   StatusBadge as DsStatusBadge,
-  Table,
   useFormatCurrency
 } from "../design-system";
 import type { StatusTone } from "../design-system";
@@ -74,13 +80,13 @@ const LEGACY_TONE_TO_DS: Record<string, StatusTone> = {
   open: "warning",
   warning: "warning"
 };
-import { PeriodFilter } from "../components/PeriodFilter";
 import { hasPermission } from "../lib/permissions";
 import { formatDate, formatNumber } from "../utils/format";
-import { currentMonthPeriod } from "../utils/period";
+import { currentMonthPeriod, periodForPreset, type PeriodPreset } from "../utils/period";
 import { PedidosDaNota } from "../components/PedidosDaNota";
 import { lerQuantidade } from "../lib/vinculoPedido";
 import { hojeLocalIso } from "../lib/datas";
+import { CartaoDaCompra } from "./cards/CartaoDaCompra";
 
 const ROTULO_STATUS_PEDIDO: Record<string, string> = { RASCUNHO: "Rascunho", ENVIADO: "Enviado", RECEBIDO_PARCIAL: "Recebido parcial", RECEBIDO: "Recebido" };
 function statusDoPedidoRotulo(status: string) {
@@ -106,7 +112,9 @@ type InstallmentForm = {
   amount: string;
 };
 
-type PurchaseSortOption = "recent" | "oldest" | "highest" | "lowest";
+type PurchaseSortOption = OrdenacaoCompras;
+
+/** O backend devolve no máximo isto por consulta (purchase.routes.ts, `take`). */
 
 type ProductStep = "produtos" | "quantidades" | "valores" | "conferencia";
 
@@ -205,7 +213,7 @@ function statementStatusTone(status?: string | null) {
 }
 
 function purchaseSortValue(sort: PurchaseSortOption, purchase: Purchase) {
-  if (sort === "recent" || sort === "oldest") return new Date(purchase.purchaseDate).getTime();
+  if (sort === "recent" || sort === "oldest" || sort === "dueSoon") return new Date(purchase.purchaseDate).getTime();
   return Number(purchase.totalAmount || 0);
 }
 
@@ -232,6 +240,7 @@ export function Purchases({ user }: { user: AppUser }) {
   const location = useLocation();
   const params = useParams<{ id?: string }>();
   const [purchases, setPurchases] = useState<Purchase[]>([]);
+  const [listaTruncada, setListaTruncada] = useState(false);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -276,6 +285,7 @@ export function Purchases({ user }: { user: AppUser }) {
     smallExpenseMoneyOrigin: "",
     smallExpenseNotes: "",
     creditCardId: "",
+    creditCardFinalId: "",
     reimbursementPayeeId: "",
     ccNumberOfInstallments: "1",
     paymentDifferenceReason: "",
@@ -307,7 +317,9 @@ export function Purchases({ user }: { user: AppUser }) {
   const [showPaymentNotes, setShowPaymentNotes] = useState(false);
   const [paymentExpanded, setPaymentExpanded] = useState(false);
   const [productStep, setProductStep] = useState<ProductStep>("produtos");
-  const [filtersExpanded, setFiltersExpanded] = useState(() => window.innerWidth > 640);
+  const [filtrosAbertos, setFiltrosAbertos] = useState(false);
+  const [faixa, setFaixa] = useState<FaixaVencimento>("todas");
+  const loadSeq = useRef(0);
   const [mostrarEmbalagens, setMostrarEmbalagens] = useState(false);
   // Preco normal por unidade de contagem dos produtos da nota em edicao: avisa
   // pacote lancado como unidade antes de salvar.
@@ -374,14 +386,28 @@ export function Purchases({ user }: { user: AppUser }) {
   const isFormRoute = isCreateRoute || isEditRoute;
 
   async function loadPurchases() {
+    // Filtros mudam em sequência: só a última resposta vale.
+    const seq = ++loadSeq.current;
     setLoading(true);
     setError(null);
     try {
-      setPurchases(await getPurchases({ ...filters, startDate: period.startDate, endDate: period.endDate }));
+      // Busca geral e forma de pagamento filtram na tela (NF, fornecedor e "contém", que o
+      // servidor não entende); o servidor recebe só o que ele sabe filtrar.
+      const result = await getPurchasesComLimite({
+        supplierId: filters.supplierId,
+        category: filters.category,
+        showCancelled: filters.showCancelled ? "true" : "",
+        startDate: period.startDate,
+        endDate: period.endDate
+      });
+      if (seq === loadSeq.current) {
+        setPurchases(result.compras);
+        setListaTruncada(result.truncado);
+      }
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Erro ao carregar compras.");
+      if (seq === loadSeq.current) setError(loadError instanceof Error ? loadError.message : "Erro ao carregar compras.");
     } finally {
-      setLoading(false);
+      if (seq === loadSeq.current) setLoading(false);
     }
   }
 
@@ -403,8 +429,12 @@ export function Purchases({ user }: { user: AppUser }) {
   }
 
   useEffect(() => {
+    // Período personalizado só consulta com as duas datas preenchidas.
+    if (period.preset === "custom" && (!period.startDate || !period.endDate)) return;
     void loadPurchases();
+  }, [period.startDate, period.endDate, filters.supplierId, filters.category, filters.showCancelled]);
 
+  useEffect(() => {
     // Rótulos human-friendly por recurso, para toast quando 403.
     const RESOURCE_LABELS: Record<string, string> = {
       suppliers: "fornecedores",
@@ -534,6 +564,7 @@ export function Purchases({ user }: { user: AppUser }) {
           smallExpenseMoneyOrigin: "",
           smallExpenseNotes: "",
           creditCardId: "",
+          creditCardFinalId: "",
           reimbursementPayeeId: "",
           ccNumberOfInstallments: "1",
           paymentDifferenceReason: "",
@@ -693,22 +724,49 @@ export function Purchases({ user }: { user: AppUser }) {
       .slice(0, 10);
   }, [entry.query, products, supplierProductIds]);
 
-  const activeFilterCount = [filters.supplierId, filters.category, filters.paymentMethod, filters.search, filters.showCancelled].filter(Boolean).length;
+  const activeFilterCount = [filters.supplierId, filters.category, filters.paymentMethod, filters.showCancelled].filter(Boolean).length;
 
-  const displayedPurchases = useMemo(() => {
-    const base = purchases.filter((purchase) => {
-      if (!filters.showCancelled && purchase.status === "CANCELLED") return false;
-      if (filters.showCancelled === "active" && purchase.status === "CANCELLED") return false;
-      if (filters.showCancelled === "cancelled" && purchase.status !== "CANCELLED") return false;
-      return true;
+  const linhas = useMemo<LinhaCompra[]>(() => {
+    const hoje = hojeLocalIso();
+    return purchases
+      .filter((purchase) => {
+        if (filters.showCancelled === "cancelled") return purchase.status === "CANCELLED";
+        if (!filters.showCancelled) return purchase.status !== "CANCELLED";
+        return true;
+      })
+      .filter((purchase) => combinaBusca(purchase, filters.search) && combinaForma(purchase, filters.paymentMethod))
+      .map((compra) => ({ compra, vencimento: resumirVencimento(compra, hoje) }));
+  }, [filters.paymentMethod, filters.search, filters.showCancelled, purchases]);
+
+  // Os cartões somam o que passou nos filtros, antes de escolher a faixa de vencimento.
+  const totais = useMemo(
+    () => totalizar(linhas.map(({ compra, vencimento }) => ({ totalAmount: compra.totalAmount, status: compra.status, vencimento }))),
+    [linhas]
+  );
+
+  const linhasVisiveis = useMemo(() => {
+    const daFaixa = linhas.filter(({ vencimento }) => pertenceFaixa(vencimento, faixa));
+    return [...daFaixa].sort((left, right) => {
+      if (sortBy === "dueSoon") {
+        // Mais atrasada primeiro; quem não tem parcela em aberto vai para o fim.
+        const a = left.vencimento.dias ?? Number.POSITIVE_INFINITY;
+        const b = right.vencimento.dias ?? Number.POSITIVE_INFINITY;
+        if (a !== b) return a < b ? -1 : 1;
+        return purchaseSortValue("recent", right.compra) - purchaseSortValue("recent", left.compra);
+      }
+      const leftValue = purchaseSortValue(sortBy, left.compra);
+      const rightValue = purchaseSortValue(sortBy, right.compra);
+      return sortBy === "recent" || sortBy === "highest" ? rightValue - leftValue : leftValue - rightValue;
     });
-    return [...base].sort((left, right) => {
-      const leftValue = purchaseSortValue(sortBy, left);
-      const rightValue = purchaseSortValue(sortBy, right);
-      if (sortBy === "recent" || sortBy === "highest") return rightValue - leftValue;
-      return leftValue - rightValue;
-    });
-  }, [filters.showCancelled, purchases, sortBy]);
+  }, [faixa, linhas, sortBy]);
+
+  const totalExibido = useMemo(
+    () => linhasVisiveis.reduce((soma, { compra }) => soma + (compra.status === "CANCELLED" ? 0 : Number(compra.totalAmount ?? 0)), 0),
+    [linhasVisiveis]
+  );
+  const descricaoPeriodo = period.startDate && period.endDate
+    ? `Compras de ${formatarChave(period.startDate)} a ${formatarChave(period.endDate)}`
+    : "Todo o período";
 
 
   useEffect(() => {
@@ -822,6 +880,23 @@ export function Purchases({ user }: { user: AppUser }) {
     } finally {
       setCycleCreating(false);
     }
+  }
+
+  function handlePeriodo(preset: PeriodPreset) {
+    setPeriod((atual) => (preset === "custom" ? { ...atual, preset } : periodForPreset(preset)));
+  }
+
+  function handleSupplierFilterQuery(valor: string) {
+    setSupplierFilterQuery(valor);
+    setSupplierFilterOpen(true);
+    if (!valor.trim()) setFilters((atual) => ({ ...atual, supplierId: "" }));
+  }
+
+  function clearFilters() {
+    setFilters({ supplierId: "", category: "", paymentMethod: "", search: "", showCancelled: "" });
+    setSupplierFilterQuery("");
+    setSortBy("recent");
+    setFaixa("todas");
   }
 
   function selectSupplier(supplierId: string, scope: "filter" | "form") {
@@ -1097,6 +1172,7 @@ export function Purchases({ user }: { user: AppUser }) {
       smallExpenseMoneyOrigin: "",
       smallExpenseNotes: "",
       creditCardId: "",
+      creditCardFinalId: "",
       reimbursementPayeeId: "",
       ccNumberOfInstallments: "1",
       paymentDifferenceReason: "",
@@ -1190,6 +1266,7 @@ export function Purchases({ user }: { user: AppUser }) {
         smallExpenseMoneyOrigin: data.smallExpenseMoneyOrigin ?? "",
         smallExpenseNotes: data.smallExpenseNotes ?? "",
         creditCardId: data.creditCardId ?? "",
+        creditCardFinalId: "",
         reimbursementPayeeId: data.reimbursementPayeeId ?? "",
         ccNumberOfInstallments: "1",
         paymentDifferenceReason: "",
@@ -1271,6 +1348,7 @@ export function Purchases({ user }: { user: AppUser }) {
         smallExpenseMoneyOrigin: data.smallExpenseMoneyOrigin ?? "",
         smallExpenseNotes: data.smallExpenseNotes ?? "",
         creditCardId: "",
+        creditCardFinalId: "",
         reimbursementPayeeId: "",
         ccNumberOfInstallments: "1",
         paymentDifferenceReason: "",
@@ -1508,6 +1586,7 @@ export function Purchases({ user }: { user: AppUser }) {
         smallExpenseMoneyOrigin: form.isSmallExpense ? selectedPaymentMethod?.name ?? null : null,
         smallExpenseNotes: form.isSmallExpense ? form.smallExpenseNotes || form.notes || null : null,
         creditCardId: usesCreditCard ? form.creditCardId || null : null,
+        creditCardFinalId: normalPurchaseUsesCreditCard ? form.creditCardFinalId || null : null,
         // "emp:<id>": funcionário que ainda não tem cadastro de fornecedor; o servidor cria pelo CPF.
         reimbursementPayeeId: usesReimbursement && !form.reimbursementPayeeId.startsWith("emp:") ? form.reimbursementPayeeId || null : null,
         reimbursementEmployeeId: usesReimbursement && form.reimbursementPayeeId.startsWith("emp:") ? form.reimbursementPayeeId.slice(4) : null,
@@ -1639,302 +1718,109 @@ export function Purchases({ user }: { user: AppUser }) {
     return `${methodName} em ${count}x${daysLabel} — 1ª parcela em ${firstDue}.`;
   }, [form.installmentCount, form.purchaseDate, installmentLeadDays, selectedPaymentMethodAllowsInstallments, selectedPaymentMethodBaseName, selectedSupplier?.defaultInstallmentDays]);
 
+  const acoesLista: AcoesLista = {
+    podeCriar: canCreatePurchase,
+    podeEditar: canEditPurchase,
+    podeCancelar: canCancelPurchase,
+    onVer: openDetail,
+    onEditar: openEdit,
+    onCopiar: (compra) => void openCopyPurchase(compra.id),
+    onCancelar: handleCancel,
+    onRestaurar: handleRestore,
+    onAbrirParcelamento: () => navigate("/financeiro/parcelamentos"),
+    onNova: openNewPurchase
+  };
+
   return (
     <section className="panel">
       <Notice notice={notice} />
 
       {!isFormRoute && (
         <>
-      <div className="purch-page-header">
-        <div className="purch-page-actions">
-          <button className="icon-button" type="button" onClick={loadPurchases} aria-label="Atualizar compras">
-            <RefreshCw size={18} />
-          </button>
-          <button className="secondary-button" type="button" onClick={handleSupplierPositionPdf}>
-            <FileText size={16} /> PDF
-          </button>
+      <div className="cp-tela">
+        <div className="cp-topo">
+          <IconButton icon={<RefreshCw size={16} />} label="Atualizar compras" size="sm" onClick={() => void loadPurchases()} disabled={loading} />
+          <Button variant="secondary" size="sm" leadingIcon={<FileText size={15} />} onClick={handleSupplierPositionPdf}>
+            Posição por fornecedor (PDF)
+          </Button>
           {canCreatePurchase && (
-            <button className="secondary-button" type="button" aria-pressed={mostrarEmbalagens} onClick={() => setMostrarEmbalagens((v) => !v)}>
-              <PackageCheck size={16} /> Revisar embalagens
-            </button>
+            <Button variant="secondary" size="sm" leadingIcon={<PackageCheck size={15} />} aria-pressed={mostrarEmbalagens} onClick={() => setMostrarEmbalagens((v) => !v)}>
+              Revisar embalagens
+            </Button>
           )}
           {canCreatePurchase && (
-            <button className="primary-button" type="button" onClick={openNewPurchase}>
-              <Plus size={16} /> Nova compra
-            </button>
+            <Button size="sm" leadingIcon={<Plus size={15} />} onClick={openNewPurchase}>Nova compra</Button>
           )}
         </div>
-      </div>
 
-      {mostrarEmbalagens && <RevisaoEmbalagens onFechar={() => setMostrarEmbalagens(false)} onAplicado={loadPurchases} />}
+        {mostrarEmbalagens && <RevisaoEmbalagens onFechar={() => setMostrarEmbalagens(false)} onAplicado={loadPurchases} />}
 
-      <section className="purchase-filters-panel">
-        <div className="purch-filters-header">
-          <p className="purch-filters-label">
-            Filtros{activeFilterCount > 0 ? <span className="purch-filters-badge">{activeFilterCount}</span> : null}
-          </p>
-          <button
-            type="button"
-            className="purch-filters-toggle"
-            onClick={() => setFiltersExpanded((v) => !v)}
-            aria-expanded={filtersExpanded}
-          >
-            {filtersExpanded ? "Recolher ▲" : `Filtros${activeFilterCount > 0 ? ` (${activeFilterCount})` : ""} ▼`}
-          </button>
-        </div>
-        {filtersExpanded && (
-          <>
-            <div className="purchase-filters-grid">
-              <PeriodFilter value={period} onChange={setPeriod} />
-              <div className="purchase-autocomplete-field" ref={supplierFilterRef}>
-                <label>
-                  Fornecedor
-                  <div className={`autocomplete-shell${supplierFilterOpen ? " active" : ""}`}>
-                    <input
-                      autoComplete="off"
-                      name="purchase-supplier-filter"
-                      placeholder="Nome, código ou CNPJ/CPF"
-                      value={supplierFilterQuery}
-                      onChange={(event) => {
-                        setSupplierFilterQuery(event.target.value);
-                        setSupplierFilterOpen(true);
-                        if (!event.target.value.trim()) setFilters((current) => ({ ...current, supplierId: "" }));
-                      }}
-                      onFocus={() => setSupplierFilterOpen(true)}
-                    />
-                    {supplierFilterQuery && (
-                      <button className="autocomplete-clear" type="button" aria-label="Limpar fornecedor" onClick={clearFilterSupplier}>
-                        <X size={14} />
-                      </button>
-                    )}
-                    <ChevronDown size={16} className="autocomplete-chevron" />
-                  </div>
-                </label>
-                {supplierFilterOpen && (
-                  <div className="autocomplete-dropdown">
-                    {filteredSupplierOptions.length === 0 && <div className="autocomplete-empty">Nenhum fornecedor encontrado. Verifique o código, nome ou CNPJ.</div>}
-                    {filteredSupplierOptions.map((supplier) => (
-                      <button key={supplier.id} className="autocomplete-option" type="button" onClick={() => selectSupplier(supplier.id, "filter")}>
-                        <strong>{supplier.externalCode ? `${supplier.externalCode} • ` : ""}{supplier.name}</strong>
-                        <small>{supplier.document || "Sem documento"}</small>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <label>
-                Categoria
-                <select value={filters.category} onChange={(event) => setFilters({ ...filters, category: event.target.value })}>
-                  <option value="">Todas</option>
-                  {categories.map((category) => <option key={category} value={category}>{category}</option>)}
-                </select>
-              </label>
-              <label>
-                Status
-                <select value={filters.showCancelled} onChange={(event) => setFilters({ ...filters, showCancelled: event.target.value })}>
-                  <option value="">Ativas</option>
-                  <option value="true">Todas</option>
-                  <option value="cancelled">Somente canceladas</option>
-                </select>
-              </label>
-              <label>
-                Forma de pagamento
-                <input autoComplete="off" placeholder="PIX, boleto, cartão..." value={filters.paymentMethod} onChange={(event) => setFilters({ ...filters, paymentMethod: event.target.value })} />
-              </label>
-              <label>
-                Busca geral
-                <input autoComplete="off" placeholder="NF, produto, fornecedor..." value={filters.search} onChange={(event) => setFilters({ ...filters, search: event.target.value })} />
-              </label>
-              <label>
-                Ordenação
-                <select value={sortBy} onChange={(event) => setSortBy(event.target.value as PurchaseSortOption)}>
-                  <option value="recent">Mais recente</option>
-                  <option value="oldest">Mais antigo</option>
-                  <option value="highest">Maior valor</option>
-                  <option value="lowest">Menor valor</option>
-                </select>
-              </label>
-            </div>
-            <div className="purchase-filter-actions">
-              <button className="primary-button" type="button" onClick={loadPurchases}>Filtrar</button>
-              <button
-                className="secondary-button"
-                type="button"
-                onClick={() => {
-                  setFilters({ supplierId: "", category: "", paymentMethod: "", search: "", showCancelled: "" });
-                  setSupplierFilterQuery("");
-                  setSortBy("recent");
-                }}
-              >
-                Limpar filtros
-              </button>
-            </div>
-          </>
+        <ResumoCompras totais={totais} faixa={faixa} onFaixa={setFaixa} />
+
+        <FiltrosCompras
+          busca={filters.search}
+          onBusca={(valor) => setFilters((atual) => ({ ...atual, search: valor }))}
+          painelAberto={filtrosAbertos}
+          onAlternarPainel={() => setFiltrosAbertos((v) => !v)}
+          qtdAtivos={activeFilterCount}
+          onLimpar={clearFilters}
+          periodo={period}
+          onPeriodo={handlePeriodo}
+          onData={(campo, valor) => setPeriod((atual) => ({ ...atual, [campo]: valor }))}
+          fornecedor={{
+            consulta: supplierFilterQuery,
+            aberto: supplierFilterOpen,
+            containerRef: supplierFilterRef,
+            opcoes: filteredSupplierOptions,
+            onConsulta: handleSupplierFilterQuery,
+            onAbrir: () => setSupplierFilterOpen(true),
+            onEscolher: (id) => selectSupplier(id, "filter"),
+            onLimpar: clearFilterSupplier
+          }}
+          categorias={categories}
+          categoria={filters.category}
+          onCategoria={(valor) => setFilters((atual) => ({ ...atual, category: valor }))}
+          situacao={filters.showCancelled}
+          onSituacao={(valor) => setFilters((atual) => ({ ...atual, showCancelled: valor }))}
+          forma={filters.paymentMethod}
+          onForma={(valor) => setFilters((atual) => ({ ...atual, paymentMethod: valor }))}
+          ordenacao={sortBy}
+          onOrdenacao={setSortBy}
+          faixa={faixa}
+          onFaixa={setFaixa}
+        />
+
+        {!loading && !error && listaTruncada && (
+          <Alert tone="warning" role="alert">
+            A lista foi cortada no limite de segurança do servidor, e os totais acima cobrem só as compras exibidas. Reduza o período ou filtre por fornecedor para ver tudo.
+          </Alert>
         )}
-      </section>
 
-      {error && <div className="alert error">{error}</div>}
-      {loading && <div className="empty-state">Carregando compras...</div>}
+        <div className="cp-resultado" aria-live="polite">
+          <span className="cp-resultado-qtd">
+            {loading ? "Carregando…" : `${linhasVisiveis.length} ${linhasVisiveis.length === 1 ? "compra" : "compras"}`}
+          </span>
+          {!loading && linhasVisiveis.length > 0 && <strong className="cp-num"><DsMoney value={totalExibido} /></strong>}
+          <span className="cp-resultado-periodo">{descricaoPeriodo}</span>
+        </div>
 
-      {!loading && (
-        <>
-          <div className="purchases-desktop-list">
-            <Table>
-              <Table.Head>
-                <Table.Row>
-                  <Table.Th>Compra</Table.Th>
-                  <Table.Th minWidth={180}>Fornecedor</Table.Th>
-                  <Table.Th>Itens</Table.Th>
-                  <Table.Th>Pagamento</Table.Th>
-                  <Table.Th align="right">Total</Table.Th>
-                  <Table.Th>Status</Table.Th>
-                  <Table.Th actions>Ações</Table.Th>
-                </Table.Row>
-              </Table.Head>
-              <Table.Body>
-                {displayedPurchases.map((purchase) => (
-                  <Table.Row key={purchase.id}>
-                    <Table.Td className="purchase-main-cell">
-                      <strong>{purchase.invoiceNumber ? `NF ${purchase.invoiceNumber}` : purchase.purchaseNumber ?? "Compra manual"}</strong>
-                      <small>{formatDate(purchase.purchaseDate)} • {String(purchase.competenceMonth).padStart(2, "0")}/{purchase.competenceYear}</small>
-                    </Table.Td>
-                    <Table.Td truncate className="purchase-supplier-cell" title={purchase.supplier.name}>
-                      <strong className="truncate-cell">{purchase.supplier.name}</strong>
-                      <small>{purchase.supplier.document ?? purchase.rawSupplierCode ?? "Sem documento"}</small>
-                    </Table.Td>
-                    <Table.Td className="purchase-items-summary">
-                      <strong>{purchase.items.length} {purchase.items.length === 1 ? "item" : "itens"}</strong>
-                      <small className="truncate-cell" title={purchase.items.map((item) => item.rawProductName).join(", ")}>
-                        {purchase.items[0]?.rawProductCode ? `${purchase.items[0].rawProductCode} • ` : ""}
-                        {purchase.items[0]?.rawProductName ?? "-"}
-                        {purchase.items.length > 1 ? ` +${purchase.items.length - 1}` : ""}
-                      </small>
-                    </Table.Td>
-                    <Table.Td className="purchase-payment-cell">
-                      {purchase.cycleStatus != null ? (
-                        <>
-                          <strong>Ciclo fornecedor</strong>
-                          <small>{{OPEN:"Aberto",CHECKED:"Conferido",CLOSED:"Fechado",PAID:"Pago",CANCELLED:"Cancelado"}[purchase.cycleStatus] ?? purchase.cycleStatus}</small>
-                        </>
-                      ) : (
-                        <>
-                          <strong>{purchase.installments[0]?.paymentMethodName ?? purchase.paymentMethod ?? "-"}</strong>
-                          <small>{purchase.reimbursementPayeeId && purchase.installments.length === 0 ? "Reembolso" : purchase.creditCardId && purchase.installments.length === 0 ? "Fatura(s) cartão" : `${purchase.installments.length} parcela(s)`}</small>
-                        </>
-                      )}
-                    </Table.Td>
-                    <Table.Td align="right" style={{ whiteSpace: "nowrap" }}><DsMoney value={Number(purchase.totalAmount ?? 0)} /></Table.Td>
-                    <Table.Td>
-                      <DsStatusBadge tone={LEGACY_TONE_TO_DS[purchaseStatusTone(purchase.status)] ?? "neutral"}>
-                        {purchaseStatusLabel(purchase.status)}
-                      </DsStatusBadge>
-                      {purchase.cancellationReason && <small className="block-note" title={purchase.cancellationReason}>{purchase.cancellationReason}</small>}
-                    </Table.Td>
-                    <Table.Td actions>
-                      <IconButton icon={<Eye size={16} />} label="Ver compra" onClick={() => openDetail(purchase)} />
-                      {canEditPurchase && purchase.status !== "CANCELLED" && (
-                        <IconButton icon={<Pencil size={16} />} label="Editar" onClick={() => openEdit(purchase)} />
-                      )}
-                      <RowMenu
-                        label={`Mais ações — ${purchase.supplier.name}`}
-                        items={[
-                          ...(canCreatePurchase
-                            ? [{ label: "Copiar para nova compra", icon: <Copy size={15} />, onClick: () => void openCopyPurchase(purchase.id) }]
-                            : []),
-                          ...(canCancelPurchase
-                            ? [
-                                { separator: true as const },
-                                purchase.status === "CANCELLED"
-                                  ? { label: "Restaurar", onClick: () => handleRestore(purchase) }
-                                  : { label: "Cancelar compra", icon: <Trash2 size={15} />, tone: "danger" as const, onClick: () => handleCancel(purchase) }
-                              ]
-                            : [])
-                        ]}
-                      />
-                    </Table.Td>
-                  </Table.Row>
-                ))}
-                {displayedPurchases.length === 0 && (
-                  <Table.Row>
-                    <Table.Td colSpan={7}>
-                      <DsEmptyState
-                        title="Nenhuma compra encontrada"
-                        description="Ajuste os filtros ou cadastre uma nova compra."
-                        action={
-                          <button className="primary-button" type="button" onClick={openNewPurchase}>
-                            <Plus size={15} /> Cadastrar nova compra
-                          </button>
-                        }
-                      />
-                    </Table.Td>
-                  </Table.Row>
-                )}
-              </Table.Body>
-            </Table>
+        {loading ? (
+          <div className="cp-carregando" role="status" aria-label="Carregando compras">
+            {[0, 1, 2, 3].map((i) => <div key={i} className="cp-esqueleto" />)}
           </div>
-
-          <div className="purchases-mobile-list">
-            {displayedPurchases.map((purchase) => (
-              <article className={`purch-mobile-card${purchase.status === "CANCELLED" ? " purch-card-cancelled" : ""}`} key={`${purchase.id}-mobile`}>
-                <div className="purch-mobile-card-header">
-                  <div className="purch-mobile-card-title">
-                    <strong className="purch-mobile-supplier">{purchase.supplier.name}</strong>
-                    <div className="purch-mobile-meta-row">
-                      <span className="purch-mobile-ref">{purchase.invoiceNumber ? `NF ${purchase.invoiceNumber}` : purchase.purchaseNumber ?? "Compra manual"}</span>
-                      <span className="purch-mobile-date">{formatDate(purchase.purchaseDate)}</span>
-                    </div>
-                  </div>
-                  <div className="purch-mobile-card-right">
-                    <strong className="purch-mobile-amount"><DsMoney value={purchase.totalAmount} /></strong>
-                    <DsStatusBadge className="purch-mobile-status" tone={LEGACY_TONE_TO_DS[purchaseStatusTone(purchase.status)] ?? "neutral"}>{purchaseStatusLabel(purchase.status)}</DsStatusBadge>
-                  </div>
-                </div>
-                <div className="purch-mobile-card-body">
-                  <div className="purch-mobile-row">
-                    <span>Itens</span>
-                    <span>
-                      {purchase.items.length} {purchase.items.length === 1 ? "item" : "itens"}
-                      {purchase.items[0]?.rawProductName ? ` · ${purchase.items[0].rawProductName}${purchase.items.length > 1 ? ` +${purchase.items.length - 1}` : ""}` : ""}
-                    </span>
-                  </div>
-                  <div className="purch-mobile-row">
-                    <span>Pagamento</span>
-                    {purchase.cycleStatus != null ? (
-                      <span>Ciclo · {{OPEN:"Aberto",CHECKED:"Conferido",CLOSED:"Fechado",PAID:"Pago",CANCELLED:"Cancelado"}[purchase.cycleStatus] ?? purchase.cycleStatus}</span>
-                    ) : (
-                      <span>{purchase.installments[0]?.paymentMethodName ?? purchase.paymentMethod ?? "-"} · {purchase.installments.length > 0 ? `${purchase.installments.length}x` : "à vista"}</span>
-                    )}
-                  </div>
-                </div>
-                <div className="purch-mobile-card-footer">
-                  <div className="purch-mobile-actions">
-                    <button className="purch-mobile-btn" type="button" onClick={() => openDetail(purchase)}><Eye size={15} /> Ver</button>
-                    {canEditPurchase && purchase.status !== "CANCELLED" && <button className="purch-mobile-btn" type="button" onClick={() => openEdit(purchase)}><Pencil size={15} /> Editar</button>}
-                    {canCreatePurchase && <button className="purch-mobile-btn purch-mobile-btn-ghost" type="button" title="Copiar" onClick={() => void openCopyPurchase(purchase.id)}><Copy size={14} /></button>}
-                    {canCancelPurchase && (
-                      purchase.status === "CANCELLED"
-                        ? <button className="purch-mobile-btn purch-mobile-btn-ghost" type="button" onClick={() => handleRestore(purchase)}>Restaurar</button>
-                        : <button className="purch-mobile-btn purch-mobile-btn-danger" type="button" title="Cancelar" onClick={() => handleCancel(purchase)}><Trash2 size={14} /></button>
-                    )}
-                  </div>
-                </div>
-              </article>
-            ))}
-            {displayedPurchases.length === 0 && (
-              <div className="purch-empty-state purch-empty-state-mobile">
-                <Package size={36} className="purch-empty-icon" />
-                <p className="purch-empty-title">Nenhuma compra encontrada</p>
-                <p className="purch-empty-desc">Ajuste os filtros ou cadastre uma nova compra.</p>
-                {canCreatePurchase && (
-                  <button className="primary-button" type="button" onClick={openNewPurchase}>
-                    <Plus size={15} /> Nova compra
-                  </button>
-                )}
-              </div>
-            )}
+        ) : error ? (
+          <div className="cp-erro" role="alert">
+            <AlertTriangle size={20} aria-hidden="true" />
+            <div>
+              <strong>Não foi possível carregar as compras.</strong>
+              <p>{error}</p>
+            </div>
+            <Button variant="secondary" size="sm" leadingIcon={<RefreshCw size={14} />} onClick={() => void loadPurchases()}>Tentar de novo</Button>
           </div>
-        </>
-      )}
+        ) : (
+          <ListaCompras linhas={linhasVisiveis} acoes={acoesLista} />
+        )}
+      </div>
         </>
       )}
 
@@ -2925,11 +2811,17 @@ export function Purchases({ user }: { user: AppUser }) {
                             <label className={fieldErrors.creditCardId ? "field-error" : ""}>
                               Cartão de crédito
                               <select value={form.creditCardId}
-                                onChange={(event) => setForm({ ...form, creditCardId: event.target.value })}>
+                                onChange={(event) => setForm({ ...form, creditCardId: event.target.value, creditCardFinalId: "" })}>
                                 <option value="">Selecione</option>
                                 {creditCards.map((card) => <option key={card.id} value={card.id}>{card.name} — {card.bankName} {card.last4Digits}</option>)}
                               </select>
                             </label>
+                            <CartaoDaCompra
+                              cartao={creditCards.find((card) => card.id === form.creditCardId)}
+                              fornecedor={suppliers.find((entry) => entry.id === form.supplierId)?.name ?? ""}
+                              valor={form.creditCardFinalId}
+                              onChange={(creditCardFinalId) => setForm((current) => ({ ...current, creditCardFinalId }))}
+                            />
                             <label>
                               Parcelas no cartão
                               <div className="pnova-installment-count-wrap">

@@ -10,6 +10,7 @@ import type {
 import { buildMockSummary, consolidateSummaries } from "./noventa-nove-mock.service.js";
 import { CANAIS_FATURADOS, runRealSync, type RealSyncResult } from "./noventa-nove-real-sync.service.js";
 import { contaComoPedido } from "./contagem-de-pedidos.js";
+import type { PoliticaDeRetry } from "./noventa-nove-retry.js";
 import { fetchBoundShops, hasValidCredential } from "./noventa-nove-http-client.js";
 
 // Lojas 99 Food do Pateo — usadas na primeira execução para popular a tabela
@@ -368,7 +369,8 @@ async function readSummaryFromDb(store: NoventaNoveStoreView, year: number, mont
       totalFees: Number(row.totalFees),
       netAmount: Number(row.netAmount),
       paidAt: row.paidAt ? row.paidAt.toISOString().slice(0, 10) : null,
-      status: row.status
+      status: row.status,
+      storeLabel: store.nickname
     })),
     isMock: false
   };
@@ -499,7 +501,7 @@ export type SmartSyncResult = {
   log: NoventaNoveStatusView["lastSync"];
 };
 
-export async function runSmartSync(triggeredByUserId: string | null, year: number, month: number): Promise<SmartSyncResult> {
+export async function runSmartSync(triggeredByUserId: string | null, year: number, month: number, retry?: PoliticaDeRetry): Promise<SmartSyncResult> {
   const credentialOk = await hasValidCredential();
   const anyRealStore = await prisma.deliveryStore.count({
     where: {
@@ -509,7 +511,7 @@ export async function runSmartSync(triggeredByUserId: string | null, year: numbe
     }
   });
   if (credentialOk && anyRealStore > 0) {
-    const real = await runRealSync({ year, month, triggeredByUserId });
+    const real = await runRealSync({ year, month, triggeredByUserId, retry });
     const lastLog = await prisma.noventaNoveSyncLog.findFirst({ orderBy: { startedAt: "desc" } });
     return {
       mode: "REAL",
@@ -546,11 +548,12 @@ export function isSyncInFlight(): boolean {
 export async function runSmartSyncGuarded(
   triggeredByUserId: string | null,
   year: number,
-  month: number
+  month: number,
+  retry?: PoliticaDeRetry
 ): Promise<SmartSyncResult> {
   syncInFlightCount += 1;
   const run = syncTail.then(
-    () => runSmartSync(triggeredByUserId, year, month),
+    () => runSmartSync(triggeredByUserId, year, month, retry),
     () => runSmartSync(triggeredByUserId, year, month)
   );
   // Mantém a cadeia viva mesmo se esta rodada rejeitar.

@@ -9,6 +9,7 @@ import {
   type NoventaNovePeriodSummary
 } from "../api/client";
 import { Alert, Card, Money, PanelEyebrow, Select, SummaryCard, Table } from "../design-system";
+import { formatarPeriodoRepasse, ordenarRepasses, rotuloStatusRepasse, tomDoStatusRepasse } from "../lib/repassesDelivery";
 
 // Aba "Acumulado" — consolida iFood + 99 Food + Keeta para o dono ver total delivery.
 // Regra:
@@ -81,6 +82,7 @@ type ConsolidatedSettlement = {
   netAmount: number;
   paidAt: string | null;
   status: string;
+  storeLabel?: string;
 };
 
 type ConsolidatedSummary = {
@@ -164,9 +166,10 @@ function consolidate(ifood: IfoodPeriodSummary, nn: NoventaNovePeriodSummary, ke
   ].sort((a, b) => b.amount - a.amount);
 
   const settlements: ConsolidatedSettlement[] = [
-    ...ifood.settlements.map((s) => ({ id: s.id, platform: "IFOOD" as const, externalId: s.externalId, periodStart: s.periodStart, periodEnd: s.periodEnd, grossAmount: s.grossAmount, totalFees: s.totalFees, netAmount: s.netAmount, paidAt: s.paidAt, status: s.status })),
-    ...nn.settlements.map((s) => ({ id: s.id, platform: "NOVENTA_NOVE" as const, externalId: s.externalId, periodStart: s.periodStart, periodEnd: s.periodEnd, grossAmount: s.grossAmount, totalFees: s.totalFees, netAmount: s.netAmount, paidAt: s.paidAt, status: s.status }))
-  ].sort((a, b) => (a.periodStart < b.periodStart ? -1 : 1));
+    ...ifood.settlements.map((s) => ({ id: s.id, platform: "IFOOD" as const, externalId: s.externalId, periodStart: s.periodStart, periodEnd: s.periodEnd, grossAmount: s.grossAmount, totalFees: s.totalFees, netAmount: s.netAmount, paidAt: s.paidAt, status: s.status, storeLabel: s.storeLabel })),
+    ...nn.settlements.map((s) => ({ id: s.id, platform: "NOVENTA_NOVE" as const, externalId: s.externalId, periodStart: s.periodStart, periodEnd: s.periodEnd, grossAmount: s.grossAmount, totalFees: s.totalFees, netAmount: s.netAmount, paidAt: s.paidAt, status: s.status, storeLabel: s.storeLabel }))
+  ];
+  const settlementsOrdenados = ordenarRepasses(settlements);
 
   return {
     totals: {
@@ -180,7 +183,7 @@ function consolidate(ifood: IfoodPeriodSummary, nn: NoventaNovePeriodSummary, ke
     },
     daily: Array.from(dailyMap.values()).sort((a, b) => (a.date < b.date ? -1 : 1)),
     fees,
-    settlements,
+    settlements: settlementsOrdenados,
     breakdownByPlatform: [
       { platform: "IFOOD" as const, label: "iFood", orders: ifood.totals.orders, grossAmount: ifood.totals.grossAmount, netAmount: ifood.totals.netAmount, isMock: ifood.isMock },
       { platform: "NOVENTA_NOVE" as const, label: "99 Food", orders: nn.totals.orders, grossAmount: nn.totals.grossAmount, netAmount: nn.totals.netAmount, isMock: nn.isMock },
@@ -364,34 +367,36 @@ export function DeliveryAcumulado() {
                 </tbody>
               </Table>
             </Card>
-
-            <Card>
-              <PanelEyebrow>Repasses consolidados</PanelEyebrow>
-              <h3 style={{ margin: "4px 0 12px 0", fontSize: "16px" }}>Ciclos de pagamento — iFood + 99 Food</h3>
-              <Table>
-                <thead>
-                  <tr>
-                    <th>Plataforma</th>
-                    <th>Período</th>
-                    <th>Status</th>
-                    <th style={{ textAlign: "right" }}>Bruto</th>
-                    <th style={{ textAlign: "right" }}>Líquido</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {summary.settlements.map((s) => (
-                    <tr key={`${s.platform}-${s.id}`}>
-                      <td>{s.platform === "IFOOD" ? "iFood" : "99 Food"}</td>
-                      <td>{s.periodStart} → {s.periodEnd}</td>
-                      <td>{s.status === "PAID" ? "Pago" : "Pendente"}</td>
-                      <td style={{ textAlign: "right" }}><Money value={s.grossAmount} /></td>
-                      <td style={{ textAlign: "right" }}><Money value={s.netAmount} /></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </Table>
-            </Card>
           </div>
+
+          <Card>
+            <PanelEyebrow>Repasses consolidados</PanelEyebrow>
+            <h3 style={{ margin: "4px 0 12px 0", fontSize: "16px" }}>Ciclos de pagamento — iFood + 99 Food</h3>
+            <Table>
+              <thead>
+                <tr>
+                  <th>Plataforma</th>
+                  <th>Loja</th>
+                  <th>Período</th>
+                  <th>Status</th>
+                  <th style={{ textAlign: "right" }}>Bruto</th>
+                  <th style={{ textAlign: "right" }}>Líquido</th>
+                </tr>
+              </thead>
+              <tbody>
+                {summary.settlements.map((s) => (
+                  <tr key={`${s.platform}-${s.id}`}>
+                    <td>{s.platform === "IFOOD" ? "iFood" : "99 Food"}</td>
+                    <td>{s.storeLabel ?? "—"}</td>
+                    <td style={{ whiteSpace: "nowrap" }}>{formatarPeriodoRepasse(s.periodStart, s.periodEnd)}</td>
+                    <td style={tomDoStatusRepasse(s.status) === "atencao" ? { color: "#b45309", fontWeight: 600 } : undefined}>{rotuloStatusRepasse(s.status)}</td>
+                    <td style={{ textAlign: "right" }}><Money value={s.grossAmount} /></td>
+                    <td style={{ textAlign: "right" }}><Money value={s.netAmount} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          </Card>
 
           <Card>
             <PanelEyebrow>Vendas dia a dia (consolidado)</PanelEyebrow>

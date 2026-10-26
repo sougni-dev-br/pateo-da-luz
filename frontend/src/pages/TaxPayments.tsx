@@ -1,22 +1,21 @@
-import { Plus, Search, Upload, X } from "lucide-react";
+import { CheckCircle2, Plus, Search, Upload, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  type AppUser, type TaxPanorama, type TaxPayment, type TaxPaymentFilters,
-  deleteTaxPayment, getTaxPanorama, getTaxPayments,
+  type AppUser, type Company, type TaxPanorama, type TaxPayment, type TaxPaymentFilters,
+  deleteTaxPayment, getCompanies, getTaxPanorama, getTaxPayments,
 } from "../api/client";
 import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { Notice, useNotice } from "../components/Notice";
-import { Button, Select, TextField } from "../design-system";
+import { Button, IconButton, Select, TextField } from "../design-system";
 import { hojeIso } from "../lib/guia-imposto";
 import { hasPermission } from "../lib/permissions";
 import { ListaGuias } from "./tax-payments/ListaGuias";
-import { ModalGuia } from "./tax-payments/ModalGuia";
+import { ModalGuia, type GuiaSalva, type InicialDaGuia } from "./tax-payments/ModalGuia";
 import { ModalImportacao } from "./tax-payments/ModalImportacao";
-import { ModalPagar } from "./tax-payments/ModalPagar";
 import { ResumoImpostos } from "./tax-payments/ResumoImpostos";
 import { TIPOS_DE_GUIA } from "./tax-payments/formularioGuia";
-import { competenciaDoMes, rotuloMes, ultimoDiaDoMes } from "./tax-payments/regras";
+import { competenciaDoMes, linkContasAPagar, rotuloMes, ultimoDiaDoMes } from "./tax-payments/regras";
 import "./tax-payments/tax-payments.css";
 
 type Situacao = "" | "OVERDUE" | "PENDING" | "PAID" | "CANCELED";
@@ -24,8 +23,7 @@ type Situacao = "" | "OVERDUE" | "PENDING" | "PAID" | "CANCELED";
 const TAMANHO_PAGINA = 30;
 
 type JanelaAberta =
-  | { tipo: "guia"; editId: string | null; duplicarDe: string | null }
-  | { tipo: "pagar"; guia: TaxPayment }
+  | { tipo: "guia"; editId: string | null; duplicarDe: string | null; inicial?: InicialDaGuia }
   | { tipo: "importar" }
   | null;
 
@@ -37,6 +35,8 @@ export function TaxPayments({ user }: Props) {
   const podeExcluir = hasPermission(user, "tax-payments", "delete");
   // Confirmar a importação é "approve" no servidor: sem isso o botão só levaria a um 403 depois de conferir tudo.
   const podeImportar = hasPermission(user, "tax-payments", "approve");
+  const podeVerContasAPagar = hasPermission(user, "payables", "view");
+  const podeVerFuncionarios = hasPermission(user, "employees", "view");
   const navigate = useNavigate();
   const topoDaLista = useRef<HTMLDivElement>(null);
 
@@ -51,22 +51,35 @@ export function TaxPayments({ user }: Props) {
   const [buscaAplicada, setBuscaAplicada] = useState("");
   const [tipo, setTipo] = useState("");
   const [mes, setMes] = useState("");
+  // Vindo de uma célula da grade: o imposto (categoria do DRE) daquele mês.
+  const [categoria, setCategoria] = useState<{ id: string; nome: string } | null>(null);
+  const [semCompetencia, setSemCompetencia] = useState(false);
+  const [empresaId, setEmpresaId] = useState("");
+  const [empresas, setEmpresas] = useState<Company[]>([]);
   const [pagina, setPagina] = useState(1);
 
   const [janela, setJanela] = useState<JanelaAberta>(null);
   const [excluir, setExcluir] = useState<TaxPayment | null>(null);
+  // Guia recém-lançada: a faixa de sucesso oferece "Lançar outra guia" já com o vencimento e a competência dela.
+  const [sucesso, setSucesso] = useState<{ mensagem: string; guia: GuiaSalva } | null>(null);
 
   const hoje = panorama?.hoje ?? hojeIso();
+
+  // Quem lança guia nem sempre pode ver Empresas: sem a lista, o filtro por empresa não aparece.
+  useEffect(() => { getCompanies().then(setEmpresas).catch(() => setEmpresas([])); }, []);
 
   const filtros = useMemo<TaxPaymentFilters>(() => ({
     status: situacao || undefined,
     search: buscaAplicada || undefined,
     documentType: tipo || undefined,
-    competenceStart: mes ? competenciaDoMes(mes) : undefined,
-    competenceEnd: mes ? ultimoDiaDoMes(mes) : undefined,
+    competenceStart: mes && !semCompetencia ? competenciaDoMes(mes) : undefined,
+    competenceEnd: mes && !semCompetencia ? ultimoDiaDoMes(mes) : undefined,
+    withoutCompetence: semCompetencia ? "true" : undefined,
+    dreCategoryId: categoria?.id,
+    companyId: empresaId || undefined,
     page: pagina,
     pageSize: TAMANHO_PAGINA,
-  }), [situacao, buscaAplicada, tipo, mes, pagina]);
+  }), [situacao, buscaAplicada, tipo, mes, categoria, semCompetencia, empresaId, pagina]);
 
   // Só a resposta do último pedido vale: clicar rápido em duas pílulas não pode deixar a lista da primeira.
   const pedidoPanorama = useRef(0);
@@ -111,10 +124,16 @@ export function TaxPayments({ user }: Props) {
 
   const recarregar = () => { carregarPanorama(); void carregarLista(); };
 
-  function aposAcao(mensagem: string) {
-    setJanela(null);
-    setNotice({ tone: "success", message: mensagem });
+  function aposAcao(mensagem: string, guia?: GuiaSalva) {
     recarregar();
+    setJanela(null);
+    if (guia) {
+      setNotice(null);
+      setSucesso({ mensagem, guia });
+      return;
+    }
+    setSucesso(null);
+    setNotice({ tone: "success", message: mensagem });
   }
 
   async function confirmarExclusao() {
@@ -130,23 +149,38 @@ export function TaxPayments({ user }: Props) {
     }
   }
 
-  function filtrar(proximo: Partial<{ situacao: Situacao; tipo: string; mes: string }>) {
+  function filtrar(proximo: Partial<{ situacao: Situacao; tipo: string; mes: string; empresa: string }>) {
     if (proximo.situacao !== undefined) setSituacao(proximo.situacao);
     if (proximo.tipo !== undefined) setTipo(proximo.tipo);
-    if (proximo.mes !== undefined) setMes(proximo.mes);
+    if (proximo.mes !== undefined) { setMes(proximo.mes); setSemCompetencia(false); }
+    if (proximo.empresa !== undefined) setEmpresaId(proximo.empresa);
     setPagina(1);
   }
 
   function limparFiltros() {
-    setSituacao(""); setBusca(""); setBuscaAplicada(""); setTipo(""); setMes(""); setPagina(1);
+    setSituacao(""); setBusca(""); setBuscaAplicada(""); setTipo(""); setMes(""); setCategoria(null); setSemCompetencia(false); setEmpresaId(""); setPagina(1);
   }
 
-  function verMes(m: string) {
-    filtrar({ mes: m, situacao: "" });
+  function verMes(m: string, cat?: { id: string; nome: string }) {
+    filtrar({ mes: m, situacao: "", tipo: "" });
+    setCategoria(cat ?? null);
     topoDaLista.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
-  const filtrando = Boolean(situacao || buscaAplicada || tipo || mes);
+  // Guias sem competência: ficam fora do DRE e não aparecem em nenhum mês da grade.
+  function alternarSemCompetencia(ligar: boolean) {
+    setSemCompetencia(ligar);
+    if (ligar) { setMes(""); setCategoria(null); }
+    setPagina(1);
+  }
+
+  function verSemCompetencia() {
+    limparFiltros();
+    alternarSemCompetencia(true);
+    topoDaLista.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  const filtrando = Boolean(situacao || buscaAplicada || tipo || mes || categoria || semCompetencia || empresaId);
   const contagens = panorama?.situacoes;
   const PILULAS: Array<{ valor: Situacao; rotulo: string; qtd: number | undefined; tom?: string }> = [
     { valor: "", rotulo: "Todas", qtd: contagens?.todas },
@@ -162,7 +196,7 @@ export function TaxPayments({ user }: Props) {
 
       <div className="ip-cabecalho">
         <p className="ip-cabecalho-texto">
-          Guias de impostos e tributos. Cada guia lançada aparece em <b>Contas a Pagar</b> e entra no <b>DRE</b> pela competência.
+          Guias de impostos e tributos. Cada guia lançada aparece em <b>Contas a Pagar</b>, onde é feita a baixa, e entra no <b>DRE</b> pela competência.
         </p>
         {podeLancar && (
           <div className="ip-cabecalho-acoes">
@@ -172,13 +206,28 @@ export function TaxPayments({ user }: Props) {
         )}
       </div>
 
+      {sucesso && (
+        <div className="ip-sucesso" role="status">
+          <CheckCircle2 size={18} aria-hidden="true" />
+          <span>{sucesso.mensagem}</span>
+          {podeLancar && (
+            <Button size="sm" variant="secondary" leadingIcon={<Plus size={14} />}
+              onClick={() => setJanela({ tipo: "guia", editId: null, duplicarDe: null, inicial: { dueDate: sucesso.guia.dueDate, mes: sucesso.guia.mes } })}>
+              Lançar outra guia
+            </Button>
+          )}
+          <IconButton label="Dispensar aviso" icon={<X size={15} />} size="sm" onClick={() => setSucesso(null)} />
+        </div>
+      )}
+
       {panorama && (
         <ResumoImpostos
           panorama={panorama}
           podeLancar={podeLancar}
-          onLancar={() => setJanela({ tipo: "guia", editId: null, duplicarDe: null })}
+          onLancar={(inicial) => setJanela({ tipo: "guia", editId: null, duplicarDe: null, inicial })}
           onVerSituacao={(s) => { filtrar({ situacao: s }); topoDaLista.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }}
           onVerMes={verMes}
+          onVerSemCompetencia={verSemCompetencia}
         />
       )}
 
@@ -196,6 +245,18 @@ export function TaxPayments({ user }: Props) {
               {p.qtd != null && <span className="ip-pilula-qtd">{p.qtd}</span>}
             </button>
           ))}
+          {((panorama?.semCompetencia ?? 0) > 0 || semCompetencia) && (
+            <button
+              type="button"
+              className="ip-pilula ip-pilula--aviso"
+              aria-pressed={semCompetencia}
+              title="Guias sem competência ficam fora do DRE"
+              onClick={() => alternarSemCompetencia(!semCompetencia)}
+            >
+              Sem competência
+              <span className="ip-pilula-qtd">{panorama?.semCompetencia ?? 0}</span>
+            </button>
+          )}
         </div>
 
         <div className="ip-filtros">
@@ -204,7 +265,7 @@ export function TaxPayments({ user }: Props) {
             <input
               type="search"
               aria-label="Buscar guia"
-              placeholder="Buscar por empresa, descrição ou CNPJ"
+              placeholder="Buscar por empresa, nº do documento ou CNPJ"
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
             />
@@ -216,29 +277,43 @@ export function TaxPayments({ user }: Props) {
             onChange={(e) => filtrar({ tipo: e.target.value })}
             options={TIPOS_DE_GUIA.map((t) => ({ value: t, label: t }))}
           />
-          <TextField type="month" aria-label="Competência" value={mes} onChange={(e) => filtrar({ mes: e.target.value })} />
+          {empresas.length > 1 && (
+            <Select
+              aria-label="Empresa"
+              placeholder="Todas as empresas"
+              value={empresaId}
+              onChange={(e) => filtrar({ empresa: e.target.value })}
+              options={empresas.map((e) => ({ value: e.id, label: e.tradeName || e.legalName }))}
+            />
+          )}
+          <TextField type="month" aria-label="Competência" title="Competência" value={semCompetencia ? "" : mes} disabled={semCompetencia} onChange={(e) => { setCategoria(null); filtrar({ mes: e.target.value }); }} />
           {filtrando && (
             <Button variant="secondary" size="sm" leadingIcon={<X size={14} />} onClick={limparFiltros}>Limpar</Button>
           )}
         </div>
 
-        {mes && <p className="ip-filtro-ativo">Mostrando guias com competência em <b>{rotuloMes(mes)}</b>.</p>}
+        {semCompetencia && <p className="ip-filtro-ativo">Mostrando só as guias <b>sem competência</b> (ficam fora do DRE). Abra cada uma pelo menu da linha, em Editar, e informe o mês.</p>}
+        {mes && !semCompetencia && (
+          <p className="ip-filtro-ativo">
+            Mostrando guias {categoria ? <>de <b>{categoria.nome}</b> </> : null}com competência em <b>{rotuloMes(mes)}</b>.
+          </p>
+        )}
 
         <ListaGuias
           guias={guias}
           hoje={hoje}
           carregando={carregando}
           podeEditar={podeEditar}
+          podeVerContasAPagar={podeVerContasAPagar}
           podeLancar={podeLancar}
           podeExcluir={podeExcluir}
           filtrando={filtrando}
           onLancar={podeLancar ? () => setJanela({ tipo: "guia", editId: null, duplicarDe: null }) : undefined}
           onLimparFiltros={limparFiltros}
-          onPagar={(g) => setJanela({ tipo: "pagar", guia: g })}
           onEditar={(g) => setJanela({ tipo: "guia", editId: g.id, duplicarDe: null })}
           onDuplicar={(g) => setJanela({ tipo: "guia", editId: null, duplicarDe: g.id })}
           onExcluir={setExcluir}
-          onContasAPagar={() => navigate("/financeiro/contas-a-pagar")}
+          onContasAPagar={(g) => navigate(linkContasAPagar(g))}
         />
 
         {paginacao.totalPages > 1 && (
@@ -257,14 +332,15 @@ export function TaxPayments({ user }: Props) {
         <ModalGuia
           editId={janela.editId}
           duplicarDe={janela.duplicarDe}
-          hoje={hoje}
+          inicial={janela.inicial}
+          onContasAPagar={podeVerContasAPagar ? (g) => navigate(linkContasAPagar(g)) : undefined}
           podeEditar={janela.editId ? podeEditar : podeLancar}
+          podeVerFuncionarios={podeVerFuncionarios}
           podeCancelar={podeExcluir}
           onFechar={() => setJanela(null)}
           onSalvo={aposAcao}
         />
       )}
-      {janela?.tipo === "pagar" && <ModalPagar guia={janela.guia} hoje={hoje} onFechar={() => setJanela(null)} onPago={aposAcao} />}
       {janela?.tipo === "importar" && <ModalImportacao onFechar={() => setJanela(null)} onImportado={aposAcao} />}
 
       <ConfirmDialog

@@ -20,6 +20,7 @@ import {
   FileSpreadsheet,
   FileScan,
   HandCoins,
+  Droplets,
   FileUser,
   Layers,
   LogOut,
@@ -48,6 +49,7 @@ import { AppUser, addMenuFavorite, getMe, getMenuFavorites, getStockCountSession
 import { PageHeader } from "./components/ui";
 import { SessionContext } from "./context/SessionContext";
 import { MockUserBadge } from "./components/MockUserBadge";
+import { IdleSessionGuard } from "./components/IdleSessionGuard";
 import {
   Alert,
   AppShell,
@@ -118,6 +120,8 @@ const DRE = lazy(() => import("./pages/DRE").then((module) => ({ default: module
 const SupplierCycles = lazy(() => import("./pages/SupplierCycles").then((module) => ({ default: module.SupplierCycles })));
 const Desperdicio = lazy(() => import("./pages/desperdicio/Desperdicio").then((module) => ({ default: module.Desperdicio })));
 const Reimbursements = lazy(() => import("./pages/Reimbursements").then((module) => ({ default: module.Reimbursements })));
+const Parcelamentos = lazy(() => import("./pages/Parcelamentos").then((module) => ({ default: module.Parcelamentos })));
+const ColetaOleo = lazy(() => import("./pages/ColetaOleo").then((module) => ({ default: module.ColetaOleo })));
 const TaxPayments = lazy(() => import("./pages/TaxPayments").then((module) => ({ default: module.TaxPayments })));
 const Notifications = lazy(() => import("./pages/Notifications").then((module) => ({ default: module.Notifications })));
 // Rota /design-system: dev-only (isLocal). Em prod, o ternario resolve para null
@@ -162,8 +166,10 @@ const sections = [
   { id: "purchases", label: "Compras", icon: ReceiptText, showInSidebar: true, group: "Operação", path: "/compras", matchers: ["/compras", "/compras/nova", "/compras/:id/editar"], description: "Registro e controle de compras do período" },
   { id: "purchase-orders", label: "Pedidos de compra", icon: ClipboardList, showInSidebar: true, group: "Operação", path: "/compras/pedidos", matchers: ["/compras/pedidos"], description: "Pedidos operacionais gerados a partir da pré-lista do comprador. Ainda não integram contas a pagar." },
   { id: "events", label: "Painel de eventos", icon: CalendarDays, showInSidebar: true, group: "Operação", path: "/operacao/eventos", matchers: ["/operacao/eventos"], description: "Eventos do centro de convenções, do teatro e grupos: histórico de cada um e sugestão de buffet para cada dia" },
+  { id: "oil-collections", label: "Coleta de óleo", icon: Droplets, showInSidebar: true, group: "Operação", path: "/operacao/coleta-oleo", matchers: ["/operacao/coleta-oleo"], description: "Certificados de destino final do óleo de fritura e conferência do PIX da coleta" },
   { id: "payables", label: "Contas a pagar", icon: WalletCards, showInSidebar: true, group: "Financeiro", path: "/financeiro/contas-a-pagar", matchers: ["/financeiro/contas-a-pagar"] },
-  { id: "receivables", label: "Contas a receber", icon: WalletCards, showInSidebar: true, group: "Financeiro", path: "/financeiro/contas-a-receber", matchers: ["/financeiro/contas-a-receber"], description: "Repasses iFood, eventos e outros recebíveis" },
+  { id: "installment-plans", label: "Parcelamentos", icon: WalletCards, showInSidebar: true, group: "Financeiro", path: "/financeiro/parcelamentos", matchers: ["/financeiro/parcelamentos"], description: "Dívidas parceladas com fornecedores: cada parcela vira uma conta a pagar" },
+  { id: "receivables", label: "Contas a receber", icon: WalletCards, showInSidebar: true, group: "Financeiro", path: "/financeiro/contas-a-receber", matchers: ["/financeiro/contas-a-receber"], description: "Repasses do iFood, 99 Food e Keeta, eventos, coleta de óleo e outros valores a receber" },
   { id: "ifood-expenses", label: "Despesas iFood", icon: WalletCards, showInSidebar: true, group: "Financeiro", path: "/financeiro/despesas-ifood", matchers: ["/financeiro/despesas-ifood"], description: "Comissão, entrega, marketing e taxas mensais iFood" },
   { id: "revenue", label: "Faturamento", icon: BadgeDollarSign, showInSidebar: true, group: "Financeiro", path: "/financeiro/faturamento", matchers: ["/financeiro/faturamento"] },
   { id: "faturamento-salao", label: "Salão (Agile PDV)", icon: BadgeDollarSign, showInSidebar: true, group: "Financeiro", path: "/financeiro/faturamento-salao", matchers: ["/financeiro/faturamento-salao"], description: "Faturamento do salão sincronizado automaticamente pelo agente do PDV", hidePageHeader: true },
@@ -352,7 +358,7 @@ export function App() {
   // Ignorado enquanto o foco esta num campo de texto, onde Ctrl+B pode ser negrito.
   useEffect(() => {
     function aoTeclar(evento: KeyboardEvent) {
-      if (evento.key.toLowerCase() !== "b" || !(evento.ctrlKey || evento.metaKey) || evento.altKey) return;
+      if (evento.key?.toLowerCase() !== "b" || !(evento.ctrlKey || evento.metaKey) || evento.altKey) return;
       const alvo = evento.target as HTMLElement | null;
       const editando = alvo?.isContentEditable
         || ["INPUT", "TEXTAREA", "SELECT"].includes(alvo?.tagName ?? "");
@@ -678,6 +684,9 @@ export function App() {
     <SessionContext.Provider value={sessionContextValue}>
       <HideValuesProvider>
         <MockUserBadge />
+        {!mockMode && (
+          <IdleSessionGuard timeoutMinutes={user.inactivityTimeoutMinutes} onExpired={() => setUser(null)} />
+        )}
         <AppShell
           ref={contentRef}
           mobileHeader={mobileHeaderNode}
@@ -719,7 +728,7 @@ export function App() {
               <Route path="/compras/:id/editar" element={<Purchases user={user} />} />
               <Route path="/compras/pedidos" element={<PurchaseOrders user={user} />} />
               <Route path="/financeiro/contas-a-pagar" element={<Payables user={user} />} />
-              <Route path="/financeiro/contas-a-receber" element={<Receivables />} />
+              <Route path="/financeiro/contas-a-receber" element={<Receivables user={user} />} />
               <Route path="/financeiro/despesas-ifood" element={<IfoodExpenses />} />
               <Route path="/financeiro/cartoes" element={<Cards user={user} />} />
               <Route
@@ -779,6 +788,8 @@ export function App() {
               <Route path="/financeiro/impostos" element={<TaxPayments user={user} />} />
               <Route path="/financeiro/ciclos-fornecedor" element={<SupplierCycles />} />
               <Route path="/financeiro/reembolsos" element={<Reimbursements />} />
+              <Route path="/financeiro/parcelamentos" element={<Parcelamentos />} />
+              <Route path="/operacao/coleta-oleo" element={<ColetaOleo />} />
               <Route path="/estoque/produtos" element={<Products />} />
               <Route path="/estoque/produtos/novo" element={<ProductEditor />} />
               <Route path="/estoque/produtos/:id/editar" element={<ProductEditor />} />

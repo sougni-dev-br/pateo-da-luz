@@ -7,6 +7,7 @@ import { FERIAS_CATEGORY, FOLHA_CATEGORY, RESCISAO_CATEGORY, VT_CATEGORY } from 
 import { custoExtrasSql } from "../payroll/extras-custo.js";
 import { createDrePdf, type DreSummary } from "./dre-pdf.js";
 import { suggestCategory } from "./sugestao-categoria.js";
+import { intervaloAnoAnterior, intervaloMesAnterior } from "./dre-periodo.js";
 import {
   CATEGORIAS_CMV_GERENCIAL,
   getCmvPurchaseTotalByCompetenceMonth,
@@ -14,6 +15,7 @@ import {
   type CmvVisionKey,
 } from "../cmv-real/cmv-purchase-base.service.js";
 import { excludeAggregatorsSql } from "../purchases/purchase-aggregators.js";
+import { semParcelamentoForaDoDreSql } from "../parcelamentos/parcelamento-dre.js";
 
 export const dreRouter = Router();
 
@@ -180,22 +182,6 @@ function parseRange(query: Record<string, unknown>): { from: Date; to: Date; com
   return null;
 }
 
-function prevMonth(from: Date, to: Date): { from: Date; to: Date } {
-  const d = new Date(from);
-  d.setMonth(d.getMonth() - 1);
-  const dTo = new Date(to);
-  dTo.setMonth(dTo.getMonth() - 1);
-  return { from: d, to: dTo };
-}
-
-function prevYear(from: Date, to: Date): { from: Date; to: Date } {
-  const d = new Date(from);
-  d.setFullYear(d.getFullYear() - 1);
-  const dTo = new Date(to);
-  dTo.setFullYear(dTo.getFullYear() - 1);
-  return { from: d, to: dTo };
-}
-
 // Importada de cmv-purchase-base, onde o predicado de CMV usa a MESMA lista. Os
 // dois predicados sao complementares e precisam concordar: divergir faz a despesa
 // sumir das duas pontas ou contar nas duas.
@@ -213,6 +199,8 @@ function expensePredicateByMode(mode: CmvVisionKey) {
 // — R$ [valor] de despesa contada duas vezes. Vale para a soma, o detalhamento
 // e as pendencias. O helper cobre os tres tipos (ver purchase-aggregators.ts).
 const semTituloDeAgregador = excludeAggregatorsSql("p");
+// Parcelamento marcado "fora do DRE" (despesa já lançada nos meses de origem) não entra de novo.
+const semParcelamentoForaDoDre = semParcelamentoForaDoDreSql("p");
 
 // Parte A da despesa = nota SEM itens (servico, despesa fixa). Era reconhecida
 // por pagamento, com fallback no vencimento: regime de
@@ -229,9 +217,11 @@ function filtroDespesaSemItens(competencia: Competencia | null, from: Date, to: 
 
 // Parte B = nota COM itens de produto, fora de CMV_COMPRAS.
 function filtroDespesaComItens(competencia: Competencia | null, from: Date, to: Date) {
-  return competencia
+  const periodo = competencia
     ? Prisma.sql`p."competenceYear" = ${competencia.year} AND p."competenceMonth" = ${competencia.month}`
     : Prisma.sql`p."purchaseDate" >= ${from} AND p."purchaseDate" <= ${to}`;
+  // Parcelamento marcado "fora do DRE": a despesa já foi lançada nos meses de origem.
+  return Prisma.sql`${periodo} AND ${semParcelamentoForaDoDre}`;
 }
 
 type ExpenseItem = DreSummary["expenses"][number];
@@ -361,6 +351,7 @@ async function calcDRE(from: Date, to: Date, competencia: Competencia | null) {
         WHERE p.status = 'ACTIVE'
           AND pi.status NOT IN ('CANCELLED')
           AND ${semTituloDeAgregador}
+          AND ${semParcelamentoForaDoDre}
           AND NOT EXISTS (SELECT 1 FROM "PurchaseItem" px WHERE px."purchaseId" = p.id)
           AND ${filtroDespesaSemItens(competencia, from, to)}
         GROUP BY pi."dreCategory", dc.name, dc."sortOrder", dc."dreGroup"
@@ -416,6 +407,7 @@ async function calcDRE(from: Date, to: Date, competencia: Competencia | null) {
         WHERE p.status = 'ACTIVE'
           AND pi.status NOT IN ('CANCELLED')
           AND ${semTituloDeAgregador}
+          AND ${semParcelamentoForaDoDre}
           AND NOT EXISTS (SELECT 1 FROM "PurchaseItem" px WHERE px."purchaseId" = p.id)
           AND ${filtroDespesaSemItens(competencia, from, to)}
         GROUP BY pi."dreCategory", dc.name, dc."sortOrder", dc."dreGroup"
@@ -659,8 +651,8 @@ dreRouter.get("/summary", async (request, response) => {
 
   const [current, prevM, prevY] = await Promise.all([
     calcDRE(range.from, range.to, range.competencia),
-    withComparatives ? calcDRE(prevMonth(range.from, range.to).from, prevMonth(range.from, range.to).to, competenciaMesAnterior(range.competencia)) : Promise.resolve(null),
-    withComparatives ? calcDRE(prevYear(range.from, range.to).from, prevYear(range.from, range.to).to, competenciaAnoAnterior(range.competencia)) : Promise.resolve(null)
+    withComparatives ? calcDRE(intervaloMesAnterior(range.from, range.to).from, intervaloMesAnterior(range.from, range.to).to, competenciaMesAnterior(range.competencia)) : Promise.resolve(null),
+    withComparatives ? calcDRE(intervaloAnoAnterior(range.from, range.to).from, intervaloAnoAnterior(range.from, range.to).to, competenciaAnoAnterior(range.competencia)) : Promise.resolve(null)
   ]);
 
   response.json({ current, prevMonth: prevM, prevYear: prevY });
@@ -720,6 +712,7 @@ dreRouter.get("/expense-drill", async (request, response) => {
       WHERE p.status = 'ACTIVE'
         AND pi.status NOT IN ('CANCELLED')
         AND ${semTituloDeAgregador}
+        AND ${semParcelamentoForaDoDre}
         AND pi."dreCategory" = ${dreCategoryId}
         AND (
           (pi."paidDate" IS NOT NULL AND pi."paidDate" >= ${range.from} AND pi."paidDate" <= ${range.to})
@@ -752,6 +745,7 @@ dreRouter.get("/expense-drill", async (request, response) => {
       WHERE p.status = 'ACTIVE'
         AND pi.status NOT IN ('CANCELLED')
         AND ${semTituloDeAgregador}
+        AND ${semParcelamentoForaDoDre}
         AND pi."dreCategory" IS NULL
         AND (
           (pi."paidDate" IS NOT NULL AND pi."paidDate" >= ${range.from} AND pi."paidDate" <= ${range.to})
@@ -974,6 +968,7 @@ dreRouter.get("/pending", async (request, response) => {
       WHERE p.status = 'ACTIVE'
         AND pi.status NOT IN ('CANCELLED')
         AND ${semTituloDeAgregador}
+        AND ${semParcelamentoForaDoDre}
         AND pi."dreCategory" IS NULL
         AND (
           (pi."paidDate"  IS NOT NULL AND pi."paidDate"  >= ${range.from} AND pi."paidDate"  <= ${range.to})
@@ -999,6 +994,7 @@ dreRouter.get("/pending", async (request, response) => {
       WHERE p.status = 'ACTIVE'
         AND pi.status NOT IN ('CANCELLED')
         AND ${semTituloDeAgregador}
+        AND ${semParcelamentoForaDoDre}
         AND pi."dreCategory" IS NULL
         AND (
           (pi."paidDate"  IS NOT NULL AND pi."paidDate"  >= ${range.from} AND pi."paidDate"  <= ${range.to})

@@ -74,6 +74,8 @@ export type IfoodSettlementRow = {
   netAmount: number;
   paidAt: string | null;
   status: string;
+  /** Loja do repasse (apelido); a lista consolidada mostra uma linha por loja. */
+  storeLabel?: string;
 };
 
 export type IfoodPeriodSummary = {
@@ -93,6 +95,8 @@ export type IfoodPeriodSummary = {
   fees: IfoodFeeBreakdownRow[];
   settlements: IfoodSettlementRow[];
   isMock: boolean;
+  /** `mensal` quando o dado vem do consolidado do portal (sem dia a dia). Ausente = diário. */
+  granularidade?: "diaria" | "mensal";
 };
 
 export type IfoodStatusView = {

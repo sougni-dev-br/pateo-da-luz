@@ -1,0 +1,99 @@
+/* ═══════════════════════════════════════════════════════════════════
+   Resumo imprimível do fechamento mensal. Prefixo fres-.
+   Cores fixas de papel; nada depende de cor para ser entendido.
+═══════════════════════════════════════════════════════════════════ */
+
+/* Fora da tela: a folha existe no DOM, mas só aparece ao imprimir. */
+.fres-area {
+  position: absolute;
+  left: -99999px;
+  top: 0;
+  width: 182mm; /* A4 menos as margens */
+  visibility: hidden;
+}
+
+.fres {
+  color: #111;
+  background: #fff;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 9.5pt;
+  line-height: 1.35;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+.fres h1 { margin: 0; font-size: 17pt; font-weight: 700; }
+.fres h2 {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4mm;
+  margin: 5mm 0 2mm;
+  padding-bottom: 1mm;
+  border-bottom: 0.4mm solid #111;
+  font-size: 10.5pt;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  break-after: avoid;
+}
+.fres h3 { margin: 3mm 0 1mm; font-size: 9.5pt; font-weight: 700; break-after: avoid; }
+
+.fres-topo { padding-bottom: 2mm; border-bottom: 0.7mm solid #111; }
+.fres-casa { margin: 0 0 1mm; font-size: 8.5pt; text-transform: uppercase; letter-spacing: 0.12em; color: #444; }
+.fres-periodo { margin: 1.5mm 0 0; font-size: 9.5pt; color: #222; }
+
+.fres-contagem { font-size: 8pt; font-weight: 400; text-transform: none; letter-spacing: 0; color: #444; }
+
+.fres-numeros { display: grid; grid-template-columns: repeat(5, 1fr); gap: 2mm; margin: 0; }
+.fres-numeros > div { padding: 1.5mm 2mm; border: 0.25mm solid #888; break-inside: avoid; }
+.fres-numeros dt { margin: 0; font-size: 7.5pt; color: #444; }
+.fres-numeros dd { margin: 0.5mm 0 0; font-size: 10pt; font-weight: 700; }
+
+.fres-tabela { width: 100%; border-collapse: collapse; font-size: 9pt; }
+.fres-tabela thead { display: table-header-group; }
+.fres-tabela tr { break-inside: avoid; page-break-inside: avoid; }
+.fres-tabela th {
+  padding: 1mm 2mm;
+  text-align: left;
+  font-size: 7.5pt;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: #e6e6e6;
+  border: 0.25mm solid #111;
+}
+.fres-tabela td { padding: 1.2mm 2mm; vertical-align: top; border: 0.2mm solid #888; }
+.fres-tabela small { color: #444; font-size: 7.5pt; }
+.fres-tabela--registros td:nth-child(3) { width: 42%; }
+
+.fres-sit { font-weight: 700; white-space: nowrap; }
+.fres-sit--pendente { background: #f0d4d4; }
+.fres-sit--aguardando { background: #eee; }
+
+.fres-grupo ul { margin: 0; padding-left: 5mm; }
+.fres-grupo li { margin: 0.8mm 0; break-inside: avoid; }
+.fres-detalhe { color: #333; }
+.fres-etiqueta {
+  margin-left: 2mm;
+  padding: 0 1.5mm;
+  border: 0.2mm solid #666;
+  font-size: 7pt;
+  color: #333;
+}
+
+.fres-vazio { margin: 1mm 0; font-style: italic; color: #444; }
+
+.fres-assinaturas { display: flex; gap: 12mm; margin-top: 14mm; break-inside: avoid; }
+.fres-assinaturas > div { flex: 1; font-size: 8pt; color: #333; }
+.fres-assinaturas > div:last-child { flex: 0 0 38mm; }
+.fres-assinaturas span { display: block; height: 0; margin-bottom: 1mm; border-top: 0.3mm solid #111; }
+
+.fres-rodape { margin-top: 5mm; padding-top: 1.5mm; border-top: 0.2mm solid #888; font-size: 7.5pt; color: #444; }
+
+@page { size: A4 portrait; margin: 14mm; }
+
+@media print {
+  body.imprimindo-fechamento > *:not(.fres-area) { display: none !important; }
+  body.imprimindo-fechamento { margin: 0 !important; background: #fff !important; }
+  body.imprimindo-fechamento .fres-area { position: static; left: auto; width: auto; visibility: visible; }
+}

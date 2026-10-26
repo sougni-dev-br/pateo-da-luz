@@ -16,7 +16,19 @@ export type SessionUser = {
 export type UserRole = SessionUser["role"];
 
 const JWT_EXPIRES_IN_SECONDS = 60 * 60 * 12;
-export const INACTIVITY_TIMEOUT_MS = 8 * 60 * 60 * 1000; // 8 horas
+// Tempo sem uso após o qual a sessão cai. O frontend aplica este prazo com um temporizador
+// próprio (derruba a tela na hora e avisa antes); o servidor é a rede de segurança e espera
+// mais INACTIVITY_GRACE_MS, para nunca derrubar quem o frontend ainda considera ativo.
+const DEFAULT_INACTIVITY_MINUTES = 30;
+const configuredInactivityMinutes = Number(process.env.INACTIVITY_TIMEOUT_MINUTES);
+export const INACTIVITY_TIMEOUT_MINUTES =
+  Number.isFinite(configuredInactivityMinutes) && configuredInactivityMinutes >= 5
+    ? Math.floor(configuredInactivityMinutes)
+    : DEFAULT_INACTIVITY_MINUTES;
+const INACTIVITY_GRACE_MS = 5 * 60 * 1000;
+export const INACTIVITY_TIMEOUT_MS = INACTIVITY_TIMEOUT_MINUTES * 60 * 1000 + INACTIVITY_GRACE_MS;
+// Frequência máxima de gravação de lastActivityAt (uma por sessão a cada minuto).
+const ACTIVITY_WRITE_INTERVAL_MS = 60 * 1000;
 
 // ⚠️ LEIA ANTES DE USAR requireAdmin OU requireRole PARA PROTEGER UMA ROTA NOVA.
 //
@@ -241,19 +253,24 @@ export async function getSessionUser(request: { headers: Record<string, unknown>
     : new Date(row.sessionCreatedAt).getTime();
 
   if (Date.now() - lastActivity > INACTIVITY_TIMEOUT_MS) {
-    prisma.$executeRaw`DELETE FROM "UserSession" WHERE "tokenHash" = ${tokenHash}`.catch(() => undefined);
-    auditLog({
-      userId: row.id,
-      action: "SESSION_EXPIRED_BY_INACTIVITY",
-      entity: "UserSession",
-      entityId: row.id,
-      newValue: { lastActivityAt: row.lastActivityAt, sessionCreatedAt: row.sessionCreatedAt }
-    }).catch(() => undefined);
+    // Só quem de fato apagou a sessão registra a expiração: requisições paralelas com o
+    // mesmo token vencido não geram vários eventos no histórico.
+    prisma.$executeRaw`DELETE FROM "UserSession" WHERE "tokenHash" = ${tokenHash}`
+      .then((removed) => removed > 0
+        ? auditLog({
+          userId: row.id,
+          action: "SESSION_EXPIRED_BY_INACTIVITY",
+          entity: "UserSession",
+          entityId: row.id,
+          newValue: { lastActivityAt: row.lastActivityAt, sessionCreatedAt: row.sessionCreatedAt }
+        })
+        : undefined)
+      .catch(() => undefined);
     return null;
   }
 
-  // Atualizar lastActivityAt de forma lazy — no máximo uma vez a cada 5 minutos
-  if (Date.now() - lastActivity > 5 * 60 * 1000) {
+  // Atualizar lastActivityAt de forma lazy — no máximo uma vez por minuto
+  if (Date.now() - lastActivity > ACTIVITY_WRITE_INTERVAL_MS) {
     prisma.$executeRaw`
       UPDATE "UserSession" SET "lastActivityAt" = CURRENT_TIMESTAMP WHERE "tokenHash" = ${tokenHash}
     `.catch(() => undefined);

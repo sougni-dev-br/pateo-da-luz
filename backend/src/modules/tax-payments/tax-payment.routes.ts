@@ -11,6 +11,9 @@ import { categoriaIdPorNome, sugerirCategoriaImposto } from "./categoria-imposto
 import { userHasPermission } from "../security/menu-permissions.js";
 import type { SessionUser } from "../security/security-utils.js";
 import { montarPanorama } from "./tax-payment-panorama.js";
+import { descricaoDosItens, lerNumeroDoDocumento, lerQuantidadeDeTrabalhadores, normalizarItens, type ItemGuia } from "./tax-payment-items.js";
+import { aplicarCatalogoDeCodigos } from "./tax-code-catalog.js";
+import { lerFuncionarioDaGuia } from "./tax-payment-employee.js";
 import { diaIso, hojeBrasilia, lerData, parseValorGuia, resolverUploadImportacao, statusDaGuia } from "./tax-payment-rules.js";
 
 export const taxPaymentRouter = Router();
@@ -72,6 +75,8 @@ type TaxPaymentRow = {
   importBatchId: string | null;
   dreCategoryId: string | null;
   dreCategoryName: string | null;
+  employeeName: string | null;
+  itemsCount: number;
   createdById: string;
   updatedById: string | null;
   deletedAt: Date | null;
@@ -96,6 +101,7 @@ taxPaymentRouter.get("/", async (request, response) => {
     paymentEnd,
     search,
     dreCategoryId,
+    withoutCompetence,
     page = "1",
     pageSize = "50",
   } = request.query as Record<string, string>;
@@ -133,6 +139,7 @@ taxPaymentRouter.get("/", async (request, response) => {
     }
   }
 
+  if (withoutCompetence === "true") conditions.push(`tp."competenceDate" IS NULL`);
   if (competenceStart) conditions.push(`tp."competenceDate" >= ${addParam(new Date(competenceStart))}`);
   if (competenceEnd) conditions.push(`tp."competenceDate" <= ${addParam(new Date(competenceEnd + "T23:59:59.999Z"))}`);
   if (dueStart) conditions.push(`tp."dueDate" >= ${addParam(new Date(dueStart))}`);
@@ -142,7 +149,7 @@ taxPaymentRouter.get("/", async (request, response) => {
 
   if (search) {
     const like = addParam(`%${search}%`);
-    conditions.push(`(tp."legalName" ILIKE ${like} OR tp."tradeName" ILIKE ${like} OR tp."description" ILIKE ${like} OR tp."cnpj" ILIKE ${like})`);
+    conditions.push(`(tp."legalName" ILIKE ${like} OR tp."tradeName" ILIKE ${like} OR tp."description" ILIKE ${like} OR tp."cnpj" ILIKE ${like} OR tp."documentNumber" ILIKE ${like})`);
   }
 
   const where = conditions.join(" AND ");
@@ -151,9 +158,12 @@ taxPaymentRouter.get("/", async (request, response) => {
     prisma.$queryRawUnsafe<TaxPaymentRow[]>(`
       SELECT
         tp.*,
-        dc.name AS "dreCategoryName"
+        dc.name AS "dreCategoryName",
+        COALESCE(NULLIF(TRIM(e."displayName"), ''), e."firstName" || ' ' || e."lastName") AS "employeeName",
+        (SELECT COUNT(*)::int FROM "TaxPaymentItem" ti WHERE ti."taxPaymentId" = tp.id) AS "itemsCount"
       FROM "TaxPayment" tp
       LEFT JOIN "DRECategory" dc ON dc.id = tp."dreCategoryId"
+      LEFT JOIN "Employee" e ON e.id = tp."employeeId"
       WHERE ${where}
       ORDER BY
         (tp."paymentDate" IS NOT NULL OR tp."status" = 'CANCELED') ASC,
@@ -196,6 +206,17 @@ taxPaymentRouter.get("/", async (request, response) => {
 // ─── Categorias do DRE para a tela de impostos ────────────────────────────────
 // Ficam aqui (e não só em /dre) porque quem lança guia nem sempre tem acesso ao DRE.
 // Precisam vir antes de "/:id", senão o Express trata o nome da rota como id.
+// Catálogo de códigos do tipo de guia (o código digitado traz a denominação na tela). Antes de "/:id".
+taxPaymentRouter.get("/codigos", async (request, response) => {
+  const tipo = typeof request.query.tipo === "string" ? request.query.tipo.trim() : "";
+  const codigos = await prisma.taxCodeCatalog.findMany({
+    where: tipo ? { documentType: tipo } : {},
+    select: { code: true, description: true },
+    orderBy: { code: "asc" },
+  });
+  response.json(codigos ?? []);
+});
+
 // Painel da tela: a pagar por faixa de vencimento, guias por situação e meses já lançados.
 // Antes de "/:id" pelo mesmo motivo das categorias.
 taxPaymentRouter.get("/panorama", async (_request, response) => {
@@ -219,6 +240,8 @@ taxPaymentRouter.get("/:id", async (request, response) => {
     include: {
       company: { select: { id: true, tradeName: true, legalName: true, cnpj: true } },
       dreCategory: { select: { id: true, name: true, dreGroup: true } },
+      employee: { select: { id: true, firstName: true, lastName: true, displayName: true, terminationDate: true } },
+      items: { orderBy: { position: "asc" } },
     },
   });
   if (!row) return response.status(404).json({ message: "Lançamento não encontrado." });
@@ -243,13 +266,61 @@ async function competenciaBloqueada(
     return true;
   }
 }
+// Mesma guia lançada duas vezes: o número do documento (DAS/DARF) ou o identificador (FGTS) é único por emissão.
+// "07.20.26290.7165263-2" e "07202629071652632" são o mesmo número: a comparação (e o índice único do banco) só
+// olha letras e dígitos, sem diferenciar caixa.
+function chaveDoNumero(numero: string): string {
+  return numero.toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+async function guiaComEsteNumero(numero: string, ignorarId?: string) {
+  const chave = chaveDoNumero(numero);
+  if (!chave) return null;
+  const achadas = await prisma.$queryRawUnsafe<Array<{ id: string; documentType: string; competenceDate: Date | null }>>(
+    `SELECT "id", "documentType", "competenceDate" FROM "TaxPayment"
+      WHERE "deletedAt" IS NULL AND "status" <> 'CANCELED' AND "documentNumber" IS NOT NULL
+        AND regexp_replace(upper("documentNumber"), '[^A-Z0-9]', '', 'g') = $1
+        ${ignorarId ? `AND "id" <> $2` : ""}
+      LIMIT 1`,
+    ...(ignorarId ? [chave, ignorarId] : [chave])
+  );
+  return achadas[0] ?? null;
+}
+
+// Duas gravações ao mesmo tempo passam pela checagem acima; quem perde a corrida bate no índice único do banco.
+function ehNumeroRepetido(error: unknown): boolean {
+  return typeof error === "object" && error !== null && (error as { code?: string }).code === "P2002";
+}
+
+const MENSAGEM_NUMERO_REPETIDO = "Já existe uma guia ativa com este número de documento. Edite a existente em vez de lançar outra.";
+
+// Roda a gravação e transforma a violação do índice único em 409 (devolve null; a resposta já foi enviada).
+async function gravar<T>(response: { status: (c: number) => { json: (b: unknown) => void } }, operacao: () => Promise<T>): Promise<T | null> {
+  try {
+    return await operacao();
+  } catch (error) {
+    if (!ehNumeroRepetido(error)) throw error;
+    response.status(409).json({ message: MENSAGEM_NUMERO_REPETIDO, code: "DUPLICATE_DOCUMENT" });
+    return null;
+  }
+}
+
+function mensagemDeGuiaRepetida(g: { documentType: string; competenceDate: Date | null }, numero: string) {
+  const mes = g.competenceDate ? ` de ${g.competenceDate.toISOString().slice(5, 7)}/${g.competenceDate.toISOString().slice(0, 4)}` : "";
+  return `Já existe a guia nº ${numero} (${g.documentType}${mes}). Edite a existente em vez de lançar outra.`;
+}
+
+function itensParaGravar(itens: ItemGuia[]) {
+  return itens.map((i, position) => ({ position, code: i.code, description: i.description, principal: i.principal, fine: i.fine, interest: i.interest }));
+}
+
 taxPaymentRouter.post("/", async (request, response) => {
   const user = await getSessionUser(request);
   if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
 
   const {
     companyId, cnpj, legalName, tradeName, documentType, description,
-    competenceDate, dueDate, amount, paymentDate, paidAmount, comments, dreCategoryId,
+    competenceDate, dueDate, amount, paymentDate, paidAmount, comments, dreCategoryId, documentNumber, workersCount, employeeId, items,
   } = request.body as Record<string, unknown>;
 
   if (!documentType || typeof documentType !== "string" || !documentType.trim()) {
@@ -258,8 +329,31 @@ taxPaymentRouter.post("/", async (request, response) => {
 
   const vencimento = lerData(dueDate);
   if (!vencimento.ok || !vencimento.data) return response.status(400).json({ message: "Vencimento obrigatório e válido." });
-  const valor = parseValorGuia(amount);
+
+  // Com discriminação, o valor da guia é a soma das linhas (o "amount" enviado, se vier, é ignorado).
+  let itens: ItemGuia[] | null = null;
+  let valor: number | null;
+  if (items !== undefined) {
+    const lidos = normalizarItens(items);
+    if (!lidos.ok) return response.status(400).json({ message: lidos.message });
+    itens = await aplicarCatalogoDeCodigos(documentType.trim(), lidos.itens);
+    valor = lidos.total;
+  } else {
+    valor = parseValorGuia(amount);
+  }
   if (valor == null) return response.status(400).json({ message: "Valor obrigatório e maior que zero." });
+
+  const numero = lerNumeroDoDocumento(documentNumber);
+  if (!numero.ok) return response.status(400).json({ message: "Número do documento inválido (até 60 caracteres)." });
+  if (numero.valor) {
+    const repetida = await guiaComEsteNumero(numero.valor);
+    if (repetida) return response.status(409).json({ message: mensagemDeGuiaRepetida(repetida, numero.valor), code: "DUPLICATE_DOCUMENT" });
+  }
+  const trabalhadores = lerQuantidadeDeTrabalhadores(workersCount);
+  if (!trabalhadores.ok) return response.status(400).json({ message: "Quantidade de trabalhadores inválida (número inteiro, de 0 a 100000)." });
+  const funcionario = await lerFuncionarioDaGuia(employeeId, documentType);
+  if (!funcionario.ok) return response.status(400).json({ message: funcionario.message });
+  const descricao = typeof description === "string" && description.trim() ? description.trim() : itens ? descricaoDosItens(itens) : null;
 
   // Sem competência a guia não entra em DRE nenhum: é o que a tela promete ao lançar um imposto.
   const competencia = lerData(competenceDate);
@@ -281,10 +375,12 @@ taxPaymentRouter.post("/", async (request, response) => {
   // Sem categoria a guia cai em "Não categorizadas" no DRE. Campo ausente = regra pelo
   // tipo da guia; null ou "" = a pessoa escolheu deixar sem categoria.
   const categoriaId = dreCategoryId === undefined
-    ? categoriaSugerida(await categoriasAtivas(), documentType, description).dreCategoryId
+    ? categoriaSugerida(await categoriasAtivas(), documentType, descricao).dreCategoryId
     : ((dreCategoryId as string) || null);
 
-  const created = await prisma.taxPayment.create({
+  // Dentro da função da gravação o TypeScript perde o estreitamento feito acima, então o vencimento é fixado antes.
+  const dataDeVencimento: Date = vencimento.data;
+  const created = await gravar(response, () => prisma.taxPayment.create({
     data: {
       id: crypto.randomUUID(),
       companyId: (companyId as string) || null,
@@ -292,19 +388,25 @@ taxPaymentRouter.post("/", async (request, response) => {
       legalName: (legalName as string) || null,
       tradeName: (tradeName as string) || null,
       documentType: String(documentType).trim(),
-      description: (description as string) || null,
+      description: descricao,
+      documentNumber: numero.valor,
+      workersCount: trabalhadores.valor,
+      employeeId: funcionario.id,
       competenceDate: competencia.data,
-      dueDate: vencimento.data,
+      dueDate: dataDeVencimento,
       amount: valor,
       paymentDate: pagamento.data,
       paidAmount: valorPago,
-      status: statusDaGuia(pagamento.data, vencimento.data),
+      status: statusDaGuia(pagamento.data, dataDeVencimento),
       comments: (comments as string) || null,
       source: "MANUAL",
       dreCategoryId: categoriaId,
       createdById: user.id,
+      ...(itens ? { items: { create: itensParaGravar(itens) } } : {}),
     },
-  });
+    include: { items: { orderBy: { position: "asc" } } },
+  }));
+  if (!created) return;
 
   await auditLog({
     userId: user.id,
@@ -329,12 +431,12 @@ taxPaymentRouter.put("/:id", async (request, response) => {
   if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
 
   const { id } = request.params;
-  const existing = await prisma.taxPayment.findFirst({ where: { id, deletedAt: null } });
+  const existing = await prisma.taxPayment.findFirst({ where: { id, deletedAt: null }, include: { items: { orderBy: { position: "asc" } } } });
   if (!existing) return response.status(404).json({ message: "Lançamento não encontrado." });
 
   const {
     companyId, cnpj, legalName, tradeName, documentType, description,
-    competenceDate, dueDate, amount, paymentDate, paidAmount, comments, dreCategoryId, status,
+    competenceDate, dueDate, amount, paymentDate, paidAmount, comments, dreCategoryId, status, documentNumber, workersCount, employeeId, items,
   } = request.body as Record<string, unknown>;
 
   const pagoAnterior = existing.paidAmount == null ? null : Number(existing.paidAmount);
@@ -350,8 +452,57 @@ taxPaymentRouter.put("/:id", async (request, response) => {
 
   const vencimento = dueDate ? lerData(dueDate) : { ok: true as const, data: existing.dueDate };
   if (!vencimento.ok || !vencimento.data) return response.status(400).json({ message: "Vencimento inválido." });
-  const valor = amount != null && amount !== "" ? parseValorGuia(amount) : Number(existing.amount);
+
+  // Guia paga está fechada: mudar valores depois do pagamento desencontraria a baixa. Estorne em Contas a Pagar antes.
+  const paga = Boolean(existing.paymentDate);
+  const valorEnviado = amount != null && amount !== "" ? parseValorGuia(amount) : null;
+  if (paga && (items !== undefined || (valorEnviado != null && valorEnviado !== Number(existing.amount)))) {
+    return response.status(409).json({ message: "Esta guia já foi paga. Estorne o pagamento em Contas a Pagar antes de alterar os valores." });
+  }
+
+  let itens: ItemGuia[] | null = null;
+  let valor: number | null;
+  if (items !== undefined) {
+    const lidos = normalizarItens(items);
+    if (!lidos.ok) return response.status(400).json({ message: lidos.message });
+    itens = await aplicarCatalogoDeCodigos(typeof documentType === "string" && documentType.trim() ? documentType.trim() : existing.documentType, lidos.itens);
+    valor = lidos.total;
+  } else {
+    // Guia com composição: o valor é a soma das linhas, então mudar só o valor deixaria os dois desencontrados.
+    if ((existing.items?.length ?? 0) > 0 && valorEnviado != null && valorEnviado !== Number(existing.amount)) {
+      return response.status(400).json({ message: "Esta guia tem composição por linhas: altere as linhas, que o valor da guia é a soma delas." });
+    }
+    valor = amount != null && amount !== "" ? parseValorGuia(amount) : Number(existing.amount);
+  }
   if (valor == null) return response.status(400).json({ message: "Valor deve ser maior que zero." });
+
+  let trabalhadoresDaGuia = existing.workersCount;
+  if (workersCount !== undefined) {
+    const lido = lerQuantidadeDeTrabalhadores(workersCount);
+    if (!lido.ok) return response.status(400).json({ message: "Quantidade de trabalhadores inválida (número inteiro, de 0 a 100000)." });
+    trabalhadoresDaGuia = lido.valor;
+  }
+
+  const tipoFinal = documentType ? String(documentType).trim() : existing.documentType;
+  let funcionarioDaGuia = existing.employeeId;
+  if (employeeId !== undefined) {
+    const lido = await lerFuncionarioDaGuia(employeeId, tipoFinal);
+    if (!lido.ok) return response.status(400).json({ message: lido.message });
+    funcionarioDaGuia = lido.id;
+  } else if (tipoFinal !== "FGTS") {
+    funcionarioDaGuia = null; // mudou de tipo: o vínculo com o funcionário não vale mais
+  }
+
+  let numeroDoDocumento = existing.documentNumber;
+  if (documentNumber !== undefined) {
+    const numero = lerNumeroDoDocumento(documentNumber);
+    if (!numero.ok) return response.status(400).json({ message: "Número do documento inválido (até 60 caracteres)." });
+    numeroDoDocumento = numero.valor;
+    if (numero.valor && numero.valor !== existing.documentNumber) {
+      const repetida = await guiaComEsteNumero(numero.valor, id);
+      if (repetida) return response.status(409).json({ message: mensagemDeGuiaRepetida(repetida, numero.valor), code: "DUPLICATE_DOCUMENT" });
+    }
+  }
 
   const competencia = competenceDate !== undefined ? lerData(competenceDate) : { ok: true as const, data: existing.competenceDate };
   if (!competencia.ok) return response.status(400).json({ message: "Competência inválida." });
@@ -362,6 +513,11 @@ taxPaymentRouter.put("/:id", async (request, response) => {
   // pela edição passaria com a permissão de editar, então pede a mesma de excluir.
   if (cancelada !== (existing.status === "CANCELED") && !(await userHasPermission(user as SessionUser, "tax-payments", "delete"))) {
     return response.status(403).json({ message: "Cancelar ou reativar uma guia exige a permissão de excluir." });
+  }
+  // Reativar uma guia cancelada: o número dela pode ter sido lançado de novo enquanto ela estava cancelada.
+  if (existing.status === "CANCELED" && !cancelada && numeroDoDocumento) {
+    const repetida = await guiaComEsteNumero(numeroDoDocumento, id);
+    if (repetida) return response.status(409).json({ message: mensagemDeGuiaRepetida(repetida, numeroDoDocumento), code: "DUPLICATE_DOCUMENT" });
   }
   // Cancelar uma guia paga tiraria o desembolso do DRE e de Contas a Pagar com o pagamento ainda gravado.
   if (cancelada && existing.status !== "CANCELED" && existing.paymentDate) {
@@ -376,7 +532,9 @@ taxPaymentRouter.put("/:id", async (request, response) => {
   if (await competenciaBloqueada(existing.competenceDate, "Edicao de imposto", response)) return;
   if (await competenciaBloqueada(competencia.data, "Edicao de imposto", response)) return;
 
-  const updated = await prisma.taxPayment.update({
+  // Dentro da função da gravação o TypeScript perde o estreitamento feito acima, então o vencimento é fixado antes.
+  const dataDeVencimento: Date = vencimento.data;
+  const updated = await gravar(response, () => prisma.taxPayment.update({
     where: { id },
     data: {
       companyId: companyId !== undefined ? ((companyId as string) || null) : existing.companyId,
@@ -384,16 +542,25 @@ taxPaymentRouter.put("/:id", async (request, response) => {
       legalName: legalName !== undefined ? ((legalName as string) || null) : existing.legalName,
       tradeName: tradeName !== undefined ? ((tradeName as string) || null) : existing.tradeName,
       documentType: documentType ? String(documentType).trim() : existing.documentType,
-      description: description !== undefined ? ((description as string) || null) : existing.description,
+      description: itens && !(typeof description === "string" && description.trim())
+        ? descricaoDosItens(itens)
+        : description !== undefined ? ((description as string) || null) : existing.description,
+      documentNumber: numeroDoDocumento,
+      workersCount: trabalhadoresDaGuia,
+      employeeId: funcionarioDaGuia,
       competenceDate: competencia.data,
-      dueDate: vencimento.data,
+      dueDate: dataDeVencimento,
       amount: valor,
-      status: statusDaGuia(existing.paymentDate, vencimento.data, cancelada),
+      status: statusDaGuia(existing.paymentDate, dataDeVencimento, cancelada),
       comments: comments !== undefined ? ((comments as string) || null) : existing.comments,
       dreCategoryId: dreCategoryId !== undefined ? ((dreCategoryId as string) || null) : existing.dreCategoryId,
       updatedById: user.id,
+      // As linhas são regravadas por inteiro, na mesma operação que atualiza a guia.
+      ...(itens ? { items: { deleteMany: {}, create: itensParaGravar(itens) } } : {}),
     },
-  });
+    include: { items: { orderBy: { position: "asc" } } },
+  }));
+  if (!updated) return;
 
   await auditLog({
     userId: user.id,
@@ -459,6 +626,12 @@ taxPaymentRouter.patch("/:id/restore", async (request, response) => {
 
   if (await competenciaBloqueada(existing.competenceDate, "Restauração de imposto", response)) return;
   if (existing.paymentDate && await competenciaBloqueada(existing.paymentDate, "Restauração de imposto (data do pagamento)", response)) return;
+
+  // A guia pode ter sido lançada de novo depois de excluída: restaurar as duas deixaria duas ativas com o mesmo número.
+  if (existing.documentNumber && existing.status !== "CANCELED") {
+    const repetida = await guiaComEsteNumero(existing.documentNumber, id);
+    if (repetida) return response.status(409).json({ message: mensagemDeGuiaRepetida(repetida, existing.documentNumber), code: "DUPLICATE_DOCUMENT" });
+  }
 
   // So recalcula o vencido de quem voltou em aberto. Pago continua pago, e
   // WITHOUT_RECEIPT/CANCELED sao estados deliberados que a restauracao nao decide.

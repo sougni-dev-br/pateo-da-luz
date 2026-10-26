@@ -1,17 +1,18 @@
-import { Copy, ExternalLink, Pencil, Trash2, Wallet } from "lucide-react";
-import type { ReactNode } from "react";
+import { ChevronDown, ChevronRight, Copy, ExternalLink, Pencil, Trash2 } from "lucide-react";
+import { Fragment, useState, type ReactNode } from "react";
 import { Button, EmptyState, Money, RowMenu, StatusBadge, Table, type RowMenuItem, type RowMenuSeparator, type StatusTone } from "../../design-system";
 import type { TaxPayment } from "../../api/client";
 import { formatarDiaDaGuia, situacaoDaGuia } from "../../lib/guia-imposto";
+import { ComposicaoDaGuia } from "./ComposicaoDaGuia";
 import { prazoDaGuia, rotuloMes, mesDaData } from "./regras";
 import "./tax-payments.css";
 
 export type AcoesDaGuia = {
-  onPagar: (g: TaxPayment) => void;
   onEditar: (g: TaxPayment) => void;
   onDuplicar: (g: TaxPayment) => void;
   onExcluir: (g: TaxPayment) => void;
-  onContasAPagar: () => void;
+  /** Abre a guia em Contas a Pagar: é lá que a baixa (o pagamento) é registrada. */
+  onContasAPagar: (g: TaxPayment) => void;
 };
 
 type Props = AcoesDaGuia & {
@@ -19,6 +20,8 @@ type Props = AcoesDaGuia & {
   hoje: string;
   carregando: boolean;
   podeEditar: boolean;
+  /** Quem não vê Contas a Pagar não recebe o atalho Pagar (cairia numa tela negada). */
+  podeVerContasAPagar: boolean;
   podeLancar: boolean;
   podeExcluir: boolean;
   filtrando: boolean;
@@ -57,13 +60,13 @@ function Prazo({ g, situacao, hoje }: { g: TaxPayment; situacao: Situacao; hoje:
   return prazo ? <span className={`ip-prazo ip-prazo--${prazo.tom}`}>{prazo.texto}</span> : null;
 }
 
-function itensDoMenu(g: TaxPayment, a: AcoesDaGuia, podeEditar: boolean, podeLancar: boolean, podeExcluir: boolean): Array<RowMenuItem | RowMenuSeparator> {
+function itensDoMenu(g: TaxPayment, a: AcoesDaGuia, podeEditar: boolean, podeLancar: boolean, podeExcluir: boolean, podeVerContasAPagar: boolean): Array<RowMenuItem | RowMenuSeparator> {
   const itens: Array<RowMenuItem | RowMenuSeparator> = [
     { label: podeEditar ? "Editar guia" : "Ver guia", icon: <Pencil size={15} />, onClick: () => a.onEditar(g) },
   ];
   // Duplicar grava uma guia nova (POST): vale a permissão de lançar, não a de editar.
   if (podeLancar) itens.push({ label: "Duplicar para outro mês", icon: <Copy size={15} />, onClick: () => a.onDuplicar(g) });
-  itens.push({ label: "Ver em Contas a Pagar", icon: <ExternalLink size={15} />, onClick: a.onContasAPagar });
+  if (podeVerContasAPagar) itens.push({ label: "Ver em Contas a Pagar", icon: <ExternalLink size={15} />, onClick: () => a.onContasAPagar(g) });
   if (podeExcluir) {
     itens.push({ separator: true });
     itens.push({ label: "Excluir guia", icon: <Trash2 size={15} />, tone: "danger", onClick: () => a.onExcluir(g) });
@@ -71,16 +74,43 @@ function itensDoMenu(g: TaxPayment, a: AcoesDaGuia, podeEditar: boolean, podeLan
   return itens;
 }
 
-// A urgência decide o peso do botão: vencida e a que vence hoje chamam atenção; as demais ficam discretas.
+// A baixa não é feita nesta tela: o botão leva a guia para Contas a Pagar. A urgência decide o peso do botão.
 function BotaoPagar({ g, a, urgente }: { g: TaxPayment; a: AcoesDaGuia; urgente: boolean }) {
   return (
-    <Button size="sm" variant={urgente ? "primary" : "secondary"} leadingIcon={<Wallet size={14} />} onClick={() => a.onPagar(g)} aria-label={`Pagar ${g.documentType}`}>
+    <Button
+      size="sm" variant={urgente ? "primary" : "secondary"} leadingIcon={<ExternalLink size={14} />}
+      onClick={() => a.onContasAPagar(g)} aria-label={`Pagar ${g.documentType} em Contas a Pagar`} title="Abre a guia em Contas a Pagar, onde o pagamento é registrado"
+    >
       Pagar
     </Button>
   );
 }
 
-export function ListaGuias({ guias, hoje, carregando, podeEditar, podeLancar, podeExcluir, filtrando, onLancar, onLimparFiltros, ...acoes }: Props) {
+// Subtítulo da guia: número do documento e quantas linhas tem (no lugar da lista de denominações, igual em todo DAS).
+function SubtituloDaGuia({ g, aberta, onAlternar }: { g: TaxPayment; aberta: boolean; onAlternar: () => void }) {
+  const linhas = g.itemsCount ?? 0;
+  const trabalhadores = g.workersCount ?? null;
+  if (!g.documentNumber && linhas === 0 && trabalhadores == null && !g.employeeName) return g.description ? <span className="ip-guia-desc" title={g.description}>{g.description}</span> : null;
+  return (
+    <span className="ip-guia-desc">
+      {g.documentNumber && <span title="Número do documento">nº {g.documentNumber}</span>}
+      {g.employeeName && <span title="Funcionário desligado a que a guia se refere">Rescisão: {g.employeeName}{(g.documentNumber || trabalhadores != null || linhas > 0) && " · "}</span>}
+      {g.documentNumber && (linhas > 0 || trabalhadores != null) && " · "}
+      {trabalhadores != null && <span title="Quantidade de trabalhadores">{trabalhadores} {trabalhadores === 1 ? "trabalhador" : "trabalhadores"}{linhas > 0 && " · "}</span>}
+      {linhas > 0 && (
+        <button type="button" className="ip-linhas-link" aria-expanded={aberta} onClick={onAlternar}>
+          {aberta ? <ChevronDown size={12} aria-hidden="true" /> : <ChevronRight size={12} aria-hidden="true" />}
+          {linhas} {linhas === 1 ? "linha" : "linhas"}
+        </button>
+      )}
+    </span>
+  );
+}
+
+export function ListaGuias({ guias, hoje, carregando, podeEditar, podeVerContasAPagar, podeLancar, podeExcluir, filtrando, onLancar, onLimparFiltros, ...acoes }: Props) {
+  const [abertas, setAbertas] = useState<ReadonlySet<string>>(new Set());
+  const alternar = (id: string) => setAbertas((a) => { const n = new Set(a); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+
   if (carregando && guias.length === 0) return <p className="ip-carregando" role="status">Carregando guias…</p>;
 
   if (guias.length === 0) {
@@ -115,10 +145,11 @@ export function ListaGuias({ guias, hoje, carregando, podeEditar, podeLancar, po
               const situacao = situacaoDaGuia(g, hoje);
               const aberta = situacao === "OVERDUE" || situacao === "PENDING";
               return (
-                <Table.Row key={g.id} className={`ip-linha ip-linha--${situacao.toLowerCase()}`}>
+                <Fragment key={g.id}>
+                <Table.Row className={`ip-linha ip-linha--${situacao.toLowerCase()}`}>
                   <Table.Td>
                     <strong className="ip-guia-tipo">{g.documentType}</strong>
-                    {g.description && <span className="ip-guia-desc" title={g.description}>{g.description}</span>}
+                    <SubtituloDaGuia g={g} aberta={abertas.has(g.id)} onAlternar={() => alternar(g.id)} />
                   </Table.Td>
                   <Table.Td>
                     <span className="ip-empresa">{nomeDaEmpresa(g) || "—"}</span>
@@ -143,10 +174,16 @@ export function ListaGuias({ guias, hoje, carregando, podeEditar, podeLancar, po
                     <StatusBadge tone={SITUACAO[situacao].tom}>{SITUACAO[situacao].rotulo}</StatusBadge>
                   </Table.Td>
                   <Table.Td actions>
-                    {aberta && podeEditar && <BotaoPagar g={g} a={acoes} urgente={urgente(g, situacao, hoje)} />}
-                    <RowMenu items={itensDoMenu(g, acoes, podeEditar, podeLancar, podeExcluir)} label={`Mais ações da guia ${g.documentType}`} />
+                    {aberta && podeVerContasAPagar && <BotaoPagar g={g} a={acoes} urgente={urgente(g, situacao, hoje)} />}
+                    <RowMenu items={itensDoMenu(g, acoes, podeEditar, podeLancar, podeExcluir, podeVerContasAPagar)} label={`Mais ações da guia ${g.documentType}`} />
                   </Table.Td>
                 </Table.Row>
+                {abertas.has(g.id) && (
+                  <Table.Row className="ip-linha-composicao">
+                    <Table.Td colSpan={7}><ComposicaoDaGuia guiaId={g.id} /></Table.Td>
+                  </Table.Row>
+                )}
+                </Fragment>
               );
             })}
           </Table.Body>
@@ -163,6 +200,7 @@ export function ListaGuias({ guias, hoje, carregando, podeEditar, podeLancar, po
                 <div>
                   <strong className="ip-guia-tipo">{g.documentType}</strong>
                   <span className="ip-guia-desc">{nomeDaEmpresa(g) || g.description || "—"}</span>
+                  <SubtituloDaGuia g={g} aberta={abertas.has(g.id)} onAlternar={() => alternar(g.id)} />
                 </div>
                 <strong className="ip-valor"><Money value={Number(g.amount)} /></strong>
               </div>
@@ -170,11 +208,12 @@ export function ListaGuias({ guias, hoje, carregando, podeEditar, podeLancar, po
                 <Campo rotulo="Vence">{formatarDiaDaGuia(g.dueDate)} <Prazo g={g} situacao={situacao} hoje={hoje} /></Campo>
                 <Campo rotulo="Competência">{g.competenceDate ? rotuloMes(mesDaData(g.competenceDate)) : "sem competência"}</Campo>
               </div>
+              {abertas.has(g.id) && <div className="ip-cartao-composicao"><ComposicaoDaGuia guiaId={g.id} /></div>}
               <div className="ip-cartao-pe">
                 <StatusBadge tone={SITUACAO[situacao].tom}>{SITUACAO[situacao].rotulo}</StatusBadge>
                 <div className="ip-cartao-acoes">
-                  {aberta && podeEditar && <BotaoPagar g={g} a={acoes} urgente={urgente(g, situacao, hoje)} />}
-                  <RowMenu items={itensDoMenu(g, acoes, podeEditar, podeLancar, podeExcluir)} label={`Mais ações da guia ${g.documentType}`} />
+                  {aberta && podeVerContasAPagar && <BotaoPagar g={g} a={acoes} urgente={urgente(g, situacao, hoje)} />}
+                  <RowMenu items={itensDoMenu(g, acoes, podeEditar, podeLancar, podeExcluir, podeVerContasAPagar)} label={`Mais ações da guia ${g.documentType}`} />
                 </div>
               </div>
             </li>

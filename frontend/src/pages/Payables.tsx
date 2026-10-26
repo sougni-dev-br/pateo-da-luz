@@ -1,5 +1,6 @@
 import { AlertTriangle, CheckCircle2, FileText, RefreshCw, Search, SlidersHorizontal, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   AppUser, AuditLog, Company, CompanyBankAccount, checkPayrollPayBatch,
   downloadPayablesFinancialPdf, deletePayrollItem, getAllBankAccounts, getCompanies,
@@ -25,9 +26,11 @@ import { ResumoKpis, type CartaoResumo } from "./payables/ResumoKpis";
 import {
   addDaysKey, agendaDosProximosDias, agruparPorVencimento, basePaymentName, combinaSubtipo, contarFiltrosAtivos, dataDaBaixaNoLote, dateKey, empresaDaBaixaNoLote, formaDaBaixaNoLote, formaPrevistaDoTitulo, payloadDaForma,
   isExtra, isFolhaLote, isPayroll, isSimpleLedger, membroDoLoteCombina, isTaxPayment, juntarVencidosAnteriores, minDateKey, periodoPuxaVencidosAnteriores, rotuloPeriodo, somarValores, todayKey,
-  type FiltrosPagar
+  type FiltrosPagar,
+  filtroDaUrl
 } from "./payables/regras";
 import { ConfirmaBaixaDuplicada } from "./payables/ConfirmaBaixaDuplicada";
+import { avisoDeAuxiliares, carregarAuxiliar } from "./payables/auxiliares";
 import { recusaDaFolha, type RecusaFolha, type SuspeitoLote } from "../lib/folha-duplicidade";
 import "./payables/payables.css";
 
@@ -108,21 +111,25 @@ export function Payables({ user }: PayablesProps) {
   // Le o filtro da URL na abertura. Sem isto o alerta do Dashboard levava para
   // esta tela com os filtros padrao, e as parcelas sem vencimento continuavam
   // enterradas — o link existia mas nao resolvia nada.
+  // Link da tela de Impostos: abre já filtrado pela guia (busca, mês do vencimento e aba).
+  const filtroDoLink = useMemo(() => filtroDaUrl(typeof window !== "undefined" ? window.location.search : ""), []);
   const filtroInicialSemVencimento = typeof window !== "undefined"
     && new URLSearchParams(window.location.search).get("noDueDate") === "1";
   const [filters, setFilters] = useState<FiltrosPagar>({ filter: "", supplierId: "", paymentMethodId: "", status: "", sourceType: "", origin: "all", noDueDate: filtroInicialSemVencimento });
-  const [viewMode, setViewMode] = useState<"open" | "paid" | "all">("open");
+  const [viewMode, setViewMode] = useState<"open" | "paid" | "all">(filtroDoLink.aba ?? "open");
   const [activeChip, setActiveChip] = useState<string | null>(null);
   // Dia escolhido na agenda: filtra a lista que já está na tela, sem nova carga.
   const [diaFoco, setDiaFoco] = useState<string | null>(null);
   // Cartão do resumo que está filtrando a lista (só para destacá-lo).
   const [cartaoAtivo, setCartaoAtivo] = useState<CartaoResumo | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [period, setPeriod] = useState(currentMonthPeriod());
+  const [searchQuery, setSearchQuery] = useState(filtroDoLink.busca);
+  const [period, setPeriod] = useState<PeriodState>(filtroDoLink.periodo ? { preset: "custom", ...filtroDoLink.periodo } : currentMonthPeriod());
   const [loading, setLoading] = useState(false);
   const [erroCarga, setErroCarga] = useState<string | null>(null);
   // O backend corta a lista num limite de segurança e avisa pelo cabeçalho X-Payables-Truncado.
   const [listaTruncada, setListaTruncada] = useState(false);
+  // Fornecedores e formas só alimentam filtros: se falharem, a lista continua e a tela avisa.
+  const [auxiliaresFalharam, setAuxiliaresFalharam] = useState<string[]>([]);
   const [gerandoPdf, setGerandoPdf] = useState(false);
   const gerandoPdfRef = useRef(false);
   // Baixa em lote: cada título vencido baixado na própria data de vencimento (em vez da data única).
@@ -174,22 +181,27 @@ export function Payables({ user }: PayablesProps) {
       const vencidosAntes = (buscar: boolean, extra: Record<string, string | undefined>) => buscar
         ? getPayablesComLimite({ ...extra, status: "OVERDUE", endDate: activePeriod.startDate, origin: orig })
         : Promise.resolve({ titulos: [] as Payable[], truncado: false });
-      const [periodoRows, periodoAllRows, vencidosRows, vencidosAllRows, supplierRows, methodRows, companyRows] = await Promise.all([
+      const [periodoRows, periodoAllRows, vencidosRows, vencidosAllRows, supplierAux, methodAux, companyAux] = await Promise.all([
         getPayablesComLimite({ ...apiFilters, ...dateParams, origin: orig }),
         getPayablesComLimite({ ...periodFilters, origin: orig }),
         vencidosAntes(vencidosNaLista, apiFilters),
         vencidosAntes(puxaVencidos, {}),
-        suppliers.length ? Promise.resolve(suppliers) : getSuppliers(),
-        paymentMethods.length ? Promise.resolve(paymentMethods) : getPaymentMethods(),
-        companies.length ? Promise.resolve(companies) : getCompanies().catch(() => [] as Company[])
+        carregarAuxiliar(suppliers, getSuppliers),
+        carregarAuxiliar(paymentMethods, getPaymentMethods),
+        // Empresas: nem todo perfil enxerga a lista, então a falha segue silenciosa (só some o filtro).
+        carregarAuxiliar(companies, () => getCompanies().catch(() => [] as Company[]))
       ]);
       if (!atual()) return;
       setPayables(juntarVencidosAnteriores(periodoRows.titulos, vencidosRows.titulos));
       setAllPayables(juntarVencidosAnteriores(periodoAllRows.titulos, vencidosAllRows.titulos));
       setListaTruncada([periodoRows, periodoAllRows, vencidosRows, vencidosAllRows].some((r) => r.truncado));
-      setSuppliers(supplierRows);
-      setPaymentMethods(methodRows);
-      setCompanies(companyRows.filter((c) => c.isActive));
+      setSuppliers(supplierAux.itens);
+      setPaymentMethods(methodAux.itens);
+      setCompanies(companyAux.itens.filter((c) => c.isActive));
+      setAuxiliaresFalharam([
+        supplierAux.falhou ? "fornecedores" : "",
+        methodAux.falhou ? "formas de pagamento" : ""
+      ].filter(Boolean));
     } catch (error) {
       if (!atual()) return;
       const message = error instanceof Error ? error.message : "Erro ao carregar contas a pagar.";
@@ -201,6 +213,16 @@ export function Payables({ user }: PayablesProps) {
   }
 
   useEffect(() => { load(); }, []);
+
+  // Link "Pagar" da tela de Impostos: depois da primeira carga, abre direto a baixa da guia (uma vez só).
+  const abrirDoLink = useRef(filtroDoLink.abrirBaixa && filtroDoLink.titulo != null);
+  useEffect(() => {
+    if (!abrirDoLink.current || !canManage) return;
+    const alvo = payables.find((p) => p.id === filtroDoLink.titulo);
+    if (!alvo || (alvo.status !== "OPEN" && alvo.status !== "OVERDUE")) return;
+    abrirDoLink.current = false;
+    startPayment(alvo);
+  }, [payables]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const totals = useMemo(() => {
     const today = todayKey();
@@ -250,6 +272,7 @@ export function Payables({ user }: PayablesProps) {
       (p.taxDocumentType ?? "").toLowerCase().includes(q) ||
       (p.taxDescription ?? "").toLowerCase().includes(q) ||
       (p.taxCnpj ?? "").includes(q) ||
+      (p.taxDocumentNumber ?? "").toLowerCase().includes(q) ||
       membroDoLoteCombina(p, q)
     );
   }, [payables, searchQuery, filters.sourceType, activeChip, viewMode, diaFoco]);
@@ -896,6 +919,9 @@ export function Payables({ user }: PayablesProps) {
   return (
     <section className="panel pg-tela">
       <Notice notice={notice} />
+      {filtroDoLink.origem === "impostos" && (
+        <p className="pg-volta"><Link to="/financeiro/impostos">← Voltar para Impostos e Guias</Link></p>
+      )}
 
       {/* ── Topo: título da seção e ações ───────────────────────── */}
       <div className="pg-topo">
@@ -1007,6 +1033,10 @@ export function Payables({ user }: PayablesProps) {
         )}
         <span className="pg-resultado-periodo">{descricaoPeriodo}</span>
       </div>
+
+      {!loading && !erroCarga && avisoDeAuxiliares(auxiliaresFalharam) && (
+        <Alert tone="warning" role="status">{avisoDeAuxiliares(auxiliaresFalharam)}</Alert>
+      )}
 
       {!loading && !erroCarga && listaTruncada && (
         <Alert tone="warning" role="alert">

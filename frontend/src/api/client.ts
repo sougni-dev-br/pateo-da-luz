@@ -1071,6 +1071,15 @@ export type SmallExpenseType = {
   naturezaGerencial: NaturezaGerencial | null;
 };
 
+export type CreditCardFinal = {
+  id: string;
+  creditCardId: string;
+  label: string;
+  last4Digits: string;
+  kind: "PHYSICAL" | "VIRTUAL" | string;
+  isActive: boolean;
+};
+
 export type CreditCard = {
   id: string;
   name: string;
@@ -1082,6 +1091,7 @@ export type CreditCard = {
   notes: string | null;
   createdAt: string;
   updatedAt: string;
+  finais?: CreditCardFinal[];
   _count?: {
     statements: number;
     purchases: number;
@@ -1103,6 +1113,8 @@ export type CreditCardStatement = {
   createdAt: string;
   updatedAt: string;
   creditCard?: CreditCard;
+  itensSemCartao?: number;
+  itensConferidos?: number;
   _count?: { items: number };
 };
 
@@ -1120,6 +1132,7 @@ export type CreditCardStatementItem = {
   categoryName: string | null;
   smallExpenseTypeId: string | null;
   responsibleName: string | null;
+  cardFinalId: string | null;
   checked: boolean;
   hasDivergence: boolean;
   notes: string | null;
@@ -1135,6 +1148,9 @@ export type Purchase = {
   supplierId: string;
   purchaseNumber?: string | null;
   purchaseOrderNumber?: string | null;
+  /** Parcela de um parcelamento em lote: não se edita nem cancela aqui, só dentro do parcelamento. */
+  installmentPlanId?: string | null;
+  planInstallmentNumber?: number | null;
   workflowStatus?: string | null;
   cycleStatus?: string | null;
   purchaseDate: string;
@@ -1339,6 +1355,10 @@ export type Payable = {
   paidPaymentMethodId?: string | null;
   paidPaymentMethodName?: string | null;
   paymentNotes?: string | null;
+  /** Parcela de um parcelamento em lote (rótulo "Parcelamento 2/12"). */
+  planDescription?: string | null;
+  planInstallmentNumber?: number | null;
+  planInstallmentCount?: number | null;
   sourceType?: "DIRECT" | "CARD_STATEMENT" | "LEGACY_CREDIT_CARD" | "SUPPLIER_CYCLE" | "TAX_PAYMENT" | "PAYROLL" | "EXTRA" | string | null;
   status: "OPEN" | "PAID" | "PAID_LATE" | "OVERDUE" | "CANCELLED" | string;
   rawValue: string | null;
@@ -1356,6 +1376,8 @@ export type Payable = {
   taxCompanyName?: string | null;
   taxCnpj?: string | null;
   taxCompetenceDate?: string | null;
+  /** Número do documento da guia de imposto (DAS/DARF) ou identificador (FGTS). */
+  taxDocumentNumber?: string | null;
   taxDreCategoryName?: string | null;
   /** Folha: salário de quem tem salário combinado (só para quem pode ver salários). */
   salarioComposicao?: SalarioComposicao | null;
@@ -1420,9 +1442,15 @@ export type SmallExpenseReport = {
   };
 };
 
+export type SubtotalDoCartao = { cardFinalId: string | null; itens: number; total: number };
+export type DivergenciaDoCartao = { cardFinalId: string; calculado: number; declarado: number; diferenca: number };
+
 export type CreditCardStatementDetail = Omit<CreditCardStatement, "_count"> & {
   creditCard: CreditCard;
   items: CreditCardStatementItem[];
+  finalTotals?: Array<{ cardFinalId: string; statedAmount: string }>;
+  subtotaisPorCartao?: SubtotalDoCartao[];
+  divergenciasPorCartao?: DivergenciaDoCartao[];
 };
 
 export type PurchaseFilters = {
@@ -1457,6 +1485,7 @@ export type AppUser = {
   failedLoginAttempts?: number;
   lockedUntil?: string | null;
   lastLoginAt?: string | null;
+  inactivityTimeoutMinutes?: number;
   menuPermissions?: MenuPermissionMap;
   modulePermissions?: ModulePermissionMap;
   menuPermissionOverrides?: Partial<MenuPermissionMap>;
@@ -2409,6 +2438,16 @@ export function getPurchases(filters?: PurchaseFilters) {
   return request<Purchase[]>(`/purchases${toQueryString(filters)}`);
 }
 
+/** Igual a getPurchases, mas diz se o backend cortou a lista no limite de segurança (cabeçalho X-Purchases-Truncado). */
+export async function getPurchasesComLimite(filters?: PurchaseFilters): Promise<{ compras: Purchase[]; truncado: boolean }> {
+  let truncado = false;
+  const compras = await request<Purchase[]>(`/purchases${toQueryString(filters)}`, undefined, REQUEST_TIMEOUT_MS, (response) => {
+    const valor = response.headers.get("X-Purchases-Truncado");
+    truncado = valor !== null && valor !== "0" && valor.toLowerCase() !== "false";
+  });
+  return { compras, truncado };
+}
+
 export function getPurchase(id: string) {
   return request<PurchaseDetail>(`/purchases/${id}`);
 }
@@ -2911,11 +2950,68 @@ export function getCards(search?: string) {
   return request<CreditCard[]>(`/cards${toQueryString({ search })}`);
 }
 
-export function saveCard(payload: Partial<CreditCard> & { name: string; bankName: string; last4Digits: string; closingDay: number; dueDay: number }) {
+export type SaveCardPayload = {
+  id?: string;
+  name: string;
+  bankName: string;
+  closingDay: number;
+  dueDay: number;
+  notes?: string;
+  isActive?: boolean;
+  last4Digits?: string;
+  finais?: Array<{ id?: string; label: string; last4Digits: string; kind: "PHYSICAL" | "VIRTUAL"; isActive: boolean }>;
+};
+
+export type CardHistoryEntry = { id: string; createdAt: string; usuario: string; resumo: string[] };
+
+export function saveCard(payload: SaveCardPayload) {
   return request<CreditCard>("/cards", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
+  });
+}
+
+export function getCardHistory(cardId: string) {
+  return request<CardHistoryEntry[]>(`/cards/${cardId}/historico`);
+}
+
+export function saveCardFinal(
+  cardId: string,
+  payload: { id?: string; label: string; last4Digits: string; kind: string; isActive?: boolean }
+) {
+  return request<CreditCardFinal>(`/cards/${cardId}/finais`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function setStatementItemsFinal(statementId: string, itemIds: string[], cardFinalId: string | null) {
+  return request<{ atualizados: number; reabertaPorDivergencia: boolean }>(`/cards/statements/${statementId}/items-final`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ itemIds, cardFinalId })
+  });
+}
+
+export function getCardFinalSugerido(cardId: string, supplierName: string) {
+  return request<{ cardFinalId: string | null }>(`/cards/${cardId}/final-sugerido${toQueryString({ supplierName })}`);
+}
+
+export function setStatementItemsChecked(statementId: string, itemIds: string[], checked: boolean) {
+  return request<{ atualizados: number }>(`/cards/statements/${statementId}/items-check`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ itemIds, checked })
+  });
+}
+
+export function setStatementFinalTotal(statementId: string, cardFinalId: string, statedAmount: string | null) {
+  return request<{ ok: boolean; statedAmount: number | null }>(`/cards/statements/${statementId}/final-totals/${cardFinalId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ statedAmount })
   });
 }
 
@@ -3036,6 +3132,14 @@ export function reallocateCardStatementItem(itemId: string, payload: { targetSta
   });
 }
 
+export function shiftPurchaseInstallments(purchaseId: string, payload: { meses: number; reason: string }) {
+  return request<{ movidas: number; meses: number }>(`/cards/purchases/${purchaseId}/shift-installments`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
 export function getSmallExpenseReport(filters?: {
   startDate?: string;
   endDate?: string;
@@ -3114,6 +3218,19 @@ export type DashboardSummaryKpi = {
   deltaPercent: number | null;
 };
 
+export type DashboardChannelRevenue = {
+  canal: string;
+  grossAmount: number;
+  netAmount: number;
+  sharePercent: number | null;
+  count: number;
+  ultimoDia: string | null;
+  diaFuturo: string | null;
+  /** Só no mês corrente; null em mês passado. */
+  situacao: "EM_DIA" | "ATRASADO" | "SEM_DADOS" | null;
+  diasDesdeUltimo: number | null;
+};
+
 export type DashboardSummaryData = {
   year: number;
   month: number;
@@ -3123,7 +3240,12 @@ export type DashboardSummaryData = {
     serviceAmount: number;
     tickets: number;
     peopleServed: number;
+    /** Mesas e pessoas só do canal Salão — base dos dois tickets médios. */
+    salonTickets?: number;
+    salonPeopleServed?: number;
     count: number;
+    /** Opcional: um backend anterior a este campo não o manda. */
+    byChannel?: DashboardChannelRevenue[];
     ticketAverage: number;
     ticketAveragePerTable: number;
     ticketAveragePerPerson: number;
@@ -3173,6 +3295,16 @@ export type DashboardSummaryData = {
     value: number;
     marginPercent: number | null;
   };
+  // Opcional: um backend anterior a este campo não o manda.
+  fullResult?: {
+    purchases: number;
+    smallExpenses: number;
+    payroll: number;
+    taxes: number;
+    occupancy: number;
+    value: number;
+    marginPercent: number | null;
+  };
 };
 
 export function getDashboardSummary(year: number, month: number) {
@@ -3180,18 +3312,31 @@ export function getDashboardSummary(year: number, month: number) {
 }
 
 export async function login(email: string, password: string, options?: { force?: boolean }) {
-  const result = await request<{ token: string; user: AppUser }>("/auth/login", {
+  const result = await request<{ token: string; user: AppUser; inactivityTimeoutMinutes?: number }>("/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password, force: options?.force ?? false })
   });
   localStorage.removeItem(SESSION_TOKEN_KEY);
   sessionStorage.setItem(SESSION_TOKEN_KEY, result.token);
-  return result;
+  return { ...result, user: { ...result.user, inactivityTimeoutMinutes: result.inactivityTimeoutMinutes } };
 }
 
-export async function logout() {
+// Chave do localStorage onde as abas que compartilham o mesmo token (aba duplicada) registram
+// a última atividade, para que uma aba esquecida não derrube a sessão da aba em uso.
+export function sessionActivityKey() {
+  const token = sessionStorage.getItem(SESSION_TOKEN_KEY);
+  return token ? `pateo_last_activity:${token.slice(-16)}` : null;
+}
+
+export async function logout(reason?: "inactivity") {
   const token = sessionToken();
+  // Limpa antes da rede: se o usuário logar de novo enquanto o POST ainda está pendente,
+  // o fim deste logout não pode apagar o token novo.
+  const activityKey = sessionActivityKey();
+  localStorage.removeItem(SESSION_TOKEN_KEY);
+  sessionStorage.removeItem(SESSION_TOKEN_KEY);
+  if (activityKey) localStorage.removeItem(activityKey);
   if (token) {
     const urls = [
       `${API_BASE_URL}/auth/logout`,
@@ -3201,7 +3346,8 @@ export async function logout() {
       try {
         const resp = await fetchWithTimeout(url, {
           method: "POST",
-          headers: { Authorization: `Bearer ${token}` }
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ reason })
         });
         if (resp.ok) break;
       } catch {
@@ -3209,8 +3355,6 @@ export async function logout() {
       }
     }
   }
-  localStorage.removeItem(SESSION_TOKEN_KEY);
-  sessionStorage.removeItem(SESSION_TOKEN_KEY);
 }
 
 export function killUserSession(userId: string) {
@@ -3229,6 +3373,18 @@ export type UserSessionInfo = {
   expiresAt: string;
   lastActivityAt: string | null;
 };
+
+export type LoginHistoryEvent = {
+  id: string;
+  action: string;
+  ipAddress: string | null;
+  userAgent: string | null;
+  createdAt: string;
+};
+
+export function getLoginHistory(userId: string) {
+  return request<LoginHistoryEvent[]>(`/auth/login-history/${userId}`);
+}
 
 export function getActiveSessions() {
   return request<UserSessionInfo[]>("/auth/sessions");
@@ -4255,6 +4411,8 @@ export type MonthlyClosureJustification = {
   blockKey: string;
   reason: string;
   justifiedByUserId: string;
+  /** Nome de quem registrou; nulo se o usuário não existe mais. */
+  justifiedByName?: string | null;
   justifiedAt: string;
 };
 
@@ -4264,6 +4422,20 @@ export type MonthlyClosureRequiredSupplier = {
   group: string;
   frequency: "MONTHLY" | "QUARTERLY" | "ANNUAL";
   appliesThisMonth: boolean;
+  present: boolean;
+  total: number;
+  purchaseCount: number;
+  /** Lançamentos obrigatórios do fornecedor (ex.: condomínio do mês + parcela do acordo). */
+  requirements: MonthlyClosureRequirement[];
+  /** Há exigência ativa: o fornecedor é cobrado por lançamento, não por "qualquer compra". */
+  usaExigencias: boolean;
+};
+
+export type MonthlyClosureRequirement = {
+  id: string;
+  label: string;
+  productName: string;
+  quitada: boolean;
   present: boolean;
   total: number;
   purchaseCount: number;
@@ -4302,12 +4474,15 @@ export type MonthlyClosureState = {
   status: "OPEN" | "CLOSED";
   closedAt: string | null;
   closedByUserId: string | null;
+  closedByName?: string | null;
   reopenReason: string | null;
   revenue: {
     salon: { grossAmount: number; netAmount: number; daysCount: number; entryCount: number };
     ifood: { grossAmount: number; count: number };
     noventaNove: { grossAmount: number; count: number };
     outrosDelivery: { grossAmount: number; count: number; plataformas: string[] };
+    /** Eventos/empreitada lançados em Faturamento (não passam pelo Agile); lançamento obrigatório no fechamento. */
+    eventos: { lancamentos: number; valor: number };
     /** Total do mes, lido do razao. Nunca some as parcelas acima — elas saem dele. */
     total: { grossAmount: number; netAmount: number };
   };
@@ -4318,6 +4493,11 @@ export type MonthlyClosureState = {
   };
   requiredSuppliers: MonthlyClosureRequiredSupplier[];
   taxes: MonthlyClosureTax[];
+  /** Cartões ativos e a fatura da competência de cada um (conferência obrigatória). */
+  cards: {
+    cartoes: Array<{ id: string; name: string; last4Digits: string }>;
+    faturas: Array<{ creditCardId: string; status: string; itensComDivergencia: number }>;
+  };
   finalInventory: MonthlyClosureFinalInventory;
   cmvAttribution: { total: number; breakdown: MonthlyClosureCmvContribution[] };
   justifications: MonthlyClosureJustification[];
@@ -4327,6 +4507,38 @@ export type MonthlyClosureState = {
     canLock: boolean;
   };
 };
+
+export type EventoDoHistorico = {
+  id: string;
+  /** Instante (ISO) em que aconteceu. */
+  em: string;
+  acao: "JUSTIFICOU" | "REMOVEU_JUSTIFICATIVA" | "TRAVOU" | "REABRIU";
+  porNome: string | null;
+  blockKey: string | null;
+  texto: string | null;
+};
+
+export type MesDoHistorico = {
+  ano: number;
+  mes: number;
+  travado: boolean;
+  travadoEm: string | null;
+  travadoPor: string | null;
+  reabertoEm: string | null;
+  reabertoPor: string | null;
+  motivoDaReabertura: string | null;
+  justificativas: number;
+  faturamentoBruto: number;
+  cmvAtribuido: number | null;
+};
+
+export function getMonthlyClosureHistory(year: number, month: number) {
+  return request<EventoDoHistorico[]>(`/monthly-closure/${year}/${month}/history`);
+}
+
+export function getMonthlyClosureOverview(limit = 12) {
+  return request<MesDoHistorico[]>(`/monthly-closure/overview?limit=${limit}`);
+}
 
 export function getMonthlyClosure(year: number, month: number) {
   return request<MonthlyClosureState>(`/monthly-closure/${year}/${month}`);
@@ -4455,6 +4667,50 @@ export function setUnitStatus(id: string, isActive: boolean) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ isActive })
   });
+}
+
+export type SupplierClosingRequirement = {
+  id: string;
+  label: string;
+  productId: string;
+  productName: string;
+  /** Quando o acordo foi quitado; nulo = ainda cobrado todo mês. */
+  settledAt: string | null;
+};
+
+export function getSupplierClosingRequirements(supplierId: string) {
+  return request<SupplierClosingRequirement[]>(`/suppliers/${encodeURIComponent(supplierId)}/closing-requirements`);
+}
+
+export function createSupplierClosingRequirement(supplierId: string, payload: { label: string; productId: string }) {
+  return request<SupplierClosingRequirement>(`/suppliers/${encodeURIComponent(supplierId)}/closing-requirements`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function updateSupplierClosingRequirement(
+  supplierId: string, requirementId: string, payload: { label?: string; productId?: string }
+) {
+  return request<SupplierClosingRequirement>(
+    `/suppliers/${encodeURIComponent(supplierId)}/closing-requirements/${encodeURIComponent(requirementId)}`,
+    { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }
+  );
+}
+
+export function deleteSupplierClosingRequirement(supplierId: string, requirementId: string) {
+  return request<{ ok: boolean }>(
+    `/suppliers/${encodeURIComponent(supplierId)}/closing-requirements/${encodeURIComponent(requirementId)}`,
+    { method: "DELETE" }
+  );
+}
+
+export function settleSupplierClosingRequirement(supplierId: string, requirementId: string, settled: boolean) {
+  return request<SupplierClosingRequirement>(
+    `/suppliers/${encodeURIComponent(supplierId)}/closing-requirements/${encodeURIComponent(requirementId)}/settle`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ settled }) }
+  );
 }
 
 export function getExpenseTypes(search?: string) {
@@ -5516,6 +5772,15 @@ export type TaxPayment = {
   tradeName: string | null;
   documentType: string;
   description: string | null;
+  /** Número do documento (DAS/DARF) ou identificador (FGTS). */
+  documentNumber: string | null;
+  /** FGTS Digital: quantidade de trabalhadores informada na guia. */
+  workersCount?: number | null;
+  /** FGTS de rescisão: o funcionário desligado a que a guia se refere. */
+  employeeId?: string | null;
+  employeeName?: string | null;
+  /** Quantas linhas tem a composição da guia (a lista traz só a contagem; as linhas vêm no detalhe). */
+  itemsCount?: number;
   competenceDate: string | null;
   dueDate: string;
   amount: string;
@@ -5533,9 +5798,42 @@ export type TaxPayment = {
   updatedAt: string;
 };
 
+// Linha da discriminação da guia (a "Composição do Documento de Arrecadação").
+export type TaxPaymentItem = {
+  id: string;
+  position: number;
+  code: string | null;
+  description: string;
+  principal: string;
+  fine: string;
+  interest: string;
+};
+
+// Catálogo de códigos do tipo de guia: o código digitado traz a denominação.
+export type TaxCode = { code: string; description: string };
+
+export function getTaxCodes(tipo: string) {
+  return request<TaxCode[]>(`/tax-payments/codigos?${new URLSearchParams({ tipo })}`);
+}
+
+export type TaxPaymentItemInput = {
+  code: string | null;
+  description: string;
+  principal: number;
+  fine: number;
+  interest: number;
+};
+
 export type TaxPaymentDetail = TaxPayment & {
   company: { id: string; tradeName: string; legalName: string; cnpj: string } | null;
   dreCategory: { id: string; name: string; dreGroup: string } | null;
+  items: TaxPaymentItem[];
+};
+
+// Com `items`, o valor da guia é a soma das linhas (o servidor ignora `amount`).
+export type TaxPaymentPayload = Omit<Partial<TaxPayment>, "id" | "createdAt" | "updatedAt" | "dreCategoryName" | "amount"> & {
+  amount?: string;
+  items?: TaxPaymentItemInput[];
 };
 
 export type TaxPaymentSummary = {
@@ -5565,6 +5863,8 @@ export type TaxPaymentFilters = {
   paymentEnd?: string;
   search?: string;
   dreCategoryId?: string;
+  /** "true": só as guias sem competência (ficam fora do DRE). */
+  withoutCompetence?: string;
   page?: number;
   pageSize?: number;
 };
@@ -5580,7 +5880,7 @@ export type TaxPanorama = {
     depois: { qtd: number; valor: number };
   };
   meses: string[];
-  cobertura: Array<{ mes: string; grupo: string; qtd: number; pagas: number; vencidas: number; valor: number }>;
+  cobertura: Array<{ mes: string; grupo: string; categoriaId?: string | null; qtd: number; pagas: number; vencidas: number; valor: number }>;
   semCompetencia: number;
 };
 
@@ -5644,7 +5944,7 @@ export function getTaxPayment(id: string) {
   return request<TaxPaymentDetail>(`/tax-payments/${id}`);
 }
 
-export function createTaxPayment(payload: Omit<Partial<TaxPayment>, "id" | "createdAt" | "updatedAt" | "dreCategoryName" | "attachmentCount">) {
+export function createTaxPayment(payload: TaxPaymentPayload) {
   return request<TaxPayment>("/tax-payments", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -5652,7 +5952,7 @@ export function createTaxPayment(payload: Omit<Partial<TaxPayment>, "id" | "crea
   });
 }
 
-export function updateTaxPayment(id: string, payload: Partial<TaxPayment>) {
+export function updateTaxPayment(id: string, payload: TaxPaymentPayload) {
   return request<TaxPayment>(`/tax-payments/${id}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -6267,6 +6567,7 @@ export type IfoodSettlementRow = {
   netAmount: number;
   paidAt: string | null;
   status: string;
+  storeLabel?: string;
 };
 
 export type IfoodPeriodSummary = {
@@ -6412,6 +6713,8 @@ export type PainelDonoInsights = {
     avgNet: number;
     avgOrders: number;
   }>;
+  /** `mensal`: dado do consolidado do portal — sem média por dia da semana nem projeção. */
+  granularidade: "diaria" | "mensal";
   ticketByStore: Array<{
     storeId: string;
     storeLabel: string;
@@ -6496,6 +6799,7 @@ export type NoventaNoveSettlementRow = {
   netAmount: number;
   paidAt: string | null;
   status: string;
+  storeLabel?: string;
 };
 
 export type NoventaNovePeriodSummary = {
@@ -6627,6 +6931,17 @@ export type KeetaTotais = {
   netPercent: number;
 };
 
+export type KeetaRepasse = {
+  id: string;
+  description: string;
+  expectedDate: string;
+  receivedDate: string | null;
+  grossAmount: number;
+  fees: number;
+  netAmount: number;
+  status: string;
+};
+
 export type KeetaPeriodSummary = {
   period: { year: number; month: number };
   totals: KeetaTotais;
@@ -6638,6 +6953,10 @@ export type KeetaPeriodSummary = {
     deltaGross: Variacao;
     deltaNet: Variacao;
     deltaOrders: Variacao;
+  };
+  settlements: {
+    items: KeetaRepasse[];
+    totals: { received: number; pending: number; total: number; count: number };
   };
   semDados: boolean;
 };
@@ -6746,6 +7065,8 @@ export type ReceivableView = {
   fees: number;
   netAmount: number;
   paidAmount: number | null;
+  /** Quanto ainda falta receber (0 se recebida ou cancelada). */
+  remainingAmount: number;
   paymentMethod: string | null;
   bankAccountId: string | null;
   installmentNumber: number | null;
@@ -6753,19 +7074,68 @@ export type ReceivableView = {
   parentReceivableId: string | null;
   status: ReceivableStatus;
   notes: string | null;
+  cancelledAt: string | null;
+  cancellationReason: string | null;
   daysUntilExpected: number;
   isLate: boolean;
   createdAt: string;
 };
 
+export type ReceivableReceiptView = {
+  id: string;
+  receivedDate: string;
+  amount: number;
+  paymentMethod: string | null;
+  bankAccountId: string | null;
+  notes: string | null;
+  createdByUserId: string | null;
+  createdAt: string | null;
+  reversedAt: string | null;
+  reversalReason: string | null;
+  legacy: boolean;
+};
+
+export type ReceivableDetail = ReceivableView & { receipts: ReceivableReceiptView[] };
+
+export type ReceivableSummary = {
+  today: string;
+  overdue: { count: number; amount: number };
+  dueToday: { count: number; amount: number };
+  next7: { count: number; amount: number };
+  next30: { count: number; amount: number };
+  pending: { count: number; amount: number };
+  receivedThisMonth: { count: number; amount: number };
+};
+
+export function getReceivableSummary() {
+  return request<ReceivableSummary>("/receivables/summary");
+}
+
+export function getReceivableDetail(id: string) {
+  return request<ReceivableDetail>(`/receivables/${id}`);
+}
+
+export function reverseReceivableReceipt(id: string, receiptId: string, reason: string) {
+  return request<ReceivableView>(`/receivables/${id}/receipts/${receiptId}/reverse`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason })
+  });
+}
+
 export function getReceivables(filters: {
-  status?: ReceivableStatus;
+  status?: ReceivableStatus | "PENDING";
   sourceType?: ReceivableSourceType;
   companyId?: string;
   startDate?: string;
   endDate?: string;
+  dateField?: "expected" | "received";
+  search?: string;
+  /** Até 1000; o servidor usa 500 quando omitido. */
+  limit?: number;
 } = {}) {
-  return request<ReceivableView[]>(`/receivables${toQueryString(filters)}`);
+  const { limit, ...resto } = filters;
+  return request<ReceivableView[]>(`/receivables${toQueryString({ ...resto, limit: limit === undefined ? undefined : String(limit) })}`);
 }
 
 export function createReceivable(payload: {
@@ -6799,6 +7169,8 @@ export function markReceivableReceived(id: string, payload: {
   paymentMethod?: string | null;
   bankAccountId?: string | null;
   notes?: string | null;
+  /** Obrigatório só quando o valor passa do saldo a receber. */
+  differenceReason?: string | null;
 }) {
   return request<ReceivableView>(`/receivables/${id}/receive`, {
     method: "POST",
@@ -6807,7 +7179,7 @@ export function markReceivableReceived(id: string, payload: {
   });
 }
 
-export function cancelReceivable(id: string, reason?: string) {
+export function cancelReceivable(id: string, reason: string) {
   return request<ReceivableView>(`/receivables/${id}/cancel`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -6899,7 +7271,7 @@ export type WhatsAppRecipient = {
 };
 
 export type WhatsAppStatus = {
-  status: "starting" | "waiting_qr" | "connecting" | "open" | "closed" | "logged_out";
+  status: "starting" | "waiting_qr" | "connecting" | "open" | "closed" | "logged_out" | "suspended";
   sessionName: string;
   hasQr: boolean;
   lastError: string | null;
@@ -9710,6 +10082,8 @@ export type CoberturaCanal = {
   diasNoPeriodo: number;
   diasComDado: number;
   diasSemLancamento: string[];
+  /** Lançamentos com data depois de hoje: ficam fora da cobertura. */
+  lancamentosFuturos?: string[];
   origens: CoberturaOrigem[];
 };
 
@@ -9772,4 +10146,159 @@ export function confirmKeetaImport(file: File) {
     method: "POST",
     body: keetaFormData(file)
   });
+}
+
+// ── Coleta de óleo ──
+
+/** A situação do PIX vem do título no Contas a Receber, onde a baixa é feita. */
+export type OilCollectionStatus = "PENDING" | "PARTIAL" | "RECEIVED" | "CANCELLED";
+
+export type OilCollection = {
+  id: string;
+  collectionDate: string;
+  collectorName: string;
+  certificateNumber: string | null;
+  volumeLiters: number;
+  amount: number;
+  status: OilCollectionStatus;
+  receivableId: string | null;
+  receivedAt: string | null;
+  /** Quanto já foi baixado no título. */
+  paidAmount: number;
+  notes: string | null;
+  cancellationReason: string | null;
+};
+
+export type OilCollectionSummary = {
+  collections: number;
+  liters: number;
+  amount: number;
+  pricePerLiter: number | null;
+  pendingCount: number;
+  pendingAmount: number;
+  receivedCount: number;
+  receivedAmount: number;
+  lastCollectionDate: string | null;
+  months: Array<{ month: string; collections: number; liters: number; amount: number }>;
+};
+
+export type OilCollectionList = {
+  year: number;
+  minYear: number;
+  summary: OilCollectionSummary;
+  items: OilCollection[];
+  /** PIX ainda não conferido, de todos os anos. */
+  openPix: { count: number; amount: number };
+};
+
+export type OilCollectionInput = {
+  collectionDate: string;
+  collectorName: string;
+  certificateNumber: string;
+  volumeLiters: string;
+  amount: string;
+  notes: string;
+};
+
+const OIL_JSON = { "Content-Type": "application/json" };
+
+export function getOilCollections(year: number) {
+  return request<OilCollectionList>(`/oil-collections?year=${year}`);
+}
+
+export function createOilCollection(payload: OilCollectionInput) {
+  return request<OilCollection>("/oil-collections", { method: "POST", headers: OIL_JSON, body: JSON.stringify(payload) });
+}
+
+export function updateOilCollection(id: string, payload: OilCollectionInput) {
+  return request<OilCollection>(`/oil-collections/${id}`, { method: "PATCH", headers: OIL_JSON, body: JSON.stringify(payload) });
+}
+
+export function cancelOilCollection(id: string, reason: string) {
+  return request<OilCollection>(`/oil-collections/${id}/cancel`, { method: "POST", headers: OIL_JSON, body: JSON.stringify({ reason }) });
+}
+
+// ── Parcelamentos em lote ────────────────────────────────────────────────────
+export type InstallmentPlanSummary = {
+  total: number;
+  pagas: number;
+  abertas: number;
+  atrasadas: number;
+  canceladas: number;
+  valorPago: number;
+  saldoAberto: number;
+  proximoVencimento: string | null;
+  quitado: boolean;
+};
+
+export type InstallmentPlanListItem = {
+  id: string;
+  /** Despesa já lançada nos meses de origem: vale no Contas a Pagar e no caixa, mas não no DRE. */
+  excludeFromDre: boolean;
+  description: string;
+  supplierName: string;
+  status: "ACTIVE" | "RENEGOTIATED" | "CANCELLED";
+  totalAmount: number;
+  installmentCount: number;
+  createdAt: string;
+  resumo: InstallmentPlanSummary;
+};
+
+export type InstallmentPlanInstallment = {
+  purchaseId: string;
+  installmentId: string | null;
+  numero: number | null;
+  amount: number;
+  paidAmount: number | null;
+  dueDate: string | null;
+  paidDate: string | null;
+  situacao: "PAGA" | "ABERTA" | "CANCELADA";
+};
+
+export type InstallmentPlanDetail = Omit<InstallmentPlanListItem, "supplierName" | "createdAt"> & {
+  supplierId: string;
+  supplierName: string;
+  companyId: string;
+  productId: string;
+  renegotiatedFromId: string | null;
+  notes: string | null;
+  parcelas: InstallmentPlanInstallment[];
+};
+
+export type InstallmentPlanParcelaInput = { valor: number; vencimento: string };
+
+export type InstallmentPlanInput = {
+  supplierId: string;
+  companyId: string;
+  productId: string;
+  description: string;
+  total: number;
+  quantidade: number;
+  primeiroVencimento?: string;
+  parcelas?: InstallmentPlanParcelaInput[];
+  paymentMethodId?: string | null;
+  notes?: string | null;
+  foraDoDre?: boolean;
+};
+
+const PLAN_JSON = { "Content-Type": "application/json" };
+
+export function getInstallmentPlans() {
+  return request<InstallmentPlanListItem[]>("/installment-plans");
+}
+
+export function getInstallmentPlan(id: string) {
+  return request<InstallmentPlanDetail>(`/installment-plans/${id}`);
+}
+
+export function createInstallmentPlan(payload: InstallmentPlanInput) {
+  return request<InstallmentPlanDetail>("/installment-plans", { method: "POST", headers: PLAN_JSON, body: JSON.stringify(payload) });
+}
+
+export function renegotiateInstallmentPlan(id: string, payload: { quantidade: number; primeiroVencimento?: string; parcelas?: InstallmentPlanParcelaInput[]; total?: number; motivo: string }) {
+  return request<{ planId: string; saldoAnterior: number; parcelasCanceladas: number; plano: InstallmentPlanDetail }>(`/installment-plans/${id}/renegociar`, { method: "POST", headers: PLAN_JSON, body: JSON.stringify(payload) });
+}
+
+export function cancelInstallmentPlan(id: string, motivo: string) {
+  return request<{ parcelasCanceladas: number; parcelasPagasMantidas: number; plano: InstallmentPlanDetail }>(`/installment-plans/${id}/cancelar`, { method: "POST", headers: PLAN_JSON, body: JSON.stringify({ motivo }) });
 }

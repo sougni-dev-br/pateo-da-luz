@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
-  competenciaDoMes, composicaoAPagar, lacunasPorImposto, mesAnterior, mesDaData, montarGrade, prazoDaGuia, rotuloMes, ultimoDiaDoMes,
+  competenciaDoMes, composicaoAPagar, lacunasPorImposto, linkContasAPagar, mesAnterior, mesDaData, montarGrade, prazoDaGuia, rotuloMes, ultimoDiaDoMes,
   type LinhaCobertura,
 } from "../regras";
 
@@ -126,5 +126,31 @@ describe("grade de cobertura", () => {
 
   test("sem imposto mensal não há o que acusar", () => {
     expect(lacunasPorImposto(montarGrade([], meses, hoje))).toEqual([]);
+  });
+});
+
+describe("linkContasAPagar", () => {
+  test("filtra pelo número do documento e pelo mês do vencimento, abrindo em Todos", () => {
+    const url = linkContasAPagar({ id: "g1", documentNumber: "07.20.26290.7165263-2", documentType: "Simples Nacional / DAS", dueDate: "2026-10-20T00:00:00.000Z" });
+    const p = new URL(url, "https://x.test").searchParams;
+    expect(url.startsWith("/financeiro/contas-a-pagar?")).toBe(true);
+    expect(p.get("busca")).toBe("07.20.26290.7165263-2");
+    expect(p.get("aba")).toBe("todos");
+    expect(p.get("de")).toBe("2026-10-01");
+    expect(p.get("ate")).toBe("2026-10-31");
+  });
+
+  test("leva o id da guia e pede para abrir a baixa, marcando a origem para o caminho de volta", () => {
+    const p = new URL(linkContasAPagar({ id: "g1", documentNumber: null, documentType: "FGTS", dueDate: "2026-10-20" }), "https://x.test").searchParams;
+    expect(p.get("titulo")).toBe("g1");
+    expect(p.get("abrir")).toBe("baixa");
+    expect(p.get("origem")).toBe("impostos");
+  });
+
+  test("sem número do documento, busca pelo tipo", () => {
+    const url = linkContasAPagar({ id: "g2", documentNumber: null, documentType: "FGTS", dueDate: "2026-02-10T00:00:00.000Z" });
+    const p = new URL(url, "https://x.test").searchParams;
+    expect(p.get("busca")).toBe("FGTS");
+    expect(p.get("ate")).toBe("2026-02-28");
   });
 });

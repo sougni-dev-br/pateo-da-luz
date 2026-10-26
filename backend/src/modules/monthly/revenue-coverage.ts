@@ -28,6 +28,8 @@ export type CoberturaDoCanal = {
   diasNoPeriodo: number;
   diasComDado: number;
   diasSemLancamento: string[];
+  /** Lançamentos com data depois de hoje (ex.: importação mensal gravada no último dia do mês). Não contam como cobertura. */
+  lancamentosFuturos: string[];
   origens: OrigemDoDado[];
 };
 
@@ -41,8 +43,13 @@ export type EntradaDaCobertura = {
   ultimoDiaGeral: Partial<Record<CanalDeCobertura, string | null>>;
 };
 
-/** Atraso máximo, em dias, para o canal ainda contar como em dia (ontem). */
-const MAX_DIAS_EM_DIA = 1;
+/**
+ * Atraso máximo, em dias, para o canal ainda contar como em dia (padrão: ontem).
+ * A 99 libera a fatura diária na API financeira com um dia a mais de atraso que o portal
+ * (26/10/2026: portal já tinha o dia 25; a API, mesmo após sync manual, ainda não).
+ */
+const MAX_DIAS_EM_DIA_PADRAO = 1;
+const MAX_DIAS_EM_DIA_POR_CANAL: Partial<Record<CanalDeCobertura, number>> = { "99Food": 2 };
 const DIA_EM_MS = 86_400_000;
 
 const toMs = (ymd: string) => Date.parse(`${ymd}T00:00:00Z`);
@@ -78,9 +85,10 @@ export function canalDaLinha(linha: LinhaDeReceita): CanalDeCobertura | null {
   return (CANAIS_DE_COBERTURA as readonly string[]).includes(plataforma) ? (plataforma as CanalDeCobertura) : null;
 }
 
-function situacaoDe(diasDesdeUltimo: number | null): SituacaoDoCanal {
+function situacaoDe(canal: CanalDeCobertura, diasDesdeUltimo: number | null): SituacaoDoCanal {
   if (diasDesdeUltimo === null) return "SEM_DADOS";
-  return diasDesdeUltimo <= MAX_DIAS_EM_DIA ? "EM_DIA" : "ATRASADO";
+  const limite = MAX_DIAS_EM_DIA_POR_CANAL[canal] ?? MAX_DIAS_EM_DIA_PADRAO;
+  return diasDesdeUltimo <= limite ? "EM_DIA" : "ATRASADO";
 }
 
 export function calcularCobertura(entrada: EntradaDaCobertura): CoberturaDoCanal[] {
@@ -90,11 +98,18 @@ export function calcularCobertura(entrada: EntradaDaCobertura): CoberturaDoCanal
   const naJanela = new Set(diasDaJanela);
 
   const diasPorCanal = new Map<CanalDeCobertura, Set<string>>();
+  const futurosPorCanal = new Map<CanalDeCobertura, Set<string>>();
   const origensPorCanal = new Map<CanalDeCobertura, Map<string, { dias: Set<string>; ultimoDia: string }>>();
 
   for (const linha of entrada.rows) {
     const canal = canalDaLinha(linha);
     if (!canal) continue;
+    // Data depois de hoje não prova que o canal está em dia: com ela, "último dia" ficava no
+    // futuro, o atraso dava negativo e o canal aparecia "Em dia" sem ter lançado nada no mês.
+    if (linha.date > entrada.today) {
+      futurosPorCanal.set(canal, (futurosPorCanal.get(canal) ?? new Set<string>()).add(linha.date));
+      continue;
+    }
     if (!diasPorCanal.has(canal)) diasPorCanal.set(canal, new Set());
     if (naJanela.has(linha.date)) diasPorCanal.get(canal)!.add(linha.date);
 
@@ -109,7 +124,8 @@ export function calcularCobertura(entrada: EntradaDaCobertura): CoberturaDoCanal
 
   return CANAIS_DE_COBERTURA.map((canal) => {
     const comDado = diasPorCanal.get(canal) ?? new Set<string>();
-    const ultimoDoHistorico = entrada.ultimoDiaGeral[canal] ?? null;
+    const historico = entrada.ultimoDiaGeral[canal] ?? null;
+    const ultimoDoHistorico = historico !== null && historico <= entrada.today ? historico : null;
     const ultimoDaJanela = [...comDado].sort().at(-1) ?? null;
     const ultimoDia = [ultimoDoHistorico, ultimoDaJanela].filter((d): d is string => Boolean(d)).sort().at(-1) ?? null;
     const diasDesdeUltimo = ultimoDia ? diasEntre(ultimoDia, entrada.today) : null;
@@ -118,13 +134,31 @@ export function calcularCobertura(entrada: EntradaDaCobertura): CoberturaDoCanal
       .sort((a, b) => b.dias - a.dias || a.origem.localeCompare(b.origem));
     return {
       canal,
-      situacao: situacaoDe(diasDesdeUltimo),
+      situacao: situacaoDe(canal, diasDesdeUltimo),
       ultimoDia,
       diasDesdeUltimo,
       diasNoPeriodo: diasDaJanela.length,
       diasComDado: comDado.size,
       diasSemLancamento: diasDaJanela.filter((d) => !comDado.has(d)),
+      lancamentosFuturos: [...(futurosPorCanal.get(canal) ?? [])].sort(),
       origens
     };
   });
+}
+
+export type ResumoDeAtrasos = { count: number; description: string };
+
+/** Canais que pararam de lançar, em texto para o dashboard; null quando todos estão em dia. */
+export function resumoDeAtrasos(canais: CoberturaDoCanal[]): ResumoDeAtrasos | null {
+  const atrasados = canais.filter((c) => c.situacao !== "EM_DIA");
+  if (atrasados.length === 0) return null;
+  const rotulo = (c: CoberturaDoCanal): string => {
+    if (c.situacao === "SEM_DADOS") return `${c.canal} (sem dados)`;
+    if (c.diasComDado === 0) return `${c.canal} (sem lançamento no mês)`;
+    return `${c.canal} (há ${c.diasDesdeUltimo} dias)`;
+  };
+  return {
+    count: atrasados.length,
+    description: `Faturamento atrasado em ${atrasados.map(rotulo).join(", ")}. O líquido do mês pode estar incompleto.`
+  };
 }

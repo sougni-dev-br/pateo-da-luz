@@ -9,7 +9,27 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 import crypto from "node:crypto";
+import { REVENUE_CHANNEL_EVENTS } from "../monthly/revenue-channels.js";
 import { excludeAggregatorsSql } from "../purchases/purchase-aggregators.js";
+import {
+  avaliarExigencias,
+  fornecedorPresenteComExigencias,
+  pendenciasDasExigencias,
+  type ExigenciaAvaliada,
+  type ExigenciaCadastrada,
+  type LancamentoDoProduto
+} from "./exigencias-do-fornecedor.js";
+import { anexarNomes } from "./justificativas-com-nome.js";
+import { avaliarCartoesDoMes, type CartaoDoMes, type FaturaDoMes } from "./cartoes-do-fechamento.js";
+import {
+  avaliarCanaisDeDelivery,
+  diasEsperadosDoMes,
+  type FaturamentoDoCanal,
+  type LojaDeDelivery,
+  avaliarFaturamentoDeEventos,
+  avaliarFolhaLancada,
+  avaliarGorjetaDoMes,
+} from "./pendencias-do-mes.js";
 
 export type ClosingBlockKey =
   | `supplier:${string}`
@@ -132,6 +152,7 @@ async function getRevenueSummary(year: number, month: number) {
     FROM "RevenueEntry"
     WHERE "status" <> 'CANCELLED'
       AND "channel" <> 'Salão'
+      AND "channel" <> ${REVENUE_CHANNEL_EVENTS}
       AND "date" >= ${start} AND "date" <= ${end}
     GROUP BY "sourcePlatform"
   `;
@@ -352,6 +373,47 @@ function frequencyRequiresThisMonth(freq: string, month: number): boolean {
   return true;
 }
 
+// Exigências mensais dos fornecedores obrigatórios (ex.: condomínio do mês + parcela
+// do acordo), cada uma reconhecida pelo PRODUTO dos itens das compras do mês — toda
+// compra manual tem itens com produto, então nenhuma tela de lançamento muda.
+async function getExigenciasAvaliadas(year: number, month: number, supplierIds: string[]) {
+  const resultado = new Map<string, ExigenciaAvaliada[]>();
+  if (supplierIds.length === 0) return resultado;
+
+  const cadastradas = await prisma.$queryRaw<Array<ExigenciaCadastrada & { supplierId: string }>>`
+    SELECT r."id" AS "id", r."supplierId" AS "supplierId", r."label" AS "label",
+           r."productId" AS "productId", pr."name" AS "productName",
+           r."settledAt" AS "settledAt"
+    FROM "SupplierClosingRequirement" r
+    JOIN "Product" pr ON pr."id" = r."productId"
+    WHERE r."supplierId" = ANY(${supplierIds})
+    ORDER BY r."createdAt" ASC
+  `;
+  if (cadastradas.length === 0) return resultado;
+
+  const lancados = await prisma.$queryRaw<Array<{ supplierId: string; productId: string; total: any; count: any }>>`
+    SELECT p."supplierId" AS "supplierId", pi."productId" AS "productId",
+           COALESCE(SUM(pi."totalPrice"), 0) AS "total", COUNT(DISTINCT p."id") AS "count"
+    FROM "Purchase" p
+    JOIN "PurchaseItem" pi ON pi."purchaseId" = p."id"
+    WHERE p."competenceYear" = ${year} AND p."competenceMonth" = ${month}
+      AND p."status" = 'ACTIVE'
+      AND p."supplierId" = ANY(${supplierIds})
+      AND pi."productId" IN (SELECT r."productId" FROM "SupplierClosingRequirement" r WHERE r."supplierId" = ANY(${supplierIds}))
+      AND ${excludeAggregatorsSql("p")}
+    GROUP BY p."supplierId", pi."productId"
+  `;
+
+  for (const supplierId of new Set(cadastradas.map((c) => c.supplierId))) {
+    const doFornecedor = cadastradas.filter((c) => c.supplierId === supplierId);
+    const lancamentos: LancamentoDoProduto[] = lancados
+      .filter((l) => l.supplierId === supplierId)
+      .map((l) => ({ productId: l.productId, total: toNumber(l.total), count: toNumber(l.count) }));
+    resultado.set(supplierId, avaliarExigencias(doFornecedor, lancamentos));
+  }
+  return resultado;
+}
+
 async function getRequiredSuppliersStatus(year: number, month: number) {
   const suppliers = await prisma.$queryRaw<Array<{
     id: string; name: string; group: string | null; frequency: string;
@@ -381,20 +443,150 @@ async function getRequiredSuppliersStatus(year: number, month: number) {
   const totalMap = new Map<string, { total: number; count: number }>();
   for (const t of totalsBySupplier) totalMap.set(t.supplierId, { total: toNumber(t.total), count: toNumber(t.count) });
 
+  const exigenciasPorFornecedor = await getExigenciasAvaliadas(year, month, suppliers.map((s) => s.id));
+
   return suppliers.map(s => {
     const appliesThisMonth = frequencyRequiresThisMonth(s.frequency, month);
     const t = totalMap.get(s.id);
+    const requirements = exigenciasPorFornecedor.get(s.id) ?? [];
+    // Com exigências ativas, "presente" = TODAS lançadas; sem elas, a regra antiga:
+    // qualquer compra do mês.
+    const presenteComExigencias = fornecedorPresenteComExigencias(requirements);
     return {
       id: s.id,
       name: s.name,
       group: s.group ?? "Outros",
       frequency: s.frequency,
       appliesThisMonth,
-      present: (t?.count ?? 0) > 0,
+      present: presenteComExigencias ?? (t?.count ?? 0) > 0,
       total: t?.total ?? 0,
       purchaseCount: t?.count ?? 0,
+      requirements,
+      usaExigencias: presenteComExigencias !== null,
     };
   });
+}
+
+// Cartões ativos (existentes até o fim do mês) e a fatura de cada um na competência.
+// A competência da fatura é o mês da data de fechamento (ver getCardStatementPeriod).
+async function getCardsStatus(year: number, month: number) {
+  const { end } = monthRange(year, month);
+  const cartoes = await prisma.$queryRaw<CartaoDoMes[]>`
+    SELECT cc."id" AS "id", cc."name" AS "name", cc."last4Digits" AS "last4Digits"
+    FROM "CreditCard" cc
+    WHERE cc."isActive" = true
+      AND (
+        cc."createdAt" <= ${end}
+        -- Cartao cadastrado depois do mes, mas com fatura dele (carga de historico):
+        -- a fatura existe e precisa ser conferida.
+        OR EXISTS (
+          SELECT 1 FROM "CreditCardStatement" cs
+          WHERE cs."creditCardId" = cc."id"
+            AND cs."competenceYear" = ${year} AND cs."competenceMonth" = ${month}
+        )
+      )
+    ORDER BY cc."name" ASC
+  `;
+  const faturas = await prisma.$queryRaw<Array<{ creditCardId: string; status: string; itensComDivergencia: any }>>`
+    SELECT cs."creditCardId" AS "creditCardId",
+           cs."status"::text AS "status",
+           COUNT(i."id") FILTER (WHERE i."hasDivergence" = true) AS "itensComDivergencia"
+    FROM "CreditCardStatement" cs
+    LEFT JOIN "CreditCardStatementItem" i ON i."statementId" = cs."id"
+    WHERE cs."competenceYear" = ${year} AND cs."competenceMonth" = ${month}
+    GROUP BY cs."id"
+  `;
+  return {
+    cartoes,
+    faturas: faturas.map((f): FaturaDoMes => ({
+      creditCardId: f.creditCardId,
+      status: f.status,
+      itensComDivergencia: toNumber(f.itensComDivergencia)
+    }))
+  };
+}
+
+async function contarSalariosLancados(year: number, month: number): Promise<number> {
+  const [row] = await prisma.$queryRaw<Array<{ total: any }>>`
+    SELECT COUNT(*) AS "total"
+    FROM "PayrollItem"
+    WHERE "competenceYear" = ${year} AND "competenceMonth" = ${month}
+      AND "type" = 'SALARIO' AND "deletedAt" IS NULL AND "status" <> 'CANCELED'
+  `;
+  return toNumber(row?.total);
+}
+
+async function contarApuracoesDeGorjeta(year: number, month: number) {
+  const [row] = await prisma.$queryRaw<Array<{ total: any; abertas: any }>>`
+    SELECT COUNT(*) AS "total",
+           COUNT(*) FILTER (WHERE "status" = 'OPEN') AS "abertas"
+    FROM "TipPeriod"
+    WHERE "competenceYear" = ${year} AND "competenceMonth" = ${month}
+  `;
+  return { total: toNumber(row?.total), abertas: toNumber(row?.abertas) };
+}
+
+// Evento/empreitada nao passa pelo Agile: a rotina "Lancar evento", em Faturamento,
+// grava um RevenueEntry no canal "Eventos / Empreitada" (sourcePlatform = tipo do evento).
+async function faturamentoDeEventos(year: number, month: number) {
+  const { start, end } = monthRange(year, month);
+  const [row] = await prisma.$queryRaw<Array<{ lancamentos: any; valor: any }>>`
+    SELECT COUNT(*) AS "lancamentos", COALESCE(SUM("grossAmount"), 0) AS "valor"
+    FROM "RevenueEntry"
+    WHERE "status" <> 'CANCELLED'
+      AND "date" >= ${start} AND "date" <= ${end}
+      AND "channel" = ${REVENUE_CHANNEL_EVENTS}
+  `;
+  return { lancamentos: toNumber(row?.lancamentos), valor: toNumber(row?.valor) };
+}
+
+// Faturamento de cada plataforma de delivery no mes: dias com lancamento, valores e
+// quantidade. Origem e canal do razao aparecem com grafias diferentes (iFood/IFOOD,
+// 99Food/NOVENTA_NOVE, Keeta/KEETA): compara em maiusculas e junta as duas da 99.
+async function faturamentoPorPlataforma(year: number, month: number): Promise<FaturamentoDoCanal[]> {
+  const { start, end } = monthRange(year, month);
+  // O id do lançamento das integrações carrega a loja (ifood-<loja>-AAAAMMDD,
+  // nnfood-<loja>-AAAAMMDD): é o vínculo estruturado, sem depender do apelido.
+  const linhas = await prisma.$queryRaw<Array<{ id: string; lojaId: string | null; lancamentos: any; dias: any; bruto: any; liquido: any }>>`
+    SELECT x."id" AS "id", s."id" AS "lojaId", COUNT(*) AS "lancamentos",
+           COUNT(DISTINCT DATE(x."date" AT TIME ZONE 'UTC')) AS "dias",
+           COALESCE(SUM(x."grossAmount"), 0) AS "bruto", COALESCE(SUM(x."netAmount"), 0) AS "liquido"
+    FROM (
+      SELECT "id" AS "entryId", "date", "grossAmount", "netAmount",
+             CASE
+               WHEN UPPER("sourcePlatform") = 'IFOOD' OR UPPER("channel") = 'IFOOD' THEN 'IFOOD'
+               WHEN UPPER("sourcePlatform") = 'KEETA' OR UPPER("channel") = 'KEETA' THEN 'KEETA'
+               WHEN UPPER("sourcePlatform") IN ('NOVENTA_NOVE', '99FOOD') OR UPPER("channel") IN ('NOVENTA_NOVE', '99FOOD') THEN 'NOVENTA_NOVE'
+             END AS "id"
+      FROM "RevenueEntry"
+      WHERE "status" <> 'CANCELLED'
+        AND "date" >= ${start} AND "date" <= ${end}
+    ) x
+    LEFT JOIN "DeliveryStore" s
+      ON s."active" = TRUE
+     AND (x."entryId" LIKE 'ifood-' || s."id" || '-%' OR x."entryId" LIKE 'nnfood-' || s."id" || '-%')
+    WHERE x."id" IS NOT NULL
+    GROUP BY x."id", s."id"
+  `;
+  // Lançamento de plataforma com lojas que não bate com nenhuma ativa (importação
+  // antiga, consolidado do mês) não cobre loja nenhuma: fica com lojaId nulo.
+  return linhas.map((l) => ({
+    id: l.id,
+    lojaId: l.lojaId ?? undefined,
+    lancamentos: toNumber(l.lancamentos),
+    dias: toNumber(l.dias),
+    bruto: toNumber(l.bruto),
+    liquido: toNumber(l.liquido),
+  }));
+}
+
+async function lojasDeDeliveryAtivas(): Promise<LojaDeDelivery[]> {
+  const lojas = await prisma.deliveryStore.findMany({
+    where: { active: true, platform: { in: ["IFOOD", "NOVENTA_NOVE"] } },
+    select: { id: true, platform: true, nickname: true },
+    orderBy: [{ platform: "asc" }, { nickname: "asc" }]
+  });
+  return lojas.map((l) => ({ id: l.id, plataforma: l.platform, apelido: l.nickname }));
 }
 
 async function getTaxesStatus(year: number, month: number) {
@@ -471,7 +663,7 @@ function parseJustifications(raw: any): ClosureJustification[] {
 
 export async function getMonthlyClosure(year: number, month: number) {
   const { start: monthStart, end: monthEnd } = monthRange(year, month);
-  const [revenue, purchases, requiredSuppliers, taxes, finalInventory, cmvAttribution, monthlyCmv] = await Promise.all([
+  const [revenue, purchases, requiredSuppliers, taxes, finalInventory, cmvAttribution, monthlyCmv, cards] = await Promise.all([
     getRevenueSummary(year, month),
     getPurchasesSummary(year, month),
     getRequiredSuppliersStatus(year, month),
@@ -479,9 +671,20 @@ export async function getMonthlyClosure(year: number, month: number) {
     getFinalInventoryStatus(year, month),
     getCmvAttributedToMonth(year, month),
     getMonthlyCmvRow(year, month),
+    getCardsStatus(year, month),
   ]);
 
-  const justifications = parseJustifications(monthlyCmv?.justifications);
+  const justificativasBrutas = parseJustifications(monthlyCmv?.justifications);
+  // Nome de quem justificou e de quem travou: o resumo impresso precisa do "quem".
+  const idsDeUsuario = [...new Set([
+    ...justificativasBrutas.map((j) => j.justifiedByUserId),
+    ...(monthlyCmv?.closedByUserId ? [monthlyCmv.closedByUserId] : [])
+  ].filter(Boolean))];
+  const usuarios = idsDeUsuario.length > 0
+    ? await prisma.user.findMany({ where: { id: { in: idsDeUsuario } }, select: { id: true, name: true } })
+    : [];
+  const justifications = anexarNomes(justificativasBrutas, usuarios);
+  const closedByName = usuarios.find((u) => u.id === monthlyCmv?.closedByUserId)?.name ?? null;
   const justificationByKey = new Map<string, ClosureJustification>();
   for (const j of justifications) justificationByKey.set(j.blockKey, j);
 
@@ -490,10 +693,40 @@ export async function getMonthlyClosure(year: number, month: number) {
 
   // Fornecedores obrigatorios pendentes
   for (const s of requiredSuppliers) {
+    // Fornecedor com exigências (ex.: condomínio): cada lançamento obrigatório é
+    // cobrado por si, em vez de bastar "qualquer compra do mês".
+    if (s.usaExigencias) {
+      const faltando = pendenciasDasExigencias({
+        supplierId: s.id, supplierName: s.name, aplicaNoMes: s.appliesThisMonth, exigencias: s.requirements
+      });
+      for (const p of faltando) if (!justificationByKey.has(p.key)) pending.push(p);
+      continue;
+    }
     if (!s.appliesThisMonth) continue;
     if (s.present) continue;
     if (justificationByKey.has(`supplier:${s.id}`)) continue;
     pending.push({ key: `supplier:${s.id}`, label: `Fornecedor: ${s.name}` });
+  }
+
+  // Cartao de credito: nao se fecha o mes sem conferir a fatura de cada cartao ativo
+  // contra o extrato. A saida de quem nao usou o cartao e a justificativa.
+  const [salarios, gorjeta, faturamentoDelivery, lojasDelivery, eventos] = await Promise.all([
+    contarSalariosLancados(year, month),
+    contarApuracoesDeGorjeta(year, month),
+    faturamentoPorPlataforma(year, month),
+    lojasDeDeliveryAtivas(),
+    faturamentoDeEventos(year, month),
+  ]);
+  const regrasDoMes = [
+    ...avaliarCartoesDoMes(cards.cartoes, cards.faturas),
+    ...avaliarFaturamentoDeEventos(eventos),
+    ...avaliarFolhaLancada(salarios),
+    ...avaliarGorjetaDoMes(gorjeta),
+    ...avaliarCanaisDeDelivery(faturamentoDelivery, { diasEsperados: diasEsperadosDoMes(year, month, new Date()) }, lojasDelivery),
+  ];
+  for (const p of regrasDoMes) {
+    if (justificationByKey.has(p.key)) continue;
+    pending.push(p);
   }
 
   // Impostos: soft-warn (nao gera pending se ausente — cada operacao tem impostos diferentes)
@@ -581,11 +814,13 @@ export async function getMonthlyClosure(year: number, month: number) {
     status,
     closedAt: monthlyCmv?.closedAt?.toISOString() ?? null,
     closedByUserId: monthlyCmv?.closedByUserId ?? null,
+    closedByName,
     reopenReason: monthlyCmv?.reopenReason ?? null,
-    revenue,
+    revenue: { ...revenue, eventos },
     purchases,
     requiredSuppliers,
     taxes,
+    cards,
     finalInventory,
     cmvAttribution: {
       total: cmvAttribution.total,

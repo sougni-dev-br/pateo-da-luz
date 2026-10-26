@@ -8,6 +8,7 @@ import type {
   IfoodStoreView
 } from "./ifood.types.js";
 import { resumoSemDados, somarResumos } from "./ifood-sem-dados.js";
+import { resumoDeReceita } from "./ifood-receita.js";
 import { runRealSync, type RealSyncResult } from "./ifood-real-sync.service.js";
 import { hasValidCredential } from "./ifood-http-client.js";
 
@@ -139,6 +140,46 @@ export async function getCredentialStatus(): Promise<IfoodCredentialStatusView> 
   };
 }
 
+// Sem venda sincronizada, o faturamento do iFood vive em RevenueEntry (importado
+// do portal, uma linha mensal por loja). Devolve null se o mês não foi importado.
+async function readSummaryFromRevenue(store: IfoodStoreView, year: number, month: number): Promise<IfoodPeriodSummary | null> {
+  const linhas = await prisma.revenueEntry.findMany({
+    where: { sourcePlatform: "iFood", status: "ACTIVE", competenceYear: year, competenceMonth: month, description: { contains: "(consolidado do mes)" } },
+    select: { date: true, description: true, tickets: true, grossAmount: true, platformFees: true, netAmount: true }
+  });
+  if (linhas.length === 0) return null;
+  const settlementRows = await prisma.ifoodSettlement.findMany({
+    where: { deliveryStoreId: store.id, periodStart: { gte: new Date(Date.UTC(year, month - 1, 1)), lt: new Date(Date.UTC(year, month, 1)) } },
+    orderBy: { periodStart: "asc" }
+  });
+  return resumoDeReceita({
+    storeId: store.id,
+    storeLabel: store.nickname,
+    year,
+    month,
+    linhas: linhas.map((l) => ({
+      date: l.date,
+      description: l.description,
+      tickets: l.tickets,
+      grossAmount: Number(l.grossAmount),
+      platformFees: Number(l.platformFees),
+      netAmount: Number(l.netAmount)
+    })),
+    settlements: settlementRows.map((row) => ({
+      id: row.id,
+      externalId: row.externalId,
+      periodStart: row.periodStart.toISOString().slice(0, 10),
+      periodEnd: row.periodEnd.toISOString().slice(0, 10),
+      grossAmount: Number(row.grossAmount),
+      totalFees: Number(row.totalFees),
+      netAmount: Number(row.netAmount),
+      paidAt: row.paidAt ? row.paidAt.toISOString().slice(0, 10) : null,
+      status: row.status,
+      storeLabel: store.nickname
+    }))
+  });
+}
+
 // Lê dados persistidos no banco pra uma loja num período.
 // Se não houver nenhuma venda no DB, devolve null e o chamador decide se cai no mock.
 async function readSummaryFromDb(store: IfoodStoreView, year: number, month: number): Promise<IfoodPeriodSummary | null> {
@@ -146,7 +187,7 @@ async function readSummaryFromDb(store: IfoodStoreView, year: number, month: num
     where: { deliveryStoreId: store.id, competenceYear: year, competenceMonth: month },
     orderBy: { orderDate: "asc" }
   });
-  if (sales.length === 0) return null;
+  if (sales.length === 0) return readSummaryFromRevenue(store, year, month);
 
   const dailyMap = new Map<string, { orders: number; grossAmount: number; ifoodFeeAmount: number; promotionAmount: number; deliveryFeeAmount: number; netAmount: number }>();
   let totalOrders = 0;
@@ -220,7 +261,8 @@ async function readSummaryFromDb(store: IfoodStoreView, year: number, month: num
       totalFees: Number(row.totalFees),
       netAmount: Number(row.netAmount),
       paidAt: row.paidAt ? row.paidAt.toISOString().slice(0, 10) : null,
-      status: row.status
+      status: row.status,
+      storeLabel: store.nickname
     })),
     isMock: false
   };

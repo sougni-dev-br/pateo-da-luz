@@ -2,6 +2,7 @@ import { prisma } from "../../../../config/database.js";
 import { hasValidCredential } from "./noventa-nove-http-client.js";
 import { importarCardapios } from "./noventa-nove-menu.service.js";
 import { isSyncInFlight, runSmartSyncGuarded } from "./noventa-nove.service.js";
+import { lojasComProblema } from "./noventa-nove-real-sync.service.js";
 
 // Scheduler in-process do sync do 99 Food. Roda 1x/dia de madrugada (BRT),
 // disparado no boot (server.ts) no mesmo padrão fire-and-forget do Baileys.
@@ -44,6 +45,37 @@ function isEnabled(): boolean {
 // "Agora" em BRT como Date (componentes UTC representam o relógio BRT).
 function nowBrt(): Date {
   return new Date(Date.now() - BRT_OFFSET_MS);
+}
+
+// Instante (UTC) do último RUN_HOUR_BRT que já deveria ter rodado em `agora`.
+export function inicioDaUltimaRodadaEsperada(agora: Date): Date {
+  const brt = new Date(agora.getTime() - BRT_OFFSET_MS);
+  let slot = Date.UTC(brt.getUTCFullYear(), brt.getUTCMonth(), brt.getUTCDate(), RUN_HOUR_BRT, 0, 0);
+  if (brt.getTime() < slot) slot -= DAY_MS; // ainda não deu 04:00 hoje → vale o de ontem
+  return new Date(slot + BRT_OFFSET_MS);
+}
+
+// O agendamento é um setTimeout em memória: restart/deploy perto das 04:00 engole a rodada do dia.
+// No boot, se o último sync REAL terminou antes da rodada que deveria ter acontecido, ela foi perdida.
+// Só conta rodada do cron (triggeredByUserId nulo) que terminou em SUCCESS: um sync manual (de qualquer mês)
+// ou uma rodada que falhou não pode esconder a perda. Rodada PARTIAL é refeita a cada restart até dar certo.
+export function rodadaPerdida(ultimaRodadaTerminouEm: Date | null, agora: Date): boolean {
+  if (!ultimaRodadaTerminouEm) return true;
+  return ultimaRodadaTerminouEm.getTime() < inicioDaUltimaRodadaEsperada(agora).getTime();
+}
+
+// Dá tempo do boot (migrations, conexões) assentar antes de gastar a cota da 99.
+const RECOVERY_DELAY_MS = 2 * 60 * 1000;
+
+async function recuperarRodadaPerdida(): Promise<void> {
+  const ultima = await prisma.noventaNoveSyncLog.findFirst({
+    where: { syncType: "REAL", status: "SUCCESS", triggeredByUserId: null, finishedAt: { not: null } },
+    orderBy: { finishedAt: "desc" },
+    select: { finishedAt: true }
+  });
+  if (!rodadaPerdida(ultima?.finishedAt ?? null, new Date())) return;
+  console.info("[99cron] rodada das 04:00 perdida (restart/deploy) — recuperando agora.");
+  await runDailySync();
 }
 
 // ms até o próximo RUN_HOUR_BRT.
@@ -94,6 +126,9 @@ async function runDailySync(): Promise<void> {
       const result = await runSmartSyncGuarded(null, p.year, p.month);
       const persisted = result.mode === "REAL" ? (result.real?.totalPersisted ?? 0) : 0;
       console.info(`[99cron] ${label}: sync ${result.mode} — ${persisted} persistidos.`);
+      // Rodada sem ninguém olhando: loja que falhou (inclusive depois dos retries) não pode passar por sucesso.
+      const problemas = result.real ? lojasComProblema(result.real.perStore) : [];
+      if (problemas.length > 0) console.error(`[99cron] ${label}: lojas com problema — ${problemas.join(" | ")}`);
     } catch (error: unknown) {
       console.error(`[99cron] ${label}: falha no sync —`, error instanceof Error ? error.message : error);
     }
@@ -108,7 +143,7 @@ async function runDailyMenuImport(): Promise<void> {
   try {
     const result = await importarCardapios();
     const lojas = result.perStore ?? [];
-    const resumo = lojas.map((loja) => `${loja.storeLabel}: ${loja.status} (${loja.listagensCriadas} novas, ${loja.listagensAtualizadas} atualizadas, ${loja.pratosCriados} pratos novos)`).join("; ");
+    const resumo = lojas.map((loja) => `${loja.storeLabel}: ${loja.status} (${loja.listagensCriadas} novas, ${loja.listagensAtualizadas} atualizadas, ${loja.pratosCriados} pratos novos)${loja.status === "SUCCESS" ? "" : ` — ${loja.message}`}`).join("; ");
     console.info(`[99cron] cardápio importado — ${resumo || "nenhuma loja"}.`);
   } catch (error: unknown) {
     console.error("[99cron] falha ao importar o cardápio —", error instanceof Error ? error.message : error);
@@ -137,4 +172,8 @@ export function startNoventaNoveCronScheduler(): void {
   }
   if (timer) return; // já agendado
   scheduleNext();
+  const recovery = setTimeout(() => {
+    recuperarRodadaPerdida().catch((error) => console.error("[99cron] falha na recuperação da rodada:", error));
+  }, RECOVERY_DELAY_MS);
+  recovery.unref?.();
 }

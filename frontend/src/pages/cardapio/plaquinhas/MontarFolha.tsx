@@ -318,7 +318,7 @@ export function MontarFolha({ ativa, catalogo, listas, podeCriar, podeEditar, po
     if (!ativa || novoPrato || confirmacao) return undefined;
     const tecla = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
-      const k = e.key.toLowerCase();
+      const k = e.key?.toLowerCase() ?? "";
       if (k === "p" && placas.length) { e.preventDefault(); if (!e.repeat) imprimir(); }
       if (k === "s" && podeSalvar && folha.entradas.length) { e.preventDefault(); void salvarRef.current(false); }
     };

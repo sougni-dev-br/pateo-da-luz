@@ -5,14 +5,17 @@ import {
   composicaoAPagar, lacunasPorImposto, montarGrade, rotuloMes,
   type CelulaGrade, type EstadoCelula,
 } from "./regras";
+import { tipoDoGrupo } from "./formularioGuia";
 import "./tax-payments.css";
 
 type Props = {
   panorama: TaxPanorama;
   podeLancar: boolean;
-  onLancar: () => void;
+  onLancar: (inicial?: { tipo?: string; mes?: string }) => void;
   onVerSituacao: (situacao: "OVERDUE") => void;
-  onVerMes: (mes: string) => void;
+  /** Sem categoria: só o mês. Com ela (clique numa célula): o mês daquele imposto. */
+  onVerMes: (mes: string, categoria?: { id: string; nome: string }) => void;
+  onVerSemCompetencia: () => void;
 };
 
 const ROTULO_ESTADO: Record<EstadoCelula, string> = {
@@ -27,7 +30,7 @@ const ROTULO_ESTADO: Record<EstadoCelula, string> = {
  * o que pede atenção e quais meses já têm guia lançada (a ausência de um mês é o erro mais caro:
  * a guia não lançada não entra no DRE nem nos alertas).
  */
-export function ResumoImpostos({ panorama, podeLancar, onLancar, onVerSituacao, onVerMes }: Props) {
+export function ResumoImpostos({ panorama, podeLancar, onLancar, onVerSituacao, onVerMes, onVerSemCompetencia }: Props) {
   const { total, qtd, fatias } = composicaoAPagar(panorama.aPagar);
   const vencido = panorama.aPagar.vencido;
   const grade = montarGrade(panorama.cobertura, panorama.meses, panorama.hoje);
@@ -68,6 +71,7 @@ export function ResumoImpostos({ panorama, podeLancar, onLancar, onVerSituacao, 
           podeLancar={podeLancar}
           onLancar={onLancar}
           onVerSituacao={onVerSituacao}
+          onVerSemCompetencia={onVerSemCompetencia}
         />
       </div>
 
@@ -78,8 +82,8 @@ export function ResumoImpostos({ panorama, podeLancar, onLancar, onVerSituacao, 
 
 type Alerta = { chave: string; tom: "danger" | "warning" | "success"; titulo: string; texto: React.ReactNode; acao?: React.ReactNode };
 
-function Atencao({ panorama, lacunas, podeLancar, onLancar, onVerSituacao }: {
-  panorama: TaxPanorama; lacunas: ReturnType<typeof lacunasPorImposto>; podeLancar: boolean; onLancar: () => void; onVerSituacao: Props["onVerSituacao"];
+function Atencao({ panorama, lacunas, podeLancar, onLancar, onVerSituacao, onVerSemCompetencia }: {
+  panorama: TaxPanorama; lacunas: ReturnType<typeof lacunasPorImposto>; podeLancar: boolean; onLancar: Props["onLancar"]; onVerSituacao: Props["onVerSituacao"]; onVerSemCompetencia: Props["onVerSemCompetencia"];
 }) {
   const alertas: Alerta[] = [];
   const vencido = panorama.aPagar.vencido;
@@ -101,7 +105,15 @@ function Atencao({ panorama, lacunas, podeLancar, onLancar, onVerSituacao }: {
       tom: "warning",
       titulo: lacunas.length === 1 ? `Falta lançar guia de ${lacunas[0].grupo}` : `Falta lançar guias de ${lacunas.length} impostos`,
       texto: `${detalhe}${lacunas.length > 4 ? " · …" : ""}. Guia não lançada não entra no DRE nem nos alertas de vencimento.`,
-      acao: podeLancar ? <Button size="sm" variant="secondary" leadingIcon={<Plus size={14} />} onClick={onLancar}>Lançar guia</Button> : undefined,
+      // Falta de um imposto só: o modal já abre com o tipo e o primeiro mês em falta.
+      acao: podeLancar ? (
+        <Button
+          size="sm" variant="secondary" leadingIcon={<Plus size={14} />}
+          onClick={() => onLancar(lacunas.length === 1 ? { tipo: tipoDoGrupo(lacunas[0].grupo) ?? undefined, mes: lacunas[0].meses[0] } : undefined)}
+        >
+          {lacunas.length === 1 ? `Lançar ${lacunas[0].grupo} de ${rotuloMes(lacunas[0].meses[0])}` : "Lançar guia"}
+        </Button>
+      ) : undefined,
     });
   }
 
@@ -111,6 +123,7 @@ function Atencao({ panorama, lacunas, podeLancar, onLancar, onVerSituacao }: {
       tom: "warning",
       titulo: `${panorama.semCompetencia} ${panorama.semCompetencia === 1 ? "guia sem competência" : "guias sem competência"}`,
       texto: "Sem competência a guia fica fora do DRE. Abra cada uma pelo menu da linha, em Editar, e informe o mês.",
+      acao: <Button size="sm" variant="secondary" onClick={onVerSemCompetencia}>Ver essas guias</Button>,
     });
   }
 
@@ -144,7 +157,7 @@ function Atencao({ panorama, lacunas, podeLancar, onLancar, onVerSituacao }: {
   );
 }
 
-function Cobertura({ grade, meses, hoje, onVerMes }: { grade: ReturnType<typeof montarGrade>; meses: string[]; hoje: string; onVerMes: (mes: string) => void }) {
+function Cobertura({ grade, meses, hoje, onVerMes }: { grade: ReturnType<typeof montarGrade>; meses: string[]; hoje: string; onVerMes: Props["onVerMes"] }) {
   const mesAtual = hoje.slice(0, 7);
 
   return (
@@ -152,7 +165,7 @@ function Cobertura({ grade, meses, hoje, onVerMes }: { grade: ReturnType<typeof 
       <header className="ip-cobertura-topo">
         <div>
           <span className="ip-rotulo">Guias lançadas por competência</span>
-          <p className="ip-cobertura-sub">Últimos 12 meses. Clique num mês para ver as guias dele.</p>
+          <p className="ip-cobertura-sub">Últimos 12 meses. O número é a quantidade de guias lançadas naquela competência. Clique numa célula para ver as guias daquele imposto e mês, ou no mês (no alto) para ver todas.</p>
         </div>
         <ul className="ip-chaves" aria-label="Legenda">
           {(["pago", "aberto", "vencido", "vazio"] as EstadoCelula[]).map((e) => (
@@ -181,7 +194,7 @@ function Cobertura({ grade, meses, hoje, onVerMes }: { grade: ReturnType<typeof 
               {grade.map((linha) => (
                 <tr key={linha.grupo}>
                   <th scope="row" className="ip-grade-grupo">{linha.grupo}</th>
-                  {linha.celulas.map((c) => <Celula key={c.mes} c={c} grupo={linha.grupo} onVerMes={onVerMes} />)}
+                  {linha.celulas.map((c) => <Celula key={c.mes} c={c} grupo={linha.grupo} categoriaId={linha.categoriaId} onVerMes={onVerMes} />)}
                 </tr>
               ))}
             </tbody>
@@ -192,7 +205,7 @@ function Cobertura({ grade, meses, hoje, onVerMes }: { grade: ReturnType<typeof 
   );
 }
 
-function Celula({ c, grupo, onVerMes }: { c: CelulaGrade; grupo: string; onVerMes: (mes: string) => void }) {
+function Celula({ c, grupo, categoriaId, onVerMes }: { c: CelulaGrade; grupo: string; categoriaId: string | null; onVerMes: Props["onVerMes"] }) {
   const descricao = c.estado === "vazio"
     ? `${grupo}, ${rotuloMes(c.mes)}: ${c.lacuna ? "falta lançar a guia" : "sem guia"}`
     : `${grupo}, ${rotuloMes(c.mes)}: ${c.qtd} ${c.qtd === 1 ? "guia" : "guias"}, ${ROTULO_ESTADO[c.estado]}`;
@@ -205,9 +218,9 @@ function Celula({ c, grupo, onVerMes }: { c: CelulaGrade; grupo: string; onVerMe
         tabIndex={-1}
         title={descricao}
         aria-label={descricao}
-        onClick={() => onVerMes(c.mes)}
+        onClick={() => onVerMes(c.mes, categoriaId ? { id: categoriaId, nome: grupo } : undefined)}
       >
-        {c.estado === "vazio" ? (c.lacuna ? "!" : "") : c.qtd > 1 ? c.qtd : ""}
+        {c.estado === "vazio" ? (c.lacuna ? "!" : "") : c.qtd}
       </button>
     </td>
   );

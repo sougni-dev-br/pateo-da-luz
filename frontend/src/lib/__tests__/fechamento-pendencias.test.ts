@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   classificarPendencias,
+  ehConferencia,
   mesTerminou,
   progressoDoMes,
   resumirFechamento,
@@ -45,6 +46,57 @@ describe("mesTerminou", () => {
   test("data inválida não quebra", () => {
     expect(mesTerminou("", DIA_10)).toBe(false);
     expect(mesTerminou("lixo", DIA_10)).toBe(false);
+  });
+});
+
+describe("classificarPendencias — folha, gorjeta e delivery", () => {
+  const NOVAS: PendenciaDoFechamento[] = [
+    { key: "block:eventRevenue", label: "Eventos / empreitada: nenhum faturamento lançado" },
+    { key: "block:payrollNotLaunched", label: "Folha do mês não lançada" },
+    { key: "block:tipsNotClosed", label: "Gorjeta: apuração em aberto" },
+    { key: "delivery:KEETA", label: "Delivery Keeta: nenhum faturamento no mês" }
+  ];
+
+  test("durante o mês são espera", () => {
+    expect(classificarPendencias(NOVAS, FIM, DIA_10).map((p) => p.natureza))
+      .toEqual(["AGUARDANDO", "AGUARDANDO", "AGUARDANDO", "AGUARDANDO"]);
+  });
+
+  test("com o mês terminado viram atenção", () => {
+    expect(classificarPendencias(NOVAS, FIM, JULHO).map((p) => p.natureza))
+      .toEqual(["ATENCAO", "ATENCAO", "ATENCAO", "ATENCAO"]);
+  });
+});
+
+describe("ehConferencia", () => {
+  test("eventos pedem conferência; o resto pede justificativa", () => {
+    expect(ehConferencia("block:eventRevenue")).toBe(true);
+    expect(ehConferencia("block:taxes")).toBe(false);
+  });
+
+  test("faturamento de qualquer plataforma de delivery pede conferência", () => {
+    for (const k of ["delivery:IFOOD", "delivery:KEETA", "delivery:NOVENTA_NOVE", "delivery:IFOOD:loja1"]) {
+      expect(ehConferencia(k)).toBe(true);
+    }
+  });
+
+  test("cartão e fornecedor seguem pedindo justificativa", () => {
+    expect(ehConferencia("card:abc")).toBe(false);
+    expect(ehConferencia("supplier:abc")).toBe(false);
+  });
+});
+
+describe("classificarPendencias — cartão de crédito", () => {
+  const CARTAO: PendenciaDoFechamento[] = [
+    { key: "card:c1", label: "Cartão Visa (final 1234): fatura não conferida com o extrato" }
+  ];
+
+  test("durante o mês a conferência do cartão ainda é espera", () => {
+    expect(classificarPendencias(CARTAO, FIM, DIA_10)[0].natureza).toBe("AGUARDANDO");
+  });
+
+  test("depois que o mês acaba, cartão sem conferir vira atenção", () => {
+    expect(classificarPendencias(CARTAO, FIM, JULHO)[0].natureza).toBe("ATENCAO");
   });
 });
 
