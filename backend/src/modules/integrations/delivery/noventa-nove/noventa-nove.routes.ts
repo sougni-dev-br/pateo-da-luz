@@ -232,7 +232,7 @@ noventaNoveDeliveryRouter.post("/stores/:id/authorization-url", async (request, 
 
 // ---------------------------------------------------------------------------
 // PÚBLICO — chamado pela 99/DiDi. Nenhum requireRole aqui.
-// URL final em produção: https://pateo-backend.onrender.com/public/delivery/noventa-nove/webhook
+// URL final em produção: https://pateo-backend-timb.onrender.com/public/delivery/noventa-nove/webhook
 // Config essa URL no portal developer-food.99app.com como callback do app.
 // ---------------------------------------------------------------------------
 

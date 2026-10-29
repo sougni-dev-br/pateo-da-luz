@@ -14,7 +14,7 @@ pateo-da-luz/
 
 **URLs de produção:**
 - Frontend: https://pateo.sougni.com
-- Backend API: https://pateo-backend.onrender.com
+- Backend API: https://pateo-backend-timb.onrender.com
 
 ## Stack e Linguagens
 

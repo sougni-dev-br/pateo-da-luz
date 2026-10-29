@@ -12,10 +12,12 @@
 >   deploy** e podem ser feitos livremente.
 > - Na dúvida, **pergunte antes**. Sem um "pode publicar" claro, não publique.
 
+> **Render (29/10/2026):** o backend e o Postgres passaram para a conta do próprio Pateo ("Pateo's workspace"), região Oregon. URL atual: `https://pateo-backend-timb.onrender.com`. O serviço foi criado por URL pública do repositório (sem conexão OAuth com o GitHub), então confira se um push na `main` publica sozinho ou use *Manual Deploy*.
+
 ## Topologia
 
 ```
-pateo.sougni.com  (SiteGround Apache, static)  ──HTTPS──►  pateo-backend.onrender.com  (Render Node)
+pateo.sougni.com  (SiteGround Apache, static)  ──HTTPS──►  pateo-backend-timb.onrender.com  (Render Node)
                                                                        │
                                                                        ▼
                                                         Render PostgreSQL 16 (managed)
