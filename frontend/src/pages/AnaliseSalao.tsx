@@ -3,6 +3,7 @@ import {
   getAnaliseCardapio,
   getAnaliseDemanda,
   getAnaliseMargem,
+  getAnaliseConsumo,
   getAnaliseMargemBebidas,
   getAnaliseMargemBuffet,
   getAnalisePerdas,
@@ -21,6 +22,7 @@ import { AvisoHoje } from "./analise-salao/AvisoHoje";
 import { AvisoRecarga } from "./analise-salao/AvisoRecarga";
 import { CardapioPanel } from "./analise-salao/CardapioPanel";
 import { DemandaPanel } from "./analise-salao/DemandaPanel";
+import { ConsumoPanel } from "./analise-salao/ConsumoPanel";
 import { MargemBebidasPanel } from "./analise-salao/MargemBebidasPanel";
 import { MargemBuffetPanel } from "./analise-salao/MargemBuffetPanel";
 import { MargemPanel } from "./analise-salao/MargemPanel";
@@ -33,7 +35,7 @@ import { VendasPorPessoaPanel } from "./analise-salao/VendasPorPessoaPanel";
 import { PRESETS, periodoDoPreset, periodoValido, type PresetPeriodo } from "./analise-salao/periodo";
 import "./AnaliseSalao.css";
 
-type Aba = SecaoDaAnalise | "equipe" | "metas";
+type Aba = SecaoDaAnalise | "consumo" | "equipe" | "metas";
 type Preset = PresetPeriodo | "personalizado";
 
 const ABAS = [
@@ -41,6 +43,7 @@ const ABAS = [
   { value: "demanda", label: "Quando vendemos" },
   { value: "cardapio", label: "Cardápio" },
   { value: "margem", label: "Margem" },
+  { value: "consumo", label: "Consumo" },
   { value: "perdas", label: "Perdas" },
   { value: "equipe", label: "Equipe" },
   { value: "metas", label: "Metas" }
@@ -118,10 +121,11 @@ export function AnaliseSalao() {
   const pratos = useRecargaEstavel(margem, chavePeriodo);
   const bebidas = useRecargaEstavel(margemBebidas, chavePeriodo);
   const buffet = useRecargaEstavel(margemBuffet, chavePeriodo);
+  const consumo = useRelatorio(getAnaliseConsumo, periodo, aba === "consumo");
   const perdas = useRelatorio(getAnalisePerdas, periodo, aba === "perdas");
   const equipe = useRelatorio(getAnaliseVendasPorPessoa, periodo, aba === "equipe");
   // Metas é por mês e se carrega sozinha: não usa o período do topo.
-  const atual = aba === "metas" ? SEM_RELATORIO : { resumo, demanda, cardapio, margem, perdas, equipe }[aba];
+  const atual = aba === "metas" ? SEM_RELATORIO : { resumo, demanda, cardapio, margem, consumo, perdas, equipe }[aba];
 
   // Vincula (ou desfaz) e relê o relatório: a margem do prato entra na tabela no mesmo instante.
   async function vincular(codigo: string, nome: string, pratoId: string | null) {
@@ -240,6 +244,12 @@ export function AnaliseSalao() {
             {buffet.aviso && <AvisoRecarga texto={buffet.aviso} recalculando={buffet.recalculando} erro={buffet.erro} />}
             {buffet.naTela && <MargemBuffetPanel dados={buffet.naTela} podeEditar={podeEditar} onSalvarCusto={salvarCustoBuffet} />}
           </section>
+        )}
+        {pronto && aba === "consumo" && consumo.dados && (
+          <div className="analise-stack">
+            <AvisoHoje ativo={consumo.dados.hojeFicouDeFora} />
+            <ConsumoPanel dados={consumo.dados} onAbrirMargem={podeVerCustos ? () => setAba("margem") : undefined} />
+          </div>
         )}
         {pronto && aba === "perdas" && perdas.dados && <PerdasPanel dados={perdas.dados} />}
         {pronto && aba === "equipe" && equipe.dados && (

@@ -41,6 +41,25 @@
   white-space: nowrap;
 }
 
+/* A barra de cobertura sozinha numa linha: o flex-basis de 96px da barra de célula viraria altura numa coluna. */
+.consumo-barra {
+  display: flex;
+  max-width: 520px;
+}
+
+.consumo-barra .analise-barra {
+  flex: 1 1 auto;
+}
+
+.analise-lista {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .analise-barra {
   position: relative;
   flex: 0 0 96px;

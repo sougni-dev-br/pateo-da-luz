@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { carregarCustosDeReferencia, custoDaFichaPelaReferencia, type CustoDeReferencia } from "../../inventory/custo-de-referencia.js";
 import { ehRecebida, SITUACAO_CANCELADA, SITUACAO_RECEBIDA } from "./agile-situacao.js";
 import { montarCardapio, type LinhaAttach, type LinhaProduto } from "./agile-analise-cardapio.report.js";
@@ -13,7 +14,9 @@ import { DIAS_DA_JANELA_DE_RITMO, limitesDoMes, montarMetas, type IndicadorDeMet
 import { montarResumo } from "./agile-analise-resumo.js";
 import { calcularIndicadores, periodoAnteriorDe, type VendaVisao } from "./agile-analise-visao.report.js";
 import { prisma } from "../../../config/database.js";
-import { carregarPratosDoSalaoComCusto } from "../../dishes/dish-custo-salao.js";
+import { carregarPratosDoSalaoComCusto, MENU_DO_SALAO, UNIDADES_DE_PORCAO } from "../../dishes/dish-custo-salao.js";
+import { conversoesDaFicha, separarItensPorCardapio } from "../../dishes/dish-detail.js";
+import { MAX_NIVEIS_DE_FICHA, montarConsumoTeorico, type FichaDoPrato, type ItemDeFicha, type VinculoDeInsumo } from "./agile-analise-consumo.report.js";
 import { toCalendarDateKey } from "../../../shared/utils/calendar-date.js";
 import {
   montarCancelamentos,
@@ -614,4 +617,115 @@ export async function salvarCustoBuffet(ano: number, mes: number, valor: number 
     create: { ano, mes, valor, updatedById: usuarioId },
     update: { valor, updatedById: usuarioId }
   });
+}
+
+// ---------------------------------------------------------------------------
+// Consumo teorico de insumos: venda do PDV x ficha do salao (pratos) e vinculo de revenda (bebidas).
+// Referencia para a contagem; nao grava movimento de estoque.
+// ---------------------------------------------------------------------------
+
+const SELECAO_DO_ITEM_DE_FICHA = {
+  menu: true,
+  productId: true,
+  componentDishId: true,
+  quantity: true,
+  unit: true,
+  wasteFactor: true,
+  product: { select: { name: true, unit: true, stockUnit: true, conversions: { where: { isActive: true }, select: { fromUnit: true, toUnit: true, factor: true } } } }
+} as const;
+
+type ItemCarregado = Prisma.DishItemGetPayload<{ select: typeof SELECAO_DO_ITEM_DE_FICHA }>;
+
+function itemDaFicha(item: ItemCarregado): ItemDeFicha | null {
+  const quantidade = Number(item.quantity);
+  const perda = Number(item.wasteFactor);
+  if (item.componentDishId) return { componenteId: item.componentDishId, quantidade, unidade: item.unit, perda };
+  if (!item.product || !item.productId) return null;
+  return {
+    insumoId: item.productId,
+    insumo: item.product.name,
+    quantidade,
+    unidade: item.unit,
+    perda,
+    unidadeEstoque: item.product.stockUnit || item.product.unit,
+    conversoes: conversoesDaFicha({ ...item.product, ehFicha: false })
+  };
+}
+
+// Pratos vendidos no salao e, nivel a nivel, as fichas de producao que eles usam como ingrediente (a massa do nhoque).
+// Mesma regra do custo: ficha de producao vale pelos itens do cardapio dela (dish-fichas-de-producao).
+async function carregarFichasDoSalao(): Promise<FichaDoPrato[]> {
+  const vendidos = await prisma.dish.findMany({
+    where: { isActive: true, fichaDeProducao: false, OR: [{ menu: MENU_DO_SALAO }, { alsoMenu: MENU_DO_SALAO }] },
+    select: { id: true, name: true, yieldQty: true, yieldUnit: true, items: { where: { menu: MENU_DO_SALAO }, select: SELECAO_DO_ITEM_DE_FICHA } }
+  });
+  const fichas: FichaDoPrato[] = vendidos.map((prato) => ({
+    id: prato.id,
+    nome: prato.name,
+    rendimento: Number(prato.yieldQty),
+    unidadeRendimento: prato.yieldUnit,
+    rendimentoEmPorcao: UNIDADES_DE_PORCAO.has(String(prato.yieldUnit ?? "").trim().toUpperCase()),
+    itens: prato.items.map(itemDaFicha).filter((i): i is ItemDeFicha => i !== null)
+  }));
+
+  const carregadas = new Set(fichas.map((f) => f.id));
+  let fronteira = [...new Set(vendidos.flatMap((p) => p.items.map((i) => i.componentDishId)).filter((id): id is string => Boolean(id)))];
+  for (let nivel = 0; nivel < MAX_NIVEIS_DE_FICHA + 1 && fronteira.length > 0; nivel++) {
+    const novas = fronteira.filter((id) => !carregadas.has(id));
+    if (novas.length === 0) break;
+    const producao = await prisma.dish.findMany({
+      where: { id: { in: novas } },
+      select: { id: true, name: true, menu: true, yieldQty: true, yieldUnit: true, items: { select: SELECAO_DO_ITEM_DE_FICHA } }
+    });
+    for (const ficha of producao) {
+      carregadas.add(ficha.id);
+      fichas.push({
+        id: ficha.id,
+        nome: ficha.name,
+        rendimento: Number(ficha.yieldQty),
+        unidadeRendimento: ficha.yieldUnit,
+        rendimentoEmPorcao: false,
+        itens: separarItensPorCardapio({ menu: ficha.menu, alsoMenu: null, items: ficha.items }).principais
+          .map(itemDaFicha)
+          .filter((i): i is ItemDeFicha => i !== null)
+      });
+    }
+    fronteira = [...new Set(producao.flatMap((f) => f.items.map((i) => i.componentDishId)).filter((id): id is string => Boolean(id)))];
+  }
+  return fichas;
+}
+
+export async function obterConsumo(pedido: Periodo, hoje: string = hojeEmSaoPaulo()) {
+  const { periodo, hojeFicouDeFora, vazio } = descontarHoje(pedido, hoje);
+  const { de, ate } = intervaloDoPeriodo(periodo);
+  const [vendas, fichas, vinculosPrato, ligacoes] = await Promise.all([
+    vazio ? Promise.resolve<ProdutoVendido[]>([]) : produtosVendidosDoPeriodo(de, ate),
+    carregarFichasDoSalao(),
+    prisma.agileProdutoPrato.findMany({ select: { productCode: true, dishId: true } }),
+    prisma.agileProdutoInsumo.findMany({
+      select: { productCode: true, insumoId: true, quantity: true, unit: true, insumo: { select: { name: true, isActive: true, unit: true, stockUnit: true, conversions: { where: { isActive: true }, select: { fromUnit: true, toUnit: true, factor: true } } } } }
+    })
+  ]);
+  const vinculosInsumo: VinculoDeInsumo[] = ligacoes
+    // Insumo desativado depois do vinculo: o consumo dele nao e confiavel, e a venda cai em "sem vinculo".
+    .filter((l) => l.insumo.isActive)
+    .map((l) => ({
+      codigo: l.productCode,
+      insumoId: l.insumoId,
+      insumo: l.insumo.name,
+      quantidade: Number(l.quantity),
+      unidade: l.unit,
+      unidadeEstoque: l.insumo.stockUnit || l.insumo.unit,
+      conversoes: conversoesDaFicha(l.insumo)
+    }));
+  return {
+    ...montarConsumoTeorico({
+      periodo,
+      vendas: vendas.map((v) => ({ codigo: v.codigo, nome: v.nome, categoria: v.categoria, quantidade: v.quantidade, valor: v.valor })),
+      fichas,
+      vinculosPrato: vinculosPrato.map((v) => ({ codigo: v.productCode, pratoId: v.dishId })),
+      vinculosInsumo
+    }),
+    hojeFicouDeFora
+  };
 }
