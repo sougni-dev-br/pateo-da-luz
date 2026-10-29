@@ -22,7 +22,7 @@ permite CORS apenas para:
 - Em modo real (dev com backend rodando local): funciona pelo proxy do Vite
   (`vite.config.ts` proxa `/api` → `http://127.0.0.1:3334`) ou por CORS explícito
   em `localhost:5174`.
-- Em produção (frontend em `pateo.sougni.com` → backend em `pateo-backend.onrender.com`):
+- Em produção (frontend em `pateo.sougni.com` → backend em `pateo-backend-timb.onrender.com`):
   funciona porque `pateo.sougni.com` está na whitelist.
 
 ## Cenários que quebrariam

@@ -48,7 +48,7 @@ Se houver falha (rede, backend offline), o agente tenta novamente até 4x com 15
        "senha": "<senha do AgileReport aqui>"
      },
      "backend": {
-       "baseUrl": "https://pateo-backend.onrender.com",
+       "baseUrl": "https://pateo-backend-timb.onrender.com",
        "ingestToken": "<token vindo do painel Render aqui>"
      },
      "sync": {

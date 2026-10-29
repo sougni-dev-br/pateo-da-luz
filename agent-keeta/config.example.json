@@ -7,7 +7,7 @@
     "senha": ""
   },
   "backend": {
-    "baseUrl": "https://pateo-backend.onrender.com",
+    "baseUrl": "https://pateo-backend-timb.onrender.com",
     "ingestToken": "TROCAR",
     "retryMaxAttempts": 3,
     "retryDelayMs": 300000

@@ -125,7 +125,7 @@ Exemplo de referência: `backend/.env.example`.
 | `VITE_BACKEND_URL` | `http://127.0.0.1:3334` | informativo (tela de login mostra o alvo) |
 
 > Para apontar o front **dev** ao backend de produção (apenas para testes pontuais),
-> trocar `VITE_API_URL` para `https://pateo-backend.onrender.com` e **reiniciar o
+> trocar `VITE_API_URL` para `https://pateo-backend-timb.onrender.com` e **reiniciar o
 > Vite** (env é lido no boot). Reverter para `/api` ao terminar.
 
 Build de produção do frontend usa `frontend/.env.production`.
