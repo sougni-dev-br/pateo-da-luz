@@ -42,32 +42,15 @@ function paraMinutos(hhmm: string | null): number | null {
 
 const duracao = (ini: number, fim: number): number => (fim > ini ? fim - ini : fim + MIN_DIA - ini);
 
-// Minutos do intervalo que realmente caem dentro do turno (o intervalo do contrato não vale para
-// um turno que acontece em outro horário). Tenta o intervalo no dia do turno e no dia seguinte.
-function minutosDoIntervaloNoTurno(inicioTurno: number, duracaoTurno: number, inicioIntervalo: number, duracaoIntervalo: number): number {
-  let dentro = 0;
-  for (const deslocamento of [0, MIN_DIA]) {
-    const a = inicioIntervalo + deslocamento - inicioTurno;
-    dentro = Math.max(dentro, Math.max(0, Math.min(duracaoTurno, a + duracaoIntervalo) - Math.max(0, a)));
-  }
-  return dentro;
-}
-
 /** Jornada diária em minutos; null se entrada e saída não estão cadastradas ou são iguais (turno inválido). */
 export function jornadaDiariaMin(j: JornadaCadastro): number | null {
   const ini = paraMinutos(j.jornadaInicio);
   const fim = paraMinutos(j.jornadaFim);
   if (ini == null || fim == null || ini === fim) return null;
   const total = duracao(ini, fim);
-  const iIni = paraMinutos(j.intervaloInicio);
-  const iFim = paraMinutos(j.intervaloFim);
-  const temIntervalo = iIni != null && iFim != null && iIni !== iFim;
-  // Sem intervalo cadastrado, o turno da Escala (ex.: 08:00–16:20) inclui a pausa: turno acima de 6h
-  // leva 1h de intervalo (CLT, art. 71). Decisão do Eli: a jornada do restaurante é 07:20 (6x1).
-  // Intervalo do contrato que não cai dentro do turno (ex.: contrato 15:00–00:00 com pausa à noite, turno
-  // da Escala 08:00–16:20) não vale: cai na regra do intervalo padrão.
-  const noTurno = temIntervalo ? minutosDoIntervaloNoTurno(ini, total, iIni, duracao(iIni, iFim)) : 0;
-  const intervalo = noTurno > 0 ? noTurno : total > JORNADA_EXIGE_INTERVALO_MIN ? INTERVALO_PADRAO_MIN : 0;
+  // Como no RHiD: o horário é turno menos a pausa. O intervalo do contrato não entra (a pausa não é fixa e
+  // o trabalhado já vem das batidas); turno acima de 6h leva 1h (CLT, art. 71). Jornada do restaurante: 07:20 (6x1).
+  const intervalo = total > JORNADA_EXIGE_INTERVALO_MIN ? INTERVALO_PADRAO_MIN : 0;
   return Math.max(0, total - intervalo);
 }
 
