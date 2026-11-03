@@ -138,6 +138,15 @@ describe("agruparBatidasPorDia — pareamento entrada e saída (achados da audit
     ]);
   });
 
+  test("dia com 3 batidas não rouba a entrada do dia seguinte (19:22 não pareia com 08:13 do outro dia)", () => {
+    const g = agruparBatidasPorDia(lote(CPF_A, ["2026-10-29T08:14:00", "2026-10-29T14:50:00", "2026-10-29T19:22:00", "2026-10-30T08:13:00", "2026-10-30T20:29:00", "2026-10-31T09:53:00", "2026-10-31T19:06:00"]));
+    expect(g.get(CPF_A)).toEqual([
+      { data: "2026-10-29", marcacoes: ["08:14", "14:50", "19:22"] },
+      { data: "2026-10-30", marcacoes: ["08:13", "20:29"] },
+      { data: "2026-10-31", marcacoes: ["09:53", "19:06"] },
+    ]);
+  });
+
   test("toque duplo no mesmo minuto vale uma batida", () => {
     const g = agruparBatidasPorDia(lote(CPF_A, ["2026-11-03T08:00:00", "2026-11-03T08:00:00", "2026-11-03T12:00:00", "2026-11-03T13:00:00", "2026-11-03T17:00:00"]));
     expect(g.get(CPF_A)).toEqual([{ data: "2026-11-03", marcacoes: ["08:00", "12:00", "13:00", "17:00"] }]);

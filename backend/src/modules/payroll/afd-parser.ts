@@ -88,6 +88,10 @@ export function lerAfd671(texto: string): LeituraAfd {
   return { batidas, avisos };
 }
 
+// Saída em outro dia só vale como turno que virou a noite se for de madrugada. Uma batida às 08:13 do dia
+// seguinte é a entrada de outro dia (o RHiD também agrupa por dia), não a saída do turno anterior.
+const LIMITE_MADRUGADA = "06:00";
+
 const emMinutos = (b: BatidaAfd): number => Date.parse(`${b.data}T${b.hora}:00Z`) / 60000;
 
 // Junta as batidas de cada pessoa em dias de trabalho, pareando entrada e saída em sequência.
@@ -110,7 +114,8 @@ export function agruparBatidasPorDia(batidas: BatidaAfd[]): Map<string, DiaBatid
     for (let i = 0; i < distintas.length; ) {
       const entrada = distintas[i];
       const saida = distintas[i + 1];
-      if (saida && emMinutos(saida) - emMinutos(entrada) <= TURNO_MAXIMO_MIN) {
+      const mesmoPeriodo = saida && (saida.data === entrada.data || saida.hora < LIMITE_MADRUGADA);
+      if (saida && mesmoPeriodo && emMinutos(saida) - emMinutos(entrada) <= TURNO_MAXIMO_MIN) {
         juntar(entrada.data, [entrada.hora, saida.hora]);
         i += 2;
       } else {
