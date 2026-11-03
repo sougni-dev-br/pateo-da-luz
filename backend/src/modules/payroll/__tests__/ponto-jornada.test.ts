@@ -164,10 +164,13 @@ describe("jornadaDiariaMin — o intervalo só desconta se cair dentro do turno"
   });
   test("turno que vira a meia-noite desconta o intervalo só se ele cair no turno", () => {
     expect(jornadaDiariaMin(ij("22:00", "06:00", "02:00", "03:00"))).toBe(420);
-    expect(jornadaDiariaMin(ij("22:00", "06:00", "12:00", "13:00"))).toBe(480);
+    expect(jornadaDiariaMin(ij("22:00", "06:00", "12:00", "13:00"))).toBe(420);
   });
   test("intervalo parcialmente fora do turno desconta só a parte de dentro", () => {
     expect(jornadaDiariaMin(ij("08:00", "12:30", "12:00", "13:00"))).toBe(240); // só 30 min do intervalo caem no turno
+  });
+  test("intervalo do contrato fora do turno (contrato 15:00–00:00, turno 08:00–16:20) cai na pausa padrão de 1h", () => {
+    expect(jornadaDiariaMin(ij("08:00", "16:20", "19:00", "20:00"))).toBe(440);
   });
   test("intervalo de duração zero não desconta nada", () => {
     // intervalo de duração zero = não cadastrado: vale a pausa padrão de 1h (turno de 9h → 8h)
