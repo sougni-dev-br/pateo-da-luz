@@ -2806,7 +2806,12 @@ async function referenciaDaContagem(sessionId: string, custoPermitido: boolean) 
     -- Contagem de agosto feita em 01/09 fecha agosto: o dia que vale e o fim
     -- do mes do ciclo, como o effectiveCountDate da consolidacao. Contagem no
     -- meio do mes fica no proprio dia, senao entrariam compras posteriores.
-    WITH atual AS (
+    -- MATERIALIZED em todos os blocos: sem isso o Postgres embute o CTE e, com
+    -- estatistica defasada de uma contagem recem-criada (estima 1 item, sao
+    -- centenas), escolhe loop aninhado e refaz a soma de compras a cada item.
+    -- Em producao (0,1 CPU) passava de 12 min por clique e esgotava as conexoes;
+    -- materializado, a mesma consulta roda em ~2 s.
+    WITH atual AS MATERIALIZED (
       SELECT "id",
              LEAST(
                "referenceDate"::date,
@@ -2817,7 +2822,7 @@ async function referenciaDaContagem(sessionId: string, custoPermitido: boolean) 
       FROM "StockCountSession"
       WHERE "id" = ${sessionId}
     ),
-    alvo AS (
+    alvo AS MATERIALIZED (
       SELECT i."id", i."productId"
       FROM "StockCountSessionItem" i
       WHERE i."stockCountSessionId" = ${sessionId} AND i."productId" IS NOT NULL
@@ -2826,7 +2831,7 @@ async function referenciaDaContagem(sessionId: string, custoPermitido: boolean) 
     -- gerou: correcao na revisao, correcao pela conferencia e recontagem
     -- aplicada regravam o countedQuantity daqui; "Esta certo" mantem o numero.
     -- Inventario ainda em revisao nao entra: vale o ultimo aprovado.
-    anterior AS (
+    anterior AS MATERIALIZED (
       SELECT DISTINCT ON (i."productId")
              i."productId", i."countedQuantity", o."code", o."inventorySnapshotId",
              COALESCE(o."effectiveCountDate", o."date")::date AS dia
@@ -2840,7 +2845,7 @@ async function referenciaDaContagem(sessionId: string, custoPermitido: boolean) 
       ORDER BY i."productId", COALESCE(o."effectiveCountDate", o."date") DESC, o."approvedAt" DESC NULLS LAST, i."id"
     ),
     -- Itens da nota, nao movimentacoes: editar a nota deixa a entrada orfa.
-    compras AS (
+    compras AS MATERIALIZED (
       SELECT pi."productId",
              SUM(COALESCE(pi."convertedQuantity", pi."quantity")) FILTER (WHERE na.contagem) AS quantidade,
              SUM(pi."totalPrice") FILTER (WHERE na.contagem)
