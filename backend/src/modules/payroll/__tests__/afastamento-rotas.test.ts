@@ -10,6 +10,8 @@ vi.mock("../../../config/database.js", () => {
     employeeScheduleDay: { findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
     payrollItem: { findMany: vi.fn() },
     tipPeriod: { findMany: vi.fn() },
+    pontoFechamento: { findFirst: vi.fn() },
+    $executeRaw: vi.fn(),
     $transaction: vi.fn(),
   };
   return { prisma };
@@ -68,6 +70,8 @@ beforeEach(() => {
   });
   db.payrollItem.findMany.mockResolvedValue([]);
   db.tipPeriod.findMany.mockResolvedValue([]);
+  db.pontoFechamento.findFirst.mockResolvedValue(null);
+  db.$executeRaw.mockResolvedValue(1);
   db.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => fn(db));
   vi.mocked(assertPeriodWritableForRange).mockResolvedValue(undefined);
 });
@@ -178,6 +182,22 @@ describe("POST /payroll/afastamentos — lançar", () => {
     expect(vi.mocked(assertPeriodWritableForRange).mock.calls[0].slice(0, 2)).toEqual([d("2026-08-25"), d("2026-09-02")]);
     expect(db.employeeScheduleDay.createMany).not.toHaveBeenCalled();
     expect(auditLog).not.toHaveBeenCalled();
+  });
+
+  test("ponto do mês fechado: recusa (409) sem gravar nada — o afastamento troca faltas e folgas do banco na Escala", async () => {
+    db.pontoFechamento.findFirst.mockResolvedValue({ id: "f1" });
+    const res = await request(app).post("/payroll/afastamentos").send({ employeeId: "e1", inicio: "2026-09-10", fim: "2026-09-12", motivo: "Licença pedida pela pessoa" });
+    expect(res.status).toBe(409);
+    expect(res.body.message).toContain("09/2026");
+    expect(db.employeeScheduleDay.createMany).not.toHaveBeenCalled();
+  });
+
+  test("o ponto fecha entre a checagem e a gravação: a conferência dentro da transação trava o mês e recusa", async () => {
+    db.pontoFechamento.findFirst.mockResolvedValueOnce(null).mockResolvedValue({ id: "f1" });
+    const res = await request(app).post("/payroll/afastamentos").send({ employeeId: "e1", inicio: "2026-09-10", fim: "2026-09-12", motivo: "Licença pedida pela pessoa" });
+    expect(res.status).toBe(409);
+    expect(db.$executeRaw).toHaveBeenCalled();
+    expect(db.employeeScheduleDay.createMany).not.toHaveBeenCalled();
   });
 
   test("avisa quando a gorjeta do período já está fechada", async () => {

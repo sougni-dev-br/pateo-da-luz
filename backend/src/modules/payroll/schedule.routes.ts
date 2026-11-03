@@ -4,6 +4,27 @@ import { Router } from "express";
 import { prisma } from "../../config/database.js";
 import { auditLog, getSessionUser, requestIp } from "../security/security-utils.js";
 import { holidaysForYear } from "./holidays.js";
+import { PontoFechadoError, chaveTravaMes, exigirPontoAberto, travarMeses } from "./ponto-trava.js";
+
+// A escala que a tela abriu mudou antes de ela salvar (outra pessoa, ou o Ponto lançando falta ou folga do banco).
+class EscalaMudouError extends Error {}
+
+/**
+ * "Versão" da escala de um mês: um resumo de todas as marcas (pessoa, dia, tipo). A tela guarda o valor
+ * ao abrir e o devolve ao salvar; se mudou no meio, o salvamento é recusado em vez de apagar o que entrou.
+ */
+export async function versaoDaEscala(
+  cliente: Pick<typeof prisma, "employeeScheduleDay">,
+  monthStart: Date,
+  nextMonthStart: Date,
+): Promise<string> {
+  const marcas = await cliente.employeeScheduleDay.findMany({
+    where: { date: { gte: monthStart, lt: nextMonthStart } },
+    select: { employeeId: true, date: true, type: true },
+  });
+  const linhas = marcas.map((m) => `${m.employeeId}|${m.date.toISOString().slice(0, 10)}|${m.type}`).sort();
+  return crypto.createHash("sha1").update(linhas.join("\n")).digest("hex");
+}
 
 export const scheduleRouter = Router();
 
@@ -291,7 +312,8 @@ scheduleRouter.get("/", async (request, response) => {
     holidayCompManual: e.holidayCompBalance,
   }));
 
-  response.json({ year, month, daysInMonth, days, employees: employeesComSaldo, entries, vacationDays, dateEvents, borderDays, sundayHistory, regraDomingo });
+  const version = await versaoDaEscala(prisma, monthStart, nextMonthStart);
+  response.json({ year, month, daysInMonth, days, version, employees: employeesComSaldo, entries, vacationDays, dateEvents, borderDays, sundayHistory, regraDomingo });
 });
 
 // ─── POST /schedule/bulk ─────────────────────────────────────────────────────────
@@ -301,9 +323,15 @@ scheduleRouter.post("/bulk", async (request, response) => {
   const user = await getSessionUser(request);
   if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
 
-  const b = request.body as { year?: unknown; month?: unknown; entries?: unknown; dateEvents?: unknown };
+  const b = request.body as { year?: unknown; month?: unknown; entries?: unknown; dateEvents?: unknown; version?: unknown };
+  const versaoDaTela = typeof b.version === "string" ? b.version : undefined;
   const { year, month } = parseYearMonth(b);
   const daysInMonth = new Date(year, month, 0).getDate();
+  // O ponto do mês já fechado foi apurado e pago com base nesta escala: mudar a escala agora faria as duas divergirem.
+  const pontoFechado = await prisma.pontoFechamento.findFirst({ where: { year, month, status: "FECHADO" }, select: { id: true } });
+  if (pontoFechado) {
+    return response.status(409).json({ message: `O ponto de ${String(month).padStart(2, "0")}/${year} já está fechado (RH → Ponto). Reabra o ponto do mês para mudar a escala.` });
+  }
   const rawEntries = Array.isArray(b.entries) ? b.entries : [];
   const rawEvents = Array.isArray(b.dateEvents) ? b.dateEvents : [];
 
@@ -390,37 +418,61 @@ scheduleRouter.post("/bulk", async (request, response) => {
   }
   const gravaveis = entries.filter((e) => e.type !== "AFASTAMENTO");
 
-  await prisma.$transaction(async (tx) => {
-    await tx.employeeScheduleDay.deleteMany({
-      where: { date: { gte: monthStart, lt: nextMonthStart }, employeeId: { in: [...activeIds] }, type: { not: "AFASTAMENTO" } },
+  try {
+    await prisma.$transaction(async (tx) => {
+      // Mesma trava do Ponto: o fechamento do mês não acontece no meio deste salvamento.
+      await travarMeses(tx, [chaveTravaMes(year, month)]);
+      await exigirPontoAberto(tx, monthStart, monthStart);
+      if (versaoDaTela !== undefined && (await versaoDaEscala(tx, monthStart, nextMonthStart)) !== versaoDaTela) throw new EscalaMudouError();
+
+      // As anotações (por exemplo o tipo que o Ponto guardou para desfazer uma folga do banco) acompanham a marca que continua igual.
+      const anteriores = await tx.employeeScheduleDay.findMany({
+        where: { date: { gte: monthStart, lt: nextMonthStart }, employeeId: { in: [...activeIds] }, type: { not: "AFASTAMENTO" } },
+        select: { employeeId: true, date: true, type: true, notes: true },
+      });
+      const notasAnteriores = new Map(anteriores.map((a) => [`${a.employeeId}|${a.date.getUTCDate()}|${a.type}`, a.notes]));
+
+      await tx.employeeScheduleDay.deleteMany({
+        where: { date: { gte: monthStart, lt: nextMonthStart }, employeeId: { in: [...activeIds] }, type: { not: "AFASTAMENTO" } },
+      });
+      if (gravaveis.length > 0) {
+        await tx.employeeScheduleDay.createMany({
+          data: gravaveis.map((e) => ({
+            id: crypto.randomUUID(),
+            employeeId: e.employeeId,
+            date: new Date(Date.UTC(year, month - 1, e.day)),
+            type: e.type,
+            notes: notasAnteriores.get(`${e.employeeId}|${e.day}|${e.type}`) ?? null,
+            createdById: user.id,
+          })),
+          skipDuplicates: true,
+        });
+      }
+      // Eventos por data do mês: replace completo (delete + insert).
+      await tx.scheduleDayEvent.deleteMany({
+        where: { date: { gte: monthStart, lt: nextMonthStart } },
+      });
+      if (dateEvents.length > 0) {
+        await tx.scheduleDayEvent.createMany({
+          data: dateEvents.map((e) => ({
+            id: crypto.randomUUID(),
+            date: new Date(Date.UTC(year, month - 1, e.day)),
+            size: e.size,
+          })),
+          skipDuplicates: true,
+        });
+      }
     });
-    if (gravaveis.length > 0) {
-      await tx.employeeScheduleDay.createMany({
-        data: gravaveis.map((e) => ({
-          id: crypto.randomUUID(),
-          employeeId: e.employeeId,
-          date: new Date(Date.UTC(year, month - 1, e.day)),
-          type: e.type,
-          createdById: user.id,
-        })),
-        skipDuplicates: true,
+  } catch (err) {
+    if (err instanceof PontoFechadoError) return response.status(409).json({ message: err.message });
+    if (err instanceof EscalaMudouError) {
+      return response.status(409).json({
+        message: "A escala deste mês mudou desde que você a abriu (outra pessoa, ou o Ponto lançou faltas ou folgas do banco). Recarregue a tela para ver as mudanças antes de salvar.",
+        codigo: "ESCALA_MUDOU",
       });
     }
-    // Eventos por data do mês: replace completo (delete + insert).
-    await tx.scheduleDayEvent.deleteMany({
-      where: { date: { gte: monthStart, lt: nextMonthStart } },
-    });
-    if (dateEvents.length > 0) {
-      await tx.scheduleDayEvent.createMany({
-        data: dateEvents.map((e) => ({
-          id: crypto.randomUUID(),
-          date: new Date(Date.UTC(year, month - 1, e.day)),
-          size: e.size,
-        })),
-        skipDuplicates: true,
-      });
-    }
-  });
+    throw err;
+  }
 
   await auditLog({
     userId: user.id,
@@ -431,5 +483,7 @@ scheduleRouter.post("/bulk", async (request, response) => {
     userAgent: String(request.headers["user-agent"] ?? ""),
   });
 
-  response.json({ ok: true, year, month, count: entries.length, events: dateEvents.length });
+  // A tela usa esta versão no próximo salvamento: o que acabou de ser gravado não pode contar como "mudança de outra pessoa".
+  const version = await versaoDaEscala(prisma, monthStart, nextMonthStart);
+  response.json({ ok: true, year, month, count: entries.length, events: dateEvents.length, version });
 });

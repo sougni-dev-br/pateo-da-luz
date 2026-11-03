@@ -3,6 +3,8 @@ import { Router } from "express";
 import { prisma } from "../../config/database.js";
 import { assertPeriodWritableForRange } from "../cmv-real/cmv-real.service.js";
 import { auditLog, getSessionUser, requestIp } from "../security/security-utils.js";
+import type { Prisma } from "@prisma/client";
+import { PontoFechadoError, chaveTravaMes, exigirPontoAberto, mesesDoIntervalo, travarMeses } from "./ponto-trava.js";
 
 // ─── Afastamento não remunerado ─────────────────────────────────────────────────
 //
@@ -65,6 +67,27 @@ async function mesesLiberados(inicio: Date, fim: Date, contexto: string) {
   } catch (err) {
     throw new Recusa(400, err instanceof Error ? err.message : "Período fechado.");
   }
+  // Recusa cedo, com a mensagem certa; a conferência que vale é a de dentro da transação (travarEConferirPonto).
+  await conferirPontoAberto(prisma, inicio, fim);
+}
+
+// O afastamento troca faltas e folgas do banco por AFASTAMENTO na Escala: com o ponto do mês fechado,
+// o que foi apurado e guardado deixaria de bater com a escala.
+async function conferirPontoAberto(cliente: Parameters<typeof exigirPontoAberto>[0], inicio: Date, fim: Date) {
+  try {
+    await exigirPontoAberto(cliente, inicio, fim);
+  } catch (err) {
+    if (err instanceof PontoFechadoError) throw new Recusa(409, err.message);
+    throw err;
+  }
+}
+
+// Dentro da transação: trava os meses (mesma chave do Ponto e da Escala) e confere de novo, para o
+// fechamento do ponto não passar entre a checagem e a gravação.
+async function travarEConferirPonto(tx: Prisma.TransactionClient, intervalos: Array<{ inicio: Date; fim: Date }>) {
+  const meses = intervalos.flatMap((i) => mesesDoIntervalo(i.inicio, i.fim));
+  await travarMeses(tx, meses.map((m) => chaveTravaMes(m.year, m.month)));
+  for (const i of intervalos) await conferirPontoAberto(tx, i.inicio, i.fim);
 }
 
 type Funcionario = { id: string; firstName: string; lastName: string; displayName: string | null; admissionDate: Date | null; terminationDate: Date | null };
@@ -225,7 +248,10 @@ afastamentoRouter.post("/", async (request, response) => {
     const dias = dentroDoVinculo(emp, inicio, fim);
     await mesesLiberados(inicio, fim, "Lancamento de afastamento");
     await semConflito(emp, inicio, fim);
-    const substituidas = await prisma.$transaction((tx) => gravarDias(tx, emp, inicio, fim, motivo, user.id));
+    const substituidas = await prisma.$transaction(async (tx) => {
+      await travarEConferirPonto(tx, [{ inicio, fim }]);
+      return gravarDias(tx, emp, inicio, fim, motivo, user.id);
+    });
     const avisos = await avisosDeFechado(inicio, fim);
     await auditLog({
       userId: user.id, action: "RELEASE_UNPAID_LEAVE", entity: "EmployeeScheduleDay", entityId: emp.id,
@@ -260,6 +286,7 @@ afastamentoRouter.put("/", async (request, response) => {
     await mesesLiberados(inicio, fim, "Edicao de afastamento");
     await semConflito(emp, inicio, fim, atual);
     const substituidas = await prisma.$transaction(async (tx) => {
+      await travarEConferirPonto(tx, [atual, { inicio, fim }]);
       await tx.employeeScheduleDay.deleteMany({ where: { employeeId: emp.id, type: "AFASTAMENTO", date: { gte: atual.inicio, lte: atual.fim } } });
       return gravarDias(tx, emp, inicio, fim, motivo, user.id);
     });
@@ -288,7 +315,10 @@ afastamentoRouter.delete("/", async (request, response) => {
     const antigos = await prisma.employeeScheduleDay.findMany({ where, select: { date: true, notes: true } });
     if (antigos.length === 0) throw new Recusa(404, "Afastamento não encontrado nesse intervalo. Recarregue a lista.");
     await mesesLiberados(inicio, fim, "Exclusao de afastamento");
-    await prisma.employeeScheduleDay.deleteMany({ where });
+    await prisma.$transaction(async (tx) => {
+      await travarEConferirPonto(tx, [{ inicio, fim }]);
+      await tx.employeeScheduleDay.deleteMany({ where });
+    });
     const avisos = await avisosDeFechado(inicio, fim);
     await auditLog({
       userId: user.id, action: "DELETE_UNPAID_LEAVE", entity: "EmployeeScheduleDay", entityId: emp.id,

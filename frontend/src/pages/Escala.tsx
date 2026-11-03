@@ -1,6 +1,7 @@
-import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Eye, EyeOff, Maximize2, Minimize2, Minus, Palette, Plus, Printer, RefreshCw, Save } from "lucide-react";
+import { CalendarDays, ChevronDown, Clock3, ChevronLeft, ChevronRight, Eye, EyeOff, Maximize2, Minimize2, Minus, Palette, Plus, Printer, RefreshCw, Save } from "lucide-react";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   EventSize, ScheduleData, ScheduleDateEvent, ScheduleDayType, ScheduleEmployee, ScheduleEntry,
   adjustHolidayComp, getSchedule, saveScheduleBulk
@@ -126,11 +127,14 @@ export function Escala() {
   const { user } = useSession();
   const canEdit = hasPermission(user, "schedule", "edit");
   const { notice, setNotice } = useNotice();
+  const navigate = useNavigate();
 
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [data, setData] = useState<ScheduleData | null>(null);
+  // Versão das marcas ao abrir: se outra pessoa (ou o Ponto) mexer antes de salvar, o servidor recusa em vez de apagar o que entrou.
+  const [version, setVersion] = useState<string | undefined>(undefined);
   const [marks, setMarks] = useState<Map<string, ScheduleDayType>>(new Map());
   const [dateEvents, setDateEvents] = useState<Map<number, EventSize>>(new Map());
   const [loading, setLoading] = useState(true);
@@ -188,6 +192,7 @@ export function Escala() {
     try {
       const d = await getSchedule(year, month);
       setData(d);
+      setVersion(d.version);
       const m = new Map<string, ScheduleDayType>();
       const soOcorrencias = new Set(d.employees.filter((e) => e.somenteOcorrencias).map((e) => e.id));
       let foraDoPermitido = 0;
@@ -371,7 +376,8 @@ export function Escala() {
         return { employeeId: k.slice(0, sep), day: Number(k.slice(sep + 1)), type };
       });
       const events: ScheduleDateEvent[] = Array.from(dateEvents.entries()).map(([day, size]) => ({ day, size }));
-      const res = await saveScheduleBulk(year, month, entries, events);
+      const res = await saveScheduleBulk(year, month, entries, events, version);
+      setVersion(res.version);
       // A contagem de faltas sai separada: elas mexem em dinheiro (descontam no
       // VT seguinte), e o aviso antigo só falava em folgas — quem marcava uma
       // falta salvava sem nenhuma confirmação de que ela tinha sido registrada.
@@ -752,6 +758,14 @@ ${holidayList ? `<div class="foot"><b>Feriados de ${MONTHS[month - 1]}:</b> ${ho
             <Button variant="secondary" onClick={() => goMonth(-1)} aria-label="Mês anterior"><ChevronLeft size={16} /></Button>
             <strong style={{ minWidth: 118, textAlign: "center" }}>{MONTHS[month - 1]} {year}</strong>
             <Button variant="secondary" onClick={() => goMonth(1)} aria-label="Próximo mês"><ChevronRight size={16} /></Button>
+            <Button
+              variant="secondary"
+              leadingIcon={<Clock3 size={14} />}
+              onClick={() => navigate(`/rh/ponto?mes=${year}-${String(month).padStart(2, "0")}`)}
+              title="Abrir o ponto deste mês: horas, extras, faltas e banco de horas pela escala"
+            >
+              Ponto do mês
+            </Button>
             <Button
               variant="secondary"
               onClick={() => setShowDetails((v) => !v)}
