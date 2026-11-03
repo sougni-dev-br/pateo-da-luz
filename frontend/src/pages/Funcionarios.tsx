@@ -113,7 +113,7 @@ const emptyEmployee = {
   bankName: "", bankAgency: "", bankAccount: "", bankAccountDigit: "", bankAccountType: "CONTA_CORRENTE" as EmployeeBankAccountType,
   gender: "NAO_INFORMADO" as EmployeeGender,
   pixKeyType: "", pixKey: "", sector: "", subgroup: "", position: "", baseSalary: "", salarioCombinado: "", salarioCombinadoMotivo: "", tetoIrGorjeta: "", recebeAdiantamento: false, pagamentoQuinzenal: false, shiftStart: "", shiftEnd: "",
-  modality: "CLT" as EmployeeModality, scheduleRegime: "SEIS_POR_UM" as WorkScheduleRegime, includeInSchedule: true, admissionDate: "", admissaoCarteira: "",
+  modality: "CLT" as EmployeeModality, scheduleRegime: "SEIS_POR_UM" as WorkScheduleRegime, includeInSchedule: true, registraPonto: true, admissionDate: "", admissaoCarteira: "",
   // Entra na gorjeta em: cadastro novo nasce vazio (em teste).
   inicioGorjeta: "",
   vtType: "TRANSPORTE_PUBLICO" as VtType, vtPeriodicity: "QUINZENAL" as VtPeriodicity,
@@ -248,7 +248,7 @@ export function Funcionarios() {
       tetoIrGorjeta: moneyToMasked(e.tetoIrGorjeta ?? null),
       recebeAdiantamento: e.recebeAdiantamento ?? false, pagamentoQuinzenal: e.pagamentoQuinzenal ?? false,
       shiftStart: e.shiftStart ?? "", shiftEnd: e.shiftEnd ?? "",
-      modality: e.modality, scheduleRegime: e.scheduleRegime, includeInSchedule: e.includeInSchedule ?? true, admissionDate: toDateInput(e.admissionDate), admissaoCarteira: toDateInput(e.admissaoCarteira ?? null),
+      modality: e.modality, scheduleRegime: e.scheduleRegime, includeInSchedule: e.includeInSchedule ?? true, registraPonto: e.registraPonto ?? true, admissionDate: toDateInput(e.admissionDate), admissaoCarteira: toDateInput(e.admissaoCarteira ?? null),
       inicioGorjeta: toDateInput(e.inicioGorjeta ?? null),
       vtType: e.vtType, vtPeriodicity: e.vtPeriodicity,
       vtFixedAmount: moneyToMasked(e.vtFixedAmount), vtMonthlyFareId: e.vtMonthlyFareId ?? "", notes: e.notes ?? "",
@@ -328,6 +328,7 @@ export function Funcionarios() {
         modality: form.modality,
         scheduleRegime: form.scheduleRegime,
         includeInSchedule: form.includeInSchedule,
+        registraPonto: form.registraPonto,
         admissionDate: form.admissionDate || undefined,
         admissaoCarteira: form.admissaoCarteira || null,
         inicioGorjeta: form.inicioGorjeta || null,
@@ -712,6 +713,12 @@ export function Funcionarios() {
                   <div style={{ display: "flex", alignItems: "center", gap: 8, minHeight: 38 }}>
                     <Switch checked={form.includeInSchedule} onChange={(v) => setForm({ ...form, includeInSchedule: v })} label="Entra na escala" />
                     <span style={{ fontSize: 13, color: "var(--muted)" }}>{form.includeInSchedule ? "Sim" : "Não"}</span>
+                  </div>
+                </FormField>
+                <FormField label="Bate ponto" hint="desligue p/ quem não registra ponto (ex.: 5x2 fixo): some da apuração do RH > Ponto">
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, minHeight: 38 }}>
+                    <Switch checked={form.registraPonto} onChange={(v) => setForm({ ...form, registraPonto: v })} label="Bate ponto" />
+                    <span style={{ fontSize: 13, color: "var(--muted)" }}>{form.registraPonto ? "Sim" : "Não"}</span>
                   </div>
                 </FormField>
                 <FormField label="Turno — início">
