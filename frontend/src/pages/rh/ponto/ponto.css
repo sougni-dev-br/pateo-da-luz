@@ -1,0 +1,138 @@
+/* ═══════════════════════════════════════════════════════════════════
+   RH → Ponto — prefixo po-. Só tokens de styles/tokens (sem hex soltos).
+═══════════════════════════════════════════════════════════════════ */
+
+.po-tela { display: grid; gap: 10px; min-width: 0; }
+.po-tela :is(button, a, input, select, summary, [tabindex="0"]):focus-visible { outline: 2px solid var(--gold-dark); outline-offset: 2px; }
+.po-painel { display: grid; gap: 16px; min-width: 0; }
+.po-ajuda { margin: 0; color: var(--muted); font-size: var(--fs-sm); }
+.po-sub { display: block; font-size: var(--fs-xs); color: var(--muted); font-weight: 400; }
+.po-sub--aviso { color: var(--warning); }
+.po-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* ── Barra do mês ───────────────────────────────────────────────────── */
+.po-topo { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; }
+.po-abas { margin-left: 4px; }
+.po-mes { display: inline-flex; align-items: center; gap: 6px; }
+.po-mes-nome { min-width: 130px; text-align: center; font-size: var(--fs-lg); }
+
+.po-resumo { display: grid; gap: 12px; min-width: 0; }
+.po-acoes { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+/* ── Cartões de visão geral (filtros) ───────────────────────────────── */
+.po-cartoes { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; }
+.po-cartao {
+  --cor: var(--muted);
+  display: flex; align-items: baseline; gap: 8px; width: 100%; padding: 6px 12px; text-align: left; font: inherit; color: var(--ink); cursor: pointer;
+  border: 1px solid var(--line); border-left: 4px solid var(--cor); border-radius: var(--radius-md); background: var(--paper);
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+.po-cartao strong { font-size: var(--fs-lg); line-height: 1; font-variant-numeric: tabular-nums; }
+.po-cartao span { font-size: var(--fs-sm); color: var(--ink-soft); }
+.po-cartao:hover { border-color: var(--line-strong); border-left-color: var(--cor); box-shadow: var(--shadow-soft); }
+.po-cartao[aria-pressed="true"] { background: var(--gold-tint); border-color: var(--gold-dark); border-left-color: var(--cor); }
+.po-cartao--warning { --cor: var(--warning); }
+.po-cartao--success { --cor: var(--success); }
+.po-cartao--danger { --cor: var(--danger); }
+.po-cartao--info { --cor: var(--info); }
+
+/* ── Tabelas ────────────────────────────────────────────────────────── */
+.po-tabela-rolagem { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--paper); }
+.po-tabela { width: 100%; border-collapse: separate; border-spacing: 0; font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+.po-tabela th, .po-tabela td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.po-tabela thead th { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: var(--ls-eyebrow); color: var(--ink-soft); background: var(--paper-soft); }
+.po-tabela thead th { white-space: nowrap; }
+.po-tabela tbody tr:last-child > * { border-bottom: 0; }
+.po-tabela tbody th { font-weight: var(--fw-semibold); }
+/* A coluna da pessoa (ou do dia) fica à vista quando a tabela rola para o lado. */
+.po-tabela thead th:first-child, .po-tabela tbody th { position: sticky; left: 0; z-index: 1; background: var(--paper); }
+.po-tabela thead th:first-child { background: var(--paper-soft); }
+.po-num { text-align: right !important; }
+.po-destaque { font-weight: var(--fw-semibold); color: var(--ink); }
+.po-negativo { color: var(--warning); font-weight: var(--fw-semibold); }
+.po-vazio { text-align: center; color: var(--muted); padding: 20px 12px; }
+.po-pessoa-celula { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; min-width: 270px; }
+
+/* Quem deve horas: borda forte à esquerda além do fundo (não depende só da cor). */
+.po-linha--devendo > * { background: var(--gold-tint); }
+.po-linha--devendo > th { box-shadow: inset 4px 0 0 var(--warning); }
+.po-linha--devendo .po-sub { color: var(--ink-soft); }
+
+.po-avisos summary { cursor: pointer; min-height: 24px; color: var(--warning); font-weight: var(--fw-semibold); }
+.po-avisos ul { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 2px; font-size: var(--fs-xs); color: var(--ink-soft); }
+
+/* ── Ponto de papel ─────────────────────────────────────────────────── */
+.po-papel { display: grid; gap: 8px; }
+.po-barra { display: flex; align-items: flex-end; gap: 8px 16px; flex-wrap: wrap; }
+.po-barra-pessoa { min-width: 220px; }
+.po-barra-proxima { margin-left: auto; }
+.po-dicas { font-size: var(--fs-xs); color: var(--ink-soft); }
+.po-dicas summary { cursor: pointer; width: fit-content; min-height: 24px; display: flex; align-items: center; color: var(--ink-soft); }
+.po-dicas p { margin: 4px 0 0; max-width: 70ch; }
+
+/* Grade do mês: 1ª quinzena (1 a 15) e 2ª (16 ao fim) sempre lado a lado, cada uma com rolagem lateral se faltar largura. */
+.po-grade { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; align-items: start; }
+.po-tabela-rolagem--dias { overflow-x: auto; min-width: 0; }
+.po-tabela--dias { width: 100%; min-width: max-content; }
+.po-tabela--dias caption.po-quinzena-titulo { caption-side: top; text-align: left; padding: 6px 10px; font-size: var(--fs-sm); font-weight: var(--fw-semibold); color: var(--ink); background: var(--paper-soft); border-bottom: 1px solid var(--line); position: sticky; left: 0; }
+.po-quinzena-titulo span { margin-left: 6px; font-size: var(--fs-xs); font-weight: 400; color: var(--ink-soft); }
+.po-tabela--dias td, .po-tabela--dias th { padding: 1px 3px; }
+.po-tabela--dias thead th { text-transform: none; letter-spacing: 0; font-size: var(--fs-xs); }
+.po-tabela--dias thead th { position: sticky; top: 0; z-index: 2; padding-block: 4px; }
+.po-tabela--dias thead th:first-child { z-index: 3; }
+.po-tabela--dias tbody th { white-space: nowrap; }
+.po-tabela--dias .po-sub { display: inline; margin-left: 4px; }
+.po-hora {
+  width: 52px; min-height: 24px; padding: 0 2px; text-align: center; font: inherit; font-size: var(--fs-sm); font-variant-numeric: tabular-nums;
+  border: 1px solid var(--ink-soft); border-radius: var(--radius-sm); background: var(--paper); color: var(--ink);
+}
+.po-hora:read-only { background: var(--paper-soft); color: var(--ink-soft); }
+.po-hora--erro { border-width: 2px; border-color: var(--danger); background: var(--tint-danger); }
+.po-trabalhou { white-space: nowrap; }
+.po-situacao { min-width: 56px; }
+.po-tag { margin-left: 6px; font-size: var(--fs-2xs); color: var(--ink-soft); }
+.po-tag--aviso { color: var(--warning); font-weight: var(--fw-semibold); }
+.po-banco { white-space: nowrap; }
+.po-esc { font-size: var(--fs-xs); color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.po-esc--folga { color: var(--ink); font-weight: var(--fw-semibold); }
+.po-esc--sem { color: var(--warning); font-weight: var(--fw-semibold); }
+.po-num-forte { font-weight: var(--fw-semibold); }
+.po-erro-linha { display: block; max-width: 260px; font-size: var(--fs-xs); color: var(--danger); font-weight: var(--fw-semibold); white-space: normal; }
+/* O fundo da linha (domingo, folga do banco) vale também para a coluna fixa do dia. */
+.po-tabela--dias tbody tr { --fundo: var(--paper); }
+.po-tabela--dias tbody tr.po-linha--domingo { --fundo: var(--paper-soft); }
+.po-tabela--dias tbody tr.po-linha--banco { --fundo: var(--row-hover); }
+.po-tabela--dias tbody tr > * { background: var(--fundo); }
+/* Coluna do dia: dia da semana apagado, data em destaque, respiro e divisória. */
+.po-tabela--dias thead th:first-child, .po-tabela--dias tbody th { padding-left: 8px; padding-right: 8px; }
+.po-tabela--dias tbody th { border-right: 1px solid var(--line); }
+.po-dia { display: inline-flex; align-items: baseline; gap: 6px; font-variant-numeric: tabular-nums; }
+.po-dia-sem { min-width: 24px; font-size: var(--fs-xs); font-weight: 400; color: var(--ink-soft); }
+.po-dia-num { font-weight: var(--fw-semibold); color: var(--ink); }
+.po-link {
+  background: none; border: 0; padding: 0 2px; margin-left: 6px; min-height: 24px; font: inherit; font-size: var(--fs-xs);
+  color: var(--gold-dark); text-decoration: underline; text-underline-offset: 3px; cursor: pointer;
+}
+.po-link:hover { color: var(--ink); }
+
+/* Resumo da pessoa, numa linha só ao lado do seletor */
+.po-faixa { display: flex; flex-wrap: wrap; gap: 2px 16px; margin: 0; padding: 4px 12px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--paper-soft); }
+.po-faixa > div { display: grid; gap: 0; }
+.po-faixa dt { font-size: var(--fs-2xs); color: var(--ink-soft); text-transform: uppercase; letter-spacing: var(--ls-eyebrow); }
+.po-faixa dd { margin: 0; font-size: var(--fs-sm); font-weight: var(--fw-semibold); font-variant-numeric: tabular-nums; }
+
+/* ── Importar relógio ───────────────────────────────────────────────── */
+.po-importar { display: grid; gap: 12px; justify-items: start; max-width: 640px; }
+.po-passos { margin: 0; padding-left: 20px; display: grid; gap: 6px; font-size: var(--fs-sm); color: var(--ink); }
+.po-resultado { display: grid; gap: 10px; width: 100%; justify-items: start; }
+.po-lista-resultado { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: var(--fs-sm); color: var(--ink-soft); }
+
+@media (max-width: 640px) {
+  .po-mes-nome { min-width: 120px; }
+  .po-barra-pessoa { min-width: 100%; }
+  .po-hora { width: 50px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .po-cartao { transition: none; }
+}

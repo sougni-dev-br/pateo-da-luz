@@ -3042,6 +3042,8 @@ model Employee {
   dependentes            EmployeeDependente[]
   fichasCadastrais       FichaCadastral[]
   feriasRegistradas      EmployeeFerias[]
+  pontoDias              PontoDia[]
+  pontoFechamentos       PontoFechamento[]
   feriasProgramadas      FeriasProgramacao[]
   feriasSolicitadas          FeriasSolicitacao[]
   anotacoesCarteira      EmployeeAnotacaoCarteira[]
@@ -4355,4 +4357,69 @@ model InstallmentPlan {
 
   @@index([supplierId])
   @@index([status])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Ponto — apuração de horas para o fechamento da folha (regras da CLT).
+// PontoDia guarda as batidas de um dia, vindas do relógio (AFD do RHiD) ou digitadas
+// do papel. Uma linha por pessoa e dia: a importação do relógio nunca sobrescreve um dia
+// editado à mão. PontoFechamento congela o resultado do mês (extra a pagar, banco, faltas).
+// ─────────────────────────────────────────────────────────────────────────
+
+enum PontoOrigem {
+  PAPEL
+  RELOGIO
+}
+
+enum PontoFechamentoStatus {
+  ABERTO
+  FECHADO
+}
+
+model PontoDia {
+  id             String      @id @default(cuid())
+  employeeId     String
+  employee       Employee    @relation(fields: [employeeId], references: [id])
+  date           DateTime    @db.Date
+  origem         PontoOrigem
+  /// Batidas "HH:mm" em ordem: entrada, saída, entrada, saída…
+  marcacoes      String[]
+  /// Dia do relógio que alguém corrigiu à mão: a próxima importação não o sobrescreve.
+  editadoManual  Boolean     @default(false)
+  notes          String?
+  createdById    String
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  @@unique([employeeId, date])
+  @@index([date])
+}
+
+model PontoFechamento {
+  id               String                @id @default(cuid())
+  employeeId       String
+  employee         Employee              @relation(fields: [employeeId], references: [id])
+  year             Int
+  month            Int
+  status           PontoFechamentoStatus @default(ABERTO)
+  /// Banco de horas (minutos; negativo = devendo).
+  saldoInicialMin  Int                   @default(0)
+  saldoFinalMin    Int                   @default(0)
+  atrasoMin        Int                   @default(0)
+  debitoFolgaMin   Int                   @default(0)
+  /// Extra comum do período e a parte dela que abateu a dívida do banco.
+  extraMin         Int                   @default(0)
+  abatidoMin       Int                   @default(0)
+  extraAPagarMin   Int                   @default(0)
+  /// Domingo e feriado trabalhados, pagos à parte.
+  extraDescansoMin Int                   @default(0)
+  noturnoMin       Int                   @default(0)
+  faltas           Int                   @default(0)
+  closedAt         DateTime?
+  closedById       String?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  @@unique([employeeId, year, month])
+  @@index([year, month])
 }

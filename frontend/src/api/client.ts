@@ -7684,17 +7684,19 @@ export type ScheduleData = {
   /** Domingos das 10 semanas anteriores, com o status ja resolvido. */
   sundayHistory: Array<{ employeeId: string; date: string; status: "FOLGA" | "TRABALHOU" | "SEM_ESCALA" }>;
   regraDomingo: { mulher: number; geral: number };
+  /** Resumo das marcas do mês ao abrir: devolvido ao salvar, para não apagar o que outra pessoa (ou o Ponto) lançou no meio. */
+  version?: string;
 };
 
 export function getSchedule(year: number, month: number) {
   return request<ScheduleData>(`/schedule?year=${year}&month=${month}`);
 }
 
-export function saveScheduleBulk(year: number, month: number, entries: ScheduleEntry[], dateEvents: ScheduleDateEvent[]) {
-  return request<{ ok: boolean; year: number; month: number; count: number; events: number }>("/schedule/bulk", {
+export function saveScheduleBulk(year: number, month: number, entries: ScheduleEntry[], dateEvents: ScheduleDateEvent[], version?: string) {
+  return request<{ ok: boolean; year: number; month: number; count: number; events: number; version?: string }>("/schedule/bulk", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ year, month, entries, dateEvents })
+    body: JSON.stringify({ year, month, entries, dateEvents, version })
   });
 }
 
@@ -10310,4 +10312,81 @@ export function renegotiateInstallmentPlan(id: string, payload: { quantidade: nu
 
 export function cancelInstallmentPlan(id: string, motivo: string) {
   return request<{ parcelasCanceladas: number; parcelasPagasMantidas: number; plano: InstallmentPlanDetail }>(`/installment-plans/${id}/cancelar`, { method: "POST", headers: PLAN_JSON, body: JSON.stringify({ motivo }) });
+}
+
+// ─── Ponto (apuração de horas pela CLT) ───────────────────────────────────────
+export type ResumoPonto = {
+  faltas: number;
+  noturnoMin: number;
+  extraDescansoMin: number;
+  atrasoMin: number;
+  abatidoMin: number;
+  extraAPagarMin: number;
+  saldoBancoFinalMin: number;
+  devendo: boolean;
+  diasComAviso: number;
+  /** Dias com batida pendente ou contradição com a escala: nada foi lançado neles até corrigir. */
+  diasPendentes: number;
+};
+export type PessoaPonto = {
+  employeeId: string;
+  nome: string;
+  status: "ABERTO" | "FECHADO";
+  semJornada: boolean;
+  /** Há escala montada para a pessoa no mês: dia sem marca vale como dia trabalhado. */
+  mesMontado: boolean;
+  /** Turno usado na conta (ex.: "09:00–18:00") e de onde veio. */
+  turno: string | null;
+  turnoFonte: "escala" | "contrato";
+  saldoInicialMin: number;
+  saldoAnteriorConfirmado: boolean;
+  debitoFolgaMin: number;
+  resumo: ResumoPonto;
+  avisosDia: Array<{ data: string; avisos: string[] }>;
+};
+export type DiaPontoLancado = { date: string; origem: "PAPEL" | "RELOGIO"; marcacoes: string[]; editadoManual: boolean; notes?: string | null };
+/** Tipo do dia na escala (TURNO, FOLGA, FOLGA_BANCO_HORAS, FERIAS…), para a grade do papel. */
+export type EscalaDoDia = { date: string; tipo: string };
+export type ResultadoImportacaoAfd = {
+  pessoas: number;
+  diasGravados: number;
+  diasIguais: number;
+  conflitos: number;
+  mesesFechados: number;
+  cpfsSemCadastro: number;
+  /** Dias que o papel também recusaria: futuros, fora do vínculo ou em folga do banco. */
+  diasIgnorados: number;
+  /** Primeiro e último dia lidos do arquivo (AAAA-MM-DD). */
+  de: string | null;
+  ate: string | null;
+  avisos: string[];
+};
+export function getPontoMes(year: number, month: number, signal?: AbortSignal) {
+  return request<{ year: number; month: number; pessoas: PessoaPonto[] }>(`/payroll/ponto/mes?year=${year}&month=${month}`, { signal });
+}
+export function getPontoDias(employeeId: string, year: number, month: number, signal?: AbortSignal) {
+  return request<{ dias: DiaPontoLancado[]; escala: EscalaDoDia[]; turno: string | null; mesMontado: boolean }>(`/payroll/ponto/dias?employeeId=${encodeURIComponent(employeeId)}&year=${year}&month=${month}`, { signal });
+}
+export function salvarPontoDia(employeeId: string, date: string, marcacoes: string[], notes?: string) {
+  return request<{ employeeId: string; date: string; marcacoes: string[] }>("/payroll/ponto/dia", json("PUT", { employeeId, date, marcacoes, notes }));
+}
+export function importarAfdPonto(texto: string) {
+  return request<ResultadoImportacaoAfd>("/payroll/ponto/importar-afd", json("POST", { texto }), 120_000);
+}
+/** Sem `confirmarAvisos`, o servidor recusa (409, codigo CONFIRMAR_AVISOS) se ainda há dias para conferir. */
+export function fecharPontoMes(year: number, month: number, confirmarAvisos = false) {
+  return request<{ fechados: number; comAviso: number }>("/payroll/ponto/fechar", json("POST", { year, month, confirmarAvisos }));
+}
+/** O motivo (pelo menos 5 letras) fica na auditoria junto com o fechamento que está sendo desfeito. */
+export function reabrirPontoMes(year: number, month: number, motivo: string) {
+  return request<{ reabertos: number }>("/payroll/ponto/reabrir", json("POST", { year, month, motivo }));
+}
+/** Marca (ativo) ou desfaz uma folga tirada contra o banco de horas; a jornada do dia sai do saldo. */
+export function folgaBancoPonto(employeeId: string, date: string, ativo: boolean) {
+  return request<{ employeeId: string; date: string; ativo: boolean }>("/payroll/ponto/folga-banco", json("PUT", { employeeId, date, ativo }));
+}
+export type FaltasParaEscala = { faltas: number; pessoas: Array<{ employeeId: string; nome: string; dias: string[] }>; gravadas: boolean };
+/** Dia trabalhado sem batida vira FALTA na Escala (que a gorjeta, o VT e a folha leem). `simular` só mostra o que mudaria. */
+export function faltasParaEscalaPonto(year: number, month: number, simular: boolean) {
+  return request<FaltasParaEscala>("/payroll/ponto/faltas-para-escala", json("POST", { year, month, simular }));
 }

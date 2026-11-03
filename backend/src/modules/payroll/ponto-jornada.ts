@@ -1,0 +1,190 @@
+// Liga o cadastro do funcionário e a escala ao cálculo do ponto: define a jornada prevista
+// de cada dia e se ele está abonado, de folga ou sem lançamento.
+//
+//   TURNO / EVENTO                        jornada do cadastro
+//   FOLGA / FOLGA_FERIADO / FERIAS /
+//   AFASTAMENTO                           sem jornada prevista
+//   FOLGA_BANCO_HORAS                     sem jornada prevista; a jornada do dia sai do banco
+//   ATESTADO                              jornada prevista, dia abonado
+//   FALTA                                 jornada prevista (sem batida vira falta)
+//   sem lançamento                        jornada prevista, mas sem batida NÃO vira falta (aviso)
+
+import type { DiaPontoEntrada } from "./ponto-calc.js";
+
+export interface JornadaCadastro {
+  jornadaInicio: string | null;
+  jornadaFim: string | null;
+  intervaloInicio: string | null;
+  intervaloFim: string | null;
+}
+
+export type TipoDiaEscala =
+  | "FOLGA"
+  | "FOLGA_FERIADO"
+  | "FOLGA_BANCO_HORAS"
+  | "TURNO"
+  | "EVENTO"
+  | "FERIAS"
+  | "FALTA"
+  | "ATESTADO"
+  | "AFASTAMENTO";
+
+export const AVISO_SEM_ESCALA = "Dia sem lançamento na escala.";
+const MIN_DIA = 24 * 60;
+
+function paraMinutos(hhmm: string | null): number | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec((hhmm ?? "").trim());
+  if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return null;
+  return Number(m[1]) * 60 + Number(m[2]);
+}
+
+const duracao = (ini: number, fim: number): number => (fim > ini ? fim - ini : fim + MIN_DIA - ini);
+
+// Minutos do intervalo que realmente caem dentro do turno (o intervalo do contrato não vale para
+// um turno que acontece em outro horário). Tenta o intervalo no dia do turno e no dia seguinte.
+function minutosDoIntervaloNoTurno(inicioTurno: number, duracaoTurno: number, inicioIntervalo: number, duracaoIntervalo: number): number {
+  let dentro = 0;
+  for (const deslocamento of [0, MIN_DIA]) {
+    const a = inicioIntervalo + deslocamento - inicioTurno;
+    dentro = Math.max(dentro, Math.max(0, Math.min(duracaoTurno, a + duracaoIntervalo) - Math.max(0, a)));
+  }
+  return dentro;
+}
+
+/** Jornada diária em minutos; null se entrada e saída não estão cadastradas ou são iguais (turno inválido). */
+export function jornadaDiariaMin(j: JornadaCadastro): number | null {
+  const ini = paraMinutos(j.jornadaInicio);
+  const fim = paraMinutos(j.jornadaFim);
+  if (ini == null || fim == null || ini === fim) return null;
+  const total = duracao(ini, fim);
+  const iIni = paraMinutos(j.intervaloInicio);
+  const iFim = paraMinutos(j.intervaloFim);
+  const intervalo = iIni != null && iFim != null && iIni !== iFim ? minutosDoIntervaloNoTurno(ini, total, iIni, duracao(iIni, iFim)) : 0;
+  return Math.max(0, total - intervalo);
+}
+
+export interface EntradaDoDiaParams {
+  data: string;
+  marcacoes: string[];
+  jornada: JornadaCadastro;
+  tipoEscala: TipoDiaEscala | null;
+  /** O mês tem escala montada para a pessoa: dia sem marca vale como dia trabalhado (é assim que a Escala, a gorjeta e a folha leem). */
+  mesMontado?: boolean;
+  feriado?: boolean;
+}
+
+export interface EntradaDoDia {
+  entrada: DiaPontoEntrada | null; // null = não dá para apurar (jornada não cadastrada)
+  debitoBancoMin: number; // folga tirada contra o banco de horas
+  avisos: string[];
+}
+
+const SEM_JORNADA: ReadonlySet<TipoDiaEscala> = new Set(["FOLGA", "FOLGA_FERIADO", "FOLGA_BANCO_HORAS", "FERIAS", "AFASTAMENTO"]);
+
+export function entradaDoDia(p: EntradaDoDiaParams): EntradaDoDia {
+  const jornadaMin = jornadaDiariaMin(p.jornada);
+  if (jornadaMin == null) return { entrada: null, debitoBancoMin: 0, avisos: ["Jornada não cadastrada."] };
+
+  const base = { data: p.data, marcacoes: p.marcacoes, ...(p.feriado ? { feriado: true } : {}) };
+  const tipo = p.tipoEscala;
+
+  const temBatida = p.marcacoes.length > 0;
+  if (tipo && SEM_JORNADA.has(tipo)) {
+    // Batida em dia de folga do banco, férias ou afastamento contradiz a escala: não apura nem debita o banco.
+    if (temBatida && (tipo === "FOLGA_BANCO_HORAS" || tipo === "FERIAS" || tipo === "AFASTAMENTO")) {
+      const conselho = tipo === "FOLGA_BANCO_HORAS" ? "desfaça a folga ou apague as batidas" : "corrija a escala ou as batidas";
+      return { entrada: { ...base, previstoMin: 0, semApuracao: true }, debitoBancoMin: 0, avisos: [`Há batida em dia de ${ROTULO_DO_TIPO[tipo]}: ${conselho}.`] };
+    }
+    return {
+      entrada: { ...base, previstoMin: 0 },
+      debitoBancoMin: tipo === "FOLGA_BANCO_HORAS" ? jornadaMin : 0,
+      avisos: [],
+    };
+  }
+  if (tipo === "FALTA" && temBatida) {
+    return { entrada: { ...base, previstoMin: jornadaMin, semApuracao: true }, debitoBancoMin: 0, avisos: ["Dia marcado como falta na Escala, mas tem batida: corrija a escala ou as batidas."] };
+  }
+  if (tipo === "ATESTADO") {
+    return { entrada: { ...base, previstoMin: jornadaMin, abonado: true }, debitoBancoMin: 0, avisos: [] };
+  }
+  if (tipo === null) {
+    if (p.mesMontado) return { entrada: { ...base, previstoMin: jornadaMin }, debitoBancoMin: 0, avisos: [] };
+    const semBatida = p.marcacoes.length === 0;
+    return {
+      entrada: { ...base, previstoMin: jornadaMin, ...(semBatida ? { abonado: true } : {}) },
+      debitoBancoMin: 0,
+      avisos: [AVISO_SEM_ESCALA],
+    };
+  }
+  return { entrada: { ...base, previstoMin: jornadaMin }, debitoBancoMin: 0, avisos: [] };
+}
+
+// ─── Folga tirada contra o banco de horas ────────────────────────────────────────
+
+const ROTULO_DO_TIPO: Record<TipoDiaEscala, string> = {
+  FOLGA: "folga",
+  FOLGA_FERIADO: "folga de feriado",
+  FOLGA_BANCO_HORAS: "folga do banco de horas",
+  TURNO: "turno",
+  EVENTO: "evento",
+  FERIAS: "férias",
+  FALTA: "falta",
+  ATESTADO: "atestado",
+  AFASTAMENTO: "afastamento",
+};
+
+export type DecisaoFolgaBanco =
+  | { acao: "marcar"; antes: TipoDiaEscala | null }
+  | { acao: "desmarcar" }
+  | { acao: "nada" }
+  | { acao: "recusar"; motivo: string };
+
+const PODE_VIRAR_FOLGA_DO_BANCO: ReadonlySet<TipoDiaEscala | null> = new Set([null, "TURNO", "EVENTO"]);
+
+/** O que fazer com o dia quando se marca (ou desfaz) uma folga contra o banco de horas. */
+export function decidirFolgaBanco(p: { ativo: boolean; tipoAtual: TipoDiaEscala | null; temBatidas: boolean }): DecisaoFolgaBanco {
+  const jaEFolgaDoBanco = p.tipoAtual === "FOLGA_BANCO_HORAS";
+  if (!p.ativo) return jaEFolgaDoBanco ? { acao: "desmarcar" } : { acao: "nada" };
+  if (jaEFolgaDoBanco) return { acao: "nada" };
+  if (p.temBatidas) return { acao: "recusar", motivo: "Esse dia tem batidas lançadas. Apague as batidas antes de usar o banco de horas." };
+  if (!PODE_VIRAR_FOLGA_DO_BANCO.has(p.tipoAtual)) {
+    return { acao: "recusar", motivo: `Esse dia já está como ${ROTULO_DO_TIPO[p.tipoAtual as TipoDiaEscala]} na escala.` };
+  }
+  return { acao: "marcar", antes: p.tipoAtual };
+}
+
+// ─── Turno da pessoa: o da Escala manda, o do contrato é reserva ─────────────────
+
+export interface DadosDeTurno extends JornadaCadastro {
+  /** Turno real da Escala (Employee.shiftStart/shiftEnd). */
+  shiftStart: string | null;
+  shiftEnd: string | null;
+}
+
+export interface JornadaDaPessoa {
+  jornada: JornadaCadastro;
+  fonte: "escala" | "contrato";
+}
+
+/**
+ * Entrada e saída vêm do turno da Escala (a ficha de registro guarda a jornada do contrato só para
+ * consulta). Sem turno na Escala, cai para o contrato. O intervalo só existe no contrato.
+ */
+export function jornadaDaPessoa(f: DadosDeTurno): JornadaDaPessoa {
+  const turnoDaEscala = paraMinutos(f.shiftStart) != null && paraMinutos(f.shiftEnd) != null;
+  return {
+    fonte: turnoDaEscala ? "escala" : "contrato",
+    jornada: {
+      jornadaInicio: turnoDaEscala ? f.shiftStart : f.jornadaInicio,
+      jornadaFim: turnoDaEscala ? f.shiftEnd : f.jornadaFim,
+      intervaloInicio: f.intervaloInicio,
+      intervaloFim: f.intervaloFim,
+    },
+  };
+}
+
+/** "08:00–17:00", ou null se a jornada não tem entrada e saída legíveis. */
+export function rotuloTurno(j: JornadaCadastro): string | null {
+  const [ini, fim] = [paraMinutos(j.jornadaInicio), paraMinutos(j.jornadaFim)];
+  return ini == null || fim == null ? null : `${j.jornadaInicio}–${j.jornadaFim}`;
+}

@@ -12,6 +12,8 @@ vi.mock("../../../config/database.js", () => {
     payrollItem: { findMany: vi.fn() },
     scheduleDayEvent: { findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
     payrollSettings: { findUnique: vi.fn() },
+    pontoFechamento: { findFirst: vi.fn() },
+    $executeRaw: vi.fn(),
     $transaction: vi.fn(),
   };
   return { prisma };
@@ -40,7 +42,7 @@ function funcionario(id: string, includeInSchedule: boolean, over: Record<string
   };
 }
 
-type Linha = { employeeId: string; date: Date; type: string };
+type Linha = { employeeId: string; date: Date; type: string; notes?: string | null };
 let linhas: Linha[] = [];
 
 // Filtro mínimo do findMany da escala: funcionário, tipo e faixa de datas (inclusive o OR das bordas).
@@ -63,10 +65,87 @@ beforeEach(() => {
   db.payrollItem.findMany.mockResolvedValue([]);
   db.scheduleDayEvent.findMany.mockResolvedValue([]);
   db.payrollSettings.findUnique.mockResolvedValue(null);
+  db.pontoFechamento.findFirst.mockResolvedValue(null);
   db.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => fn(db));
 });
 
 afterEach(() => { vi.useRealTimers(); });
+
+describe("POST /schedule/bulk — ponto do mês fechado", () => {
+  test("recusa mudar a escala de um mês cujo ponto já foi fechado, sem gravar nada", async () => {
+    db.employee.findMany.mockResolvedValue([funcionario("dentro", true)]);
+    db.pontoFechamento.findFirst.mockResolvedValue({ id: "f1" });
+
+    const res = await request(app).post("/schedule/bulk").send({ year: 2026, month: 10, entries: [{ employeeId: "dentro", day: 3, type: "FOLGA" }] });
+
+    expect(res.status).toBe(409);
+    expect(res.body.message).toContain("10/2026");
+    expect(db.pontoFechamento.findFirst.mock.calls[0][0].where).toMatchObject({ year: 2026, month: 10, status: "FECHADO" });
+    expect(db.employeeScheduleDay.deleteMany).not.toHaveBeenCalled();
+    expect(db.employeeScheduleDay.createMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /schedule/bulk — escala desatualizada e anotações do Ponto", () => {
+  const corpo = { year: 2026, month: 10, entries: [{ employeeId: "dentro", day: 3, type: "FOLGA" }] };
+
+  test("GET devolve a versão da escala do mês", async () => {
+    db.employee.findMany.mockResolvedValue([funcionario("dentro", true)]);
+    linhas = [{ employeeId: "dentro", date: d("2026-10-05"), type: "FOLGA" }];
+    const res = await request(app).get("/schedule?year=2026&month=10");
+    expect(res.status).toBe(200);
+    expect(res.body.version).toMatch(/^[0-9a-f]{40}$/);
+  });
+
+  test("a versão muda quando uma marca entra (por exemplo, falta lançada pelo Ponto)", async () => {
+    db.employee.findMany.mockResolvedValue([funcionario("dentro", true)]);
+    linhas = [{ employeeId: "dentro", date: d("2026-10-05"), type: "FOLGA" }];
+    const antes = (await request(app).get("/schedule?year=2026&month=10")).body.version;
+    linhas = [...linhas, { employeeId: "dentro", date: d("2026-10-06"), type: "FALTA" }];
+    const depois = (await request(app).get("/schedule?year=2026&month=10")).body.version;
+    expect(depois).not.toBe(antes);
+  });
+
+  test("salvar com a versão antiga é recusado (409) e nada é apagado", async () => {
+    db.employee.findMany.mockResolvedValue([funcionario("dentro", true)]);
+    linhas = [{ employeeId: "dentro", date: d("2026-10-05"), type: "FOLGA" }];
+    const versaoAberta = (await request(app).get("/schedule?year=2026&month=10")).body.version;
+    linhas = [...linhas, { employeeId: "dentro", date: d("2026-10-06"), type: "FALTA" }]; // o Ponto lançou uma falta no meio
+
+    const res = await request(app).post("/schedule/bulk").send({ ...corpo, version: versaoAberta });
+
+    expect(res.status).toBe(409);
+    expect(res.body.codigo).toBe("ESCALA_MUDOU");
+    expect(db.employeeScheduleDay.deleteMany).not.toHaveBeenCalled();
+    expect(db.employeeScheduleDay.createMany).not.toHaveBeenCalled();
+  });
+
+  test("salvar com a versão certa grava e preserva a anotação de quem continua igual", async () => {
+    db.employee.findMany.mockResolvedValue([funcionario("dentro", true)]);
+    linhas = [{ employeeId: "dentro", date: d("2026-10-03"), type: "FOLGA_BANCO_HORAS", notes: "ponto antes:TURNO" } as never];
+    const versao = (await request(app).get("/schedule?year=2026&month=10")).body.version;
+
+    const res = await request(app)
+      .post("/schedule/bulk")
+      .send({ year: 2026, month: 10, version: versao, entries: [{ employeeId: "dentro", day: 3, type: "FOLGA_BANCO_HORAS" }] });
+
+    expect(res.status).toBe(200);
+    const dados = db.employeeScheduleDay.createMany.mock.calls[0][0].data;
+    expect(dados[0]).toMatchObject({ type: "FOLGA_BANCO_HORAS", notes: "ponto antes:TURNO" });
+  });
+
+  test("sem versão (tela antiga) o salvamento continua funcionando", async () => {
+    db.employee.findMany.mockResolvedValue([funcionario("dentro", true)]);
+    const res = await request(app).post("/schedule/bulk").send(corpo);
+    expect(res.status).toBe(200);
+  });
+
+  test("toma a trava do mês dentro da transação", async () => {
+    db.employee.findMany.mockResolvedValue([funcionario("dentro", true)]);
+    await request(app).post("/schedule/bulk").send(corpo);
+    expect(db.$executeRaw).toHaveBeenCalled();
+  });
+});
 
 describe("GET /schedule — quem está fora da escala", () => {
   test("a listagem não filtra mais por 'Entra na escala' e marca quem está fora como só ocorrências", async () => {

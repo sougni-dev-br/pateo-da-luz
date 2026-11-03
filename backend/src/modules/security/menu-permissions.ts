@@ -557,6 +557,10 @@ function actionFromRequest(request: Request, menuId: MenuId): PermissionAction {
   // reescreve base de configuracao — administrativo, nao "criar um registro".
   if (path.endsWith("/seed") || path.endsWith("/seed-test-menu") || path.endsWith("/sync-mock-only")) return "admin";
 
+  // Ponto: fechar o mes, reabrir e lancar faltas na escala mexem no que vira pagamento: pedem "aprovar",
+  // mesmo que a rota nova nao use os verbos "close" e "reopen".
+  if (path.startsWith("/payroll/ponto/") && /\/(fechar|reabrir|faltas-para-escala)$/.test(path)) return "approve";
+
   // Travar/fechar um periodo e aprova-lo. "/lock" acompanha "/close" porque o
   // fechamento mensal usa esse verbo para a mesma operacao.
   if (path.endsWith("/close") || path.endsWith("/approve") || path.endsWith("/confirm") || path.endsWith("/lock")) return "approve";
