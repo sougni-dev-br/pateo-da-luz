@@ -542,24 +542,23 @@ export function Inventory({
   }, [countSessionDetail]);
   const filteredCountSessionItems = useMemo(() => {
     const normalized = countSessionSearch.trim().toLowerCase();
+    // Mesma ordem da folha impressa (PDF): setor > categoria > produto.
     const sorted = [...(countSessionDetail?.items ?? [])].sort((a, b) => {
-      const valuesA = [
-        stockCountSortText(a.sectorSnapshot, "zzzz_sem_setor"),
-        stockCountSortText(a.categorySnapshot, "zzzz_sem_categoria"),
-        stockCountSortText(a.subcategorySnapshot, "zzzz_sem_subcategoria"),
-        stockCountSortText(a.unitSnapshot, "zzzz_sem_unidade"),
-        stockCountSortText(a.productNameSnapshot),
-        stockCountSortText(a.productCodeSnapshot)
+      const keysA = [
+        stockCountSortText(a.sectorSnapshot?.trim(), "zzz"),
+        stockCountSortText(a.categorySnapshot?.trim(), "zzz"),
+        stockCountSortText(a.productNameSnapshot?.trim())
       ];
-      const valuesB = [
-        stockCountSortText(b.sectorSnapshot, "zzzz_sem_setor"),
-        stockCountSortText(b.categorySnapshot, "zzzz_sem_categoria"),
-        stockCountSortText(b.subcategorySnapshot, "zzzz_sem_subcategoria"),
-        stockCountSortText(b.unitSnapshot, "zzzz_sem_unidade"),
-        stockCountSortText(b.productNameSnapshot),
-        stockCountSortText(b.productCodeSnapshot)
+      const keysB = [
+        stockCountSortText(b.sectorSnapshot?.trim(), "zzz"),
+        stockCountSortText(b.categorySnapshot?.trim(), "zzz"),
+        stockCountSortText(b.productNameSnapshot?.trim())
       ];
-      return valuesA.join("|").localeCompare(valuesB.join("|"));
+      for (let index = 0; index < keysA.length; index++) {
+        const diff = keysA[index].localeCompare(keysB[index], "pt-BR");
+        if (diff) return diff;
+      }
+      return 0;
     });
     return sorted.filter((item) => {
       const line = countSessionLines[item.id];
