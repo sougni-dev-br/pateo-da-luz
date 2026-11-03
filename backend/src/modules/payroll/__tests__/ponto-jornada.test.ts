@@ -153,7 +153,7 @@ describe("jornadaDaPessoa — o turno real da Escala manda; o contrato é reserv
   });
 });
 
-describe("jornadaDiariaMin — o intervalo só desconta se cair dentro do turno", () => {
+describe("jornadaDiariaMin — o intervalo do contrato não entra: turno acima de 6h leva 1h de pausa, como no RHiD", () => {
   const ij = (a: string, b: string, i1: string | null, i2: string | null) => ({ jornadaInicio: a, jornadaFim: b, intervaloInicio: i1, intervaloFim: i2 });
 
   test("turno das 18h às 23h não perde o intervalo do meio-dia", () => {
@@ -166,8 +166,8 @@ describe("jornadaDiariaMin — o intervalo só desconta se cair dentro do turno"
     expect(jornadaDiariaMin(ij("22:00", "06:00", "02:00", "03:00"))).toBe(420);
     expect(jornadaDiariaMin(ij("22:00", "06:00", "12:00", "13:00"))).toBe(420);
   });
-  test("intervalo parcialmente fora do turno desconta só a parte de dentro", () => {
-    expect(jornadaDiariaMin(ij("08:00", "12:30", "12:00", "13:00"))).toBe(240); // só 30 min do intervalo caem no turno
+  test("intervalo parcialmente dentro do turno também vale só a pausa padrão", () => {
+    expect(jornadaDiariaMin(ij("08:00", "12:30", "12:00", "13:00"))).toBe(270); // turno de 4h30: sem pausa
   });
   test("intervalo do contrato fora do turno (contrato 15:00–00:00, turno 08:00–16:20) cai na pausa padrão de 1h", () => {
     expect(jornadaDiariaMin(ij("08:00", "16:20", "19:00", "20:00"))).toBe(440);
