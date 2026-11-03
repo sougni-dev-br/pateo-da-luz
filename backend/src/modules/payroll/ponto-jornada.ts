@@ -64,11 +64,10 @@ export function jornadaDiariaMin(j: JornadaCadastro): number | null {
   const temIntervalo = iIni != null && iFim != null && iIni !== iFim;
   // Sem intervalo cadastrado, o turno da Escala (ex.: 08:00–16:20) inclui a pausa: turno acima de 6h
   // leva 1h de intervalo (CLT, art. 71). Decisão do Eli: a jornada do restaurante é 07:20 (6x1).
-  const intervalo = temIntervalo
-    ? minutosDoIntervaloNoTurno(ini, total, iIni, duracao(iIni, iFim))
-    : total > JORNADA_EXIGE_INTERVALO_MIN
-      ? INTERVALO_PADRAO_MIN
-      : 0;
+  // Intervalo do contrato que não cai dentro do turno (ex.: contrato 15:00–00:00 com pausa à noite, turno
+  // da Escala 08:00–16:20) não vale: cai na regra do intervalo padrão.
+  const noTurno = temIntervalo ? minutosDoIntervaloNoTurno(ini, total, iIni, duracao(iIni, iFim)) : 0;
+  const intervalo = noTurno > 0 ? noTurno : total > JORNADA_EXIGE_INTERVALO_MIN ? INTERVALO_PADRAO_MIN : 0;
   return Math.max(0, total - intervalo);
 }
 
