@@ -172,6 +172,11 @@ describe("jornadaDiariaMin — o intervalo do contrato não entra: turno acima d
   test("intervalo do contrato fora do turno (contrato 15:00–00:00, turno 08:00–16:20) cai na pausa padrão de 1h", () => {
     expect(jornadaDiariaMin(ij("08:00", "16:20", "19:00", "20:00"))).toBe(440);
   });
+  test("turno de 10h (12:00–22:00) leva 2h de intervalo e vale 8h; 9h48 (comercial) leva 1h", () => {
+    expect(jornadaDiariaMin(ij("12:00", "22:00", null, null))).toBe(480);
+    expect(jornadaDiariaMin(ij("08:00", "17:48", null, null))).toBe(528);
+    expect(jornadaDiariaMin(ij("12:00", "22:00", "15:00", "16:00"))).toBe(480); // o intervalo do contrato não muda a regra
+  });
   test("intervalo de duração zero não desconta nada", () => {
     // intervalo de duração zero = não cadastrado: vale a pausa padrão de 1h (turno de 9h → 8h)
     expect(jornadaDiariaMin(ij("08:00", "17:00", "12:00", "12:00"))).toBe(480);
