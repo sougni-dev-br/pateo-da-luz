@@ -8,8 +8,15 @@ describe("jornadaDiariaMin", () => {
   test("jornada menos o intervalo", () => {
     expect(jornadaDiariaMin(jornada)).toBe(480);
   });
-  test("jornada que vira a meia-noite", () => {
-    expect(jornadaDiariaMin({ jornadaInicio: "18:00", jornadaFim: "02:00", intervaloInicio: null, intervaloFim: null })).toBe(480);
+  test("jornada que vira a meia-noite (sem intervalo cadastrado, turno acima de 6h leva 1h de pausa)", () => {
+    expect(jornadaDiariaMin({ jornadaInicio: "18:00", jornadaFim: "02:00", intervaloInicio: null, intervaloFim: null })).toBe(420);
+  });
+  test("turno 08:00–16:20 sem intervalo cadastrado vale 07:20 (a jornada do restaurante, 6x1)", () => {
+    expect(jornadaDiariaMin({ jornadaInicio: "08:00", jornadaFim: "16:20", intervaloInicio: null, intervaloFim: null })).toBe(440);
+  });
+  test("turno de até 6h não leva intervalo padrão", () => {
+    expect(jornadaDiariaMin({ jornadaInicio: "18:00", jornadaFim: "23:00", intervaloInicio: null, intervaloFim: null })).toBe(300);
+    expect(jornadaDiariaMin({ jornadaInicio: "08:00", jornadaFim: "14:00", intervaloInicio: null, intervaloFim: null })).toBe(360);
   });
   test("sem horário cadastrado devolve null", () => {
     expect(jornadaDiariaMin({ jornadaInicio: null, jornadaFim: null, intervaloInicio: null, intervaloFim: null })).toBeNull();
@@ -163,7 +170,8 @@ describe("jornadaDiariaMin — o intervalo só desconta se cair dentro do turno"
     expect(jornadaDiariaMin(ij("08:00", "12:30", "12:00", "13:00"))).toBe(240); // só 30 min do intervalo caem no turno
   });
   test("intervalo de duração zero não desconta nada", () => {
-    expect(jornadaDiariaMin(ij("08:00", "17:00", "12:00", "12:00"))).toBe(540);
+    // intervalo de duração zero = não cadastrado: vale a pausa padrão de 1h (turno de 9h → 8h)
+    expect(jornadaDiariaMin(ij("08:00", "17:00", "12:00", "12:00"))).toBe(480);
   });
   test("entrada igual à saída é jornada inválida (não 24h)", () => {
     expect(jornadaDiariaMin(ij("08:00", "08:00", null, null))).toBeNull();

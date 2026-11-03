@@ -2945,6 +2945,8 @@ model Employee {
   modality               EmployeeModality           @default(CLT)
   scheduleRegime         WorkScheduleRegime         @default(SEIS_POR_UM)
   includeInSchedule      Boolean                    @default(true)
+  // Bate ponto (relógio ou papel). Quem não bate (ex.: 5x2 fixo) fica fora da apuração do Ponto.
+  registraPonto          Boolean                    @default(true)
   admissionDate          DateTime?
   // Data de registro na carteira (vem do extrato da contabilidade). Pode ser depois do
   // início real (admissionDate): quem começa sem registro, em teste ou recebendo seguro.

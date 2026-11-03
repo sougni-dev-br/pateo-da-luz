@@ -7472,6 +7472,7 @@ export type Employee = {
   modality: EmployeeModality;
   scheduleRegime: WorkScheduleRegime;
   includeInSchedule: boolean;
+  registraPonto?: boolean;
   admissionDate: string | null;
   admissaoCarteira?: string | null;
   /** Entra na gorjeta em. Vazio = em teste (ou fora da gorjeta). */
@@ -7547,6 +7548,7 @@ export type EmployeePayload = {
   modality?: EmployeeModality;
   scheduleRegime?: WorkScheduleRegime;
   includeInSchedule?: boolean;
+  registraPonto?: boolean;
   admissionDate?: string;
   /** Registro em carteira (do extrato); null limpa, ausente preserva. */
   admissaoCarteira?: string | null;

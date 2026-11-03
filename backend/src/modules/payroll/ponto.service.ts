@@ -346,6 +346,7 @@ export async function apurarMes(year: number, month: number, cliente: Cliente = 
   const funcionarios = await cliente.employee.findMany({
     where: {
       deletedAt: null,
+      registraPonto: true, // quem não bate ponto (ex.: 5x2 fixo) fica fora da apuração
       OR: [{ terminationDate: null }, { terminationDate: { gte: inicio } }],
       AND: [{ OR: [{ admissionDate: null }, { admissionDate: { lte: fim } }] }],
     },

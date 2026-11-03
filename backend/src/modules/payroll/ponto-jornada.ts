@@ -31,6 +31,8 @@ export type TipoDiaEscala =
 
 export const AVISO_SEM_ESCALA = "Dia sem lançamento na escala.";
 const MIN_DIA = 24 * 60;
+const JORNADA_EXIGE_INTERVALO_MIN = 6 * 60;
+const INTERVALO_PADRAO_MIN = 60;
 
 function paraMinutos(hhmm: string | null): number | null {
   const m = /^(\d{1,2}):(\d{2})$/.exec((hhmm ?? "").trim());
@@ -59,7 +61,14 @@ export function jornadaDiariaMin(j: JornadaCadastro): number | null {
   const total = duracao(ini, fim);
   const iIni = paraMinutos(j.intervaloInicio);
   const iFim = paraMinutos(j.intervaloFim);
-  const intervalo = iIni != null && iFim != null && iIni !== iFim ? minutosDoIntervaloNoTurno(ini, total, iIni, duracao(iIni, iFim)) : 0;
+  const temIntervalo = iIni != null && iFim != null && iIni !== iFim;
+  // Sem intervalo cadastrado, o turno da Escala (ex.: 08:00–16:20) inclui a pausa: turno acima de 6h
+  // leva 1h de intervalo (CLT, art. 71). Decisão do Eli: a jornada do restaurante é 07:20 (6x1).
+  const intervalo = temIntervalo
+    ? minutosDoIntervaloNoTurno(ini, total, iIni, duracao(iIni, iFim))
+    : total > JORNADA_EXIGE_INTERVALO_MIN
+      ? INTERVALO_PADRAO_MIN
+      : 0;
   return Math.max(0, total - intervalo);
 }
 

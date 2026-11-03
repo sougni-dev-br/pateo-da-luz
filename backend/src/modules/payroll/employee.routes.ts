@@ -110,6 +110,8 @@ function buildEmployeeData(b: Record<string, unknown>) {
     modality: oneOf(MODALITIES, b.modality, "CLT"),
     scheduleRegime: oneOf(REGIMES, b.scheduleRegime, "SEIS_POR_UM"),
     includeInSchedule: b.includeInSchedule === undefined ? true : Boolean(b.includeInSchedule),
+    // Ausente = não mexe (padrão do cadastro novo: bate ponto).
+    ...(typeof b.registraPonto === "boolean" ? { registraPonto: b.registraPonto } : {}),
     admissionDate: dateOrNull(b.admissionDate),
     // Ausente = não mexe (a importação do extrato também grava este campo).
     ...("admissaoCarteira" in b ? { admissaoCarteira: dateOrNull(b.admissaoCarteira) } : {}),
@@ -211,6 +213,13 @@ export function lerRecebeAdiantamento(b: Record<string, unknown>): { erro: strin
   if (!("recebeAdiantamento" in b)) return { dados: {} };
   if (typeof b.recebeAdiantamento !== "boolean") return { erro: "Informe se recebe adiantamento salarial (sim ou não)." };
   return { dados: { recebeAdiantamento: b.recebeAdiantamento } };
+}
+
+// Bate ponto (RH > Ponto): só entra quando o corpo traz o campo, e só como booleano.
+export function lerRegistraPonto(b: Record<string, unknown>): { erro: string } | { dados: { registraPonto?: boolean } } {
+  if (!("registraPonto" in b)) return { dados: {} };
+  if (typeof b.registraPonto !== "boolean") return { erro: "Informe se a pessoa bate ponto (sim ou não)." };
+  return { dados: { registraPonto: b.registraPonto } };
 }
 
 type FormaPagamento = { recebeAdiantamento?: boolean; pagamentoQuinzenal?: boolean };
@@ -448,6 +457,8 @@ employeeRouter.post("/", async (request, response) => {
   if ("erro" in combinado) return response.status(400).json({ message: combinado.erro });
   const adiantamento = lerFormaPagamento(b);
   if ("erro" in adiantamento) return response.status(400).json({ message: adiantamento.erro });
+  const batePonto = lerRegistraPonto(b);
+  if ("erro" in batePonto) return response.status(400).json({ message: batePonto.erro });
   const teto = lerTetoIrGorjeta(b, buildEmployeeData(b).modality);
   if ("erro" in teto) return response.status(400).json({ message: teto.erro });
   if ("tetoIrGorjeta" in teto.dados && !(await podeVerDadosPessoais(request))) return response.status(403).json({ message: "Exige permissão de ver Funcionários." });
@@ -521,6 +532,8 @@ employeeRouter.put("/:id", async (request, response) => {
   if ("erro" in combinado) return response.status(400).json({ message: combinado.erro });
   const adiantamento = lerFormaPagamento(b, existing);
   if ("erro" in adiantamento) return response.status(400).json({ message: adiantamento.erro });
+  const batePonto = lerRegistraPonto(b);
+  if ("erro" in batePonto) return response.status(400).json({ message: batePonto.erro });
   const base = buildEmployeeData(b);
   const teto = lerTetoIrGorjeta(b, base.modality);
   if ("erro" in teto) return response.status(400).json({ message: teto.erro });
