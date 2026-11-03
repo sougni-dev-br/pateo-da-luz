@@ -33,6 +33,9 @@ export const AVISO_SEM_ESCALA = "Dia sem lançamento na escala.";
 const MIN_DIA = 24 * 60;
 const JORNADA_EXIGE_INTERVALO_MIN = 6 * 60;
 const INTERVALO_PADRAO_MIN = 60;
+// Turno de 10h ou mais (ex.: 12:00–22:00) é o de intervalo longo: 2h de pausa, jornada de 8h (decisão do Eli).
+const TURNO_COM_INTERVALO_LONGO_MIN = 10 * 60;
+const INTERVALO_LONGO_MIN = 2 * 60;
 
 function paraMinutos(hhmm: string | null): number | null {
   const m = /^(\d{1,2}):(\d{2})$/.exec((hhmm ?? "").trim());
@@ -49,8 +52,8 @@ export function jornadaDiariaMin(j: JornadaCadastro): number | null {
   if (ini == null || fim == null || ini === fim) return null;
   const total = duracao(ini, fim);
   // Como no RHiD: o horário é turno menos a pausa. O intervalo do contrato não entra (a pausa não é fixa e
-  // o trabalhado já vem das batidas); turno acima de 6h leva 1h (CLT, art. 71). Jornada do restaurante: 07:20 (6x1).
-  const intervalo = total > JORNADA_EXIGE_INTERVALO_MIN ? INTERVALO_PADRAO_MIN : 0;
+  // o trabalhado já vem das batidas); turno acima de 6h leva 1h (CLT, art. 71), o de 10h ou mais leva 2h. Jornada do restaurante: 07:20 (6x1).
+  const intervalo = total >= TURNO_COM_INTERVALO_LONGO_MIN ? INTERVALO_LONGO_MIN : total > JORNADA_EXIGE_INTERVALO_MIN ? INTERVALO_PADRAO_MIN : 0;
   return Math.max(0, total - intervalo);
 }
 
