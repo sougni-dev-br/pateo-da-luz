@@ -49,7 +49,7 @@ export function ImportarRelogio({ onImportou, onVerMes }: Props) {
   return (
     <div className="po-importar">
       <ol className="po-passos">
-        <li>No RHiD, abra <strong>Fiscalização → Exportar AFD</strong>, escolha o período e gere o arquivo.</li>
+        <li>No RHiD, abra <strong>Fiscalização → Exportar AFDT</strong> (recomendado: já traz as batidas incluídas à mão e descarta as duplicadas), escolha o período e gere o arquivo. O <strong>Exportar AFD</strong> também funciona, mas traz só as batidas brutas do relógio.</li>
         <li>O download vem compactado: extraia o <strong>.txt</strong> de dentro.</li>
         <li>Envie o .txt aqui. Pode enviar o mesmo arquivo de novo: nada é duplicado.</li>
       </ol>
@@ -71,7 +71,7 @@ export function ImportarRelogio({ onImportou, onVerMes }: Props) {
         <div className="po-resultado">
           <Alert tone={nadaLido ? "error" : resultado.conflitos > 0 || resultado.cpfsSemCadastro > 0 || resultado.avisos.length > 0 ? "warning" : "success"} title={nadaLido ? "Nada foi importado" : "Importação concluída"}>
             {nadaLido
-              ? "Não encontrei marcações de pessoas cadastradas. Confira se é o arquivo AFD do REP-P (Portaria 671) e se os CPFs estão no cadastro."
+              ? "Não encontrei marcações de pessoas cadastradas. Confira se é o arquivo AFDT (ou AFD) do RHiD e se o PIS (AFDT) ou o CPF (AFD) das pessoas está no cadastro."
               : `${plural(resultado.pessoas, "pessoa", "pessoas")}, ${plural(resultado.diasGravados, "dia gravado", "dias gravados")}, ${plural(resultado.diasIguais, "dia que já estava igual", "dias que já estavam iguais")}.`}
           </Alert>
           <ul className="po-lista-resultado">

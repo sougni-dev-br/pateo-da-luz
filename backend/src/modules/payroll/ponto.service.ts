@@ -1,7 +1,7 @@
 import type { Prisma, PontoFechamento, PontoOrigem } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 import { assertPeriodWritableForRange } from "../cmv-real/cmv-real.service.js";
-import { agruparBatidasPorDia, lerAfd671 } from "./afd-parser.js";
+import { agruparBatidasPorDia, ehAfdt, lerAfd671, lerAfdt } from "./afd-parser.js";
 import { holidaysForYear } from "./holidays.js";
 import type { ResumoFechamento } from "./ponto-banco.js";
 import { decidirFolgaBanco, jornadaDaPessoa, rotuloTurno, type TipoDiaEscala } from "./ponto-jornada.js";
@@ -188,15 +188,21 @@ interface DiaPlanejado {
 }
 
 export async function importarAfd(texto: string, userId: string): Promise<ResultadoImportacao> {
-  const { batidas, avisos } = lerAfd671(texto);
+  const leitura = ehAfdt(texto) ? lerAfdt(texto) : lerAfd671(texto);
+  const { batidas, avisos } = leitura;
+  if (leitura.documento === "pis") {
+    avisos.push(`Arquivo tratado do RHiD (AFDT): ${leitura.incluidas ?? 0} batidas incluídas à mão e ${leitura.desconsideradas ?? 0} desconsideradas (duplicadas ou sem par) já aplicadas.`);
+  }
   if (batidas.length > LIMITE_MARCACOES_AFD) {
     throw new PontoRecusa(413, `O arquivo tem mais de ${LIMITE_MARCACOES_AFD} marcações. Exporte um período menor.`);
   }
   const resultado: ResultadoImportacao = { pessoas: 0, diasGravados: 0, diasIguais: 0, conflitos: 0, mesesFechados: 0, diasIgnorados: 0, cpfsSemCadastro: 0, de: null, ate: null, avisos };
   if (batidas.length === 0) return resultado;
 
-  const funcionarios = await prisma.employee.findMany({ where: { deletedAt: null }, select: { id: true, cpf: true, admissionDate: true, terminationDate: true } });
-  const idPorCpf = new Map(funcionarios.map((f) => [soDigitos(f.cpf), f.id]));
+  const funcionarios = await prisma.employee.findMany({ where: { deletedAt: null }, select: { id: true, cpf: true, pis: true, admissionDate: true, terminationDate: true } });
+  // O AFD identifica a pessoa pelo CPF; o AFDT, pelo PIS (sem zeros à esquerda).
+  const semZeros = (s: string) => soDigitos(s).replace(/^0+/, "");
+  const idPorCpf = new Map(funcionarios.flatMap((f) => { const chave = leitura.documento === "pis" ? semZeros(f.pis ?? "") : soDigitos(f.cpf); return chave ? [[chave, f.id] as const] : []; }));
   const vinculoPorId = new Map(funcionarios.map((f) => [f.id, { admissao: f.admissionDate ? isoDia(f.admissionDate) : null, desligamento: f.terminationDate ? isoDia(f.terminationDate) : null }]));
   const hoje = hojeSaoPaulo();
 

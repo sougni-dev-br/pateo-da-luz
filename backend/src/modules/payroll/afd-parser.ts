@@ -31,6 +31,11 @@ export interface BatidaAfd {
 export interface LeituraAfd {
   batidas: BatidaAfd[];
   avisos: string[];
+  /** Documento que identifica a pessoa em `BatidaAfd.cpf`: o AFD traz CPF, o AFDT traz PIS. */
+  documento?: "cpf" | "pis";
+  /** AFDT: batidas incluídas à mão no RHiD (indicador I) e batidas que o RHiD desconsiderou (indicador D). */
+  incluidas?: number;
+  desconsideradas?: number;
 }
 
 export interface DiaBatidas {
@@ -86,6 +91,56 @@ export function lerAfd671(texto: string): LeituraAfd {
   }
   if (omitidos > 0) avisos.push(`Mais ${omitidos} registros ignorados.`);
   return { batidas, avisos };
+}
+
+// AFDT (arquivo de dados tratados, exportado pelo RHiD em Fiscalização): uma linha por marcação, já com o
+// tratamento do RHiD aplicado. Registro tipo 2:
+//
+//   0-8    NSR · 9 tipo (2) · 10-17 data DDMMAAAA · 18-21 hora HHMM · 22-33 PIS (12 dígitos)
+//   34-50  campos zerados · 51 E/S (D = desconsiderada) · 52-53 sequência · 54 indicador · 55- justificativa/motivo
+//
+// Indicador: O original do relógio, I incluída à mão, D desconsiderada (duplicada, entrada sem saída),
+// P pré-assinalada. Só O e I contam: é exatamente o que o RHiD usa na apuração.
+const REGISTRO_AFDT = /^(\d{9})2(\d{2})(\d{2})(\d{4})(\d{2})(\d{2})(\d{12})\d{17}([ESD])(\d{2})([OIP])/;
+
+export function ehAfdt(texto: string): boolean {
+  return texto.split(/\r?\n/, 40).some((linha) => REGISTRO_AFDT.test(linha));
+}
+
+export function lerAfdt(texto: string): LeituraAfd {
+  const batidas: BatidaAfd[] = [];
+  const avisos: string[] = [];
+  const vistas = new Set<string>();
+  let incluidas = 0;
+  let desconsideradas = 0;
+  let ilegiveis = 0;
+  for (const bruta of texto.split(/\r?\n/)) {
+    if (bruta.length < 10 || bruta[9] !== "2") continue;
+    const m = REGISTRO_AFDT.exec(bruta);
+    if (!m) {
+      ilegiveis += 1;
+      continue;
+    }
+    const [, nsr, dia, mes, ano, hh, mm, id, tipo, , indicador] = m;
+    const data = `${ano}-${mes}-${dia}`;
+    const hora = `${hh}:${mm}`;
+    if (!momentoValido(data, hora)) {
+      ilegiveis += 1;
+      continue;
+    }
+    if (tipo === "D") {
+      desconsideradas += 1;
+      continue;
+    }
+    if (indicador === "P") continue;
+    const chave = `${id}:${nsr}`;
+    if (vistas.has(chave)) continue;
+    vistas.add(chave);
+    if (indicador === "I") incluidas += 1;
+    batidas.push({ nsr: Number(nsr), cpf: id.replace(/^0+/, ""), data, hora, origem: `AFDT${indicador}` });
+  }
+  if (ilegiveis > 0) avisos.push(`${ilegiveis} ${ilegiveis === 1 ? "registro ilegível ignorado" : "registros ilegíveis ignorados"}.`);
+  return { batidas, avisos, documento: "pis", incluidas, desconsideradas };
 }
 
 // Saída em outro dia só vale como turno que virou a noite se for de madrugada. Uma batida às 08:13 do dia

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { MAX_AVISOS, agruparBatidasPorDia, lerAfd671 } from "../afd-parser.js";
+import { MAX_AVISOS, agruparBatidasPorDia, ehAfdt, lerAfd671, lerAfdt } from "../afd-parser.js";
 
 // Monta uma linha de marcação (tipo 7) da Portaria 671 com dados fictícios.
 const linha7 = (nsr: number, cpf: string, quando: string, flag = "0") =>
@@ -177,5 +177,48 @@ describe("lerAfd671 — fuso", () => {
   test("fuso -0300 não muda nada", () => {
     const r = lerAfd671(linhaComFuso("2026-11-03T08:00:00", "-0300"));
     expect(r.batidas[0]).toMatchObject({ data: "2026-11-03", hora: "08:00" });
+  });
+});
+
+describe("lerAfdt — arquivo tratado do RHiD", () => {
+  const PIS = "123456789012";
+  // NSR + 2 + DDMMAAAA + HHMM + PIS(12) + 17 zeros + E/S/D + sequência + indicador + texto
+  const reg = (nsr: number, ddmmaaaa: string, hhmm: string, tipo: string, seq: string, ind: string, texto = "") =>
+    String(nsr).padStart(9, "0") + "2" + ddmmaaaa + hhmm + PIS + "0".repeat(17) + tipo + seq + ind + texto;
+
+  test("reconhece o formato e conta só batidas originais (O) e incluídas à mão (I)", () => {
+    const t = [
+      reg(1, "05102026", "1212", "E", "01", "O"),
+      reg(2, "05102026", "1527", "S", "01", "O"),
+      reg(3, "05102026", "1621", "E", "02", "O"),
+      reg(4, "05102026", "2040", "S", "02", "I", "Esqueceu de bater o ponto"),
+    ].join("\n");
+    expect(ehAfdt(t)).toBe(true);
+    const r = lerAfdt(t);
+    expect(r.documento).toBe("pis");
+    expect(r.incluidas).toBe(1);
+    expect(r.batidas.map((b) => b.hora)).toEqual(["12:12", "15:27", "16:21", "20:40"]);
+    expect(r.batidas[0]).toMatchObject({ cpf: "123456789012", data: "2026-10-05" });
+  });
+
+  test("batida desconsiderada pelo RHiD (D: duplicada ou sem par) não entra", () => {
+    const t = [
+      reg(1, "27102026", "1145", "E", "01", "O"),
+      reg(2, "27102026", "1148", "D", "00", "O", "Entrada duplicada"),
+      reg(3, "27102026", "1459", "S", "01", "O"),
+    ].join("\n");
+    const r = lerAfdt(t);
+    expect(r.desconsideradas).toBe(1);
+    expect(r.batidas.map((b) => b.hora)).toEqual(["11:45", "14:59"]);
+  });
+
+  test("AFD comum não é confundido com AFDT", () => {
+    expect(ehAfdt(linha7(1, CPF_A, "2026-10-01T08:00:00"))).toBe(false);
+  });
+
+  test("data impossível é ignorada com aviso", () => {
+    const r = lerAfdt(reg(1, "31112026", "0800", "E", "01", "O"));
+    expect(r.batidas).toHaveLength(0);
+    expect(r.avisos[0]).toContain("ilegível");
   });
 });
