@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { ROTULO_DO_ABONO, batidasDosCampos, diasDoMes, fmtMin, minutosDoHorario, normalizarHorario, rotuloDoDia } from "../pontoFormato";
+import { ROTULO_DO_ABONO, jornadaDoDiaMin, batidasDosCampos, diasDoMes, fmtMin, minutosDoHorario, normalizarHorario, rotuloDoDia } from "../pontoFormato";
 
 describe("fmtMin", () => {
   test("horas e minutos, com sinal para negativo", () => {
@@ -119,5 +119,32 @@ describe("ROTULO_DO_ABONO", () => {
   test("traduz o motivo e cai em abono para desconhecido", () => {
     expect(ROTULO_DO_ABONO("MEDICO_TRABALHO")).toBe("Médico do trabalho");
     expect(ROTULO_DO_ABONO(null)).toBe("abono");
+  });
+});
+
+describe("jornadaDoDiaMin (mesmo critério do servidor)", () => {
+  // Dias reais da Wellina (cadastro 12:00–20:20 = 7:20)
+  test.each([
+    ["turno de 2h de intervalo (intervalo de 2h)", ["11:42", "14:00", "16:00", "22:00"], 480],
+    ["intervalo de 1:31", ["11:33", "14:22", "15:53", "22:00"], 480],
+    ["intervalo de 3h", ["11:47", "16:15", "19:20", "22:00"], 480],
+    ["direto, 10:50 de presença (sem batidas de intervalo)", ["11:40", "22:30"], 480],
+    ["intervalo de 1h (hora extra, não é outro turno)", ["11:45", "14:00", "15:00", "21:02"], 440],
+    ["intervalo de 56 min", ["11:50", "14:19", "15:15", "21:38"], 440],
+    ["direto, 8:20 de presença", ["11:40", "20:00"], 440],
+    ["meio período", ["11:44", "17:00"], 440],
+    ["batida ímpar (dia pendente) não muda nada", ["11:40", "14:00", "16:00"], 440],
+    ["sem batida", [], 440],
+  ])("jornada do dia: %s", (_nome, marcacoes, esperado) => {
+    expect(jornadaDoDiaMin(440, marcacoes)).toBe(esperado);
+  });
+
+  test("nunca reduz a jornada do cadastro (já é de 8:00 ou mais)", () => {
+    expect(jornadaDoDiaMin(480, ["12:00", "13:00", "14:00", "18:00"])).toBe(480);
+    expect(jornadaDoDiaMin(520, ["12:00", "13:00", "14:00", "18:00"])).toBe(520);
+  });
+
+  test("turno que vira a madrugada conta a presença inteira", () => {
+    expect(jornadaDoDiaMin(440, ["16:00", "02:30"])).toBe(480);
   });
 });

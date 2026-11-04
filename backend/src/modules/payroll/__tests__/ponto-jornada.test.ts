@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { entradaDoDia, jornadaDiariaMin, type JornadaCadastro } from "../ponto-jornada.js";
+import { entradaDoDia, jornadaDiariaMin, jornadaDoDiaMin, type JornadaCadastro } from "../ponto-jornada.js";
 import { apurarDia } from "../ponto-calc.js";
 
 const jornada: JornadaCadastro = { jornadaInicio: "08:00", jornadaFim: "17:00", intervaloInicio: "12:00", intervaloFim: "13:00" };
@@ -240,5 +240,52 @@ describe("entradaDoDia — batida que contradiz a escala não é apurada em sil�
 
   test("folga do banco SEM batida continua debitando a jornada", () => {
     expect(dia("FOLGA_BANCO_HORAS", []).debitoBancoMin).toBe(480);
+  });
+});
+
+describe("jornadaDoDiaMin — o ERP reconhece o turno de 2h de intervalo pelas batidas do dia", () => {
+  // Dias reais da Wellina (cadastro 12:00–20:20 = 7:20)
+  test.each([
+    ["turno de 2h de intervalo (intervalo de 2h)", ["11:42", "14:00", "16:00", "22:00"], 480],
+    ["intervalo de 1:31", ["11:33", "14:22", "15:53", "22:00"], 480],
+    ["intervalo de 3h", ["11:47", "16:15", "19:20", "22:00"], 480],
+    ["direto, 10:50 de presença (sem batidas de intervalo)", ["11:40", "22:30"], 480],
+    ["intervalo de 1h (hora extra, não é outro turno)", ["11:45", "14:00", "15:00", "21:02"], 440],
+    ["intervalo de 56 min", ["11:50", "14:19", "15:15", "21:38"], 440],
+    ["direto, 8:20 de presença", ["11:40", "20:00"], 440],
+    ["meio período", ["11:44", "17:00"], 440],
+    ["batida ímpar (dia pendente) não muda nada", ["11:40", "14:00", "16:00"], 440],
+    ["sem batida", [], 440],
+  ])("jornada do dia: %s", (_nome, marcacoes, esperado) => {
+    expect(jornadaDoDiaMin(440, marcacoes)).toBe(esperado);
+  });
+
+  test("nunca reduz a jornada do cadastro (já é de 8:00 ou mais)", () => {
+    expect(jornadaDoDiaMin(480, ["12:00", "13:00", "14:00", "18:00"])).toBe(480);
+    expect(jornadaDoDiaMin(520, ["12:00", "13:00", "14:00", "18:00"])).toBe(520);
+  });
+
+  test("turno que vira a madrugada conta a presença inteira", () => {
+    expect(jornadaDoDiaMin(440, ["16:00", "02:30"])).toBe(480);
+  });
+});
+
+describe("entradaDoDia — jornada do dia", () => {
+  const cadastro = { jornadaInicio: "12:00", jornadaFim: "20:20", intervaloInicio: null, intervaloFim: null };
+
+  test("dia de 12–22 com 2h de intervalo prevê 8:00: as 8:18 trabalhadas viram 18 min de extra, não 58", () => {
+    const r = entradaDoDia({ data: "2026-10-16", marcacoes: ["11:42", "14:00", "16:00", "22:00"], jornada: cadastro, tipoEscala: "TURNO", mesMontado: true });
+    expect(r.entrada?.previstoMin).toBe(480);
+    expect(apurarDia(r.entrada!).extraMin).toBe(18);
+  });
+
+  test("hora extra com 1h de intervalo continua contra 7:20", () => {
+    const r = entradaDoDia({ data: "2026-10-22", marcacoes: ["11:45", "14:00", "15:00", "21:02"], jornada: cadastro, tipoEscala: "TURNO", mesMontado: true });
+    expect(r.entrada?.previstoMin).toBe(440);
+    expect(apurarDia(r.entrada!).extraMin).toBe(57);
+  });
+
+  test("folga do banco continua debitando a jornada do cadastro", () => {
+    expect(entradaDoDia({ data: "2026-10-24", marcacoes: [], jornada: cadastro, tipoEscala: "FOLGA_BANCO_HORAS", mesMontado: true }).debitoBancoMin).toBe(440);
   });
 });
