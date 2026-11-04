@@ -123,6 +123,8 @@
 
 /* ── Importar relógio ───────────────────────────────────────────────── */
 .po-importar { display: grid; gap: 12px; justify-items: start; max-width: 640px; }
+.po-importar--cartao { max-width: 900px; padding-bottom: 20px; margin-bottom: 20px; border-bottom: 1px solid var(--line, rgba(0,0,0,.12)); }
+.po-importar--cartao h3 { margin: 0; font-size: var(--fs-md, 1rem); }
 .po-passos { margin: 0; padding-left: 20px; display: grid; gap: 6px; font-size: var(--fs-sm); color: var(--ink); }
 .po-resultado { display: grid; gap: 10px; width: 100%; justify-items: start; }
 .po-lista-resultado { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: var(--fs-sm); color: var(--ink-soft); }

@@ -10367,6 +10367,26 @@ export type ResultadoImportacaoAfd = {
   ate: string | null;
   avisos: string[];
 };
+export type MudancaCartaoPonto = { nome: string; data: string; de: string | null; para: string; motivo?: string };
+export type ResultadoCartaoPonto = {
+  gravado: boolean;
+  pessoas: number;
+  diasLidos: number;
+  de: string | null;
+  ate: string | null;
+  batidas: { gravar: number; iguais: number; conflitos: number };
+  escala: { criar: number; trocar: number; iguais: number; mantidos: number };
+  mesesFechados: number;
+  cpfsSemCadastro: string[];
+  desconhecidos: string[];
+  avisos: string[];
+  mudancas: MudancaCartaoPonto[];
+  mantidos: MudancaCartaoPonto[];
+};
+/** Sem confirmar devolve só a prévia; com confirmar: true grava as batidas e as marcas da Escala. */
+export function importarCartaoPonto(texto: string, confirmar: boolean) {
+  return request<ResultadoCartaoPonto>("/payroll/ponto/importar-cartao", json("POST", { texto, confirmar }), 120_000);
+}
 export function getPontoMes(year: number, month: number, signal?: AbortSignal) {
   return request<{ year: number; month: number; pessoas: PessoaPonto[] }>(`/payroll/ponto/mes?year=${year}&month=${month}`, { signal });
 }

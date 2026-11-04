@@ -6,6 +6,7 @@ import { useSearchParams } from "react-router-dom";
 import { ApiError, type PessoaPonto, faltasParaEscalaPonto, fecharPontoMes, getPontoMes, reabrirPontoMes } from "../../api/client";
 import { Alert, Button, EmptyState, StatusBadge, Tabs } from "../../design-system";
 import { DigitarPapel } from "./ponto/DigitarPapel";
+import { ImportarCartao } from "./ponto/ImportarCartao";
 import { ImportarRelogio } from "./ponto/ImportarRelogio";
 import { ResumoMes } from "./ponto/ResumoMes";
 import { MESES } from "./ponto/pontoFormato";
@@ -236,6 +237,7 @@ A falta na Escala também é lida pela gorjeta, pelo vale-transporte e pela folh
 
       {aba === "relogio" ? (
         <div role="tabpanel" aria-label="Importar relógio" className="po-painel">
+          <ImportarCartao onImportou={() => void carregar()} />
           <ImportarRelogio onImportou={() => void carregar()} onVerMes={(y, m) => irPara({ mes: { year: y, month: m }, aba: "fechamento" })} />
         </div>
       ) : null}
