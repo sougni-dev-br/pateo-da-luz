@@ -4388,6 +4388,10 @@ model PontoDia {
   marcacoes      String[]
   /// Dia do relógio que alguém corrigiu à mão: a próxima importação não o sobrescreve.
   editadoManual  Boolean     @default(false)
+  /// Horas do dia abonadas por atestado de horas, médico do trabalho etc.: pagas, não viram atraso nem saem do banco.
+  abonoMin       Int         @default(0)
+  /// ATESTADO_HORAS | MEDICO_TRABALHO | ACOMPANHAR_FAMILIAR | OUTRO (validado no serviço).
+  abonoMotivo    String?
   notes          String?
   createdById    String
   createdAt      DateTime    @default(now())

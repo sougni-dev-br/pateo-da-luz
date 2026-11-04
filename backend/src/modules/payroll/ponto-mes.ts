@@ -10,6 +10,8 @@ export interface MesPessoaParams {
   month: number;
   jornada: JornadaCadastro;
   batidasPorDia: ReadonlyMap<string, string[]>; // AAAA-MM-DD → marcações
+  /** Horas abonadas por dia (AAAA-MM-DD → minutos): atestado de horas, médico do trabalho etc. */
+  abonoPorDia?: ReadonlyMap<string, number>;
   escalaPorDia: ReadonlyMap<string, TipoDiaEscala>;
   feriados: ReadonlySet<string>; // MM-DD
   admissao: string | null; // AAAA-MM-DD
@@ -68,6 +70,7 @@ export function apurarMesPessoa(p: MesPessoaParams): MesPessoa {
     entradaDoDia({
       data,
       marcacoes: p.batidasPorDia.get(data) ?? [],
+      abonoMin: p.abonoPorDia?.get(data) ?? 0,
       jornada: p.jornada,
       tipoEscala: p.escalaPorDia.get(data) ?? null,
       mesMontado,

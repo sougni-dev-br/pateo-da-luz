@@ -10350,7 +10350,7 @@ export type PessoaPonto = {
   resumo: ResumoPonto;
   avisosDia: Array<{ data: string; avisos: string[] }>;
 };
-export type DiaPontoLancado = { date: string; origem: "PAPEL" | "RELOGIO"; marcacoes: string[]; editadoManual: boolean; notes?: string | null };
+export type DiaPontoLancado = { date: string; origem: "PAPEL" | "RELOGIO"; marcacoes: string[]; editadoManual: boolean; notes?: string | null; abonoMin?: number; abonoMotivo?: string | null };
 /** Tipo do dia na escala (TURNO, FOLGA, FOLGA_BANCO_HORAS, FERIAS…), para a grade do papel. */
 export type EscalaDoDia = { date: string; tipo: string };
 export type ResultadoImportacaoAfd = {
@@ -10390,10 +10390,14 @@ export function getPontoMes(year: number, month: number, signal?: AbortSignal) {
   return request<{ year: number; month: number; pessoas: PessoaPonto[] }>(`/payroll/ponto/mes?year=${year}&month=${month}`, { signal });
 }
 export function getPontoDias(employeeId: string, year: number, month: number, signal?: AbortSignal) {
-  return request<{ dias: DiaPontoLancado[]; escala: EscalaDoDia[]; turno: string | null; mesMontado: boolean }>(`/payroll/ponto/dias?employeeId=${encodeURIComponent(employeeId)}&year=${year}&month=${month}`, { signal });
+  return request<{ dias: DiaPontoLancado[]; escala: EscalaDoDia[]; turno: string | null; jornadaMin: number | null; mesMontado: boolean }>(`/payroll/ponto/dias?employeeId=${encodeURIComponent(employeeId)}&year=${year}&month=${month}`, { signal });
 }
 export function salvarPontoDia(employeeId: string, date: string, marcacoes: string[], notes?: string) {
   return request<{ employeeId: string; date: string; marcacoes: string[] }>("/payroll/ponto/dia", json("PUT", { employeeId, date, marcacoes, notes }));
+}
+/** Abona horas de um dia com batidas (atestado de horas, médico do trabalho…). 0 minutos remove o abono. */
+export function abonarPontoDia(employeeId: string, date: string, abonoMin: number, abonoMotivo: string | null, notes?: string) {
+  return request<{ employeeId: string; date: string; abonoMin: number; abonoMotivo: string | null }>("/payroll/ponto/abono", json("PUT", { employeeId, date, abonoMin, abonoMotivo, notes }));
 }
 export function importarAfdPonto(texto: string) {
   return request<ResultadoImportacaoAfd>("/payroll/ponto/importar-afd", json("POST", { texto }), 120_000);

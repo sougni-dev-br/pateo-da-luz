@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { batidasDosCampos, diasDoMes, fmtMin, normalizarHorario, rotuloDoDia } from "../pontoFormato";
+import { ROTULO_DO_ABONO, batidasDosCampos, diasDoMes, fmtMin, minutosDoHorario, normalizarHorario, rotuloDoDia } from "../pontoFormato";
 
 describe("fmtMin", () => {
   test("horas e minutos, com sinal para negativo", () => {
@@ -98,5 +98,26 @@ describe("turnoCurto — cabe na linha da grade", () => {
     expect(turnoCurto("09:00–18:00")).toBe("09–18");
     expect(turnoCurto("08:30–17:00")).toBe("08:30–17");
     expect(turnoCurto(null)).toBe("");
+  });
+});
+
+describe("minutosDoHorario (horas abonadas)", () => {
+  test("aceita 3:01, 301 e 3h01", () => {
+    expect(minutosDoHorario("3:01")).toBe(181);
+    expect(minutosDoHorario("301")).toBe(181);
+    expect(minutosDoHorario("3h01")).toBe(181);
+    expect(minutosDoHorario("0:30")).toBe(30);
+  });
+
+  test("vazio ou ilegível dá null", () => {
+    expect(minutosDoHorario("")).toBeNull();
+    expect(minutosDoHorario("abc")).toBeNull();
+  });
+});
+
+describe("ROTULO_DO_ABONO", () => {
+  test("traduz o motivo e cai em abono para desconhecido", () => {
+    expect(ROTULO_DO_ABONO("MEDICO_TRABALHO")).toBe("Médico do trabalho");
+    expect(ROTULO_DO_ABONO(null)).toBe("abono");
   });
 });
