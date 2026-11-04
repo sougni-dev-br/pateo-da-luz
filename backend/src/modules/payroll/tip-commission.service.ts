@@ -555,15 +555,17 @@ export async function computeTipCommission(
   const servicoFaturamento = period ? round2(Number(period.servicoFaturamento)) : grossPool;
   const ajusteServico = period ? round2(Number(period.ajusteServico)) : 0;
   const deductionPercent = period ? Number(period.deductionPercent) : 20;
-  // Quebra: retenção extra sobre o serviço; o líquido que vira ponto já vem sem ela.
+  // Quebra: % sobre o valor LÍQUIDO da retenção (bruto − 20%), não sobre o bruto; o líquido que vira ponto já vem sem ela.
   const quebraPercent = period ? Number(period.quebraPct ?? 0) : 0;
-  const quebraValor = round2(grossPool * (quebraPercent / 100));
+  const liquidoAposRetencao = grossPool * (1 - deductionPercent / 100);
+  const quebraValor = round2(liquidoAposRetencao * (quebraPercent / 100));
+  const deducaoEfetivaPercent = 100 * (1 - (1 - deductionPercent / 100) * (1 - quebraPercent / 100));
   const destinoSobra = destinoSobraValido(period?.destinoSobra);
-  const netPool = round2(grossPool * (1 - (deductionPercent + quebraPercent) / 100));
+  const netPool = round2(liquidoAposRetencao * (1 - quebraPercent / 100));
   const pointsBudget = period ? Number(period.pointsTotal) : 100;
   const config = await getOrDefaultSettings();
   const regras: RegrasPeriodo = {
-    start, end, netPool, deductionPercent: deductionPercent + quebraPercent, pointsTotal: pointsBudget,
+    start, end, netPool, deductionPercent: deducaoEfetivaPercent, pointsTotal: pointsBudget,
     destinoSobra, reservaPontos: Number(period?.reservaPontos ?? 0),
     diasPadrao: period?.diasPadrao ?? 26,
     descontaFalta: period?.descontaFalta ?? true,
