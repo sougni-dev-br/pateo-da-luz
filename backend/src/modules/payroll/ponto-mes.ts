@@ -30,6 +30,8 @@ export interface AvisoDia {
 
 export interface MesPessoa {
   semJornada: boolean;
+  /** Escala montada, mas nenhuma batida lançada no mês (relógio ou papel): não dá para apurar, e nada vira falta. */
+  semLancamento: boolean;
   /** Há escala montada para a pessoa neste mês (pelo menos uma marca): sem marca = dia trabalhado. */
   mesMontado: boolean;
   periodo: PeriodoPontoApurado;
@@ -51,7 +53,12 @@ export function apurarMesPessoa(p: MesPessoaParams): MesPessoa {
   const mesMontado = (p.naEscala ?? true) && (p.escalaMontada ?? p.escalaPorDia.size > 0);
   const vazio = apurarPeriodo([]);
   if (jornadaDiariaMin(p.jornada) == null) {
-    return { semJornada: true, mesMontado, periodo: vazio, resumo: resumirFechamento(vazio, opcoes), debitoFolgaMin: 0, avisosDia: [] };
+    return { semJornada: true, semLancamento: false, mesMontado, periodo: vazio, resumo: resumirFechamento(vazio, opcoes), debitoFolgaMin: 0, avisosDia: [] };
+  }
+
+  // Quem monta escala e não tem NENHUMA batida no mês é papel ainda não lançado, não 24 faltas: nada é apurado.
+  if (mesMontado && p.batidasPorDia.size === 0) {
+    return { semJornada: false, semLancamento: true, mesMontado, periodo: vazio, resumo: resumirFechamento(vazio, opcoes), debitoFolgaMin: 0, avisosDia: [] };
   }
 
   const dias = diasDoMes(p.year, p.month).filter(
@@ -75,5 +82,5 @@ export function apurarMesPessoa(p: MesPessoaParams): MesPessoa {
     .filter((a) => a.avisos.length > 0);
 
   const resumo = { ...resumirFechamento(periodo, { saldoInicialMin: p.saldoInicialMin, debitoFolgaMin }), diasComAviso: avisosDia.filter((a) => a.avisos.some((x) => x !== AVISO_SEM_ESCALA)).length };
-  return { semJornada: false, mesMontado, periodo, resumo, debitoFolgaMin, avisosDia };
+  return { semJornada: false, semLancamento: false, mesMontado, periodo, resumo, debitoFolgaMin, avisosDia };
 }

@@ -10335,6 +10335,8 @@ export type PessoaPonto = {
   nome: string;
   status: "ABERTO" | "FECHADO";
   semJornada: boolean;
+  /** Escala montada, mas sem nenhuma batida no mês: papel ainda não lançado. */
+  semLancamento: boolean;
   /** Há escala montada para a pessoa no mês: dia sem marca vale como dia trabalhado. */
   mesMontado: boolean;
   /** Turno usado na conta (ex.: "09:00–18:00") e de onde veio. */

@@ -433,6 +433,10 @@ export async function fecharMes(year: number, month: number, userId: string, opc
   return prisma.$transaction(async (tx) => {
     await travarMeses(tx, [chaveTravaMes(year, month)]);
     const linhas = (await apurarMes(year, month, tx)).filter((l) => !l.semJornada && l.status === "ABERTO");
+    const semLancamento = linhas.filter((l) => l.semLancamento);
+    if (semLancamento.length > 0) {
+      throw new PontoRecusa(409, `Falta lançar o ponto de ${semLancamento.length === 1 ? "1 pessoa" : `${semLancamento.length} pessoas`} (${semLancamento.slice(0, 5).map((l) => l.nome).join(", ")}${semLancamento.length > 5 ? "…" : ""}). Lance o papel ou importe o relógio antes de fechar o mês.`);
+    }
     await exigirMesAnteriorFechado(tx, linhas, year, month);
 
     const comAviso = linhas.filter((l) => l.resumo.diasComAviso > 0);
@@ -594,7 +598,7 @@ async function faltasPendentes(cliente: Cliente, year: number, month: number): P
   const [inicio, fim] = [diaDate(dias[0]), diaDate(dias[dias.length - 1])];
   const hoje = hojeSaoPaulo();
 
-  const linhas = (await apurarMes(year, month, cliente)).filter((l) => !l.semJornada && l.status === "ABERTO");
+  const linhas = (await apurarMes(year, month, cliente)).filter((l) => !l.semJornada && !l.semLancamento && l.status === "ABERTO");
   const marcas = await cliente.employeeScheduleDay.findMany({
     where: { employeeId: { in: linhas.map((l) => l.employeeId) }, date: { gte: inicio, lte: fim } },
     select: { employeeId: true, date: true, type: true },

@@ -47,6 +47,7 @@ export function ResumoMes({ pessoas, onAbrirPapel }: Props) {
   const [filtro, setFiltro] = useState<Filtro>("todos");
   const apuradas = useMemo(() => pessoas.filter((p) => !p.semJornada), [pessoas]);
   const semJornada = pessoas.filter((p) => p.semJornada);
+  const semLancamento = apuradas.filter((p) => p.semLancamento);
   const semSaldoAnterior = apuradas.filter((p) => !p.saldoAnteriorConfirmado && p.saldoInicialMin === 0).length;
   const visiveis = useMemo(
     () => [...apuradas.filter((p) => filtro === "todos" || TEM[filtro](p))].sort((a, b) => prioridade(a) - prioridade(b) || a.nome.localeCompare(b.nome, "pt-BR")),
@@ -58,6 +59,12 @@ export function ResumoMes({ pessoas, onAbrirPapel }: Props) {
       {semJornada.length > 0 ? (
         <Alert tone="warning" title="Sem jornada cadastrada: não entram na conta">
           {semJornada.map((p) => p.nome).join(", ")}. Preencha entrada, saída e intervalo no cadastro do funcionário.
+        </Alert>
+      ) : null}
+
+      {semLancamento.length > 0 ? (
+        <Alert tone="info" title="Ponto ainda não lançado: nada é apurado">
+          {semLancamento.map((p) => p.nome).join(", ")}. Lance o papel (ou importe o relógio) para apurar faltas, atrasos e extras. Enquanto isso, ninguém aqui é contado como falta.
         </Alert>
       ) : null}
 
@@ -107,6 +114,7 @@ export function ResumoMes({ pessoas, onAbrirPapel }: Props) {
                     {p.resumo.devendo ? (
                       <StatusBadge tone="warning"><AlertTriangle size={12} aria-hidden="true" /> deve horas</StatusBadge>
                     ) : null}
+                    {p.semLancamento ? <StatusBadge tone="info">papel não lançado</StatusBadge> : null}
                     {p.status === "FECHADO" ? <StatusBadge tone="neutral">fechado</StatusBadge> : null}
                     <Button variant="secondary" size="sm" leadingIcon={<PencilLine size={14} />} aria-label={`Lançar ponto de papel de ${p.nome}`} onClick={() => onAbrirPapel(p.employeeId)}>Lançar papel</Button>
                     </div>
