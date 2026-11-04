@@ -47,7 +47,8 @@ function tipoDoRotulo(rotulo: string): TipoDoCartao | null {
   const r = rotulo.trim();
   if (/^folga$/i.test(r)) return "FOLGA";
   if (/^falta$/i.test(r)) return "FALTA";
-  if (/^feriado\b/i.test(r)) return "FOLGA_FERIADO";
+  // "Feriado" é o próprio dia do feriado sem trabalho: folga comum. A folga em troca de feriado trabalhado o RHiD lança como "Justificado Banco".
+  if (/^feriado\b/i.test(r)) return "FOLGA";
   const j = /^justificado\s+(.+)$/i.exec(r);
   return j ? tipoDaJustificativa(j[1]) : null;
 }

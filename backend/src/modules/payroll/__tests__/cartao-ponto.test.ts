@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { decidirEscala } from "../cartao-ponto.service.js";
+import { TRABALHOU, divergeDaEscala } from "../cartao-ponto.service.js";
 import { ehCartaoPonto, lerCartaoPonto } from "../cartao-ponto-parser.js";
 
 const CABECALHO =
@@ -32,7 +32,7 @@ describe("lerCartaoPonto", () => {
         linha("19/10/2026 SEG", "Justificado Banco", "Justificado Banco", "Justificado Banco", "Justificado Banco", "Banco"),
       ),
     );
-    expect(r.dias.map((d) => d.tipo)).toEqual(["FOLGA", "FALTA", "FOLGA_FERIADO", "FOLGA_BANCO_HORAS"]);
+    expect(r.dias.map((d) => d.tipo)).toEqual(["FOLGA", "FALTA", "FOLGA", "FOLGA_BANCO_HORAS"]);
     expect(r.desconhecidos).toEqual([]);
   });
 
@@ -71,38 +71,34 @@ describe("lerCartaoPonto", () => {
   });
 });
 
-describe("decidirEscala — quem manda é o RHiD, com proteções", () => {
-  test("sem marca na Escala: cria", () => {
-    expect(decidirEscala("FOLGA", null)).toEqual({ acao: "criar", para: "FOLGA" });
+describe("divergeDaEscala — a Escala manda, o RHiD só aponta diferença", () => {
+  test("mesma marca nos dois lados: não diverge", () => {
+    expect(divergeDaEscala("FOLGA", "FOLGA")).toBe(false);
+    expect(divergeDaEscala("FOLGA_BANCO_HORAS", "FOLGA_BANCO_HORAS")).toBe(false);
+    expect(divergeDaEscala("FALTA", "FALTA")).toBe(false);
   });
 
-  test("mesma marca: não muda nada", () => {
-    expect(decidirEscala("FOLGA_BANCO_HORAS", "FOLGA_BANCO_HORAS")).toEqual({ acao: "igual" });
+  test("RHiD diz folga, falta ou justificativa e a Escala diz turno ou nada: diverge", () => {
+    expect(divergeDaEscala("FOLGA", "TURNO")).toBe(true);
+    expect(divergeDaEscala("FOLGA", null)).toBe(true);
+    expect(divergeDaEscala("FALTA", "TURNO")).toBe(true);
+    expect(divergeDaEscala("ATESTADO", "FOLGA")).toBe(true);
   });
 
-  test("turno na Escala e folga no RHiD: o RHiD vale (troca)", () => {
-    expect(decidirEscala("FOLGA", "TURNO")).toEqual({ acao: "trocar", de: "TURNO", para: "FOLGA" });
-    expect(decidirEscala("FOLGA_BANCO_HORAS", "FOLGA")).toMatchObject({ acao: "trocar", para: "FOLGA_BANCO_HORAS" });
+  test("tipos de folga diferentes divergem (muda o que sai do banco)", () => {
+    expect(divergeDaEscala("FOLGA", "FOLGA_BANCO_HORAS")).toBe(true);
+    expect(divergeDaEscala("FOLGA_BANCO_HORAS", "FOLGA")).toBe(true);
+    expect(divergeDaEscala("FOLGA", "FOLGA_FERIADO")).toBe(true);
   });
 
-  test("férias, atestado e afastamento lançados no ERP não são trocados por folga", () => {
-    for (const atual of ["FERIAS", "ATESTADO", "AFASTAMENTO"]) {
-      expect(decidirEscala("FOLGA", atual)).toMatchObject({ acao: "manter", atual });
-      expect(decidirEscala("FOLGA_BANCO_HORAS", atual)).toMatchObject({ acao: "manter", atual });
+  test("batida no RHiD diverge quando a Escala diz folga, falta, atestado, férias ou afastamento", () => {
+    for (const atual of ["FOLGA", "FOLGA_FERIADO", "FOLGA_BANCO_HORAS", "FALTA", "ATESTADO", "FERIAS", "AFASTAMENTO"]) {
+      expect(divergeDaEscala(TRABALHOU, atual)).toBe(true);
     }
   });
 
-  test("atestado ou férias vindo do RHiD substituem turno e folga", () => {
-    expect(decidirEscala("ATESTADO", "TURNO")).toMatchObject({ acao: "trocar", para: "ATESTADO" });
-    expect(decidirEscala("FERIAS", "FOLGA")).toMatchObject({ acao: "trocar", para: "FERIAS" });
-  });
-
-  test("falta só entra onde a Escala dizia turno ou evento; nos outros casos fica para conferir", () => {
-    expect(decidirEscala("FALTA", "TURNO")).toMatchObject({ acao: "trocar", para: "FALTA" });
-    expect(decidirEscala("FALTA", "EVENTO")).toMatchObject({ acao: "trocar", para: "FALTA" });
-    expect(decidirEscala("FALTA", "FOLGA")).toMatchObject({ acao: "manter" });
-    expect(decidirEscala("FALTA", "ATESTADO")).toMatchObject({ acao: "manter" });
-    expect(decidirEscala("FALTA", null)).toEqual({ acao: "criar", para: "FALTA" });
+  test("batida no RHiD não diverge quando a Escala diz turno, evento ou nada", () => {
+    for (const atual of ["TURNO", "EVENTO", null]) expect(divergeDaEscala(TRABALHOU, atual)).toBe(false);
   });
 });
 
@@ -158,22 +154,32 @@ describe("importarCartaoPonto", () => {
     expect(r.gravado).toBe(false);
     expect(r.pessoas).toBe(1);
     expect(r.batidas).toEqual({ gravar: 1, iguais: 0, conflitos: 0 });
-    // folga no lugar do turno e falta no lugar do turno trocam; folga do banco sobre férias fica mantida
-    expect(r.escala).toEqual({ criar: 0, trocar: 2, iguais: 0, mantidos: 1 });
-    expect(r.mudancas.map((m) => `${m.data} ${m.de}->${m.para}`)).toEqual(["2026-10-03 TURNO->FOLGA", "2026-10-07 TURNO->FALTA"]);
-    expect(r.mantidos[0]).toMatchObject({ data: "2026-10-19", de: "FERIAS", para: "FOLGA_BANCO_HORAS" });
+    // folga, falta e folga do banco divergem da Escala (turno, turno e férias); o dia com batida cai em Escala sem marca
+    expect(r.escala).toEqual({ iguais: 1, divergentes: 3 });
+    expect(r.divergencias.map((d) => `${d.data} ${d.escala}->${d.rhid}`)).toEqual([
+      "2026-10-03 TURNO->FOLGA",
+      "2026-10-07 TURNO->FALTA",
+      "2026-10-19 FERIAS->FOLGA_BANCO_HORAS",
+    ]);
     expect(db.pontoDia.upsert).not.toHaveBeenCalled();
     expect(db.employeeScheduleDay.upsert).not.toHaveBeenCalled();
   });
 
-  test("confirmando: grava as batidas e troca só o que a regra manda", async () => {
+  test("confirmando: grava só as batidas; a Escala nunca é alterada", async () => {
     const r = await importarCartaoPonto(CSV, "u1", true);
     expect(r.gravado).toBe(true);
+    expect(r.escala.divergentes).toBe(3);
     expect(db.pontoDia.upsert).toHaveBeenCalledTimes(1);
     expect(db.pontoDia.upsert.mock.calls[0][0].create).toMatchObject({ employeeId: "e1", origem: "RELOGIO", marcacoes: ["12:12", "15:27", "16:21", "20:40"] });
-    const tipos = db.employeeScheduleDay.upsert.mock.calls.map((c: [{ create: { type: string; notes: string } }]) => [c[0].create.type, c[0].create.notes]);
-    expect(tipos).toEqual([["FOLGA", "ponto antes:TURNO"], ["FALTA", "ponto antes:TURNO"]]);
+    expect(db.employeeScheduleDay.upsert).not.toHaveBeenCalled();
+    expect(db.employeeScheduleDay.update).not.toHaveBeenCalled();
     expect(assertPeriodWritableForRange).toHaveBeenCalled();
+  });
+
+  test("batida do RHiD em dia de folga da Escala aparece como divergência", async () => {
+    db.employeeScheduleDay.findMany.mockResolvedValue([{ id: "m5", employeeId: "e1", date: dia("2026-10-05"), type: "FOLGA", notes: null }]);
+    const r = await importarCartaoPonto(arquivo(linha("05/10/2026 SEG", "12:12 (C)", "15:27 (C)", "16:21 (C)", "20:40 (I)")), "u1", false);
+    expect(r.divergencias).toEqual([{ nome: "Ana Souza", data: "2026-10-05", escala: "FOLGA", rhid: "TRABALHOU" }]);
   });
 
   test("dia de papel ou ajuste manual não é sobrescrito pelo relógio", async () => {

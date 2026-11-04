@@ -169,7 +169,7 @@ pontoRouter.post("/importar-cartao", async (request, response) => {
     if (confirmar) {
       await auditLog({
         userId: user.id, action: "IMPORT_PONTO_CARTAO", entity: "PontoDia",
-        newValue: { ...resultado, mudancas: resultado.mudancas.length, mantidos: resultado.mantidos.length, arquivoSha256: createHash("sha256").update(texto).digest("hex") },
+        newValue: { ...resultado, divergencias: resultado.divergencias.length, arquivoSha256: createHash("sha256").update(texto).digest("hex") },
         ...auditoria(request),
       });
     }

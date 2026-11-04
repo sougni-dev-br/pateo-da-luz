@@ -10367,7 +10367,7 @@ export type ResultadoImportacaoAfd = {
   ate: string | null;
   avisos: string[];
 };
-export type MudancaCartaoPonto = { nome: string; data: string; de: string | null; para: string; motivo?: string };
+export type DivergenciaCartaoPonto = { nome: string; data: string; escala: string | null; rhid: string };
 export type ResultadoCartaoPonto = {
   gravado: boolean;
   pessoas: number;
@@ -10375,15 +10375,14 @@ export type ResultadoCartaoPonto = {
   de: string | null;
   ate: string | null;
   batidas: { gravar: number; iguais: number; conflitos: number };
-  escala: { criar: number; trocar: number; iguais: number; mantidos: number };
+  escala: { iguais: number; divergentes: number };
   mesesFechados: number;
   cpfsSemCadastro: string[];
   desconhecidos: string[];
   avisos: string[];
-  mudancas: MudancaCartaoPonto[];
-  mantidos: MudancaCartaoPonto[];
+  divergencias: DivergenciaCartaoPonto[];
 };
-/** Sem confirmar devolve só a prévia; com confirmar: true grava as batidas e as marcas da Escala. */
+/** Sem confirmar devolve só a prévia; com confirmar: true grava as batidas. A Escala nunca é alterada: só aponta divergências. */
 export function importarCartaoPonto(texto: string, confirmar: boolean) {
   return request<ResultadoCartaoPonto>("/payroll/ponto/importar-cartao", json("POST", { texto, confirmar }), 120_000);
 }

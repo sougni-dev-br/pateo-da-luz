@@ -35,7 +35,7 @@ type Situacao = { estado: "salvando" | "salvo" | "erro"; motivo?: string };
 const camposDe = (marcacoes: string[]) => [...marcacoes, ...vazios()].slice(0, Math.max(NOMES_CAMPOS.length, marcacoes.length));
 
 // Aviso curto para caber na linha; o texto inteiro fica no title e no leitor de tela.
-const avisoCurto = (aviso: string) => (aviso.startsWith("Falta") ? "falta batida" : aviso.includes("16h") ? "mais de 16h" : "conferir");
+const avisoCurto = (aviso: string) => (aviso.startsWith("Falta") ? "falta batida" : aviso.startsWith("Trabalhou em dia de") ? "trabalhou na folga" : aviso.includes("16h") ? "mais de 16h" : "conferir");
 
 export function DigitarPapel({ year, month, pessoas, employeeId, onEscolher, fechado, resumo, onSalvou, onIrParaFechamento }: Props) {
   const dias = diasDoMes(year, month);

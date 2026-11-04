@@ -1,5 +1,5 @@
-// Ponto → Importar relógio → Cartão de Ponto (CSV do RHiD): traz batidas, folga, banco, feriado e falta de quem bate
-// ponto no relógio. Primeiro mostra a prévia do que vai mudar na Escala; só grava depois de confirmar.
+// Ponto → Importar relógio → Cartão de Ponto (CSV do RHiD): traz as batidas de quem bate ponto no relógio e aponta onde
+// folga, banco, feriado, falta e batida divergem da Escala do ERP. A Escala nunca é alterada aqui; só grava depois de confirmar.
 import { FileSpreadsheet } from "lucide-react";
 import { useRef, useState } from "react";
 import { type ResultadoCartaoPonto, importarCartaoPonto } from "../../../api/client";
@@ -15,6 +15,7 @@ const NOME_DO_TIPO: Record<string, string> = {
   FALTA: "falta",
   TURNO: "turno",
   EVENTO: "evento",
+  TRABALHOU: "trabalhou (tem batida)",
   FERIAS: "férias",
   ATESTADO: "atestado",
   AFASTAMENTO: "afastamento",
@@ -67,7 +68,7 @@ export function ImportarCartao({ onImportou }: { onImportou: () => void }) {
   const r = resultado;
   const previa = r !== null && !r.gravado;
   const nadaALer = r !== null && r.pessoas === 0;
-  const mudaAlgo = r !== null && (r.batidas.gravar > 0 || r.escala.criar > 0 || r.escala.trocar > 0);
+  const mudaAlgo = r !== null && r.batidas.gravar > 0;
 
   return (
     <section className="po-importar po-importar--cartao" aria-labelledby="po-cartao-titulo">
@@ -93,13 +94,13 @@ export function ImportarCartao({ onImportou }: { onImportou: () => void }) {
           >
             {nadaALer
               ? "Não encontrei pessoas do arquivo no cadastro (o CPF precisa bater e a pessoa precisa estar marcada como “Bate ponto”)."
-              : `${plural(r.pessoas, "pessoa", "pessoas")}, ${plural(r.batidas.gravar, "dia de batidas", "dias de batidas")} ${previa ? "para gravar" : "gravados"}, ${plural(r.escala.criar + r.escala.trocar, "marca na Escala", "marcas na Escala")} ${previa ? "para criar ou trocar" : "criadas ou trocadas"}.`}
+              : `${plural(r.pessoas, "pessoa", "pessoas")}, ${plural(r.batidas.gravar, "dia de batidas", "dias de batidas")} ${previa ? "para gravar" : "gravados"}, ${plural(r.escala.divergentes, "dia diferente da Escala", "dias diferentes da Escala")}.`}
           </Alert>
 
           {!nadaALer ? (
             <ul className="po-lista-resultado">
               <li>Batidas: {r.batidas.gravar} a gravar, {r.batidas.iguais} já iguais{r.batidas.conflitos > 0 ? `, ${r.batidas.conflitos} mantidas (papel ou correção manual)` : ""}.</li>
-              <li>Escala: {r.escala.criar} novas, {r.escala.trocar} trocadas, {r.escala.iguais} já iguais{r.escala.mantidos > 0 ? `, ${r.escala.mantidos} mantidas para você conferir` : ""}.</li>
+              <li>Escala: {r.escala.divergentes} diferentes do RHiD, {r.escala.iguais} iguais. A Escala não é alterada por esta importação.</li>
               {r.mesesFechados > 0 ? <li>{plural(r.mesesFechados, "dia ignorado", "dias ignorados")} por estarem em mês com ponto fechado.</li> : null}
               {r.cpfsSemCadastro.length > 0 ? <li>Fora do cadastro ou sem “Bate ponto”: {r.cpfsSemCadastro.join(", ")}.</li> : null}
               {r.desconhecidos.length > 0 ? <li>Rótulos que o ERP não sabe traduzir (nada é gravado neles): {r.desconhecidos.join("; ")}.</li> : null}
@@ -107,33 +108,30 @@ export function ImportarCartao({ onImportou }: { onImportou: () => void }) {
             </ul>
           ) : null}
 
-          {r.mudancas.length > 0 ? (
-            <div className="po-tabela-rolagem" role="region" aria-label="O que muda na Escala" tabIndex={0}>
-              <table className="po-tabela">
-                <caption className="po-sr">Marcas da Escala que vão mudar</caption>
-                <thead>
-                  <tr><th scope="col">Pessoa</th><th scope="col">Dia</th><th scope="col">Hoje na Escala</th><th scope="col">Passa a ser</th></tr>
-                </thead>
-                <tbody>
-                  {r.mudancas.map((m) => (
-                    <tr key={`${m.nome}|${m.data}`}>
-                      <th scope="row">{m.nome}</th>
-                      <td>{dataCurta(m.data)}</td>
-                      <td>{tipo(m.de)}</td>
-                      <td>{tipo(m.para)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : null}
-
-          {r.mantidos.length > 0 ? (
-            <Alert tone="warning" title="Mantidas como estão (confira)">
-              <ul className="po-lista-resultado">
-                {r.mantidos.map((m) => <li key={`${m.nome}|${m.data}`}>{m.nome}, {dataCurta(m.data)}: ERP {tipo(m.de)}, RHiD {tipo(m.para)}. {m.motivo}</li>)}
-              </ul>
-            </Alert>
+          {r.divergencias.length > 0 ? (
+            <>
+              <Alert tone="warning" title="Diferenças entre a Escala e o RHiD (confira)">
+                A Escala do ERP não foi alterada. Corrija a Escala ou o RHiD, o que estiver errado, e importe de novo. Enquanto isso, o Ponto usa o que está na Escala.
+              </Alert>
+              <div className="po-tabela-rolagem" role="region" aria-label="Dias diferentes da Escala" tabIndex={0}>
+                <table className="po-tabela">
+                  <caption className="po-sr">Dias em que o RHiD e a Escala do ERP dizem coisas diferentes</caption>
+                  <thead>
+                    <tr><th scope="col">Pessoa</th><th scope="col">Dia</th><th scope="col">Escala do ERP</th><th scope="col">RHiD</th></tr>
+                  </thead>
+                  <tbody>
+                    {r.divergencias.map((m) => (
+                      <tr key={`${m.nome}|${m.data}`}>
+                        <th scope="row">{m.nome}</th>
+                        <td>{dataCurta(m.data)}</td>
+                        <td>{tipo(m.escala)}</td>
+                        <td>{tipo(m.rhid)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           ) : null}
 
           {previa && !nadaALer ? (
