@@ -8,7 +8,7 @@ import { Link } from "react-router-dom";
 import { ROTAS_RH } from "../rotasRh";
 import { type DiaPontoLancado, type ResumoPonto, abonarPontoDia, folgaBancoPonto, getPontoDias, salvarPontoDia } from "../../../api/client";
 import { Alert, Button, Select, StatusBadge } from "../../../design-system";
-import { MOTIVOS_DE_ABONO, PODE_USAR_BANCO, ROTULO_DO_ABONO, ROTULO_ESCALA, batidasDosCampos, diasDoMes, fmtMin, minutosDoHorario, normalizarHorario, resumoDoDia, rotuloDoDia, turnoCurto } from "./pontoFormato";
+import { MOTIVOS_DE_ABONO, PODE_USAR_BANCO, ROTULO_DO_ABONO, ROTULO_ESCALA, batidasDosCampos, diasDoMes, fmtMin, jornadaDoDiaMin, minutosDoHorario, normalizarHorario, resumoDoDia, rotuloDoDia, turnoCurto } from "./pontoFormato";
 
 type Props = {
   year: number;
@@ -228,6 +228,7 @@ export function DigitarPapel({ year, month, pessoas, employeeId, onEscolher, fec
     const folgaDoBanco = tipo === FOLGA_DO_BANCO;
     const temBatidas = linha.some((c) => c.trim() !== "");
     const conta = resumoDoDia(linha);
+    const jornadaDoDia = jornadaMin && temBatidas ? jornadaDoDiaMin(jornadaMin, batidasDosCampos(linha) ?? []) : null;
     const domingo = rotuloDoDia(dia).startsWith(DOMINGO);
     const travado = fechado || folgaDoBanco;
     const abono = lancado?.abonoMin ?? 0;
@@ -267,6 +268,7 @@ export function DigitarPapel({ year, month, pessoas, employeeId, onEscolher, fec
             <>
               <span className="po-num-forte">{fmtMin(conta.trabalhadoMin)}</span>
               {conta.viraNoite ? <span className="po-tag" title="A saída é no dia seguinte">+1 dia</span> : null}
+              {jornadaDoDia && jornadaMin && jornadaDoDia !== jornadaMin ? <span className="po-tag" title="Turno de 2h de intervalo: a jornada deste dia é maior que a do cadastro">jornada {fmtMin(jornadaDoDia)}</span> : null}
               {conta.avisos.map((a) => <span className="po-tag po-tag--aviso" key={a} title={a}>{avisoCurto(a)}<span className="po-sr">: {a}</span></span>)}
             </>
           ) : null}

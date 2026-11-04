@@ -4,7 +4,7 @@ import { assertPeriodWritableForRange } from "../cmv-real/cmv-real.service.js";
 import { agruparBatidasPorDia, ehAfdt, lerAfd671, lerAfdt } from "./afd-parser.js";
 import { holidaysForYear } from "./holidays.js";
 import type { ResumoFechamento } from "./ponto-banco.js";
-import { decidirFolgaBanco, jornadaDaPessoa, jornadaDiariaMin, rotuloTurno, type TipoDiaEscala } from "./ponto-jornada.js";
+import { decidirFolgaBanco, jornadaDaPessoa, jornadaDiariaMin, jornadaDoDiaMin, rotuloTurno, type TipoDiaEscala } from "./ponto-jornada.js";
 import { apurarMesPessoa, diasDoMes, type MesPessoa } from "./ponto-mes.js";
 import { chaveTravaMes, foiGravadoPeloPonto, notaDoPonto, tipoAnteriorDoPonto, travarMeses } from "./ponto-trava.js";
 
@@ -572,13 +572,14 @@ export async function batidasDoMes(employeeId: string, year: number, month: numb
     }),
   ]);
   const turno = pessoa ? rotuloTurno(jornadaDaPessoa(pessoa).jornada) : null;
+  const jornadaMin = pessoa ? jornadaDiariaMin(jornadaDaPessoa(pessoa).jornada) : null;
   return {
     // A anotação livre (pode trazer dado de saúde) não sai desta resposta.
-    dias: rows.map((r) => ({ date: isoDia(r.date), origem: r.origem, marcacoes: r.marcacoes, editadoManual: r.editadoManual, abonoMin: r.abonoMin, abonoMotivo: r.abonoMotivo })),
+    dias: rows.map((r) => ({ date: isoDia(r.date), origem: r.origem, marcacoes: r.marcacoes, editadoManual: r.editadoManual, abonoMin: r.abonoMin, abonoMotivo: r.abonoMotivo, previstoMin: jornadaMin == null ? null : jornadaDoDiaMin(jornadaMin, r.marcacoes) })),
     escala: [...escalaEfetiva(employeeId, marcas, ferias)].map(([date, tipo]) => ({ date, tipo })),
     turno,
     /** Jornada diária em minutos (null = sem jornada cadastrada): a tela sugere o abono pelo que faltou. */
-    jornadaMin: pessoa ? jornadaDiariaMin(jornadaDaPessoa(pessoa).jornada) : null,
+    jornadaMin,
     mesMontado: Boolean(pessoa?.includeInSchedule) && mesMontadoPorMarcasDaEscala(marcas),
   };
 }

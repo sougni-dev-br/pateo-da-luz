@@ -23,6 +23,29 @@ export function minutosDoHorario(texto: string): number | null {
   return Number(pronto.slice(0, 2)) * 60 + Number(pronto.slice(3, 5));
 }
 
+const TURNO_LONGO_JORNADA_MIN = 8 * 60;
+
+/** Jornada do dia pelas batidas: turno de 2h de intervalo (intervalo de 1:30 ou mais, ou só entrada e saída com 10h ou mais) = 8:00. Mesmo critério do servidor (ponto-jornada.ts). */
+export function jornadaDoDiaMin(jornadaCadastroMin: number, batidas: string[]): number {
+  if (jornadaCadastroMin >= TURNO_LONGO_JORNADA_MIN || batidas.length < 2 || batidas.length % 2 !== 0) return jornadaCadastroMin;
+  const horas: number[] = [];
+  let deslocamento = 0;
+  for (const b of batidas) {
+    const h = normalizarHorario(b);
+    if (h === null) return jornadaCadastroMin;
+    let t = Number(h.slice(0, 2)) * 60 + Number(h.slice(3, 5)) + deslocamento;
+    if (horas.length > 0 && t < horas[horas.length - 1]) {
+      deslocamento += MIN_DIA;
+      t += MIN_DIA;
+    }
+    horas.push(t);
+  }
+  let maiorIntervalo = 0;
+  for (let i = 1; i + 1 < horas.length; i += 2) maiorIntervalo = Math.max(maiorIntervalo, horas[i + 1] - horas[i]);
+  const longo = maiorIntervalo >= 90 || (batidas.length === 2 && horas[1] - horas[0] >= 10 * 60);
+  return longo ? TURNO_LONGO_JORNADA_MIN : jornadaCadastroMin;
+}
+
 /** Aceita "800", "8:00", "8h30", "8" e "0830" e devolve "HH:mm"; vazio ou ilegível → null. */
 export function normalizarHorario(texto: string): string | null {
   const s = texto.trim().toLowerCase().replace("h", ":").replace(/:$/, "");

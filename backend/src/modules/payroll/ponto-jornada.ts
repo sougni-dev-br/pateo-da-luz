@@ -59,6 +59,38 @@ export function jornadaDiariaMin(j: JornadaCadastro): number | null {
   return Math.max(0, total - intervalo);
 }
 
+// ─── Jornada do dia ─────────────────────────────────────────────────────────────
+
+const JORNADA_TURNO_LONGO_MIN = 8 * 60;
+const INTERVALO_DO_TURNO_LONGO_MIN = 90;
+const PRESENCA_DO_TURNO_LONGO_MIN = 10 * 60;
+
+/**
+ * A jornada de um dia pode ser maior que a do cadastro: quem faz o turno de 2h de intervalo (ex.: 12:00–22:00) tem jornada de 8:00.
+ * O ERP reconhece esse turno pelas batidas do próprio dia: intervalo tirado de 1:30 ou mais, ou (sem batidas de intervalo)
+ * presença de 10h ou mais. Nunca reduz a jornada do cadastro. Mesmo critério de jornadaDoDiaMin no frontend.
+ */
+export function jornadaDoDiaMin(jornadaCadastroMin: number, marcacoes: string[]): number {
+  if (jornadaCadastroMin >= JORNADA_TURNO_LONGO_MIN || marcacoes.length < 2 || marcacoes.length % 2 !== 0) return jornadaCadastroMin;
+  const horas: number[] = [];
+  let deslocamento = 0;
+  for (const marca of marcacoes) {
+    const min = paraMinutos(marca);
+    if (min == null) return jornadaCadastroMin;
+    let t = min + deslocamento;
+    if (horas.length > 0 && t < horas[horas.length - 1]) {
+      deslocamento += MIN_DIA;
+      t += MIN_DIA;
+    }
+    horas.push(t);
+  }
+  const presenca = horas[horas.length - 1] - horas[0];
+  let maiorIntervalo = 0;
+  for (let i = 1; i + 1 < horas.length; i += 2) maiorIntervalo = Math.max(maiorIntervalo, horas[i + 1] - horas[i]);
+  const turnoLongo = maiorIntervalo >= INTERVALO_DO_TURNO_LONGO_MIN || (marcacoes.length === 2 && presenca >= PRESENCA_DO_TURNO_LONGO_MIN);
+  return turnoLongo ? JORNADA_TURNO_LONGO_MIN : jornadaCadastroMin;
+}
+
 export interface EntradaDoDiaParams {
   data: string;
   marcacoes: string[];
@@ -80,8 +112,9 @@ export interface EntradaDoDia {
 const SEM_JORNADA: ReadonlySet<TipoDiaEscala> = new Set(["FOLGA", "FOLGA_FERIADO", "FOLGA_BANCO_HORAS", "FERIAS", "AFASTAMENTO"]);
 
 export function entradaDoDia(p: EntradaDoDiaParams): EntradaDoDia {
-  const jornadaMin = jornadaDiariaMin(p.jornada);
-  if (jornadaMin == null) return { entrada: null, debitoBancoMin: 0, avisos: ["Jornada não cadastrada."] };
+  const jornadaCadastroMin = jornadaDiariaMin(p.jornada);
+  if (jornadaCadastroMin == null) return { entrada: null, debitoBancoMin: 0, avisos: ["Jornada não cadastrada."] };
+  const jornadaMin = jornadaDoDiaMin(jornadaCadastroMin, p.marcacoes);
 
   const base = { data: p.data, marcacoes: p.marcacoes, ...(p.feriado ? { feriado: true } : {}), ...(p.abonoMin && p.marcacoes.length > 0 ? { abonoMin: p.abonoMin } : {}) };
   const tipo = p.tipoEscala;
