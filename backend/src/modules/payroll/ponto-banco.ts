@@ -3,7 +3,9 @@
 //   falta             desconta em folha, não passa pelo banco
 //   folga do banco    a jornada do dia sai do saldo
 //   hora extra comum  abate primeiro o que a pessoa deve no banco; só o que sobra é paga
-//   extra de domingo/feriado e adicional noturno: pagos à parte, não abatem nada
+//   feriado trabalhado crédito integral no banco (folga compensatória): abate dívida como qualquer crédito
+//                     e nunca é pago
+//   adicional noturno pago à parte, não abate nada
 // Saldo positivo antigo fica como está: a extra do mês é paga, o crédito não é consumido.
 
 import type { PeriodoPontoApurado } from "./ponto-calc.js";
@@ -13,6 +15,7 @@ export interface EntradaBanco {
   atrasoMin: number;
   debitoFolgaMin: number;
   extraMin: number; // extra comum do período
+  creditoFeriadoMin?: number; // feriado trabalhado: entra no saldo, não é pago
 }
 
 export interface ResultadoBanco {
@@ -23,7 +26,7 @@ export interface ResultadoBanco {
 }
 
 export function fecharBanco(e: EntradaBanco): ResultadoBanco {
-  const saldoBruto = e.saldoInicialMin - e.atrasoMin - e.debitoFolgaMin;
+  const saldoBruto = e.saldoInicialMin - e.atrasoMin - e.debitoFolgaMin + (e.creditoFeriadoMin ?? 0);
   const divida = Math.max(0, -saldoBruto);
   const abatidoMin = Math.min(divida, Math.max(0, e.extraMin));
   const saldoFinalMin = saldoBruto + abatidoMin;
@@ -44,6 +47,8 @@ export interface ResumoFechamento {
   faltas: number;
   noturnoMin: number;
   extraDescansoMin: number;
+  /** Feriado trabalhado que entrou no banco como folga compensatória. */
+  creditoFeriadoMin: number;
   atrasoMin: number;
   abatidoMin: number;
   extraAPagarMin: number;
@@ -60,11 +65,13 @@ export function resumirFechamento(periodo: PeriodoPontoApurado, opcoes: OpcoesFe
     atrasoMin: periodo.atrasoMin,
     debitoFolgaMin: opcoes.debitoFolgaMin,
     extraMin: periodo.extraMin,
+    creditoFeriadoMin: periodo.creditoFeriadoMin,
   });
   return {
     faltas: periodo.faltas,
     noturnoMin: periodo.noturnoMin,
     extraDescansoMin: periodo.extraDescansoMin,
+    creditoFeriadoMin: periodo.creditoFeriadoMin,
     atrasoMin: periodo.atrasoMin,
     abatidoMin: banco.abatidoMin,
     extraAPagarMin: banco.extraAPagarMin,

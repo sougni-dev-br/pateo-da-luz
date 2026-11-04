@@ -9,8 +9,9 @@
 //   noturno         minutos de relógio entre 22h e 5h (a hora reduzida de 52,5 min é aplicada
 //                   no valor, em hora-extra.ts)
 //
-// Domingo e feriado trabalhados contam como dia comum (decisão do Eli); extraDescansoMin segue
-// no contrato, mas fica sempre zero.
+// Domingo trabalhado conta como dia comum (decisão do Eli); extraDescansoMin segue no contrato, mas fica
+// sempre zero. FERIADO trabalhado não é pago: a empresa compensa com folga, então todo o trabalhado vira
+// crédito no banco de horas (creditoFeriadoMin), sem atraso nem extra a pagar.
 //
 // MARCAÇÃO ÍMPAR (3 ou mais batidas): como o RHiD, valem só os pares completos e a última batida
 // é ignorada, com aviso. Uma batida isolada continua pendente.
@@ -46,6 +47,8 @@ export interface DiaPontoApurado {
   noturnoMin: number;
   extraMin: number;
   extraDescansoMin: number;
+  /** Feriado trabalhado: o dia inteiro vira crédito no banco (folga compensatória), não extra a pagar. */
+  creditoFeriadoMin: number;
   atrasoMin: number;
   falta: boolean;
   /** Batida pendente ou contradição com a escala: nada foi lançado em extra, atraso ou falta. */
@@ -59,6 +62,7 @@ export interface PeriodoPontoApurado {
   noturnoMin: number;
   extraMin: number;
   extraDescansoMin: number;
+  creditoFeriadoMin: number;
   atrasoMin: number;
   faltas: number;
   diasPendentes: number;
@@ -170,7 +174,12 @@ export function apurarDia(entrada: DiaPontoEntrada): DiaPontoApurado {
 
   if (pendente) {
     avisos.push("Sem apuração até corrigir as batidas.");
-    return { ...base, extraMin: 0, extraDescansoMin: 0, atrasoMin: 0, falta: false, pendente: true };
+    return { ...base, extraMin: 0, extraDescansoMin: 0, creditoFeriadoMin: 0, atrasoMin: 0, falta: false, pendente: true };
+  }
+
+  // Feriado trabalhado: não é extra a pagar; o dia todo entra no banco como folga compensatória.
+  if (entrada.feriado && temBatida) {
+    return { ...base, extraMin: 0, extraDescansoMin: 0, creditoFeriadoMin: trabalhadoMin, atrasoMin: 0, falta: false, pendente: false };
   }
 
   if (entrada.previstoMin <= 0) {
@@ -179,6 +188,7 @@ export function apurarDia(entrada: DiaPontoEntrada): DiaPontoApurado {
       ...base,
       extraMin: trabalhadoMin,
       extraDescansoMin: 0,
+      creditoFeriadoMin: 0,
       atrasoMin: 0,
       falta: false,
       pendente: false,
@@ -186,7 +196,7 @@ export function apurarDia(entrada: DiaPontoEntrada): DiaPontoApurado {
   }
 
   if (!temBatida) {
-    return { ...base, extraMin: 0, extraDescansoMin: 0, atrasoMin: 0, falta: !entrada.abonado, pendente: false };
+    return { ...base, extraMin: 0, extraDescansoMin: 0, creditoFeriadoMin: 0, atrasoMin: 0, falta: !entrada.abonado, pendente: false };
   }
 
   const diferenca = trabalhadoMin - entrada.previstoMin;
@@ -194,12 +204,12 @@ export function apurarDia(entrada: DiaPontoEntrada): DiaPontoApurado {
   const extraMin = contaDiferenca && diferenca > 0 ? diferenca : 0;
   const atrasoMin = contaDiferenca && diferenca < 0 && !entrada.abonado ? -diferenca : 0;
   if (extraMin > LIMITE_EXTRA_DIA_MIN) avisos.push("Mais de 2h extras no dia.");
-  return { ...base, extraMin, extraDescansoMin: 0, atrasoMin, falta: false, pendente: false };
+  return { ...base, extraMin, extraDescansoMin: 0, creditoFeriadoMin: 0, atrasoMin, falta: false, pendente: false };
 }
 
 export function apurarPeriodo(entradas: DiaPontoEntrada[]): PeriodoPontoApurado {
   const dias = entradas.map(apurarDia);
-  const soma = (campo: "trabalhadoMin" | "noturnoMin" | "extraMin" | "extraDescansoMin" | "atrasoMin") =>
+  const soma = (campo: "trabalhadoMin" | "noturnoMin" | "extraMin" | "extraDescansoMin" | "creditoFeriadoMin" | "atrasoMin") =>
     dias.reduce((s, d) => s + d[campo], 0);
   return {
     dias,
@@ -207,6 +217,7 @@ export function apurarPeriodo(entradas: DiaPontoEntrada[]): PeriodoPontoApurado 
     noturnoMin: soma("noturnoMin"),
     extraMin: soma("extraMin"),
     extraDescansoMin: soma("extraDescansoMin"),
+    creditoFeriadoMin: soma("creditoFeriadoMin"),
     atrasoMin: soma("atrasoMin"),
     faltas: dias.filter((d) => d.falta).length,
     diasPendentes: dias.filter((d) => d.pendente).length,

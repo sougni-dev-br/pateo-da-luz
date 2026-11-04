@@ -326,6 +326,7 @@ function resumoGuardado(f: PontoFechamento, diasComAviso: number, diasPendentes:
     faltas: f.faltas,
     noturnoMin: f.noturnoMin,
     extraDescansoMin: f.extraDescansoMin,
+    creditoFeriadoMin: 0, // não é gravado à parte: já está dentro do saldo final guardado
     atrasoMin: f.atrasoMin,
     abatidoMin: f.abatidoMin,
     extraAPagarMin: f.extraAPagarMin,

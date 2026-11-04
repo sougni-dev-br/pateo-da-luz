@@ -115,12 +115,13 @@ describe("apurarDia — invariantes sobre 6.000 dias aleatórios", () => {
       const r = apurarDia(c);
       if (r.pendente) continue; // dia pendente: nada é lançado até corrigir as batidas
       expect([r.atrasoMin, r.falta], JSON.stringify({ c, r })).toEqual([0, false]);
-      expect(r.extraMin + r.extraDescansoMin, JSON.stringify({ c, r })).toBe(r.trabalhadoMin);
+      // feriado trabalhado vira crédito no banco; o resto do trabalhado é extra
+      expect(r.extraMin + r.extraDescansoMin + r.creditoFeriadoMin, JSON.stringify({ c, r })).toBe(r.trabalhadoMin);
     }
   });
 
   test("tolerância da CLT: diferença de até 10 min no dia não gera extra nem atraso; acima, conta a diferença inteira", () => {
-    for (const c of casos.filter((x) => x.previstoMin > 0 && x.marcacoes.length > 0)) {
+    for (const c of casos.filter((x) => x.previstoMin > 0 && x.marcacoes.length > 0 && !x.feriado)) {
       const r = apurarDia(c);
       if (r.pendente) continue; // dia pendente: nada é lançado até corrigir as batidas
       const diferenca = r.trabalhadoMin - c.previstoMin;

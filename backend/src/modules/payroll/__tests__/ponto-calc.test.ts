@@ -69,9 +69,21 @@ describe("apurarDia — folga, domingo e feriado", () => {
     expect(r.extraDescansoMin).toBe(0);
   });
 
-  test("feriado trabalhado conta como dia comum (extra comum)", () => {
+  test("feriado trabalhado não é extra a pagar: o dia todo vira crédito no banco (folga compensatória)", () => {
     const r = apurarDia(dia("2026-10-12", ["10:00", "14:00"], 0, { feriado: true }));
-    expect([r.extraMin, r.extraDescansoMin]).toEqual([240, 0]);
+    expect([r.extraMin, r.extraDescansoMin, r.creditoFeriadoMin, r.atrasoMin]).toEqual([0, 0, 240, 0]);
+  });
+
+  test("feriado com jornada prevista: trabalhar menos não gera atraso e trabalhar mais não gera extra; tudo é crédito", () => {
+    const curto = apurarDia(dia("2026-10-12", ["12:00", "16:00"], 440, { feriado: true }));
+    expect([curto.atrasoMin, curto.extraMin, curto.creditoFeriadoMin, curto.falta]).toEqual([0, 0, 240, false]);
+    const longo = apurarDia(dia("2026-10-12", ["08:00", "12:00", "13:00", "19:46"], 440, { feriado: true }));
+    expect([longo.extraMin, longo.creditoFeriadoMin]).toEqual([0, 646]);
+  });
+
+  test("domingo trabalhado segue como dia comum (extra comum)", () => {
+    const r = apurarDia(dia("2026-10-11", ["10:00", "14:00"], 0));
+    expect([r.extraMin, r.creditoFeriadoMin]).toEqual([240, 0]);
   });
 });
 
