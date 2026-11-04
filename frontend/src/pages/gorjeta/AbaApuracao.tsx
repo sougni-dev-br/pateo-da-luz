@@ -114,8 +114,10 @@ const ANTES_DOS_PONTOS = ["base", "faltas", "atestados", "ferias", "afastamento"
 
 // Digitado diferente do que está na Escala: o número da escala aparece embaixo, para
 // quem confere perceber a diferença sem abrir a Escala.
-export function Ocorrencia({ value, escala, naEscala, manual, disabled, label, onChange, desconta = true }: {
+export function Ocorrencia({ value, escala, naEscala, manual, disabled, label, onChange, desconta = true, doPonto = false }: {
   value: string; escala: number; naEscala?: number; manual: boolean; disabled: boolean; label: string; onChange: (v: string) => void; desconta?: boolean;
+  /** O valor automático (placeholder) vem do Ponto fechado, não só da Escala. */
+  doPonto?: boolean;
 }) {
   const diverge = manual && naEscala != null && Number(value) !== naEscala;
   const campo = (
@@ -124,11 +126,19 @@ export function Ocorrencia({ value, escala, naEscala, manual, disabled, label, o
         textDecoration: desconta ? undefined : "line-through", color: desconta ? undefined : "var(--muted)" }}
       type="number" min="0" max="31" step="1" value={value} disabled={disabled} aria-label={label}
       placeholder={escala ? String(escala) : ""}
-      title={(manual ? "Digitado — apague para voltar a usar a Escala" : "Vazio = usa a Escala") + (desconta ? "" : ". Não desconta para esta pessoa.")}
+      title={(manual ? "Digitado — apague para voltar a usar a Escala" : doPonto ? "Vazio = usa o Ponto fechado (mais as faltas da Escala)" : "Vazio = usa a Escala") + (desconta ? "" : ". Não desconta para esta pessoa.")}
       onChange={(e) => onChange(e.target.value)}
     />
   );
-  if (!diverge) return campo;
+  if (!diverge && !(doPonto && !manual)) return campo;
+  if (!diverge) {
+    return (
+      <span style={{ display: "inline-flex", flexDirection: "column", alignItems: "center" }}>
+        {campo}
+        <span style={{ fontSize: 10, color: "var(--muted)", whiteSpace: "nowrap" }} title="Faltas do Ponto fechado, mais as que a Escala já marcava">do Ponto</span>
+      </span>
+    );
+  }
   return (
     <span style={{ display: "inline-flex", flexDirection: "column", alignItems: "center" }}>
       {campo}
@@ -280,7 +290,7 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
         </Table.Td>
 )}
 {v("faltas") && (
-        <Table.Td align="center" style={inicioBloco}><Ocorrencia label={`Faltas de ${p.employeeName}`} desconta={p.regrasEfetivas.descontaFalta} value={r.faltas} escala={p.faltasOrigem === "ESCALA" ? p.faltas : 0} naEscala={p.escala?.faltas} manual={r.faltas !== ""} disabled={readonly} onChange={(v) => set({ faltas: v })} /></Table.Td>
+        <Table.Td align="center" style={inicioBloco}><Ocorrencia label={`Faltas de ${p.employeeName}`} desconta={p.regrasEfetivas.descontaFalta} value={r.faltas} escala={p.faltasOrigem !== "MANUAL" ? p.faltas : 0} doPonto={p.faltasOrigem === "PONTO"} naEscala={p.escala?.faltas} manual={r.faltas !== ""} disabled={readonly} onChange={(v) => set({ faltas: v })} /></Table.Td>
 )}
 {v("atestados") && (
         <Table.Td align="center"><Ocorrencia label={`Atestados de ${p.employeeName}`} desconta={p.regrasEfetivas.descontaAtestado} value={r.atestados} escala={p.atestadosOrigem === "ESCALA" ? p.atestados : 0} naEscala={p.escala?.atestados} manual={r.atestados !== ""} disabled={readonly} onChange={(v) => set({ atestados: v })} /></Table.Td>

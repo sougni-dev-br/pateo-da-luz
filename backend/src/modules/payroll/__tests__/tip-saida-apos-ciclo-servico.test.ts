@@ -162,3 +162,6 @@ describe("marcador tudoNaRescisao", () => {
     expect(p.totalAPagar).toBe(0);
   });
 });
+
+// O Ponto fechado não entra nestes cenários: sem Ponto fechado, valem a Escala e o que foi digitado.
+vi.mock("../ponto-apuracao.js", () => ({ carregarPontoDaApuracao: async () => ({ faltas: () => null, horas: () => null }) }));

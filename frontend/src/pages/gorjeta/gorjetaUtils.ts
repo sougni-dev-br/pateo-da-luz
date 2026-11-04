@@ -129,6 +129,14 @@ export function valorHoraExtraTotal(p: Pick<TipComputedParticipant, "valorHoraEx
   if (p.valorHoraExtra == null) return null;
   return Math.round((p.valorHoraExtra + (p.valorAdicionalNoturno ?? 0)) * 100) / 100;
 }
+const semTexto = (t: string | null | undefined) => t == null || t.trim() === "";
+/** Hora extra que vale: a digitada e, se nada foi digitado, a que o Ponto fechado trouxe. */
+export const horaExtraDe = (p: Pick<TipComputedParticipant, "horaExtra" | "horaExtraPonto">): string | null => (semTexto(p.horaExtra) ? p.horaExtraPonto ?? null : p.horaExtra);
+export const noturnoDe = (p: Pick<TipComputedParticipant, "adicionalNoturno" | "adicionalNoturnoPonto">): string | null => (semTexto(p.adicionalNoturno) ? p.adicionalNoturnoPonto ?? null : p.adicionalNoturno);
+/** Horas da linha da tela: o digitado e, vazio, as do Ponto. */
+export const horasDaLinha = (digitado: string, doPonto?: string | null): string | null => (digitado.trim() === "" ? doPonto ?? null : digitado);
+export const dicaDoPonto = (doPonto: string | null | undefined, digitado: string): string | undefined =>
+  doPonto && digitado.trim() === "" ? `Do Ponto fechado (${doPonto}). Digite para trocar.` : undefined;
 export const REGRA_HORA_EXTRA = "Hora extra = salário ÷ 220 × 1,5; adicional noturno = 20% sobre a hora noturna de 52,5 min.";
 export const NOTA_HORA_EXTRA_OCULTA = "A pagar já considera a hora extra.";
 
@@ -138,10 +146,10 @@ export const NOTA_HORA_EXTRA_OCULTA = "A pagar já considera a hora extra.";
 export const REGRA_DSR = "DSR = (hora extra + noturno) × domingos e feriados ÷ dias úteis do mês.";
 export const NOTA_DSR_OCULTO = "A pagar já considera o DSR.";
 export function mostraDsr(
-  lista: Pick<TipComputedParticipant, "valorDsr" | "horaExtra" | "adicionalNoturno">[],
+  lista: Pick<TipComputedParticipant, "valorDsr" | "horaExtra" | "adicionalNoturno" | "horaExtraPonto" | "adicionalNoturnoPonto">[],
 ): boolean {
-  const temHoras = (p: Pick<TipComputedParticipant, "horaExtra" | "adicionalNoturno">) =>
-    (parseHoras(p.horaExtra) ?? 0) > 0 || (parseHoras(p.adicionalNoturno) ?? 0) > 0;
+  const temHoras = (p: Pick<TipComputedParticipant, "horaExtra" | "adicionalNoturno" | "horaExtraPonto" | "adicionalNoturnoPonto">) =>
+    (parseHoras(horaExtraDe(p)) ?? 0) > 0 || (parseHoras(noturnoDe(p)) ?? 0) > 0;
   return lista.some((p) => (p.valorDsr ?? 0) > 0 || (p.valorDsr === null && temHoras(p)));
 }
 

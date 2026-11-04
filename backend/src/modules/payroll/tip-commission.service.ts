@@ -16,7 +16,8 @@ import { round2 } from "./vt-calc.js";
 import { motivoParaNaoRetirar, saldoReserva, travarFundo } from "./tip-historico.service.js";
 import { proximoCodigoApuracao, registrarFechamento, registrarReabertura } from "./tip-fechamento.service.js";
 import { DIA_PRIMEIRA_QUINZENA, adiantamentoDoFechado, calcularRateio, destinoSobraValido, emTesteNaGorjeta, motivoGorjetaRealSemEfeito, type DestinoSobra, type ParticipanteEntrada, type RegrasPeriodo, type TipoCalculo, regraEfetiva } from "./tip-rateio.js";
-import { minutosValidos, parseHoras } from "./hora-extra.js";
+import { fmtHoras, minutosValidos, parseHoras } from "./hora-extra.js";
+import { carregarPontoDaApuracao } from "./ponto-apuracao.js";
 import { apelidoDe, nomeCompleto } from "./nomes.js";
 import { diaDeReferencia } from "./cadastro-historico.js";
 import { cadastrosVigentes, cadastrosVigentesEmDatas } from "./cadastro-historico.service.js";
@@ -85,7 +86,7 @@ export type ReciboGravado = {
   importadoPor: string;
 };
 export type ComputedVale = { id: string; type: string; amount: number; date: string | null; notes: string | null };
-export type Origem = "ESCALA" | "MANUAL";
+export type Origem = "ESCALA" | "MANUAL" | "PONTO";
 
 export type RescisaoContasPagar = {
   valor: number | null;
@@ -202,6 +203,9 @@ export type ComputedParticipant = {
   pixKey: string | null;
   horaExtra: string | null;
   adicionalNoturno: string | null;
+  /** Hora extra e adicional noturno que o Ponto fechado traz (h:mm) quando nada foi digitado; null = sem Ponto fechado ou não se aplica. */
+  horaExtraPonto: string | null;
+  adicionalNoturnoPonto: string | null;
   justificada: boolean;
   vales: ComputedVale[];
 };
@@ -590,6 +594,10 @@ export async function computeTipCommission(
   const escala = await contarOcorrenciasDaEscala(rows.map((r) => r.employeeId), start, end);
   // Faltas do mês civil, para o salário (as do fim do mês anterior são daquele salário).
   const escalaMes = await contarOcorrenciasDaEscala(rows.map((r) => r.employeeId), regras.mesSalario!.start, regras.mesSalario!.end);
+  // O Ponto fechado alimenta faltas e hora extra / noturno. Período fechado não muda: vale o que o fechamento gravou.
+  const pontoNaApuracao = periodoFechado
+    ? null
+    : await carregarPontoDaApuracao(rows.map((r) => r.employeeId), [{ ini: start, fim: end }, { ini: regras.mesSalario!.start, fim: regras.mesSalario!.end }], { year, month });
 
   // Serviço até o desligamento, para quem saiu dentro do período (inclusive com a gorjeta
   // paga: é ele que dá o valor do ponto da saída para medir o que foi pago).
@@ -664,8 +672,21 @@ export async function computeTipCommission(
   const afastamentoDe = (employeeId: string, aoVivo: AfastamentoFechado): AfastamentoFechado =>
     afastamentosFechados ? afastamentosFechados.get(employeeId) ?? { afastamento: 0, afastamentoSalario: 0 } : aoVivo;
 
+  // Do Ponto fechado: faltas do ciclo e do mês do salário, e as horas (sem registro: entram no total da lista;
+  // CLT: só vão para a contabilidade, o total não muda).
+  const pontoDe = (r: (typeof rows)[number]) => {
+    const horas = pontoNaApuracao?.horas(r.employeeId) ?? null;
+    return {
+      faltasCiclo: pontoNaApuracao?.faltas(r.employeeId, start, end) ?? null,
+      faltasMes: pontoNaApuracao?.faltas(r.employeeId, regras.mesSalario!.start, regras.mesSalario!.end) ?? null,
+      horas,
+    };
+  };
+  const semTexto = (t: string | null | undefined) => t == null || t.trim() === "";
+
   const entradas: ParticipanteEntrada[] = rows.map((r) => {
     const e = escala.get(r.employeeId) ?? semOcorrencias();
+    const ponto = pontoDe(r);
     const afast = afastamentoDe(r.employeeId, { afastamento: e.afastamento, afastamentoSalario: escalaMes.get(r.employeeId)?.afastamento ?? 0 });
     return {
       kind: r.kind,
@@ -675,7 +696,7 @@ export async function computeTipCommission(
       admissao: r.employee.admissionDate,
       inicioGorjeta: r.employee.inicioGorjeta ?? null,
       desligamento: r.employee.terminationDate,
-      faltas: r.faltas ?? e.faltas,
+      faltas: r.faltas ?? ponto.faltasCiclo ?? e.faltas,
       atestados: r.atestados ?? e.atestados,
       ferias: r.ferias ?? e.ferias,
       afastamento: afast.afastamento,
@@ -695,7 +716,7 @@ export async function computeTipCommission(
       salarioBaseAdiantamento: vigentesAdiantamento.get(r.employeeId)?.baseSalary ?? null,
       diasSalarioOverride: r.diasSalarioOverride,
       // Faltas digitadas na apuração não dizem o dia: valem também para o salário.
-      faltasSalario: r.faltas ?? escalaMes.get(r.employeeId)?.faltas ?? 0,
+      faltasSalario: r.faltas ?? ponto.faltasMes ?? escalaMes.get(r.employeeId)?.faltas ?? 0,
       recebeAdiantamento: vigenteDe(r).recebeAdiantamento,
       adiantamentoLancado: vigenteDe(r).modality === "NAO_CLT" ? adiantamentosLancados.get(r.employeeId) : undefined,
       quinzenaLancada: vigenteDe(r).modality === "NAO_CLT" ? quinzenasLancadas.get(r.employeeId) : undefined,
@@ -703,8 +724,8 @@ export async function computeTipCommission(
       rescisaoLancada: rescisaoCobreEstePeriodo(r),
       rescisaoTudoNaRescisao: rescisoesLancadas.get(r.employeeId)?.tudoNaRescisao === true,
       gorjetaReal: num(r.gorjetaReal),
-      horaExtraMin: minutosValidos(r.horaExtra),
-      adicionalNoturnoMin: minutosValidos(r.adicionalNoturno),
+      horaExtraMin: semTexto(r.horaExtra) && ponto.horas ? ponto.horas.horaExtraMin : minutosValidos(r.horaExtra),
+      adicionalNoturnoMin: semTexto(r.adicionalNoturno) && ponto.horas ? ponto.horas.noturnoMin : minutosValidos(r.adicionalNoturno),
       foraDaGorjeta: foraDe(r),
       vales: r.vales.map((v) => ({ type: v.type, amount: Number(v.amount) })),
     };
@@ -784,7 +805,7 @@ export async function computeTipCommission(
       escala: { faltas: naEscala.faltas, atestados: naEscala.atestados, ferias: naEscala.ferias, afastamento: naEscala.afastamento },
       // Fechado: o que o retrato guardou (mudar a escala depois não reescreve o fechado).
       folgasEscala: closed ? folgasFechadas?.get(r.employeeId) ?? null : naEscala.folgas,
-      faltas: ent.faltas, faltasOrigem: r.faltas == null ? "ESCALA" : "MANUAL",
+      faltas: ent.faltas, faltasOrigem: r.faltas != null ? "MANUAL" : pontoDe(r).faltasCiclo != null && pontoDe(r).faltasCiclo !== naEscala.faltas ? "PONTO" : "ESCALA",
       atestados: ent.atestados, atestadosOrigem: r.atestados == null ? "ESCALA" : "MANUAL",
       ferias: ent.ferias, feriasOrigem: r.ferias == null ? "ESCALA" : "MANUAL",
       afastamento: ent.afastamento ?? 0,
@@ -847,6 +868,8 @@ export async function computeTipCommission(
       pixKey: dadosPessoais ? r.employee.pixKey : null,
       horaExtra: r.horaExtra ?? null,
       adicionalNoturno: r.adicionalNoturno ?? null,
+      horaExtraPonto: pontoDe(r).horas ? fmtHoras(pontoDe(r).horas!.horaExtraMin) : null,
+      adicionalNoturnoPonto: pontoDe(r).horas ? fmtHoras(pontoDe(r).horas!.noturnoMin) : null,
       justificada: Boolean(r.justificada),
       vales: r.vales.map((v) => ({
         id: v.id, type: v.type, amount: Number(v.amount),
@@ -1306,6 +1329,9 @@ export async function closeTipPeriod(year: number, month: number, usuario: { id:
           faltas: p.faltas,
           atestados: p.atestados,
           ferias: p.ferias,
+          // As horas que vieram do Ponto (nada digitado) ficam gravadas: o fechado mostra de onde saiu o valor.
+          ...(p.horaExtra == null && p.horaExtraPonto && parseHoras(p.horaExtraPonto)! > 0 ? { horaExtra: p.horaExtraPonto } : {}),
+          ...(p.adicionalNoturno == null && p.adicionalNoturnoPonto && parseHoras(p.adicionalNoturnoPonto)! > 0 ? { adicionalNoturno: p.adicionalNoturnoPonto } : {}),
           rescisaoServicoBruto: p.rescisaoServicoBruto,
           functionName: p.functionName,
         },

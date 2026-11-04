@@ -488,6 +488,23 @@ async function exigirMesAnteriorFechado(tx: Tx, linhas: LinhaFechamento[], year:
   }
 }
 
+export interface PontoFechadoDaPessoa {
+  /** Dias de falta apurados pelo Ponto (dia previsto sem batida e sem abono). */
+  faltaDias: string[];
+  extraAPagarMin: number;
+  noturnoMin: number;
+}
+
+/** O que o Ponto fechou no mês, por pessoa: só quem está FECHADO entra. É daqui que a apuração da gorjeta e a lista de pagamento leem. */
+export async function pontoFechadoDoMes(year: number, month: number, cliente: Cliente = prisma): Promise<Map<string, PontoFechadoDaPessoa>> {
+  const linhas = await apurarMes(year, month, cliente);
+  return new Map(
+    linhas
+      .filter((l) => l.status === "FECHADO" && !l.semJornada)
+      .map((l) => [l.employeeId, { faltaDias: l.periodo.dias.filter((d) => d.falta).map((d) => d.data), extraAPagarMin: l.resumo.extraAPagarMin, noturnoMin: l.resumo.noturnoMin }]),
+  );
+}
+
 export async function fecharMes(year: number, month: number, userId: string, opcoes: { confirmarAvisos?: boolean } = {}) {
   const ultimoDia = diasDoMes(year, month).at(-1) as string;
   // O último dia ainda pode ter turno aberto (batida de saída por vir): só fecha a partir do dia seguinte.

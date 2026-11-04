@@ -210,3 +210,6 @@ describe("DSR sobre a hora extra de quem não tem registro", () => {
     expect(p.adiantamentoSalarial).toBe(880);
   });
 });
+
+// O Ponto fechado não entra nestes cenários: sem Ponto fechado, valem a Escala e o que foi digitado.
+vi.mock("../ponto-apuracao.js", () => ({ carregarPontoDaApuracao: async () => ({ faltas: () => null, horas: () => null }) }));
