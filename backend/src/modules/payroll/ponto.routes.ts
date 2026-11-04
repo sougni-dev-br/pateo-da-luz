@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { Router, type Request, type Response } from "express";
 import { type MenuId, type PermissionAction, userHasPermission } from "../security/menu-permissions.js";
 import { auditLog, getSessionUser, requestIp, type SessionUser } from "../security/security-utils.js";
+import { importarCartaoPonto } from "./cartao-ponto.service.js";
 import { PontoRecusa, apurarMes, batidasDoMes, faltasParaEscala, fecharMes, importarAfd, lancarDia, marcarFolgaBanco, parseMes, reabrirMes } from "./ponto.service.js";
 
 // Ponto: apuração de horas pela CLT para o fechamento da folha. Montado sob /payroll, então o
@@ -147,6 +148,31 @@ pontoRouter.post("/importar-afd", async (request, response) => {
       newValue: { ...resultado, avisos: resultado.avisos.length, arquivoSha256: createHash("sha256").update(texto).digest("hex") },
       ...auditoria(request),
     });
+    return response.json(resultado);
+  } catch (err) {
+    return responderErro(err, response);
+  }
+});
+
+// POST /payroll/ponto/importar-cartao — { texto, confirmar? } com o Cartão de Ponto em CSV do RHiD.
+// Sem confirmar devolve só a prévia; com confirmar: true grava batidas e traduz folga, banco, feriado e falta para a Escala.
+pontoRouter.post("/importar-cartao", async (request, response) => {
+  const user = await sessaoCom(request, response, [["payroll", "approve"], ["schedule", "edit"]], "importar o cartão de ponto");
+  if (!user) return;
+  const corpo = request.body as { texto?: unknown; confirmar?: unknown } | undefined;
+  const texto = corpo?.texto;
+  if (typeof texto !== "string" || texto.length === 0) return response.status(400).json({ message: "Envie o conteúdo do Cartão de Ponto (CSV)." });
+  if (texto.length > MAX_AFD_CARACTERES) return response.status(413).json({ message: "Arquivo grande demais." });
+  const confirmar = corpo?.confirmar === true;
+  try {
+    const resultado = await importarCartaoPonto(texto, user.id, confirmar);
+    if (confirmar) {
+      await auditLog({
+        userId: user.id, action: "IMPORT_PONTO_CARTAO", entity: "PontoDia",
+        newValue: { ...resultado, mudancas: resultado.mudancas.length, mantidos: resultado.mantidos.length, arquivoSha256: createHash("sha256").update(texto).digest("hex") },
+        ...auditoria(request),
+      });
+    }
     return response.json(resultado);
   } catch (err) {
     return responderErro(err, response);
