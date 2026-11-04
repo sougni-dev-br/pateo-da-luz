@@ -64,6 +64,8 @@ export interface EntradaDoDiaParams {
   marcacoes: string[];
   jornada: JornadaCadastro;
   tipoEscala: TipoDiaEscala | null;
+  /** Horas do dia abonadas (atestado de horas etc.): só valem para o dia com batidas. */
+  abonoMin?: number;
   /** O mês tem escala montada para a pessoa: dia sem marca vale como dia trabalhado (é assim que a Escala, a gorjeta e a folha leem). */
   mesMontado?: boolean;
   feriado?: boolean;
@@ -81,7 +83,7 @@ export function entradaDoDia(p: EntradaDoDiaParams): EntradaDoDia {
   const jornadaMin = jornadaDiariaMin(p.jornada);
   if (jornadaMin == null) return { entrada: null, debitoBancoMin: 0, avisos: ["Jornada não cadastrada."] };
 
-  const base = { data: p.data, marcacoes: p.marcacoes, ...(p.feriado ? { feriado: true } : {}) };
+  const base = { data: p.data, marcacoes: p.marcacoes, ...(p.feriado ? { feriado: true } : {}), ...(p.abonoMin && p.marcacoes.length > 0 ? { abonoMin: p.abonoMin } : {}) };
   const tipo = p.tipoEscala;
 
   const temBatida = p.marcacoes.length > 0;

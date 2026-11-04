@@ -4,7 +4,7 @@ import { assertPeriodWritableForRange } from "../cmv-real/cmv-real.service.js";
 import { agruparBatidasPorDia, ehAfdt, lerAfd671, lerAfdt } from "./afd-parser.js";
 import { holidaysForYear } from "./holidays.js";
 import type { ResumoFechamento } from "./ponto-banco.js";
-import { decidirFolgaBanco, jornadaDaPessoa, rotuloTurno, type TipoDiaEscala } from "./ponto-jornada.js";
+import { decidirFolgaBanco, jornadaDaPessoa, jornadaDiariaMin, rotuloTurno, type TipoDiaEscala } from "./ponto-jornada.js";
 import { apurarMesPessoa, diasDoMes, type MesPessoa } from "./ponto-mes.js";
 import { chaveTravaMes, foiGravadoPeloPonto, notaDoPonto, tipoAnteriorDoPonto, travarMeses } from "./ponto-trava.js";
 
@@ -162,6 +162,60 @@ export async function lancarDia(p: { employeeId: string; date: string; marcacoes
       update: { ...dados, ...notas },
     });
     return { employeeId: emp.id, date: p.date, marcacoes, anterior, faltaDesfeita };
+  });
+}
+
+// ─── Abono de horas ─────────────────────────────────────────────────────────────
+
+export const MOTIVOS_DE_ABONO = ["ATESTADO_HORAS", "MEDICO_TRABALHO", "ACOMPANHAR_FAMILIAR", "OUTRO"] as const;
+export type MotivoDeAbono = (typeof MOTIVOS_DE_ABONO)[number];
+const ABONO_MAXIMO_MIN = 12 * 60;
+
+/** Valida o pedido de abono: minutos inteiros de 0 a 12h (0 remove) e, havendo abono, um motivo conhecido; "Outro" pede observação. */
+export function validarAbono(minutos: unknown, motivo: unknown, observacao: unknown): { abonoMin: number; abonoMotivo: MotivoDeAbono | null } {
+  const abonoMin = typeof minutos === "number" ? minutos : Number.NaN;
+  if (!Number.isInteger(abonoMin) || abonoMin < 0 || abonoMin > ABONO_MAXIMO_MIN) {
+    throw new PontoRecusa(400, "Informe as horas abonadas (de 0:01 a 12:00; 0:00 remove o abono).");
+  }
+  if (abonoMin === 0) return { abonoMin: 0, abonoMotivo: null };
+  if (typeof motivo !== "string" || !(MOTIVOS_DE_ABONO as readonly string[]).includes(motivo)) throw new PontoRecusa(400, "Escolha o motivo do abono.");
+  if (motivo === "OUTRO" && letrasDoTexto(observacao) < 3) throw new PontoRecusa(400, "Em “Outro”, escreva a observação do abono.");
+  return { abonoMin, abonoMotivo: motivo as MotivoDeAbono };
+}
+
+const letrasDoTexto = (t: unknown): number => (typeof t === "string" ? (t.match(/\p{L}/gu) ?? []).length : 0);
+
+export interface AbonoGravado {
+  employeeId: string;
+  date: string;
+  abonoMin: number;
+  abonoMotivo: MotivoDeAbono | null;
+  /** O abono que o dia tinha antes (para a auditoria). */
+  anterior: { abonoMin: number; abonoMotivo: string | null };
+}
+
+/**
+ * Abona horas de um dia que já tem batidas (atestado de horas, médico do trabalho…): as horas contam como cumpridas, sem atraso
+ * e sem sair do banco. Só mexe no abono: as batidas e a origem do dia ficam como estão.
+ */
+export async function abonarDia(p: { employeeId: string; date: string; abonoMin: unknown; abonoMotivo: unknown; notes?: unknown; userId: string }): Promise<AbonoGravado> {
+  if (!dataValida(p.date)) throw new PontoRecusa(400, "Data inválida.");
+  if (p.date > hojeSaoPaulo()) throw new PontoRecusa(400, "Não dá para abonar um dia que ainda não chegou.");
+  const { abonoMin, abonoMotivo } = validarAbono(p.abonoMin, p.abonoMotivo, p.notes);
+  const emp = await funcionarioNoDia(p.employeeId, p.date);
+  const [year, month] = [Number(p.date.slice(0, 4)), Number(p.date.slice(5, 7))];
+  const date = diaDate(p.date);
+  // A observação (pode trazer dado de saúde) só é gravada se vier no pedido; o abono removido não deixa observação para trás.
+  const notas = typeof p.notes === "string" && abonoMin > 0 ? { notes: p.notes.trim() ? p.notes.trim().slice(0, 300) : null } : {};
+
+  return prisma.$transaction(async (tx) => {
+    await travarMeses(tx, [chaveTravaMes(year, month)]);
+    const fechamento = await tx.pontoFechamento.findUnique({ where: { employeeId_year_month: { employeeId: emp.id, year, month } } });
+    if (fechamento?.status === "FECHADO") throw new PontoRecusa(409, "O ponto deste mês já está fechado. Reabra para abonar.");
+    const atual = await tx.pontoDia.findUnique({ where: { employeeId_date: { employeeId: emp.id, date } } });
+    if (!atual || atual.marcacoes.length === 0) throw new PontoRecusa(409, "Lance as batidas do dia antes de abonar horas.");
+    await tx.pontoDia.update({ where: { employeeId_date: { employeeId: emp.id, date } }, data: { abonoMin, abonoMotivo, ...notas } });
+    return { employeeId: emp.id, date: p.date, abonoMin, abonoMotivo, anterior: { abonoMin: atual.abonoMin, abonoMotivo: atual.abonoMotivo } };
   });
 }
 
@@ -379,6 +433,7 @@ export async function apurarMes(year: number, month: number, cliente: Cliente = 
   const linhas: LinhaFechamento[] = [];
   for (const f of funcionarios) {
     const batidasPorDia = new Map((pontosDe.get(f.id) ?? []).map((p) => [isoDia(p.date), p.marcacoes]));
+    const abonoPorDia = new Map((pontosDe.get(f.id) ?? []).filter((p) => p.abonoMin > 0).map((p) => [isoDia(p.date), p.abonoMin]));
     const { jornada, fonte } = jornadaDaPessoa(f);
     const turno = rotuloTurno(jornada);
     // Entra quem monta escala e tem turno, e quem tem batida. Fora disso, sem turno e sem batida, não há o que apurar.
@@ -391,6 +446,7 @@ export async function apurarMes(year: number, month: number, cliente: Cliente = 
       naEscala: f.includeInSchedule,
       escalaMontada: mesMontadoPorMarcasDaEscala(marcas),
       batidasPorDia,
+      abonoPorDia,
       escalaPorDia: escalaEfetiva(f.id, marcas, ferias),
       feriados,
       admissao: f.admissionDate ? isoDia(f.admissionDate) : null,
@@ -518,9 +574,11 @@ export async function batidasDoMes(employeeId: string, year: number, month: numb
   const turno = pessoa ? rotuloTurno(jornadaDaPessoa(pessoa).jornada) : null;
   return {
     // A anotação livre (pode trazer dado de saúde) não sai desta resposta.
-    dias: rows.map((r) => ({ date: isoDia(r.date), origem: r.origem, marcacoes: r.marcacoes, editadoManual: r.editadoManual })),
+    dias: rows.map((r) => ({ date: isoDia(r.date), origem: r.origem, marcacoes: r.marcacoes, editadoManual: r.editadoManual, abonoMin: r.abonoMin, abonoMotivo: r.abonoMotivo })),
     escala: [...escalaEfetiva(employeeId, marcas, ferias)].map(([date, tipo]) => ({ date, tipo })),
     turno,
+    /** Jornada diária em minutos (null = sem jornada cadastrada): a tela sugere o abono pelo que faltou. */
+    jornadaMin: pessoa ? jornadaDiariaMin(jornadaDaPessoa(pessoa).jornada) : null,
     mesMontado: Boolean(pessoa?.includeInSchedule) && mesMontadoPorMarcasDaEscala(marcas),
   };
 }

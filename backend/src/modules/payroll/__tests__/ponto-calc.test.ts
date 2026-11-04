@@ -231,3 +231,45 @@ describe("apurarDia — dia pendente não lança dívida nem crédito", () => {
     expect(r.atrasoMin).toBe(240); // só o dia de 3 batidas (4h de 8h previstas); a batida isolada não lança nada
   });
 });
+
+describe("apurarDia — abono de horas (atestado de horas, médico do trabalho)", () => {
+  // jornada 7:20 (440 min); trabalhou 4:19 (259 min): faltaram 3:01 (181 min)
+  const cida = (abonoMin?: number) => apurarDia(dia("2026-10-13", ["08:00", "12:19"], 440, abonoMin ? { abonoMin } : {}));
+
+  test("sem abono, o que faltou vira atraso", () => {
+    expect(cida().atrasoMin).toBe(181);
+  });
+
+  test("abono do que faltou: sem atraso, sem extra, sem aviso", () => {
+    const r = cida(181);
+    expect([r.atrasoMin, r.extraMin, r.falta, r.abonoMin]).toEqual([0, 0, false, 181]);
+    expect(r.avisos.some((a) => a.includes("abono"))).toBe(false);
+  });
+
+  test("abono parcial: só o que sobrou vira atraso", () => {
+    expect(cida(120).atrasoMin).toBe(61);
+  });
+
+  test("sobra dentro da tolerância depois do abono não vira atraso", () => {
+    expect(cida(172).atrasoMin).toBe(0); // faltam 9 min
+    expect(cida(170).atrasoMin).toBe(11); // faltam 11 min: acima da tolerância, vira atraso
+  });
+
+  test("abono maior que a falta avisa e não vira extra", () => {
+    const r = cida(300);
+    expect(r.atrasoMin).toBe(0);
+    expect(r.extraMin).toBe(0);
+    expect(r.avisos.join(" ")).toContain("abono é maior");
+  });
+
+  test("abono em dia que cumpriu a jornada avisa", () => {
+    const r = apurarDia(dia("2026-10-13", ["08:00", "12:00", "13:00", "16:20"], 440, { abonoMin: 60 }));
+    expect(r.atrasoMin).toBe(0);
+    expect(r.avisos.join(" ")).toContain("não faltou hora");
+  });
+
+  test("o período soma o abono", () => {
+    const p = apurarPeriodo([dia("2026-10-13", ["08:00", "12:19"], 440, { abonoMin: 181 }), dia("2026-10-14", ["08:00", "12:00"], 440, { abonoMin: 100 })]);
+    expect(p.abonoMin).toBe(281);
+  });
+});

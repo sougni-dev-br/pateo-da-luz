@@ -3,12 +3,12 @@
 // Também marca a folga tirada contra o banco de horas (mesmo tipo de dia da Escala).
 // O mês é dividido em duas colunas lado a lado (1–16 e 17–31) quando a tela comporta: cabe sem rolar.
 import { ArrowRight, Check } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type FocusEvent, type KeyboardEvent } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState, type FocusEvent, type KeyboardEvent } from "react";
 import { Link } from "react-router-dom";
 import { ROTAS_RH } from "../rotasRh";
-import { type DiaPontoLancado, type ResumoPonto, folgaBancoPonto, getPontoDias, salvarPontoDia } from "../../../api/client";
+import { type DiaPontoLancado, type ResumoPonto, abonarPontoDia, folgaBancoPonto, getPontoDias, salvarPontoDia } from "../../../api/client";
 import { Alert, Button, Select, StatusBadge } from "../../../design-system";
-import { PODE_USAR_BANCO, ROTULO_ESCALA, batidasDosCampos, diasDoMes, fmtMin, normalizarHorario, resumoDoDia, rotuloDoDia, turnoCurto } from "./pontoFormato";
+import { MOTIVOS_DE_ABONO, PODE_USAR_BANCO, ROTULO_DO_ABONO, ROTULO_ESCALA, batidasDosCampos, diasDoMes, fmtMin, minutosDoHorario, normalizarHorario, resumoDoDia, rotuloDoDia, turnoCurto } from "./pontoFormato";
 
 type Props = {
   year: number;
@@ -31,6 +31,7 @@ const DIAS_DA_PRIMEIRA_QUINZENA = 15; // 1ª quinzena: 1 a 15; 2ª: 16 ao últim
 const FOLGA_DO_BANCO = "FOLGA_BANCO_HORAS";
 
 type Situacao = { estado: "salvando" | "salvo" | "erro"; motivo?: string };
+type FormAbono = { horas: string; motivo: string; observacao: string };
 
 const camposDe = (marcacoes: string[]) => [...marcacoes, ...vazios()].slice(0, Math.max(NOMES_CAMPOS.length, marcacoes.length));
 
@@ -45,6 +46,11 @@ export function DigitarPapel({ year, month, pessoas, employeeId, onEscolher, fec
   const [salvos, setSalvos] = useState<Record<string, DiaPontoLancado>>({});
   const [escala, setEscala] = useState<Record<string, string>>({});
   const [turno, setTurno] = useState<string | null>(null);
+  const [jornadaMin, setJornadaMin] = useState<number | null>(null);
+  const [abonando, setAbonando] = useState<string | null>(null);
+  const [formAbono, setFormAbono] = useState<FormAbono>({ horas: "", motivo: "", observacao: "" });
+  const [abonoOcupado, setAbonoOcupado] = useState(false);
+  const [abonoErro, setAbonoErro] = useState<string | null>(null);
   const [mesMontado, setMesMontado] = useState(true);
   const [situacao, setSituacao] = useState<Record<string, Situacao>>({});
   const [erro, setErro] = useState<string | null>(null);
@@ -60,12 +66,14 @@ export function DigitarPapel({ year, month, pessoas, employeeId, onEscolher, fec
     setErro(null);
     setCarregando(true);
     try {
-      const { dias: lancados, escala: tipos, turno: turnoDaPessoa, mesMontado: montado } = await getPontoDias(employeeId, year, month, sinal);
+      const { dias: lancados, escala: tipos, turno: turnoDaPessoa, jornadaMin: jornada, mesMontado: montado } = await getPontoDias(employeeId, year, month, sinal);
       setSalvos(Object.fromEntries(lancados.map((d) => [d.date, d])));
       setCampos(Object.fromEntries(lancados.map((d) => [d.date, camposDe(d.marcacoes)])));
       setEscala(Object.fromEntries(tipos.map((e) => [e.date, e.tipo])));
       setSituacao({});
       setTurno(turnoDaPessoa);
+      setJornadaMin(jornada);
+      setAbonando(null);
       setMesMontado(montado);
     } catch (e) {
       if (sinal.aborted) return;
@@ -149,6 +157,43 @@ export function DigitarPapel({ year, month, pessoas, employeeId, onEscolher, fec
     }
   };
 
+  // Abre o painel de abono do dia: sugere o que faltou para a jornada (ou mostra o abono já lançado).
+  const abrirAbono = (dia: string) => {
+    const lancado = salvos[dia];
+    const trabalhado = resumoDoDia(campos[dia] ?? vazios()).trabalhadoMin;
+    const sugerido = jornadaMin ? Math.max(0, jornadaMin - trabalhado) : 0;
+    setAbonoErro(null);
+    setFormAbono(lancado?.abonoMin ? { horas: fmtMin(lancado.abonoMin), motivo: lancado.abonoMotivo ?? "", observacao: "" } : { horas: sugerido > 0 ? fmtMin(sugerido) : "", motivo: "", observacao: "" });
+    setAbonando(dia);
+  };
+
+  const salvarAbono = async (dia: string, remover: boolean) => {
+    const rotulo = rotuloDoDia(dia);
+    const minutos = remover ? 0 : minutosDoHorario(formAbono.horas);
+    if (minutos === null || (!remover && minutos === 0)) {
+      setAbonoErro("Informe as horas abonadas, por exemplo 3:01.");
+      return;
+    }
+    if (!remover && !formAbono.motivo) {
+      setAbonoErro("Escolha o motivo do abono.");
+      return;
+    }
+    setAbonoOcupado(true);
+    setAbonoErro(null);
+    try {
+      const obs = formAbono.observacao.trim();
+      await abonarPontoDia(employeeId, dia, minutos, remover ? null : formAbono.motivo, obs ? obs : undefined);
+      setSalvos((s) => ({ ...s, [dia]: { ...(s[dia] as DiaPontoLancado), abonoMin: minutos, abonoMotivo: remover ? null : formAbono.motivo } }));
+      setAbonando(null);
+      setAnuncio(remover ? `${rotulo}: abono removido.` : `${rotulo}: ${fmtMin(minutos)} abonadas.`);
+      onSalvou();
+    } catch (e) {
+      setAbonoErro(e instanceof Error ? e.message : "Não consegui salvar o abono.");
+    } finally {
+      setAbonoOcupado(false);
+    }
+  };
+
   const aoSairDaLinha = (dia: string) => (e: FocusEvent<HTMLTableRowElement>) => {
     // Com o foco trocado por programa (Enter) nem todo navegador informa o destino: espera o foco pousar e olha onde ele está.
     const linha = e.currentTarget;
@@ -180,8 +225,11 @@ export function DigitarPapel({ year, month, pessoas, employeeId, onEscolher, fec
     const conta = resumoDoDia(linha);
     const domingo = rotuloDoDia(dia).startsWith(DOMINGO);
     const travado = fechado || folgaDoBanco;
+    const abono = lancado?.abonoMin ?? 0;
+    const podeAbonar = !fechado && !folgaDoBanco && Boolean(lancado) && (lancado?.marcacoes.length ?? 0) > 0;
     return (
-      <tr key={dia} onBlur={aoSairDaLinha(dia)} className={folgaDoBanco ? "po-linha--banco" : domingo ? "po-linha--domingo" : undefined}>
+      <Fragment key={dia}>
+      <tr onBlur={aoSairDaLinha(dia)} className={folgaDoBanco ? "po-linha--banco" : domingo ? "po-linha--domingo" : undefined}>
         <th scope="row">
           <time dateTime={dia} className="po-dia">
             <span className="po-dia-sem">{rotuloDoDia(dia).split(" ")[0]}</span>{" "}
@@ -232,6 +280,15 @@ export function DigitarPapel({ year, month, pessoas, employeeId, onEscolher, fec
               {!fechado && !temBatidas ? <button type="button" className="po-link" aria-label={`Usar banco de horas para folgar em ${rotuloDoDia(dia)}`} onClick={() => void alternarFolgaBanco(dia, true)}>Usar banco</button> : null}
             </>
           )}
+          {abono > 0 ? (
+            podeAbonar ? (
+              <button type="button" className="po-link po-link--abono" title={ROTULO_DO_ABONO(lancado?.abonoMotivo)} aria-label={`Abono de ${fmtMin(abono)} em ${rotuloDoDia(dia)}, ${ROTULO_DO_ABONO(lancado?.abonoMotivo)}. Editar`} onClick={() => abrirAbono(dia)}>abono {fmtMin(abono)}</button>
+            ) : (
+              <span className="po-esc" title={ROTULO_DO_ABONO(lancado?.abonoMotivo)}>abono {fmtMin(abono)}</span>
+            )
+          ) : podeAbonar ? (
+            <button type="button" className="po-link" aria-label={`Abonar horas em ${rotuloDoDia(dia)}`} onClick={() => abrirAbono(dia)}>Abonar horas</button>
+          ) : null}
         </td>
         <td className="po-situacao">
           {estado?.estado === "salvando" ? <span className="po-sub">salvando…</span> : null}
@@ -242,6 +299,32 @@ export function DigitarPapel({ year, month, pessoas, employeeId, onEscolher, fec
           ) : null}
         </td>
       </tr>
+      {abonando === dia ? (
+        <tr className="po-linha-abono">
+          <td colSpan={8}>
+            <form className="po-abono" aria-label={`Abonar horas de ${rotuloDoDia(dia)}`} onSubmit={(e) => { e.preventDefault(); void salvarAbono(dia, false); }}>
+              <label>Horas abonadas
+                <input className="po-hora po-hora--larga" inputMode="numeric" autoComplete="off" autoFocus value={formAbono.horas} onChange={(e) => setFormAbono({ ...formAbono, horas: e.target.value })} onBlur={() => { const p = normalizarHorario(formAbono.horas); if (p) setFormAbono((f) => ({ ...f, horas: fmtMin(Number(p.slice(0, 2)) * 60 + Number(p.slice(3, 5))) })); }} />
+              </label>
+              <label>Motivo
+                <select className="po-select" value={formAbono.motivo} onChange={(e) => setFormAbono({ ...formAbono, motivo: e.target.value })}>
+                  <option value="">Escolha…</option>
+                  {MOTIVOS_DE_ABONO.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+                </select>
+              </label>
+              <label>Observação (opcional; obrigatória em “Outro”)
+                <input className="po-texto" type="text" maxLength={300} autoComplete="off" value={formAbono.observacao} onChange={(e) => setFormAbono({ ...formAbono, observacao: e.target.value })} />
+              </label>
+              <Button type="submit" size="sm" aria-busy={abonoOcupado} disabled={abonoOcupado}>{abonoOcupado ? "Salvando…" : "Salvar abono"}</Button>
+              {abono > 0 ? <Button type="button" variant="secondary" size="sm" disabled={abonoOcupado} onClick={() => void salvarAbono(dia, true)}>Remover abono</Button> : null}
+              <Button type="button" variant="secondary" size="sm" onClick={() => setAbonando(null)}>Cancelar</Button>
+            </form>
+            {abonoErro ? <span role="alert" className="po-erro-linha">{abonoErro}</span> : null}
+            <p className="po-ajuda">Horas abonadas contam como cumpridas: não viram atraso e não saem do banco. Jornada do dia: {jornadaMin ? fmtMin(jornadaMin) : "não cadastrada"}.</p>
+          </td>
+        </tr>
+      ) : null}
+      </Fragment>
     );
   };
 
@@ -268,7 +351,7 @@ export function DigitarPapel({ year, month, pessoas, employeeId, onEscolher, fec
         ) : null}
         <details className="po-dicas">
           <summary>Como digitar</summary>
-          <p>Os campos são entrada, intervalo (saída para o intervalo), volta e saída. Digite só os números (800 vira 08:00). Enter passa para o próximo campo. O dia salva quando você sai da linha. Apague todos os horários para limpar o dia. Use “Usar banco” para folgar um dia contra o saldo do banco de horas.</p>
+          <p>Os campos são entrada, intervalo (saída para o intervalo), volta e saída. Digite só os números (800 vira 08:00). Enter passa para o próximo campo. O dia salva quando você sai da linha. Apague todos os horários para limpar o dia. Use “Usar banco” para folgar um dia contra o saldo do banco de horas e “Abonar horas” quando a pessoa saiu com atestado de horas ou foi ao médico do trabalho.</p>
         </details>
         {employeeId && proxima ? (
           <Button variant="secondary" size="sm" className="po-barra-proxima" onClick={() => onEscolher(proxima.employeeId)}>

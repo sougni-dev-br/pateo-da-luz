@@ -3,7 +3,7 @@ import { Router, type Request, type Response } from "express";
 import { type MenuId, type PermissionAction, userHasPermission } from "../security/menu-permissions.js";
 import { auditLog, getSessionUser, requestIp, type SessionUser } from "../security/security-utils.js";
 import { importarCartaoPonto } from "./cartao-ponto.service.js";
-import { PontoRecusa, apurarMes, batidasDoMes, faltasParaEscala, fecharMes, importarAfd, lancarDia, marcarFolgaBanco, parseMes, reabrirMes } from "./ponto.service.js";
+import { PontoRecusa, abonarDia, apurarMes, batidasDoMes, faltasParaEscala, fecharMes, importarAfd, lancarDia, marcarFolgaBanco, parseMes, reabrirMes } from "./ponto.service.js";
 
 // Ponto: apuração de horas pela CLT para o fechamento da folha. Montado sob /payroll, então o
 // controle de acesso já resolve para o módulo da Folha (permissão por usuário, nunca por cargo).
@@ -89,6 +89,25 @@ pontoRouter.put("/dia", async (request, response) => {
       previousValue: { date: salvo.date, marcacoes: anterior }, newValue: salvo, ...auditoria(request),
     });
     return response.json(salvo);
+  } catch (err) {
+    return responderErro(err, response);
+  }
+});
+
+// PUT /payroll/ponto/abono — { employeeId, date, abonoMin, abonoMotivo, notes? }: abona horas de um dia com batidas (0 remove).
+pontoRouter.put("/abono", async (request, response) => {
+  const user = await sessaoCom(request, response, [], "abonar horas do ponto");
+  if (!user) return;
+  const b = (request.body ?? {}) as Record<string, unknown>;
+  try {
+    const { anterior, ...r } = await abonarDia({
+      employeeId: String(b.employeeId ?? ""), date: String(b.date ?? ""), abonoMin: b.abonoMin, abonoMotivo: b.abonoMotivo, notes: b.notes, userId: user.id,
+    });
+    await auditLog({
+      userId: user.id, action: r.abonoMin > 0 ? "SET_PONTO_ABONO" : "UNSET_PONTO_ABONO", entity: "PontoDia", entityId: r.employeeId,
+      previousValue: { date: r.date, ...anterior }, newValue: r, ...auditoria(request),
+    });
+    return response.json(r);
   } catch (err) {
     return responderErro(err, response);
   }

@@ -37,6 +37,8 @@ export interface DiaPontoEntrada {
   previstoMin: number; // 0 = folga/descanso
   feriado?: boolean;
   abonado?: boolean; // atestado ou justificativa aceita
+  /** Horas do dia abonadas (atestado de horas, médico do trabalho): cobrem o que faltou, sem virar atraso. */
+  abonoMin?: number;
   /** O dia tem batida que contradiz a escala (férias, folga do banco, falta…): sem extra nem atraso até resolver. */
   semApuracao?: boolean;
 }
@@ -50,6 +52,8 @@ export interface DiaPontoApurado {
   /** Feriado trabalhado: o dia inteiro vira crédito no banco (folga compensatória), não extra a pagar. */
   creditoFeriadoMin: number;
   atrasoMin: number;
+  /** Horas abonadas que o dia recebeu (como lançadas). */
+  abonoMin: number;
   falta: boolean;
   /** Batida pendente ou contradição com a escala: nada foi lançado em extra, atraso ou falta. */
   pendente: boolean;
@@ -64,6 +68,7 @@ export interface PeriodoPontoApurado {
   extraDescansoMin: number;
   creditoFeriadoMin: number;
   atrasoMin: number;
+  abonoMin: number;
   faltas: number;
   diasPendentes: number;
 }
@@ -163,7 +168,8 @@ export function apurarDia(entrada: DiaPontoEntrada): DiaPontoApurado {
   const noturnoMin = intervalos.reduce((s, i) => s + minutosNoturnos(i), 0);
   const temBatida = entrada.marcacoes.length > 0;
   const pendente = temBatida && (pendentePorBatida || entrada.semApuracao === true);
-  const base = { data: entrada.data, trabalhadoMin, noturnoMin, avisos };
+  const abonoMin = Math.max(0, entrada.abonoMin ?? 0);
+  const base = { data: entrada.data, trabalhadoMin, noturnoMin, abonoMin, avisos };
 
   const intervalo = avisoIntervalo(intervalos, trabalhadoMin);
   if (intervalo) avisos.push(intervalo);
@@ -202,14 +208,19 @@ export function apurarDia(entrada: DiaPontoEntrada): DiaPontoApurado {
   const diferenca = trabalhadoMin - entrada.previstoMin;
   const contaDiferenca = Math.abs(diferenca) > TOLERANCIA_DIA_MIN;
   const extraMin = contaDiferenca && diferenca > 0 ? diferenca : 0;
-  const atrasoMin = contaDiferenca && diferenca < 0 && !entrada.abonado ? -diferenca : 0;
+  // O abono cobre o que faltou; sobrando menos que a tolerância do dia, não vira atraso.
+  const faltou = contaDiferenca && diferenca < 0 && !entrada.abonado ? -diferenca : 0;
+  const semAbono = Math.max(0, faltou - abonoMin);
+  const atrasoMin = semAbono > TOLERANCIA_DIA_MIN ? semAbono : 0;
+  if (abonoMin > 0 && faltou === 0) avisos.push("Abono lançado, mas não faltou hora neste dia.");
+  else if (abonoMin > faltou + TOLERANCIA_DIA_MIN) avisos.push("O abono é maior que as horas que faltaram.");
   if (extraMin > LIMITE_EXTRA_DIA_MIN) avisos.push("Mais de 2h extras no dia.");
   return { ...base, extraMin, extraDescansoMin: 0, creditoFeriadoMin: 0, atrasoMin, falta: false, pendente: false };
 }
 
 export function apurarPeriodo(entradas: DiaPontoEntrada[]): PeriodoPontoApurado {
   const dias = entradas.map(apurarDia);
-  const soma = (campo: "trabalhadoMin" | "noturnoMin" | "extraMin" | "extraDescansoMin" | "creditoFeriadoMin" | "atrasoMin") =>
+  const soma = (campo: "trabalhadoMin" | "noturnoMin" | "extraMin" | "extraDescansoMin" | "creditoFeriadoMin" | "atrasoMin" | "abonoMin") =>
     dias.reduce((s, d) => s + d[campo], 0);
   return {
     dias,
@@ -219,6 +230,7 @@ export function apurarPeriodo(entradas: DiaPontoEntrada[]): PeriodoPontoApurado 
     extraDescansoMin: soma("extraDescansoMin"),
     creditoFeriadoMin: soma("creditoFeriadoMin"),
     atrasoMin: soma("atrasoMin"),
+    abonoMin: soma("abonoMin"),
     faltas: dias.filter((d) => d.falta).length,
     diasPendentes: dias.filter((d) => d.pendente).length,
   };

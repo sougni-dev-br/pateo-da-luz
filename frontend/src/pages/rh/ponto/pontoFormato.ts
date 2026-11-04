@@ -7,6 +7,22 @@ export function fmtMin(min: number): string {
   return `${sinal}${Math.floor(abs / 60)}:${String(abs % 60).padStart(2, "0")}`;
 }
 
+/** Motivos de abono de horas, na ordem em que aparecem na tela (o texto vai para o RH). */
+export const MOTIVOS_DE_ABONO: ReadonlyArray<{ value: string; label: string }> = [
+  { value: "ATESTADO_HORAS", label: "Atestado médico (horas)" },
+  { value: "MEDICO_TRABALHO", label: "Médico do trabalho" },
+  { value: "ACOMPANHAR_FAMILIAR", label: "Acompanhar familiar" },
+  { value: "OUTRO", label: "Outro (com observação)" },
+];
+export const ROTULO_DO_ABONO = (motivo: string | null | undefined) => MOTIVOS_DE_ABONO.find((m) => m.value === motivo)?.label ?? "abono";
+
+/** "3:01", "301" ou "3h01" → 181 minutos; vazio ou ilegível → null. */
+export function minutosDoHorario(texto: string): number | null {
+  const pronto = normalizarHorario(texto);
+  if (!pronto) return null;
+  return Number(pronto.slice(0, 2)) * 60 + Number(pronto.slice(3, 5));
+}
+
 /** Aceita "800", "8:00", "8h30", "8" e "0830" e devolve "HH:mm"; vazio ou ilegível → null. */
 export function normalizarHorario(texto: string): string | null {
   const s = texto.trim().toLowerCase().replace("h", ":").replace(/:$/, "");
