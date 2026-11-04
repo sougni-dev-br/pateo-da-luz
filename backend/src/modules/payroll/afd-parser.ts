@@ -91,6 +91,7 @@ export function lerAfd671(texto: string): LeituraAfd {
 // Saída em outro dia só vale como turno que virou a noite se for de madrugada. Uma batida às 08:13 do dia
 // seguinte é a entrada de outro dia (o RHiD também agrupa por dia), não a saída do turno anterior.
 const LIMITE_MADRUGADA = "06:00";
+const JANELA_TOQUE_DUPLO_MIN = 5;
 
 const emMinutos = (b: BatidaAfd): number => Date.parse(`${b.data}T${b.hora}:00Z`) / 60000;
 
@@ -106,8 +107,13 @@ export function agruparBatidasPorDia(batidas: BatidaAfd[]): Map<string, DiaBatid
   const resultado = new Map<string, DiaBatidas[]>();
   for (const [cpf, lista] of porPessoa) {
     const ordenadas = [...lista].sort((a, b) => emMinutos(a) - emMinutos(b) || a.nsr - b.nsr);
-    // Toque duplo no relógio (mesmo minuto) vale uma batida só.
-    const distintas = ordenadas.filter((b, i) => i === 0 || emMinutos(b) !== emMinutos(ordenadas[i - 1]));
+    // Toque duplo no relógio vale uma batida só: o RHiD descarta a segunda de duas batidas seguidas em poucos
+    // minutos (visto: 1 e 3 min descartadas; 13 min mantida).
+    const distintas: BatidaAfd[] = [];
+    for (const b of ordenadas) {
+      const ultima = distintas[distintas.length - 1];
+      if (!ultima || emMinutos(b) - emMinutos(ultima) > JANELA_TOQUE_DUPLO_MIN) distintas.push(b);
+    }
 
     const porDia = new Map<string, string[]>();
     const juntar = (data: string, horas: string[]) => porDia.set(data, [...(porDia.get(data) ?? []), ...horas]);
