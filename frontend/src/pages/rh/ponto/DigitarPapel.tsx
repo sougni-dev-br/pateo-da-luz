@@ -33,7 +33,12 @@ const FOLGA_DO_BANCO = "FOLGA_BANCO_HORAS";
 type Situacao = { estado: "salvando" | "salvo" | "erro"; motivo?: string };
 type FormAbono = { horas: string; motivo: string; observacao: string };
 
-const camposDe = (marcacoes: string[]) => [...marcacoes, ...vazios()].slice(0, Math.max(NOMES_CAMPOS.length, marcacoes.length));
+// Duas batidas são entrada e saída (sem intervalo): a saída vai para o último campo, não para "Intervalo".
+const camposDe = (marcacoes: string[]) =>
+  marcacoes.length === 2 ? [marcacoes[0], "", "", marcacoes[1]] : [...marcacoes, ...vazios()].slice(0, Math.max(NOMES_CAMPOS.length, marcacoes.length));
+
+// Quem trabalhou direto, sem intervalo, só tem entrada e saída: "Intervalo" e "Volta" podem ficar vazios.
+const semIntervalo = (linha: string[]) => linha.length === NOMES_CAMPOS.length && linha[0].trim() !== "" && linha[1].trim() === "" && linha[2].trim() === "" && linha[3].trim() !== "";
 
 // Aviso curto para caber na linha; o texto inteiro fica no title e no leitor de tela.
 const avisoCurto = (aviso: string) => (aviso.startsWith("Falta") ? "falta batida" : aviso.startsWith("Trabalhou em dia de") ? "trabalhou na folga" : aviso.includes("16h") ? "mais de 16h" : "conferir");
@@ -115,7 +120,7 @@ export function DigitarPapel({ year, month, pessoas, employeeId, onEscolher, fec
       return;
     }
     const ultimoPreenchido = linha.map((c) => c.trim() !== "").lastIndexOf(true);
-    if (linha.slice(0, ultimoPreenchido + 1).some((c) => c.trim() === "")) {
+    if (!semIntervalo(linha) && linha.slice(0, ultimoPreenchido + 1).some((c) => c.trim() === "")) {
       setSituacao((s) => ({ ...s, [dia]: { estado: "erro", motivo: "Preencha os horários em ordem, sem deixar campo vazio no meio." } }));
       return;
     }
@@ -351,7 +356,7 @@ export function DigitarPapel({ year, month, pessoas, employeeId, onEscolher, fec
         ) : null}
         <details className="po-dicas">
           <summary>Como digitar</summary>
-          <p>Os campos são entrada, intervalo (saída para o intervalo), volta e saída. Digite só os números (800 vira 08:00). Enter passa para o próximo campo. O dia salva quando você sai da linha. Apague todos os horários para limpar o dia. Use “Usar banco” para folgar um dia contra o saldo do banco de horas e “Abonar horas” quando a pessoa saiu com atestado de horas ou foi ao médico do trabalho.</p>
+          <p>Os campos são entrada, intervalo (saída para o intervalo), volta e saída. Digite só os números (800 vira 08:00). Quem trabalhou direto, sem intervalo, leva só Entrada e Saída: deixe Intervalo e Volta vazios. Enter passa para o próximo campo. O dia salva quando você sai da linha. Apague todos os horários para limpar o dia. Use “Usar banco” para folgar um dia contra o saldo do banco de horas e “Abonar horas” quando a pessoa saiu com atestado de horas ou foi ao médico do trabalho.</p>
         </details>
         {employeeId && proxima ? (
           <Button variant="secondary" size="sm" className="po-barra-proxima" onClick={() => onEscolher(proxima.employeeId)}>
