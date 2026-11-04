@@ -52,7 +52,7 @@ describe("apurarMesPessoa", () => {
     expect(r.periodo.extraMin).toBe(240);
   });
 
-  test("feriado trabalhado em folga conta como extra comum", () => {
+  test("feriado trabalhado em folga vira crédito no banco, não extra", () => {
     const r = apurarMesPessoa(
       base({
         batidasPorDia: new Map([["2026-10-12", ["10:00", "14:00"]]]),
@@ -60,7 +60,8 @@ describe("apurarMesPessoa", () => {
         feriados: new Set(["10-12"]),
       }),
     );
-    expect([r.resumo.extraDescansoMin, r.periodo.extraMin]).toEqual([0, 240]);
+    expect([r.resumo.extraDescansoMin, r.periodo.extraMin, r.resumo.creditoFeriadoMin, r.resumo.extraAPagarMin]).toEqual([0, 0, 240, 0]);
+    expect(r.resumo.saldoBancoFinalMin).toBe(240);
   });
 
   test("não conta dias antes da admissão nem depois do desligamento", () => {

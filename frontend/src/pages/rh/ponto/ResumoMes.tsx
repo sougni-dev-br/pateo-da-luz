@@ -98,6 +98,7 @@ export function ResumoMes({ pessoas, onAbrirPapel }: Props) {
               <th scope="col" className="po-num">Extra a <br />pagar</th>
               <th scope="col" className="po-num">Extra <br />abatida</th>
               <th scope="col" className="po-num">Folga do <br />banco</th>
+              <th scope="col" className="po-num">Feriado <br />no banco</th>
               <th scope="col" className="po-num">Adicional <br />noturno</th>
               <th scope="col" className="po-num">Saldo do <br />banco</th>
               <th scope="col">Dias para conferir</th>
@@ -124,6 +125,7 @@ export function ResumoMes({ pessoas, onAbrirPapel }: Props) {
                   <td className="po-num po-destaque">{p.resumo.extraAPagarMin ? fmtMin(p.resumo.extraAPagarMin) : <Vazio />}</td>
                   <td className="po-num">{p.resumo.abatidoMin ? fmtMin(p.resumo.abatidoMin) : <Vazio />}</td>
                   <td className="po-num">{p.debitoFolgaMin ? fmtMin(p.debitoFolgaMin) : <Vazio />}</td>
+                  <td className="po-num">{p.resumo.creditoFeriadoMin ? fmtMin(p.resumo.creditoFeriadoMin) : <Vazio />}</td>
                   <td className="po-num">{p.resumo.noturnoMin ? fmtMin(p.resumo.noturnoMin) : <Vazio />}</td>
                   <td className={`po-num${p.resumo.devendo ? " po-negativo" : ""}`}>
                     {p.resumo.devendo ? <span className="po-sr">deve </span> : null}

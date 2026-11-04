@@ -10321,6 +10321,8 @@ export type ResumoPonto = {
   faltas: number;
   noturnoMin: number;
   extraDescansoMin: number;
+  /** Feriado trabalhado que entrou no banco como folga compensatória (só em mês aberto). */
+  creditoFeriadoMin: number;
   atrasoMin: number;
   abatidoMin: number;
   extraAPagarMin: number;
