@@ -39,6 +39,32 @@ describe("entradaDoDia — o que a escala diz sobre o dia", () => {
     expect(r.entrada?.abonado).toBeUndefined();
   });
 
+  test("folga de feriado sem batida tira a jornada do dia do banco (compensa o feriado trabalhado)", () => {
+    expect(dia("FOLGA_FERIADO").debitoBancoMin).toBe(480);
+  });
+
+  test("folga de feriado com batida não tira nada do banco: o trabalhado segue como extra", () => {
+    const r = dia("FOLGA_FERIADO", ["10:00", "14:00"]);
+    expect(r.debitoBancoMin).toBe(0);
+    expect(r.entrada?.previstoMin).toBe(0);
+  });
+
+  test.each(["FOLGA", "FOLGA_FERIADO"] as const)("batida em dia de %s da Escala avisa para conferir, mas continua apurando", (tipo) => {
+    const r = dia(tipo, ["10:00", "14:00"]);
+    expect(r.avisos).toHaveLength(1);
+    expect(r.avisos[0]).toMatch(/^Trabalhou em dia de folga/);
+    expect(r.entrada?.semApuracao).toBeUndefined();
+  });
+
+  test("folga sem batida não avisa nada", () => {
+    expect(dia("FOLGA").avisos).toEqual([]);
+    expect(dia("FOLGA_FERIADO").avisos).toEqual([]);
+  });
+
+  test("folga comum não tira nada do banco", () => {
+    expect(dia("FOLGA").debitoBancoMin).toBe(0);
+  });
+
   test("ATESTADO abona o dia", () => {
     const r = dia("ATESTADO");
     expect(r.entrada?.abonado).toBe(true);

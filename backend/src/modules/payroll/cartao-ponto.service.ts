@@ -1,16 +1,16 @@
 // Importa o Cartão de Ponto do RHiD (CSV) para quem bate ponto no relógio: grava as batidas (coletadas e
-// incluídas à mão) e traduz Folga, Feriado, Banco, Falta e justificativas para a Escala do ERP.
-// Quem lança papel continua mandando pela Escala; aqui só entram as pessoas que estão no arquivo.
+// incluídas à mão) e CONFRONTA Folga, Feriado, Banco, Falta e justificativas com a Escala do ERP.
+// A Escala é a combinação que todos conhecem: o RHiD nunca a altera, só aponta onde diverge para o gestor corrigir.
 //
-// Sem confirmar, devolve a PRÉVIA (nada é gravado). Confirmando, grava dentro da trava do mês, respeitando
-// o ponto fechado e o período financeiro fechado.
+// Sem confirmar, devolve a PRÉVIA (nada é gravado). Confirmando, grava as batidas dentro da trava do mês,
+// respeitando o ponto fechado e o período financeiro fechado.
 
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 import { assertPeriodWritableForRange } from "../cmv-real/cmv-real.service.js";
 import { type DiaDoCartao, type TipoDoCartao, lerCartaoPonto } from "./cartao-ponto-parser.js";
 import { PontoRecusa } from "./ponto.service.js";
-import { chaveTravaMes, foiGravadoPeloPonto, notaDoPonto, tipoAnteriorDoPonto, travarMeses } from "./ponto-trava.js";
+import { chaveTravaMes, foiGravadoPeloPonto, tipoAnteriorDoPonto, travarMeses } from "./ponto-trava.js";
 
 type Tx = Prisma.TransactionClient;
 
@@ -25,41 +25,32 @@ const soDigitos = (s: string) => s.replace(/\D/g, "");
 const hojeSaoPaulo = () => new Date().toLocaleDateString("sv-SE", { timeZone: "America/Sao_Paulo" });
 const nomeDe = (e: { firstName: string; lastName: string; displayName: string | null }) => e.displayName?.trim() || `${e.firstName} ${e.lastName}`.trim();
 
-// ─── Regra de decisão da Escala (pura) ──────────────────────────────────────────
+// ─── Confronto com a Escala (puro) ──────────────────────────────────────────────
 
-export type AcaoEscala =
-  | { acao: "criar"; para: TipoDoCartao }
-  | { acao: "trocar"; de: string; para: TipoDoCartao }
-  | { acao: "igual" }
-  | { acao: "manter"; atual: string; motivo: string };
+/** Dia com batida no RHiD (não há rótulo): a pessoa trabalhou. */
+export const TRABALHOU = "TRABALHOU";
+export type VisaoDoRhid = TipoDoCartao | typeof TRABALHOU;
 
-const SO_O_ERP_SABE: ReadonlySet<string> = new Set(["FERIAS", "ATESTADO", "AFASTAMENTO"]);
-const FOLGAS: ReadonlySet<string> = new Set(["FOLGA", "FOLGA_FERIADO", "FOLGA_BANCO_HORAS"]);
+const NAO_TRABALHADOS: ReadonlySet<string> = new Set(["FOLGA", "FOLGA_FERIADO", "FOLGA_BANCO_HORAS", "FALTA", "ATESTADO", "FERIAS", "AFASTAMENTO"]);
 
 /**
- * O RHiD manda para quem bate ponto nele, com duas proteções: férias, atestado e afastamento lançados no ERP não são
- * trocados por uma folga (o RHiD pode simplesmente não saber deles), e a falta só entra onde a Escala dizia turno ou evento.
+ * O RHiD diz uma coisa e a Escala outra? Dia com rótulo vale pelo rótulo (a Escala sem marca também diverge: ou o mês
+ * não foi montado, ou o dia é de trabalho). Dia com batida diverge quando a Escala diz folga, falta, atestado, férias ou afastamento.
  */
-export function decidirEscala(alvo: TipoDoCartao, atual: string | null): AcaoEscala {
-  if (atual === null) return { acao: "criar", para: alvo };
-  if (atual === alvo) return { acao: "igual" };
-  if (alvo === "FALTA") {
-    return atual === "TURNO" || atual === "EVENTO" ? { acao: "trocar", de: atual, para: alvo } : { acao: "manter", atual, motivo: "A Escala diz outra coisa e o RHiD marcou falta: confira." };
-  }
-  if (SO_O_ERP_SABE.has(atual) && FOLGAS.has(alvo)) {
-    return { acao: "manter", atual, motivo: "Já está lançado no ERP; o RHiD só mostra folga." };
-  }
-  return { acao: "trocar", de: atual, para: alvo };
+export function divergeDaEscala(rhid: VisaoDoRhid, atual: string | null): boolean {
+  if (rhid === TRABALHOU) return atual !== null && NAO_TRABALHADOS.has(atual);
+  return atual !== rhid;
 }
 
 // ─── Resultado ──────────────────────────────────────────────────────────────────
 
-export interface MudancaCartao {
+export interface DivergenciaCartao {
   nome: string;
   data: string;
-  de: string | null;
-  para: string;
-  motivo?: string;
+  /** O que a Escala do ERP diz para o dia (null = sem marca). */
+  escala: string | null;
+  /** O que o RHiD diz: um tipo de folga/falta/justificativa, ou TRABALHOU quando há batida. */
+  rhid: string;
 }
 
 export interface ResultadoCartao {
@@ -69,13 +60,12 @@ export interface ResultadoCartao {
   de: string | null;
   ate: string | null;
   batidas: { gravar: number; iguais: number; conflitos: number };
-  escala: { criar: number; trocar: number; iguais: number; mantidos: number };
+  escala: { iguais: number; divergentes: number };
   mesesFechados: number;
   cpfsSemCadastro: string[];
   desconhecidos: string[];
   avisos: string[];
-  mudancas: MudancaCartao[];
-  mantidos: MudancaCartao[];
+  divergencias: DivergenciaCartao[];
 }
 
 interface PessoaDoArquivo {
@@ -99,8 +89,8 @@ export async function importarCartaoPonto(texto: string, userId: string, confirm
   if (leitura.dias.length > LIMITE_LINHAS) throw new PontoRecusa(413, "O arquivo tem linhas demais. Exporte um período menor.");
   const vazio = (extra: Partial<ResultadoCartao> = {}): ResultadoCartao => ({
     gravado: false, pessoas: 0, diasLidos: leitura.dias.length, de: null, ate: null,
-    batidas: { gravar: 0, iguais: 0, conflitos: 0 }, escala: { criar: 0, trocar: 0, iguais: 0, mantidos: 0 },
-    mesesFechados: 0, cpfsSemCadastro: [], desconhecidos: leitura.desconhecidos, avisos: leitura.avisos, mudancas: [], mantidos: [], ...extra,
+    batidas: { gravar: 0, iguais: 0, conflitos: 0 }, escala: { iguais: 0, divergentes: 0 },
+    mesesFechados: 0, cpfsSemCadastro: [], desconhecidos: leitura.desconhecidos, avisos: leitura.avisos, divergencias: [], ...extra,
   });
   if (leitura.dias.length === 0) return vazio();
 
@@ -154,10 +144,10 @@ export async function importarCartaoPonto(texto: string, userId: string, confirm
   type Estado = Awaited<ReturnType<typeof lerEstado>>;
   const mesFechado = (e: Estado, p: DiaPlanejado) => e.fechados.has(`${p.pessoa.id}|${Number(p.dia.data.slice(0, 4))}|${Number(p.dia.data.slice(5, 7))}`);
 
-  // Decide tudo de um dia sobre o estado atual; devolve o que gravar e já conta no resultado.
+  // Decide o que gravar num dia (só batidas) e confronta o dia com a Escala; conta no resultado quando pedido.
   const decidir = (e: Estado, p: DiaPlanejado, contar: boolean) => {
     const chave = chaveDia(p.pessoa.id, p.dia.data);
-    const acoes: { ponto?: string[]; escala?: { alvo: TipoDoCartao; atual: string | null; antes: string | null } } = {};
+    const acoes: { ponto?: string[] } = {};
     if (mesFechado(e, p)) {
       if (contar) resultado.mesesFechados += 1;
       return acoes;
@@ -173,25 +163,14 @@ export async function importarCartaoPonto(texto: string, userId: string, confirm
         if (contar) resultado.batidas.gravar += 1;
       }
     }
-    if (p.dia.tipo) {
-      const marca = e.escala.get(chave);
-      const decisao = decidirEscala(p.dia.tipo, marca?.type ?? null);
-      const rotuloAtual = marca?.type ?? null;
-      if (decisao.acao === "igual") {
-        if (contar) resultado.escala.iguais += 1;
-      } else if (decisao.acao === "manter") {
-        if (contar) {
-          resultado.escala.mantidos += 1;
-          if (resultado.mantidos.length < LIMITE_MUDANCAS_NA_PREVIA) resultado.mantidos.push({ nome: p.pessoa.nome, data: p.dia.data, de: decisao.atual, para: p.dia.tipo, motivo: decisao.motivo });
-        }
+    const rhid: VisaoDoRhid | null = p.dia.marcacoes.length > 0 ? TRABALHOU : p.dia.tipo;
+    if (contar && rhid) {
+      const escala = e.escala.get(chave)?.type ?? null;
+      if (!divergeDaEscala(rhid, escala)) {
+        resultado.escala.iguais += 1;
       } else {
-        const antesDoPonto = rotuloAtual === "TURNO" || rotuloAtual === "EVENTO" ? rotuloAtual : tipoAnteriorDoPonto(marca?.notes);
-        acoes.escala = { alvo: p.dia.tipo, atual: rotuloAtual, antes: antesDoPonto };
-        if (contar) {
-          if (decisao.acao === "criar") resultado.escala.criar += 1;
-          else resultado.escala.trocar += 1;
-          if (resultado.mudancas.length < LIMITE_MUDANCAS_NA_PREVIA) resultado.mudancas.push({ nome: p.pessoa.nome, data: p.dia.data, de: rotuloAtual, para: p.dia.tipo });
-        }
+        resultado.escala.divergentes += 1;
+        if (resultado.divergencias.length < LIMITE_MUDANCAS_NA_PREVIA) resultado.divergencias.push({ nome: p.pessoa.nome, data: p.dia.data, escala, rhid });
       }
     }
     return acoes;
@@ -200,7 +179,7 @@ export async function importarCartaoPonto(texto: string, userId: string, confirm
   // Prévia: nada é gravado.
   const estadoPrevia = await lerEstado(prisma, planejados);
   for (const p of planejados) decidir(estadoPrevia, p, true);
-  resultado.mudancas.sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR") || a.data.localeCompare(b.data));
+  resultado.divergencias.sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR") || a.data.localeCompare(b.data));
   if (!confirmar) return resultado;
 
   try {
@@ -230,14 +209,6 @@ export async function importarCartaoPonto(texto: string, userId: string, confirm
             if (antes === "TURNO" || antes === "EVENTO") await tx.employeeScheduleDay.update({ where: { id: falta.id }, data: { type: antes, notes: null } });
             else await tx.employeeScheduleDay.delete({ where: { id: falta.id } });
           }
-        }
-        if (acoes.escala) {
-          const { alvo, antes } = acoes.escala;
-          await tx.employeeScheduleDay.upsert({
-            where: { employeeId_date: { employeeId: p.pessoa.id, date } },
-            create: { employeeId: p.pessoa.id, date, type: alvo, notes: notaDoPonto(antes), createdById: userId },
-            update: { type: alvo, notes: notaDoPonto(antes) },
-          });
         }
       }
     }, { timeout: 60_000, maxWait: 10_000 });

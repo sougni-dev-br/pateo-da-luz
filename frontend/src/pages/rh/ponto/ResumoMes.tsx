@@ -7,6 +7,17 @@ import { Alert, Button, StatusBadge } from "../../../design-system";
 import { ROTAS_RH } from "../rotasRh";
 import { AVISO_SEM_ESCALA, fmtMin } from "./pontoFormato";
 
+// Nome e explicação de cada coluna (a mesma frase vai no título da coluna e na legenda abaixo da tabela).
+const COLUNAS = {
+  atraso: { nome: "Atrasos (dívida no banco)", dica: "Minutos devidos por chegar tarde ou sair cedo. Não são descontados em folha: viram dívida no banco de horas (diminuem o saldo)." },
+  extraPaga: { nome: "Extra paga em folha", dica: "Hora extra comum que sobrou depois de quitar a dívida do banco. É o que vai para a folha de pagamento." },
+  extraAbatida: { nome: "Extra usada p/ quitar o banco", dica: "Hora extra que não é paga porque foi usada para cobrir a dívida do banco (aumenta o saldo até zerar a dívida)." },
+  folgas: { nome: "Folgas tiradas do banco", dica: "Jornada dos dias de folga tirados contra o banco: " + String.fromCharCode(8220) + "Usar banco" + String.fromCharCode(8221) + " e folga de feriado (a compensação do feriado trabalhado). Diminuem o saldo." },
+  feriado: { nome: "Feriado trabalhado (crédito)", dica: "Tempo trabalhado em feriado: entra inteiro no banco como folga compensatória (aumenta o saldo) e nunca é pago." },
+  noturno: { nome: "Adicional noturno", dica: "Horas trabalhadas entre 22h e 5h. Pago à parte: não entra nem abate o banco de horas." },
+  saldo: { nome: "Saldo final do banco", dica: "O que a pessoa tem (ou deve, em vermelho) no banco de horas ao fim do mês, depois de todas as colunas acima. Passa para o mês seguinte." },
+} as const;
+
 type Props = {
   pessoas: PessoaPonto[];
   onAbrirPapel: (employeeId: string) => void;
@@ -94,13 +105,13 @@ export function ResumoMes({ pessoas, onAbrirPapel }: Props) {
             <tr>
               <th scope="col">Pessoa</th>
               <th scope="col" className="po-num">Faltas</th>
-              <th scope="col" className="po-num">Atraso <br />(banco)</th>
-              <th scope="col" className="po-num">Extra a <br />pagar</th>
-              <th scope="col" className="po-num">Extra <br />abatida</th>
-              <th scope="col" className="po-num">Folga do <br />banco</th>
-              <th scope="col" className="po-num">Feriado <br />no banco</th>
-              <th scope="col" className="po-num">Adicional <br />noturno</th>
-              <th scope="col" className="po-num">Saldo do <br />banco</th>
+              <th scope="col" className="po-num" title={COLUNAS.atraso.dica}>Atrasos <br />(dívida no banco)</th>
+              <th scope="col" className="po-num" title={COLUNAS.extraPaga.dica}>Extra paga <br />em folha</th>
+              <th scope="col" className="po-num" title={COLUNAS.extraAbatida.dica}>Extra usada <br />p/ quitar o banco</th>
+              <th scope="col" className="po-num" title={COLUNAS.folgas.dica}>Folgas tiradas <br />do banco</th>
+              <th scope="col" className="po-num" title={COLUNAS.feriado.dica}>Feriado trabalhado <br />(crédito)</th>
+              <th scope="col" className="po-num" title={COLUNAS.noturno.dica}>Adicional <br />noturno</th>
+              <th scope="col" className="po-num" title={COLUNAS.saldo.dica}>Saldo final <br />do banco</th>
               <th scope="col">Dias para conferir</th>
             </tr>
           </thead>
@@ -153,6 +164,16 @@ export function ResumoMes({ pessoas, onAbrirPapel }: Props) {
           </tbody>
         </table>
       </div>
+
+      <details className="po-legenda">
+        <summary>Como ler estas colunas</summary>
+        <dl>
+          {Object.values(COLUNAS).map((c) => (
+            <div key={c.nome}><dt>{c.nome}</dt><dd>{c.dica}</dd></div>
+          ))}
+        </dl>
+        <p className="po-ajuda">Saldo final = saldo do mês anterior − atrasos − folgas tiradas do banco + feriado trabalhado + extra usada para quitar o banco.</p>
+      </details>
     </div>
   );
 }

@@ -5,6 +5,7 @@
 //   FOLGA / FOLGA_FERIADO / FERIAS /
 //   AFASTAMENTO                           sem jornada prevista
 //   FOLGA_BANCO_HORAS                     sem jornada prevista; a jornada do dia sai do banco
+//   FOLGA_FERIADO sem batida              idem (compensa o feriado trabalhado, que entrou no banco)
 //   ATESTADO                              jornada prevista, dia abonado
 //   FALTA                                 jornada prevista (sem batida vira falta)
 //   sem lançamento                        jornada prevista, mas sem batida NÃO vira falta (aviso)
@@ -30,6 +31,7 @@ export type TipoDiaEscala =
   | "AFASTAMENTO";
 
 export const AVISO_SEM_ESCALA = "Dia sem lançamento na escala.";
+export const AVISO_TRABALHOU_NA_FOLGA = (rotulo: string) => `Trabalhou em dia de ${rotulo} na Escala: confira se a Escala ou a batida está certa.`;
 const MIN_DIA = 24 * 60;
 const JORNADA_EXIGE_INTERVALO_MIN = 6 * 60;
 const INTERVALO_PADRAO_MIN = 60;
@@ -89,10 +91,15 @@ export function entradaDoDia(p: EntradaDoDiaParams): EntradaDoDia {
       const conselho = tipo === "FOLGA_BANCO_HORAS" ? "desfaça a folga ou apague as batidas" : "corrija a escala ou as batidas";
       return { entrada: { ...base, previstoMin: 0, semApuracao: true }, debitoBancoMin: 0, avisos: [`Há batida em dia de ${ROTULO_DO_TIPO[tipo]}: ${conselho}.`] };
     }
+    // Folga do banco e folga de feriado (a compensação do feriado trabalhado, que entrou no banco) tiram a jornada do dia do saldo.
+    // Com batida, a folga de feriado não foi tirada: o trabalhado segue como extra e nada sai do banco.
+    const tiraDoBanco = tipo === "FOLGA_BANCO_HORAS" || (tipo === "FOLGA_FERIADO" && !temBatida);
+    // A Escala é o que todos sabem: quem bateu ponto num dia em que ela diz folga precisa ser conferido (o trabalhado segue como extra).
+    const trabalhouNaFolga = temBatida && (tipo === "FOLGA" || tipo === "FOLGA_FERIADO");
     return {
       entrada: { ...base, previstoMin: 0 },
-      debitoBancoMin: tipo === "FOLGA_BANCO_HORAS" ? jornadaMin : 0,
-      avisos: [],
+      debitoBancoMin: tiraDoBanco ? jornadaMin : 0,
+      avisos: trabalhouNaFolga ? [AVISO_TRABALHOU_NA_FOLGA(ROTULO_DO_TIPO[tipo])] : [],
     };
   }
   if (tipo === "FALTA" && temBatida) {
