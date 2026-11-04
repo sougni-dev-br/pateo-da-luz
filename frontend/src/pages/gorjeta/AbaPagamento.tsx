@@ -17,7 +17,7 @@ import {
   type LocalRow, type RowPatch, NOTA_ADIANTAMENTO_OCULTO, NOTA_DSR_OCULTO, NOTA_HORA_EXTRA_OCULTA, NOTA_QUINZENA_OCULTA, REGRA_DSR, REGRA_HORA_EXTRA,
   REGRA_QUINZENA, adiantamentoOculto, estimarAdicionais, fmtDate, fmtHoras, inputStyle, money, mostraDsr, mostraQuinzena, mutedStyle, numInputStyle,
   ordenar, panelStyle,
-  parseHoras, pts, quinzenaOculta, valorHoraExtraTotal,
+  parseHoras, pts, quinzenaOculta, valorHoraExtraTotal, dicaDoPonto, horaExtraDe, horasDaLinha, noturnoDe,
 } from "./gorjetaUtils";
 
 const EXTRATORES: Extratores<TipComputedParticipant> = {
@@ -25,8 +25,8 @@ const EXTRATORES: Extratores<TipComputedParticipant> = {
   empresa: (p) => p.companyName,
   gorjeta: (p) => p.rateioAmount,
   lancar: (p) => gorjetaEnviada(p),
-  horaExtra: (p) => parseHoras(p.horaExtra),
-  noturno: (p) => parseHoras(p.adicionalNoturno),
+  horaExtra: (p) => parseHoras(horaExtraDe(p)),
+  noturno: (p) => parseHoras(noturnoDe(p)),
   faltas: (p) => p.faltas,
   atestados: (p) => p.atestados,
   afastamento: (p) => p.afastamento ?? 0,
@@ -195,7 +195,7 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
     ...EXTRATORES,
     estimativa: (p) => {
       const r = rowPorFuncionario.get(p.employeeId);
-      return r ? estimarAdicionais(p.baseSalary, parseHoras(r.horaExtra), parseHoras(r.adicionalNoturno))?.total ?? null : null;
+      return r ? estimarAdicionais(p.baseSalary, parseHoras(horasDaLinha(r.horaExtra, p.horaExtraPonto)), parseHoras(horasDaLinha(r.adicionalNoturno, p.adicionalNoturnoPonto)))?.total ?? null : null;
     },
     justificada: (p) => (rowPorFuncionario.get(p.employeeId)?.justificada ? "Sim" : "Não"),
   };
@@ -234,7 +234,8 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
   // Hora extra e noturno (sem registro): o total não leva quem foi pago na rescisão (recebe lá).
   const heOculta = semRegistro.some((p) => valorHoraExtraTotal(p) == null);
   const totalValorHe = semRegistroFilt.filter((p) => !p.pagoNaRescisao).reduce((a, p) => a + (valorHoraExtraTotal(p) ?? 0), 0);
-  const horasDe = (campo: "horaExtra" | "adicionalNoturno") => somaHoras(semRegistroFilt.map((p) => rowPorFuncionario.get(p.employeeId)?.[campo]));
+  const horasDe = (campo: "horaExtra" | "adicionalNoturno") =>
+    somaHoras(semRegistroFilt.map((p) => horasDaLinha(rowPorFuncionario.get(p.employeeId)?.[campo] ?? "", campo === "horaExtra" ? p.horaExtraPonto : p.adicionalNoturnoPonto) ?? undefined));
   const tituloValorHe = (p: TipComputedParticipant) => [
     `HE ${money(p.valorHoraExtra)} · noturno ${money(p.valorAdicionalNoturno)}`,
     p.pagoNaRescisao ? "Paga na rescisão (não entra no A pagar da lista)" : null,
@@ -342,7 +343,7 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
             {registradosOrd.map((p) => {
               const r = rowPorFuncionario.get(p.employeeId);
               if (!r) return null;
-              const est = estimarAdicionais(p.baseSalary, parseHoras(r.horaExtra), parseHoras(r.adicionalNoturno));
+              const est = estimarAdicionais(p.baseSalary, parseHoras(horasDaLinha(r.horaExtra, p.horaExtraPonto)), parseHoras(horasDaLinha(r.adicionalNoturno, p.adicionalNoturnoPonto)));
               return (
                 <Table.Row key={p.employeeId}>
                   <Table.Td>
@@ -363,14 +364,14 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
 )}
 {vc("horaExtra") && (
                   <Table.Td>
-                    <input style={{ ...numInputStyle, width: 70 }} value={r.horaExtra} disabled={readonly} placeholder="0:00" aria-label="Hora extra"
+                    <input style={{ ...numInputStyle, width: 70 }} value={r.horaExtra} disabled={readonly} placeholder={p.horaExtraPonto ?? "0:00"} title={dicaDoPonto(p.horaExtraPonto, r.horaExtra)} aria-label="Hora extra"
                       onChange={(e) => onRow(p.employeeId, { horaExtra: e.target.value })}
                       onBlur={(e) => normalizarHoras(p.employeeId, "horaExtra", e.target.value)} />
                   </Table.Td>
 )}
 {vc("noturno") && (
                   <Table.Td>
-                    <input style={{ ...numInputStyle, width: 70 }} value={r.adicionalNoturno} disabled={readonly} placeholder="0:00" aria-label="Adicional noturno"
+                    <input style={{ ...numInputStyle, width: 70 }} value={r.adicionalNoturno} disabled={readonly} placeholder={p.adicionalNoturnoPonto ?? "0:00"} title={dicaDoPonto(p.adicionalNoturnoPonto, r.adicionalNoturno)} aria-label="Adicional noturno"
                       onChange={(e) => onRow(p.employeeId, { adicionalNoturno: e.target.value })}
                       onBlur={(e) => normalizarHoras(p.employeeId, "adicionalNoturno", e.target.value)} />
                   </Table.Td>
@@ -554,14 +555,14 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
 )}
 {vp("horaExtra") && (
                       <Table.Td>
-                        <input style={{ ...numInputStyle, width: 70 }} value={r.horaExtra} disabled={readonly} placeholder="0:00" aria-label="Hora extra"
+                        <input style={{ ...numInputStyle, width: 70 }} value={r.horaExtra} disabled={readonly} placeholder={p.horaExtraPonto ?? "0:00"} title={dicaDoPonto(p.horaExtraPonto, r.horaExtra)} aria-label="Hora extra"
                           onChange={(e) => onRow(p.employeeId, { horaExtra: e.target.value })}
                           onBlur={(e) => normalizarHoras(p.employeeId, "horaExtra", e.target.value)} />
                       </Table.Td>
 )}
 {vp("noturno") && (
                       <Table.Td>
-                        <input style={{ ...numInputStyle, width: 70 }} value={r.adicionalNoturno} disabled={readonly} placeholder="0:00" aria-label="Adicional noturno"
+                        <input style={{ ...numInputStyle, width: 70 }} value={r.adicionalNoturno} disabled={readonly} placeholder={p.adicionalNoturnoPonto ?? "0:00"} title={dicaDoPonto(p.adicionalNoturnoPonto, r.adicionalNoturno)} aria-label="Adicional noturno"
                           onChange={(e) => onRow(p.employeeId, { adicionalNoturno: e.target.value })}
                           onBlur={(e) => normalizarHoras(p.employeeId, "adicionalNoturno", e.target.value)} />
                       </Table.Td>

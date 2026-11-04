@@ -7798,7 +7798,7 @@ export type TipParticipantKind = "FIXO" | "PONTOS";
 export type TipValeType = "REFEICAO" | "VALE_CONSUMO" | "RETIRADA_CAIXA" | "ADIANTAMENTO" | "OUTRO" | "CREDITO";
 
 export type TipComputedVale = { id: string; type: TipValeType; amount: number; date: string | null; notes: string | null };
-export type TipOrigem = "ESCALA" | "MANUAL";
+export type TipOrigem = "ESCALA" | "MANUAL" | "PONTO";
 export type TipTipoCalculo = "MES" | "RESCISAO" | "RESCISAO_QUITADA" | "FORA_DO_PERIODO";
 
 export type TipRegrasPessoa = {
@@ -7906,6 +7906,9 @@ export type TipComputedParticipant = {
   pixKey: string | null;
   horaExtra: string | null;
   adicionalNoturno: string | null;
+  /** O que o Ponto fechado traz (h:mm) quando nada foi digitado; ausente/null = sem Ponto fechado. */
+  horaExtraPonto?: string | null;
+  adicionalNoturnoPonto?: string | null;
   justificada: boolean;
   vales: TipComputedVale[];
 };

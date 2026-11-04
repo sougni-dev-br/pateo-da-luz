@@ -1,7 +1,7 @@
 import type { TipComputation, TipComputedParticipant } from "../../api/client";
 import {
   MONTHS, NOTA_ADIANTAMENTO_OCULTO, NOTA_DSR_OCULTO, NOTA_HORA_EXTRA_OCULTA, NOTA_QUINZENA_OCULTA, REGRA_DSR, REGRA_HORA_EXTRA, REGRA_QUINZENA,
-  adiantamentoOculto, fmtDate, fmtHoras, money, mostraDsr, mostraQuinzena, ordenar, parseHoras, quinzenaOculta, valorHoraExtraTotal,
+  adiantamentoOculto, fmtDate, fmtHoras, horaExtraDe, money, mostraDsr, mostraQuinzena, noturnoDe, ordenar, parseHoras, quinzenaOculta, valorHoraExtraTotal,
 } from "./gorjetaUtils";
 import { celulasPdf, textoPdf } from "./envioContabilidade";
 import { gerarPdfEnvioContabilidade } from "./pdfEnvioContabilidade";
@@ -80,8 +80,8 @@ export function linhaListaPagamento(p: TipComputedParticipant, comQuinzena = fal
     p.foraDaGorjeta ? "—" : money(p.rateioAmount),
     p.descontos ? textoPdf(`- ${money(p.descontos)}`) : "",
     p.creditos ? money(p.creditos) : "",
-    celulaHoras(p.horaExtra),
-    celulaHoras(p.adicionalNoturno),
+    celulaHoras(horaExtraDe(p)),
+    celulaHoras(noturnoDe(p)),
     celulaValorHoraExtra(valorHoraExtraTotal(p)),
     // Mesma célula da hora extra: null = "oculto"; ausente (backend antigo) = sem DSR.
     ...(comDsr ? [celulaValorHoraExtra(p.valorDsr === undefined ? 0 : p.valorDsr)] : []),
@@ -109,7 +109,7 @@ export async function exportarListaPagamento(comp: TipComputation) {
   const q = comQuinzena ? 1 : 0;
   const ds = comDsr ? 1 : 0;
   const totalHoras = (campo: "horaExtra" | "adicionalNoturno") => {
-    const min = lista.reduce((a, p) => a + Math.max(0, parseHoras(p[campo]) ?? 0), 0);
+    const min = lista.reduce((a, p) => a + Math.max(0, parseHoras(campo === "horaExtra" ? horaExtraDe(p) : noturnoDe(p)) ?? 0), 0);
     return min > 0 ? fmtHoras(min) : "";
   };
   autoTable(doc, {

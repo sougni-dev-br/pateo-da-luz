@@ -434,3 +434,6 @@ describe("computeTipCommission com quem está em teste", () => {
     expect(comp.participants[0]).toMatchObject({ foraDaGorjeta: false, rateioAmount: 400, totalAPagar: 1013.36 });
   });
 });
+
+// O Ponto fechado não entra nestes cenários: sem Ponto fechado, valem a Escala e o que foi digitado.
+vi.mock("../ponto-apuracao.js", () => ({ carregarPontoDaApuracao: async () => ({ faltas: () => null, horas: () => null }) }));

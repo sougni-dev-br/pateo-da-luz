@@ -129,3 +129,6 @@ describe("folgas da escala na apuração", () => {
     expect(comp.fechamento).toEqual({ id: "f1", code: "GOR-2026-0009/v1", version: 1, closedAt: "2026-09-26T00:00:00.000Z", closedByName: "Eli" });
   });
 });
+
+// O Ponto fechado não entra nestes cenários: sem Ponto fechado, valem a Escala e o que foi digitado.
+vi.mock("../ponto-apuracao.js", () => ({ carregarPontoDaApuracao: async () => ({ faltas: () => null, horas: () => null }) }));

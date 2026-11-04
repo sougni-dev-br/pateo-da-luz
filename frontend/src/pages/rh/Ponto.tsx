@@ -210,8 +210,8 @@ A falta na Escala também é lida pela gorjeta, pelo vale-transporte e pela folh
                 ) : null}
                 <span className="po-ajuda">Fechar guarda o resultado e trava os lançamentos do mês; o saldo do banco passa para o mês seguinte.</span>
               </div>
-              <Alert tone="info" title="O que o Ponto ainda não paga sozinho">
-                Extra e adicional noturno daqui <strong>não entram</strong> sozinhos na Folha nem na Gorjeta. Se você já digita hora extra, adicional noturno ou faltas em “Dados para o RH” da Gorjeta, não repita o que está aqui. Já as faltas lançadas na Escala (botão acima) descontam o VT e entram na gorjeta.
+              <Alert tone="info" title="Para onde vai o Ponto fechado">
+                Com o mês <strong>fechado</strong>, as faltas chegam sozinhas à coluna Faltas da Apuração da gorjeta, e a hora extra paga e o adicional noturno chegam à aba Pagamento. O que você digitar lá vale mais; não repita o que já veio daqui. O vale-transporte e a folha ainda leem a Escala: para descontar a falta deles, use o botão de lançar as faltas na Escala.
               </Alert>
               <ResumoMes pessoas={pessoas} onAbrirPapel={(id) => { setPessoaPapel(id); irPara({ aba: "papel" }); }} />
             </>
