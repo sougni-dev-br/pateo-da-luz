@@ -229,7 +229,7 @@ describe("agruparBatidasPorDia — nenhuma batida se perde nem se repete", () =>
       for (const cpf of ["11111111111", "22222222222"]) {
         let momento = Date.UTC(2026, 9, 1, g.inteiro(6, 12), 0);
         for (let i = 0; i < g.inteiro(0, 40); i += 1) {
-          momento += g.escolha([5, 30, 60, 240, 600, 700, 900, 1300]) * 60_000;
+          momento += g.escolha([10, 30, 60, 240, 600, 700, 900, 1300]) * 60_000;
           const iso = new Date(momento).toISOString();
           batidas.push({ nsr: nsr++, cpf, data: iso.slice(0, 10), hora: iso.slice(11, 16), origem: "040" });
         }

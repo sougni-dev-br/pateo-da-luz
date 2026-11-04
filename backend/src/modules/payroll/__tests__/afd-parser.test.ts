@@ -147,6 +147,13 @@ describe("agruparBatidasPorDia — pareamento entrada e saída (achados da audit
     ]);
   });
 
+  test("duas batidas seguidas em até 5 min valem uma só (como no RHiD: 21:01/21:02 e 11:45/11:48), mas 13 min não", () => {
+    const g = agruparBatidasPorDia(lote(CPF_A, ["2026-10-27T11:45:00", "2026-10-27T11:48:00", "2026-10-27T14:59:00", "2026-10-27T16:22:00", "2026-10-27T20:35:00"]));
+    expect(g.get(CPF_A)).toEqual([{ data: "2026-10-27", marcacoes: ["11:45", "14:59", "16:22", "20:35"] }]);
+    const h = agruparBatidasPorDia(lote(CPF_A, ["2026-10-30T14:28:00", "2026-10-30T14:41:00"]));
+    expect(h.get(CPF_A)).toEqual([{ data: "2026-10-30", marcacoes: ["14:28", "14:41"] }]);
+  });
+
   test("toque duplo no mesmo minuto vale uma batida", () => {
     const g = agruparBatidasPorDia(lote(CPF_A, ["2026-11-03T08:00:00", "2026-11-03T08:00:00", "2026-11-03T12:00:00", "2026-11-03T13:00:00", "2026-11-03T17:00:00"]));
     expect(g.get(CPF_A)).toEqual([{ data: "2026-11-03", marcacoes: ["08:00", "12:00", "13:00", "17:00"] }]);
