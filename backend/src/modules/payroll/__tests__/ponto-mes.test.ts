@@ -68,13 +68,14 @@ describe("apurarMesPessoa", () => {
       base({
         admissao: "2026-10-10",
         desligamento: "2026-10-20",
+        batidasPorDia: new Map([["2026-10-10", dia8h]]),
         escalaPorDia: new Map(
           diasDoMes(2026, 10).map((d) => [d, "TURNO"] as const),
         ),
       }),
     );
     expect(r.periodo.dias).toHaveLength(11);
-    expect(r.resumo.faltas).toBe(11);
+    expect(r.resumo.faltas).toBe(10);
   });
 
   test("folga contra o banco debita o saldo e a extra do mês abate a dívida", () => {
@@ -97,11 +98,12 @@ describe("apurarMesPessoa", () => {
     const r = apurarMesPessoa(
       base({
         ate: "2026-10-10",
+        batidasPorDia: new Map([["2026-10-01", dia8h]]),
         escalaPorDia: new Map(diasDoMes(2026, 10).map((d) => [d, "TURNO"] as const)),
       }),
     );
     expect(r.periodo.dias).toHaveLength(10);
-    expect(r.resumo.faltas).toBe(10);
+    expect(r.resumo.faltas).toBe(9);
   });
 
   test("mês montado na Escala: dia sem marca vale como dia trabalhado e sem batida vira falta", () => {
@@ -122,6 +124,19 @@ describe("apurarMesPessoa", () => {
     const r = apurarMesPessoa(base({ ate: "2026-10-09" }));
     expect(r.mesMontado).toBe(false);
     expect(r.resumo.faltas).toBe(0);
+  });
+
+  test("escala montada e nenhuma batida no mês: papel não lançado, nada vira falta", () => {
+    const r = apurarMesPessoa(base({ escalaPorDia: new Map(diasDoMes(2026, 10).map((d) => [d, "TURNO"] as const)) }));
+    expect(r.semLancamento).toBe(true);
+    expect(r.resumo.faltas).toBe(0);
+    expect(r.periodo.dias).toHaveLength(0);
+  });
+
+  test("com uma batida no mês, os outros dias sem batida voltam a ser falta", () => {
+    const r = apurarMesPessoa(base({ batidasPorDia: new Map([["2026-10-05", dia8h]]), escalaPorDia: new Map(diasDoMes(2026, 10).map((d) => [d, "TURNO"] as const)), ate: "2026-10-10" }));
+    expect(r.semLancamento).toBe(false);
+    expect(r.resumo.faltas).toBe(9);
   });
 
   test("sem jornada cadastrada devolve semJornada e não apura", () => {

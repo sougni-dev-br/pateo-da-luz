@@ -115,6 +115,7 @@ export function Ponto() {
     const linhas = [
       `Fechar ${nomeMes} para ${plural(abertas.length, "pessoa", "pessoas")}?`,
       comConferir.length > 0 ? `${plural(comConferir.length, "pessoa ainda tem", "pessoas ainda têm")} dias para conferir.` : "",
+      lista.some((p) => p.semLancamento) ? "Há pessoas sem ponto lançado: o fechamento será recusado até lançar o papel." : "",
       semJornada.length > 0 ? `${plural(semJornada.length, "pessoa sem jornada cadastrada NÃO entra", "pessoas sem jornada cadastrada NÃO entram")} na conta.` : "",
       "Os lançamentos do mês ficam travados e o saldo do banco passa para o mês seguinte. Dá para reabrir depois.",
     ].filter(Boolean);
