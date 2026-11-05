@@ -14,6 +14,7 @@ import {
 import { hasPermission } from "../lib/permissions";
 import { maskMoney, moneyToMasked } from "../utils/format";
 import { AfastamentoModal } from "./folha/AfastamentoModal";
+import { DecimoTerceiroSemRegistro } from "./folha/DecimoTerceiroSemRegistro";
 import { LancamentoManualModal } from "./folha/LancamentoManualModal";
 import { PagamentoMeio } from "./folha/PagamentoMeio";
 import { adiantamentosSrAGerar, quinzenasSrAGerar, reciboDoLancamento } from "./folha/semRegistro";
@@ -21,8 +22,8 @@ import { AvisoReciboImpresso, useImprimirRecibos } from "./gorjeta/ImprimirRecib
 
 const MONTHS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 
-const TYPE_LABELS: Record<PayrollItemType, string> = { ADIANTAMENTO: "Adiantamento", SALARIO: "Salário", VALE_TRANSPORTE: "Vale-transporte", RESCISAO: "Rescisão", FERIAS: "Férias" };
-const TYPE_TONE: Record<PayrollItemType, "info" | "warning" | "neutral" | "danger"> = { VALE_TRANSPORTE: "info", ADIANTAMENTO: "warning", SALARIO: "neutral", RESCISAO: "danger", FERIAS: "info" };
+const TYPE_LABELS: Record<PayrollItemType, string> = { ADIANTAMENTO: "Adiantamento", SALARIO: "Salário", VALE_TRANSPORTE: "Vale-transporte", RESCISAO: "Rescisão", FERIAS: "Férias", DECIMO_TERCEIRO: "13º salário" };
+const TYPE_TONE: Record<PayrollItemType, "info" | "warning" | "neutral" | "danger"> = { VALE_TRANSPORTE: "info", ADIANTAMENTO: "warning", SALARIO: "neutral", RESCISAO: "danger", FERIAS: "info", DECIMO_TERCEIRO: "warning" };
 
 function money(v: string | number | null) {
   if (v == null || v === "") return "—";
@@ -979,6 +980,7 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
           </div>
         )}
 
+        {secao === "lancamentos" && canEdit && podeRecibo && <DecimoTerceiroSemRegistro year={year} onGerado={() => void load()} />}
         {loading && secao === "lancamentos" && <EmptyState title="Carregando folha..." />}
         {!loading && secao === "lancamentos" && list && list.items.length === 0 && !preview && (
           <EmptyState

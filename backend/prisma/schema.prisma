@@ -3253,6 +3253,7 @@ enum PayrollItemType {
   VALE_TRANSPORTE
   RESCISAO
   FERIAS
+  DECIMO_TERCEIRO
 }
 
 enum PayrollItemStatus {

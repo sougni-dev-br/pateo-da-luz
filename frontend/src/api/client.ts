@@ -7703,7 +7703,7 @@ export function saveScheduleBulk(year: number, month: number, entries: ScheduleE
 }
 
 // ─── Folha de Pagamento ─────────────────────────────────────────────────────────
-export type PayrollItemType = "ADIANTAMENTO" | "SALARIO" | "VALE_TRANSPORTE" | "RESCISAO" | "FERIAS";
+export type PayrollItemType = "ADIANTAMENTO" | "SALARIO" | "VALE_TRANSPORTE" | "RESCISAO" | "FERIAS" | "DECIMO_TERCEIRO";
 export type PayrollItemStatus = "PENDING" | "PAID" | "OVERDUE" | "CANCELED";
 
 export type PayrollSettings = {
@@ -10421,4 +10421,24 @@ export type FaltasParaEscala = { faltas: number; pessoas: Array<{ employeeId: st
 /** Dia trabalhado sem batida vira FALTA na Escala (que a gorjeta, o VT e a folha leem). `simular` só mostra o que mudaria. */
 export function faltasParaEscalaPonto(year: number, month: number, simular: boolean) {
   return request<FaltasParaEscala>("/payroll/ponto/faltas-para-escala", json("POST", { year, month, simular }));
+}
+
+// 13º dos sem registro: prévia (por pessoa) e geração das duas parcelas.
+export type Decimo13Calculo = {
+  ano: number; avos: number; desde: string; salario: number; mediaVariaveis: number; base: number; total: number;
+  parcela1: number; parcela2: number; vencimento1: string; vencimento2: string; memoria: string;
+};
+export type Decimo13Linha = {
+  employeeId: string; nome: string; setor: string | null; calculo: Decimo13Calculo | null; motivoSemCalculo: string | null;
+  parcela1Existe: boolean; parcela2Existe: boolean;
+};
+export function getDecimoTerceiro(year: number) {
+  return request<{ ano: number; linhas: Decimo13Linha[] }>(`/payroll/decimo-terceiro?year=${year}`);
+}
+export function gerarDecimoTerceiro(year: number) {
+  return request<{ ano: number; criadas: number; semCalculo: Array<{ nome: string; motivo: string | null }> }>("/payroll/decimo-terceiro/generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ year })
+  });
 }
