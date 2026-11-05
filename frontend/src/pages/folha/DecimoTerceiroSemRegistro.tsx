@@ -5,7 +5,7 @@ import { Alert, Button, Money, PanelEyebrow, Table } from "../../design-system";
 
 const fmtData = (iso: string) => iso.split("-").reverse().join("/");
 
-// 13º de quem não tem registro: mesma regra do CLT (avos, média das variáveis, 50% até 30/11
+// 13º de quem não tem registro (e do período sem registro de quem foi registrado depois): mesma regra do CLT (avos, média das variáveis, 50% até 30/11
 // e o restante até 20/12). O CLT vem do extrato da contabilidade, por isso não aparece aqui.
 export function DecimoTerceiroSemRegistro({ year, onGerado }: { year: number; onGerado: () => void }) {
   const [linhas, setLinhas] = useState<Decimo13Linha[] | null>(null);
@@ -73,7 +73,15 @@ export function DecimoTerceiroSemRegistro({ year, onGerado }: { year: number; on
             <Table.Body>
               {linhas.map((l) => (
                 <Table.Row key={l.employeeId}>
-                  <Table.Td><strong>{l.nome}</strong>{l.setor ? <div style={{ fontSize: "0.8em", color: "var(--muted)" }}>{l.setor}</div> : null}</Table.Td>
+                  <Table.Td>
+                    <strong>{l.nome}</strong>
+                    {l.setor ? <div style={{ fontSize: "0.8em", color: "var(--muted)" }}>{l.setor}</div> : null}
+                    {l.preRegistro && l.semRegistroAte && l.registroEm ? (
+                      <div style={{ fontSize: "0.78em", color: "var(--muted)" }}>
+                        só o período sem registro (até {fmtData(l.semRegistroAte)}); registrado em {fmtData(l.registroEm)}, o resto vem da contabilidade
+                      </div>
+                    ) : null}
+                  </Table.Td>
                   {l.calculo ? (
                     <>
                       <Table.Td title={l.calculo.memoria}>{l.calculo.avos}/12 <span style={{ fontSize: "0.78em", color: "var(--muted)" }}>desde {fmtData(l.calculo.desde)}</span></Table.Td>
