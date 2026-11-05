@@ -15,6 +15,8 @@ export type FiltroLotes = {
   noDueDate: boolean;
   // A lista usa o fim exclusivo (meia-noite seguinte); o PDF, o fim incluído (23:59:59.999).
   fimInclusivo?: boolean;
+  // Só os lotes que têm esta pessoa entre os membros (filtro "Funcionário" da tela).
+  employeeId?: string | null;
 };
 
 const totalMembros = Prisma.sql`(SELECT COALESCE(SUM(m."amount"), 0) FROM "PayrollItem" m WHERE m."folhaLoteId" = fl."id" AND m."deletedAt" IS NULL)`;
@@ -45,7 +47,10 @@ function filtroWhere(f: FiltroLotes) {
   if (f.noDueDate) return Prisma.sql`false`;
   const desde = f.startDate ? Prisma.sql`fl."dueDate" >= ${f.startDate}` : Prisma.sql`true`;
   const ate = !f.endDate ? Prisma.sql`true` : f.fimInclusivo ? Prisma.sql`fl."dueDate" <= ${f.endDate}` : Prisma.sql`fl."dueDate" < ${f.endDate}`;
-  return Prisma.sql`fl."status" IN ('ABERTO', 'PAGO') AND ${desde} AND ${ate} AND ${status}`;
+  const pessoa = f.employeeId
+    ? Prisma.sql`EXISTS (SELECT 1 FROM "PayrollItem" pm WHERE pm."folhaLoteId" = fl."id" AND pm."deletedAt" IS NULL AND pm."employeeId" = ${f.employeeId})`
+    : Prisma.sql`true`;
+  return Prisma.sql`fl."status" IN ('ABERTO', 'PAGO') AND ${desde} AND ${ate} AND ${status} AND ${pessoa}`;
 }
 
 export function lotesParaPayables(f: FiltroLotes) {

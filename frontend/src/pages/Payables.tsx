@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import {
   AppUser, AuditLog, Company, CompanyBankAccount, checkPayrollPayBatch,
   downloadPayablesFinancialPdf, deletePayrollItem, getAllBankAccounts, getCompanies,
-  getPayableHistory, getPayablesComLimite, getPaymentMethods, getPurchase,
+  getPayableHistory, getPayablesComLimite, getPayablesPessoas, getPaymentMethods, getPurchase,
   getTaxPaymentHistory, getSuppliers, payExtraPayment, payFolhaLote, payInstallment, payPayrollItem, payTaxPayment,
   MembroFolhaLote, Payable, PaymentMethod, PurchaseDetail, reverseExtraPayment, reverseFolhaLote, reverseInstallment, reversePayrollItem,
   reverseTaxPayment, Supplier, devolverAoFolhaLote, retirarDoFolhaLote
@@ -24,7 +24,7 @@ import { PainelFiltros } from "./payables/PainelFiltros";
 import { PilulasDeFiltros, type CampoFiltro } from "./payables/PilulasDeFiltros";
 import { ResumoKpis, type CartaoResumo } from "./payables/ResumoKpis";
 import {
-  addDaysKey, agendaDosProximosDias, agruparPorVencimento, basePaymentName, combinaSubtipo, contarFiltrosAtivos, dataDaBaixaNoLote, dateKey, empresaDaBaixaNoLote, formaDaBaixaNoLote, formaPrevistaDoTitulo, payloadDaForma,
+  addDaysKey, agendaDosProximosDias, agruparPorVencimento, ajustarFiltros, basePaymentName, combinaSubtipo, contarFiltrosAtivos, dataDaBaixaNoLote, dateKey, empresaDaBaixaNoLote, formaDaBaixaNoLote, formaPrevistaDoTitulo, payloadDaForma,
   isExtra, isFolhaLote, isPayroll, isSimpleLedger, membroDoLoteCombina, isTaxPayment, juntarVencidosAnteriores, minDateKey, periodoPuxaVencidosAnteriores, rotuloPeriodo, somarValores, todayKey,
   type FiltrosPagar,
   filtroDaUrl
@@ -115,7 +115,9 @@ export function Payables({ user }: PayablesProps) {
   const filtroDoLink = useMemo(() => filtroDaUrl(typeof window !== "undefined" ? window.location.search : ""), []);
   const filtroInicialSemVencimento = typeof window !== "undefined"
     && new URLSearchParams(window.location.search).get("noDueDate") === "1";
-  const [filters, setFilters] = useState<FiltrosPagar>({ filter: "", supplierId: "", paymentMethodId: "", status: "", sourceType: "", origin: "all", noDueDate: filtroInicialSemVencimento });
+  const [filters, setFilters] = useState<FiltrosPagar>({ filter: "", supplierId: "", paymentMethodId: "", employeeId: "", status: "", sourceType: "", origin: "all", noDueDate: filtroInicialSemVencimento });
+  // Quem tem folha ou diária (não é fornecedor): as opções do filtro "Funcionário".
+  const [pessoas, setPessoas] = useState<Array<{ id: string; nome: string }>>([]);
   const [viewMode, setViewMode] = useState<"open" | "paid" | "all">(filtroDoLink.aba ?? "open");
   const [activeChip, setActiveChip] = useState<string | null>(null);
   // Dia escolhido na agenda: filtra a lista que já está na tela, sem nova carga.
@@ -213,6 +215,12 @@ export function Payables({ user }: PayablesProps) {
   }
 
   useEffect(() => { load(); }, []);
+  // A lista de pessoas só serve de opção do filtro: se falhar, o filtro fica vazio e a tela segue.
+  useEffect(() => {
+    let ativo = true;
+    getPayablesPessoas().then((lista) => { if (ativo) setPessoas(lista); }).catch(() => { if (ativo) setPessoas([]); });
+    return () => { ativo = false; };
+  }, []);
 
   // Link "Pagar" da tela de Impostos: depois da primeira carga, abre direto a baixa da guia (uma vez só).
   const abrirDoLink = useRef(filtroDoLink.abrirBaixa && filtroDoLink.titulo != null);
@@ -296,7 +304,7 @@ export function Payables({ user }: PayablesProps) {
   }, [paymentMethods]);
 
   function clearFilters() {
-    const cleared = { filter: "", supplierId: "", paymentMethodId: "", status: "", sourceType: "", origin: "all", noDueDate: false };
+    const cleared = { filter: "", supplierId: "", paymentMethodId: "", employeeId: "", status: "", sourceType: "", origin: "all", noDueDate: false };
     setFilters(cleared);
     setSearchQuery("");
     setActiveChip(null);
@@ -332,7 +340,8 @@ export function Payables({ user }: PayablesProps) {
     void load(undefined, p);
   }
 
-  function alterarFiltros(u: FiltrosPagar) {
+  function alterarFiltros(novos: FiltrosPagar) {
+    const u = ajustarFiltros(filters, novos);
     setFilters(u);
     void load(u);
   }
@@ -348,13 +357,15 @@ export function Payables({ user }: PayablesProps) {
   }
 
   function alterarTipo(origin: string) {
-    const impostos = origin === "taxes";
+    // Impostos e folha não têm fornecedor nem forma de pagamento: os dois filtros saem.
+    const semCompra = origin === "taxes" || origin === "payroll";
+    const subtipoDeFolha = /^(PAYROLL|FOLHA_LOTE|EXTRA)/.test(filters.sourceType);
     alterarFiltros({
       ...filters,
       origin,
-      supplierId: impostos ? "" : filters.supplierId,
-      paymentMethodId: impostos ? "" : filters.paymentMethodId,
-      sourceType: impostos ? "" : filters.sourceType
+      supplierId: semCompra ? "" : filters.supplierId,
+      paymentMethodId: semCompra ? "" : filters.paymentMethodId,
+      sourceType: origin === "taxes" || (origin === "payroll" && !subtipoDeFolha) ? "" : filters.sourceType
     });
   }
 
@@ -888,6 +899,12 @@ export function Payables({ user }: PayablesProps) {
   }
 
   async function handleFinancialPdf() {
+    // O PDF não filtra por funcionário nem pelo tipo Folha: sairia com as compras do período,
+    // contradizendo a tela. Melhor recusar do que gerar o relatório errado em silêncio.
+    if (filters.employeeId || filters.origin === "payroll") {
+      setNotice({ tone: "error", message: "O PDF financeiro ainda não filtra por funcionário nem pelo tipo Folha e extras. Limpe esse filtro para gerar o PDF." });
+      return;
+    }
     // Trava contra duplo clique: a ref barra o segundo clique antes do re-render desabilitar o botão.
     if (gerandoPdfRef.current) return;
     gerandoPdfRef.current = true;
@@ -972,7 +989,7 @@ export function Payables({ user }: PayablesProps) {
         )}
       </div>
 
-      <PilulasDeFiltros filtros={filters} fornecedores={suppliers} formas={effectivePaymentOptions} dia={diaFoco} onRemover={removerFiltro} onRemoverDia={() => setDiaFoco(null)} />
+      <PilulasDeFiltros filtros={filters} fornecedores={suppliers} pessoas={pessoas} formas={effectivePaymentOptions} dia={diaFoco} onRemover={removerFiltro} onRemoverDia={() => setDiaFoco(null)} />
 
       {filtrosAbertos && (
         <PainelFiltros
@@ -980,6 +997,7 @@ export function Payables({ user }: PayablesProps) {
           filtros={filters}
           periodo={period}
           fornecedores={suppliers}
+          pessoas={pessoas}
           formas={effectivePaymentOptions}
           onPeriodo={handlePeriodChange}
           onData={alterarDataPersonalizada}

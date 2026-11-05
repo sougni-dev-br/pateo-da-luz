@@ -11,6 +11,9 @@ export type FiltroPayables = {
   startDate: Date | null;
   endDate: Date | null;
   noDueDate: boolean;
+  // Só os pagamentos desta pessoa (filtro "Funcionário" da tela). Extra sem cadastro de
+  // funcionário (indicado) não tem id: fica de fora quando o filtro está ligado.
+  employeeId?: string | null;
 };
 
 // O Contas a Pagar monta as datas no fuso do SERVIDOR: início à meia-noite e fim
@@ -57,7 +60,8 @@ function filtroWhere(f: FiltroPayables) {
   if (f.noDueDate) return Prisma.sql`false`;
   const desde = inicio ? Prisma.sql`ep."dueDate" >= ${inicio}::date` : Prisma.sql`true`;
   const ate = ultimoDia ? Prisma.sql`ep."dueDate" <= ${ultimoDia}::date` : Prisma.sql`true`;
-  return Prisma.sql`ep."status" != 'CANCELED' AND ${desde} AND ${ate} AND ${status}`;
+  const pessoa = f.employeeId ? Prisma.sql`ep."employeeId" = ${f.employeeId}` : Prisma.sql`true`;
+  return Prisma.sql`ep."status" != 'CANCELED' AND ${desde} AND ${ate} AND ${status} AND ${pessoa}`;
 }
 
 export function extrasParaPayables(f: FiltroPayables) {

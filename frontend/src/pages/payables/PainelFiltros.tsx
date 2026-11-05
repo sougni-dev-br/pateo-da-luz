@@ -1,13 +1,15 @@
 import type { Supplier } from "../../api/client";
 import { Select } from "../../design-system";
 import type { PeriodState } from "../../utils/period";
-import { OPCOES_PERIODO, type FiltrosPagar } from "./regras";
+import { OPCOES_PERIODO, avisoFolhaOculta, type FiltrosPagar } from "./regras";
 
 type Props = {
   id: string;
   filtros: FiltrosPagar;
   periodo: PeriodState;
   fornecedores: Supplier[];
+  /** Funcionários com folha ou diária: quem não é fornecedor tem filtro próprio. */
+  pessoas: Array<{ id: string; nome: string }>;
   formas: Array<{ id: string; label: string }>;
   onPeriodo: (preset: string) => void;
   onData: (campo: "startDate" | "endDate", valor: string) => void;
@@ -45,11 +47,13 @@ export const OPCOES_STATUS = [
 export const OPCOES_TIPO = [
   { value: "all", label: "Todos" },
   { value: "purchases", label: "Compras" },
-  { value: "taxes", label: "Impostos" }
+  { value: "taxes", label: "Impostos" },
+  { value: "payroll", label: "Folha e extras" }
 ];
 
 /** Filtros avançados (recolhíveis). Cada mudança recarrega a lista pelo pai. */
-export function PainelFiltros({ id, filtros, periodo, fornecedores, formas, onPeriodo, onData, onFiltros, onStatus, onTipo }: Props) {
+export function PainelFiltros({ id, filtros, periodo, fornecedores, pessoas, formas, onPeriodo, onData, onFiltros, onStatus, onTipo }: Props) {
+  const aviso = avisoFolhaOculta(filtros);
   return (
     <div id={id} className="pg-filtros" role="group" aria-label="Filtros avançados">
       <Select label="Período de vencimento" value={periodo.preset} onChange={(e) => onPeriodo(e.target.value)} options={OPCOES_PERIODO} />
@@ -73,6 +77,13 @@ export function PainelFiltros({ id, filtros, periodo, fornecedores, formas, onPe
         options={fornecedores.map((s) => ({ value: s.id, label: s.name }))}
       />
       <Select
+        label="Funcionário"
+        value={filtros.employeeId}
+        onChange={(e) => onFiltros({ ...filtros, employeeId: e.target.value })}
+        placeholder="Todos"
+        options={pessoas.map((p) => ({ value: p.id, label: p.nome }))}
+      />
+      <Select
         label="Forma de pagamento"
         value={filtros.paymentMethodId}
         onChange={(e) => onFiltros({ ...filtros, paymentMethodId: e.target.value })}
@@ -90,6 +101,7 @@ export function PainelFiltros({ id, filtros, periodo, fornecedores, formas, onPe
           options={OPCOES_SUBTIPO}
         />
       )}
+      {aviso && <p className="pg-filtros-aviso" role="status">{aviso}</p>}
     </div>
   );
 }

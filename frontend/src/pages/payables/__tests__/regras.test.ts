@@ -32,7 +32,7 @@ function titulo(over: Partial<Payable> = {}): Payable {
   };
 }
 
-const FILTROS_VAZIOS: FiltrosPagar = { filter: "", supplierId: "", paymentMethodId: "", status: "", sourceType: "", origin: "all", noDueDate: false };
+const FILTROS_VAZIOS: FiltrosPagar = { filter: "", supplierId: "", paymentMethodId: "", employeeId: "", status: "", sourceType: "", origin: "all", noDueDate: false };
 
 describe("combinaSubtipo", () => {
   it("filtra só o tipo da Folha pedido no sub-tipo PAYROLL:<tipo>", () => {

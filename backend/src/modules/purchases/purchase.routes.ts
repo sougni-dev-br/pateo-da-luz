@@ -518,7 +518,9 @@ purchaseRouter.get("/payables", async (request, response) => {
   const paymentMethodId = request.query.paymentMethodId ? String(request.query.paymentMethodId) : null;
   const status = request.query.status ? String(request.query.status).toUpperCase() : null;
   const noDueDate = request.query.noDueDate === "true";
-  // "all" | "purchases" | "taxes"
+  // Funcionário: folha, diárias e lotes têm pessoa, não fornecedor.
+  const employeeId = request.query.employeeId ? String(request.query.employeeId) : null;
+  // "all" | "purchases" | "taxes" | "payroll" (folha, diárias e lotes da folha)
   const origin = String(request.query.origin ?? "all");
   const computedStatus = payableStatusSql(startToday);
 
@@ -544,9 +546,11 @@ purchaseRouter.get("/payables", async (request, response) => {
     endDate = customRange.endDate;
   }
 
-  const includePurchases = origin !== "taxes";
+  // Só a folha: tipo "Folha" ou um funcionário escolhido (compras e impostos não têm funcionário).
+  const soFolha = origin === "payroll" || employeeId !== null;
+  const includePurchases = origin !== "taxes" && !soFolha;
   // TaxPayments don't have supplier/paymentMethod — skip when those filters are active
-  const includeTaxes = origin !== "purchases" && !supplierId && !paymentMethodId;
+  const includeTaxes = origin !== "purchases" && !soFolha && !supplierId && !paymentMethodId;
 
   // ── Purchase installments ──────────────────────────────────────────────────
   const purchaseRows = includePurchases
@@ -750,6 +754,7 @@ purchaseRouter.get("/payables", async (request, response) => {
           -- de RH, não é título a pagar.
           AND COALESCE((pit."details"->>'quitadaNoTermo')::boolean, false) = false
           AND COALESCE((pit."details"->>'quitadaSemValor')::boolean, false) = false
+          AND ${employeeId ? Prisma.sql`pit."employeeId" = ${employeeId}` : Prisma.sql`true`}
           AND ${noDueDate ? Prisma.sql`pit."dueDate" IS NULL` : Prisma.sql`true`}
           AND ${!noDueDate && startDate ? Prisma.sql`pit."dueDate" >= ${startDate}` : Prisma.sql`true`}
           AND ${!noDueDate && endDate ? Prisma.sql`pit."dueDate" < ${endDate}` : Prisma.sql`true`}
@@ -770,12 +775,12 @@ purchaseRouter.get("/payables", async (request, response) => {
 
   // Pagamentos de extras (diárias): mesma regra de inclusão da folha.
   const extraRows = includePayroll
-    ? await extrasParaPayables({ startToday, status, startDate, endDate, noDueDate })
+    ? await extrasParaPayables({ startToday, status, startDate, endDate, noDueDate, employeeId })
     : ([] as Array<Record<string, unknown>>);
 
   // Títulos do lote de pagamento da folha (um por empresa): mesma regra de inclusão da folha.
   const loteRows = includePayroll
-    ? await lotesParaPayables({ startToday, status, startDate, endDate, noDueDate })
+    ? await lotesParaPayables({ startToday, status, startDate, endDate, noDueDate, employeeId })
     : ([] as Array<Record<string, unknown>>);
 
   const allRows: Array<Record<string, unknown>> = [...purchaseMapped, ...taxRows, ...await comComposicaoDoSalario(payrollRows, user), ...extraRows, ...loteRows];
@@ -791,6 +796,31 @@ purchaseRouter.get("/payables", async (request, response) => {
   const truncado = [purchaseMapped, taxRows, payrollRows, extraRows, loteRows].some((l) => l.length >= LIMITE_POR_ORIGEM);
   if (truncado) response.setHeader("X-Payables-Truncado", "1");
   response.json(allRows);
+});
+
+// Funcionários com lançamento de folha ou diária: as opções do filtro "Funcionário" da tela.
+// Quem tem título na folha não é fornecedor, então não aparece no filtro de fornecedor.
+purchaseRouter.get("/payables/pessoas", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "VISUALIZACAO"]);
+  if (!user) return;
+
+  const pessoas = await prisma.$queryRaw<Array<{ id: string; nome: string }>>`
+    SELECT e."id", CONCAT(e."firstName", ' ', e."lastName") AS "nome"
+    FROM "Employee" e
+    WHERE e."deletedAt" IS NULL
+      AND (
+        EXISTS (
+          SELECT 1 FROM "PayrollItem" pit
+          WHERE pit."employeeId" = e."id" AND pit."deletedAt" IS NULL AND pit."status" != 'CANCELED'
+        )
+        OR EXISTS (
+          SELECT 1 FROM "ExtraPayment" ep
+          WHERE ep."employeeId" = e."id" AND ep."status" != 'CANCELED'
+        )
+      )
+    ORDER BY e."firstName", e."lastName"
+  `;
+  response.json(pessoas);
 });
 
 purchaseRouter.get("/reports/supplier-position.pdf", async (request, response) => {

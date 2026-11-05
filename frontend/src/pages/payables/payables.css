@@ -1221,3 +1221,14 @@
 .pg-volta { margin: 0 0 8px; font-size: var(--fs-sm); }
 .pg-volta a { color: var(--info); text-decoration: underline; text-underline-offset: 2px; }
 .pg-volta a:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: 3px; }
+
+/* Aviso de que fornecedor/forma de pagamento escondem a folha: ocupa a linha inteira da grade. */
+.pg-filtros-aviso {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm, 6px);
+  background: var(--warning-soft, #fdf3dc);
+  color: var(--ink);
+  font-size: var(--fs-sm);
+}

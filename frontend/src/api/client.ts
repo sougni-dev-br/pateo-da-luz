@@ -2567,9 +2567,16 @@ export function getPayables(filters?: {
   startDate?: string;
   endDate?: string;
   noDueDate?: boolean;
-  origin?: "all" | "purchases" | "taxes";
+  /** Folha, diárias e lotes da pessoa (a folha não tem fornecedor). */
+  employeeId?: string;
+  origin?: "all" | "purchases" | "taxes" | "payroll";
 }) {
   return request<Payable[]>(`/purchases/payables${toQueryString(filters)}`);
+}
+
+/** Funcionários com lançamento de folha ou diária: as opções do filtro "Funcionário". */
+export function getPayablesPessoas() {
+  return request<Array<{ id: string; nome: string }>>("/purchases/payables/pessoas");
 }
 
 /** Igual a getPayables, mas diz se o backend cortou a lista no limite de segurança (cabeçalho X-Payables-Truncado). */

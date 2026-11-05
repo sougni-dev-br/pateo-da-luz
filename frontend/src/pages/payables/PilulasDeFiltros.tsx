@@ -3,11 +3,13 @@ import type { Supplier } from "../../api/client";
 import { OPCOES_STATUS, OPCOES_SUBTIPO, OPCOES_TIPO } from "./PainelFiltros";
 import type { FiltrosPagar } from "./regras";
 
-export type CampoFiltro = "supplierId" | "paymentMethodId" | "status" | "origin" | "sourceType";
+export type CampoFiltro = "supplierId" | "paymentMethodId" | "employeeId" | "status" | "origin" | "sourceType";
 
 type Props = {
   filtros: FiltrosPagar;
   fornecedores: Supplier[];
+  /** Funcionários da folha, para dar nome à pílula do filtro Funcionário. */
+  pessoas?: Array<{ id: string; nome: string }>;
   formas: Array<{ id: string; label: string }>;
   /** Dia escolhido na agenda (YYYY-MM-DD), quando há. */
   dia?: string | null;
@@ -16,11 +18,12 @@ type Props = {
 };
 
 /** Os filtros avançados em vigor, sempre à vista (mesmo com o painel recolhido), cada um removível. */
-export function PilulasDeFiltros({ filtros, fornecedores, formas, dia, onRemover, onRemoverDia }: Props) {
+export function PilulasDeFiltros({ filtros, fornecedores, pessoas = [], formas, dia, onRemover, onRemoverDia }: Props) {
   const nomeDe = <T extends { value: string; label: string }>(lista: T[], valor: string) => lista.find((o) => o.value === valor)?.label ?? valor;
   const pilulas: Array<{ campo: CampoFiltro; rotulo: string; valor: string }> = [];
   if (filtros.supplierId) pilulas.push({ campo: "supplierId", rotulo: "Fornecedor", valor: fornecedores.find((s) => s.id === filtros.supplierId)?.name ?? "—" });
   if (filtros.paymentMethodId) pilulas.push({ campo: "paymentMethodId", rotulo: "Forma", valor: formas.find((f) => f.id === filtros.paymentMethodId)?.label ?? "—" });
+  if (filtros.employeeId) pilulas.push({ campo: "employeeId", rotulo: "Funcionário", valor: pessoas.find((p) => p.id === filtros.employeeId)?.nome ?? "—" });
   if (filtros.status) pilulas.push({ campo: "status", rotulo: "Status", valor: nomeDe(OPCOES_STATUS, filtros.status) });
   if (filtros.origin !== "all") pilulas.push({ campo: "origin", rotulo: "Tipo", valor: nomeDe(OPCOES_TIPO, filtros.origin) });
   if (filtros.sourceType) pilulas.push({ campo: "sourceType", rotulo: "Sub-tipo", valor: nomeDe(OPCOES_SUBTIPO, filtros.sourceType) });

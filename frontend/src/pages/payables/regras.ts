@@ -324,16 +324,52 @@ export type FiltrosPagar = {
   filter: string;
   supplierId: string;
   paymentMethodId: string;
+  /** Funcionário da folha (e das diárias): folha não tem fornecedor, então tem filtro próprio. */
+  employeeId: string;
   status: string;
   sourceType: string;
+  /** "all" | "purchases" | "taxes" | "payroll" (folha, diárias e lotes da folha). */
   origin: string;
   noDueDate: boolean;
 };
 
 /** Quantos filtros do painel recolhível estão ativos (o atalho "Sem vencimento" conta junto). */
 export function contarFiltrosAtivos(f: FiltrosPagar, atalhoAtivo: string | null): number {
-  const campos = [f.supplierId, f.paymentMethodId, f.status, f.sourceType, f.origin !== "all" ? f.origin : ""];
+  const campos = [f.supplierId, f.paymentMethodId, f.employeeId, f.status, f.sourceType, f.origin !== "all" ? f.origin : ""];
   return campos.filter(Boolean).length + (atalhoAtivo === "noduedate" ? 1 : 0);
+}
+
+/**
+ * Filtros que se excluem: compras têm fornecedor e forma de pagamento; a folha tem funcionário.
+ * Quem acabou de mudar vence — o outro lado é limpo em vez de a lista ficar vazia sem explicação.
+ */
+export function ajustarFiltros(antes: FiltrosPagar, depois: FiltrosPagar): FiltrosPagar {
+  const escolheuFuncionario = Boolean(depois.employeeId) && depois.employeeId !== antes.employeeId;
+  if (escolheuFuncionario) {
+    const soCompraOuImposto = depois.origin === "purchases" || depois.origin === "taxes";
+    // O sub-tipo vale só no cliente: o de compras esvaziaria a lista de folha.
+    const subtipoDeFolha = /^(PAYROLL|FOLHA_LOTE|EXTRA)/.test(depois.sourceType);
+    return {
+      ...depois, supplierId: "", paymentMethodId: "", origin: soCompraOuImposto ? "all" : depois.origin,
+      sourceType: subtipoDeFolha ? depois.sourceType : "",
+    };
+  }
+  const escolheuDeCompra = (Boolean(depois.supplierId) && depois.supplierId !== antes.supplierId)
+    || (Boolean(depois.paymentMethodId) && depois.paymentMethodId !== antes.paymentMethodId);
+  if (escolheuDeCompra) return { ...depois, employeeId: "", origin: depois.origin === "payroll" ? "all" : depois.origin };
+  const escolheuTipoDeCompra = depois.origin !== antes.origin && (depois.origin === "purchases" || depois.origin === "taxes");
+  if (escolheuTipoDeCompra) return { ...depois, employeeId: "" };
+  return depois;
+}
+
+/**
+ * Fornecedor e forma de pagamento só existem em compras: com um deles a lista não traz folha,
+ * diárias nem impostos. Avisa para o título não "sumir" sem explicação.
+ */
+export function avisoFolhaOculta(f: FiltrosPagar): string | null {
+  const escondeOutrasFontes = Boolean(f.supplierId || f.paymentMethodId);
+  if (!escondeOutrasFontes || f.origin === "purchases" || f.origin === "taxes") return null;
+  return "Com fornecedor ou forma de pagamento a lista não traz folha, diárias nem impostos. Para ver salários, use o filtro Funcionário ou o tipo Folha e extras.";
 }
 
 export const OPCOES_PERIODO = [
