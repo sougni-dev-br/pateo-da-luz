@@ -1,5 +1,5 @@
 import type { TipComputation, TipComputedParticipant } from "../../api/client";
-import { fmtDate, money } from "./gorjetaUtils";
+import { fmtDate, horaExtraDe, money, noturnoDe } from "./gorjetaUtils";
 
 // Envio à contabilidade: só quem é registrado, por empresa e depois por nome. Os sem
 // registro vão para a lista de pagamento; quem recebeu a gorjeta na rescisão não entra de
@@ -75,8 +75,8 @@ export const celulaOuTraco = (v: string | number | null | undefined) =>
 export function totaisDoEnvio(linhas: LinhaEnvio[], minutos: (t: string | null | undefined) => number | null) {
   const soma = (f: (l: LinhaEnvio) => number) => linhas.reduce((a, l) => a + f(l), 0);
   return {
-    minutosHoraExtra: soma((l) => Math.max(0, minutos(l.pessoa.horaExtra) ?? 0)),
-    minutosNoturno: soma((l) => Math.max(0, minutos(l.pessoa.adicionalNoturno) ?? 0)),
+    minutosHoraExtra: soma((l) => Math.max(0, minutos(horaExtraDe(l.pessoa)) ?? 0)),
+    minutosNoturno: soma((l) => Math.max(0, minutos(noturnoDe(l.pessoa)) ?? 0)),
     faltas: soma((l) => l.pessoa.faltas ?? 0),
     atestados: soma((l) => l.pessoa.atestados ?? 0),
     afastamento: soma((l) => l.pessoa.afastamento ?? 0),
@@ -101,8 +101,8 @@ export function tabelaDoEnvio(linhas: LinhaEnvio[]) {
   const linha = ({ pessoa: p, gorjeta }: LinhaEnvio): string[] => [
     nomeNoEnvio(p.employeeName) + (p.tipoCalculo === "MES" || !p.terminationDate ? "" : `\nSaída em ${fmtDate(p.terminationDate)}`),
     textoPdf(money(gorjeta ?? 0)),
-    celulaOuTraco(p.horaExtra),
-    celulaOuTraco(p.adicionalNoturno),
+    celulaOuTraco(horaExtraDe(p)),
+    celulaOuTraco(noturnoDe(p)),
     celulaOuTraco(p.faltas),
     celulaOuTraco(p.atestados),
     ...(comAfastamento ? [celulaOuTraco(p.afastamento)] : []),
@@ -112,4 +112,4 @@ export function tabelaDoEnvio(linhas: LinhaEnvio[]) {
 
 /** Na impressão não entra quem tem gorjeta zero e nada mais a pagar (hora extra ou noturno mantêm a linha). */
 export const entraNaImpressao = (l: LinhaEnvio, minutos: (t: string | null | undefined) => number | null) =>
-  (l.gorjeta ?? 0) > 0 || (minutos(l.pessoa.horaExtra) ?? 0) > 0 || (minutos(l.pessoa.adicionalNoturno) ?? 0) > 0;
+  (l.gorjeta ?? 0) > 0 || (minutos(horaExtraDe(l.pessoa)) ?? 0) > 0 || (minutos(noturnoDe(l.pessoa)) ?? 0) > 0;

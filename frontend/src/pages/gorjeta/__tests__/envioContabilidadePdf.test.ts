@@ -71,3 +71,29 @@ test("impressão: gorjeta zero sem hora extra sai; com hora extra ou noturno fic
   expect(entraNaImpressao(l(0, null, "0:28"), parseHoras)).toBe(true);
   expect(entraNaImpressao(l(745.32), parseHoras)).toBe(true);
 });
+
+describe("horas do Ponto fechado no envio à contabilidade", () => {
+  const l = (over: Record<string, unknown>): LinhaEnvio =>
+    ({ pessoa: { employeeName: "ANA LIMA", horaExtra: null, adicionalNoturno: null, faltas: 0, atestados: 0, tipoCalculo: "MES", terminationDate: null, ...over } as unknown as LinhaEnvio["pessoa"], empresa: "X", gorjeta: 100, peloTeto: false });
+
+  test("nada digitado: a linha do PDF leva a hora extra e o noturno do Ponto", async () => {
+    const { tabelaDoEnvio } = await import("../envioContabilidade");
+    const { linha } = tabelaDoEnvio([l({})]);
+    const celulas = linha(l({ horaExtraPonto: "5:00", adicionalNoturnoPonto: "1:14" }));
+    expect(celulas.slice(2, 4)).toEqual(["5:00", "1:14"]);
+  });
+
+  test("o digitado vence o Ponto", async () => {
+    const { tabelaDoEnvio } = await import("../envioContabilidade");
+    const { linha } = tabelaDoEnvio([l({})]);
+    expect(linha(l({ horaExtra: "1:00", horaExtraPonto: "5:00" })).slice(2, 3)).toEqual(["1:00"]);
+  });
+
+  test("os totais e a decisão de imprimir a linha também usam o Ponto", async () => {
+    const { totaisDoEnvio, entraNaImpressao } = await import("../envioContabilidade");
+    const { parseHoras } = await import("../gorjetaUtils");
+    const doPonto = l({ horaExtraPonto: "5:00", adicionalNoturnoPonto: "1:00" });
+    expect(totaisDoEnvio([doPonto], parseHoras)).toMatchObject({ minutosHoraExtra: 300, minutosNoturno: 60 });
+    expect(entraNaImpressao({ ...doPonto, gorjeta: 0 }, parseHoras)).toBe(true);
+  });
+});
