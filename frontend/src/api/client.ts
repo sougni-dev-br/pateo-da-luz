@@ -7473,6 +7473,7 @@ export type Employee = {
   scheduleRegime: WorkScheduleRegime;
   includeInSchedule: boolean;
   registraPonto?: boolean;
+  recebeDecimoTerceiro?: boolean;
   admissionDate: string | null;
   admissaoCarteira?: string | null;
   /** Entra na gorjeta em. Vazio = em teste (ou fora da gorjeta). */
@@ -7549,6 +7550,7 @@ export type EmployeePayload = {
   scheduleRegime?: WorkScheduleRegime;
   includeInSchedule?: boolean;
   registraPonto?: boolean;
+  recebeDecimoTerceiro?: boolean;
   admissionDate?: string;
   /** Registro em carteira (do extrato); null limpa, ausente preserva. */
   admissaoCarteira?: string | null;
@@ -10431,6 +10433,8 @@ export type Decimo13Calculo = {
 export type Decimo13Linha = {
   employeeId: string; nome: string; setor: string | null; calculo: Decimo13Calculo | null; motivoSemCalculo: string | null;
   parcela1Existe: boolean; parcela2Existe: boolean;
+  // Registrado depois do início real: só o período sem registro entra (até semRegistroAte).
+  preRegistro: boolean; semRegistroAte: string | null; registroEm: string | null;
 };
 export function getDecimoTerceiro(year: number) {
   return request<{ ano: number; linhas: Decimo13Linha[] }>(`/payroll/decimo-terceiro?year=${year}`);

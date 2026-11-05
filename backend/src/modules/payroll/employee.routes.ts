@@ -112,6 +112,7 @@ function buildEmployeeData(b: Record<string, unknown>) {
     includeInSchedule: b.includeInSchedule === undefined ? true : Boolean(b.includeInSchedule),
     // Ausente = não mexe (padrão do cadastro novo: bate ponto).
     ...(typeof b.registraPonto === "boolean" ? { registraPonto: b.registraPonto } : {}),
+    ...(typeof b.recebeDecimoTerceiro === "boolean" ? { recebeDecimoTerceiro: b.recebeDecimoTerceiro } : {}),
     admissionDate: dateOrNull(b.admissionDate),
     // Ausente = não mexe (a importação do extrato também grava este campo).
     ...("admissaoCarteira" in b ? { admissaoCarteira: dateOrNull(b.admissaoCarteira) } : {}),

@@ -1,6 +1,8 @@
 // 13º salário de quem NÃO tem registro (NAO_CLT) — decisões do Eli, 05/11/2026:
 // - Avos contam desde o início real (Employee.admissionDate), mesmo que a carteira seja
 //   posterior ou que a pessoa nunca tenha sido registrada. Mês com 15 dias ou mais = 1 avo.
+//   Quem foi registrado no ano (admissaoCarteira): o período sem registro vai até o fim do mês
+//   anterior à carteira; o mês da carteira e o resto do ano vêm do extrato da contabilidade.
 // - Base: salário base vigente em 20/12 + média mensal das variáveis do ano (gorjeta, hora
 //   extra, adicional noturno e DSR; soma ÷ avos, como o CLT faz), ÷ 12 × avos.
 // - Duas parcelas: 50% até 30/11 e o restante até 20/12.
@@ -21,17 +23,29 @@ export type Decimo13SR = {
 const br = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const iso = (ano: number, mes: number, dia: number) => new Date(Date.UTC(ano, mes - 1, dia)).toISOString().slice(0, 10);
 
+// Último dia sem registro de quem foi registrado depois do início real: o mês da carteira é da
+// contabilidade, então o período termina no fim do mês anterior (decisão do Eli, 05/11/2026).
+export function fimSemRegistro(admissao: Date | null, carteira: Date | null): Date | null {
+  if (!admissao || !carteira || carteira.getTime() <= admissao.getTime()) return null;
+  return new Date(Date.UTC(carteira.getUTCFullYear(), carteira.getUTCMonth(), 0));
+}
+
 // null = não há 13º a gerar (sem início, sem salário, saiu antes do ano, ou 0 avos).
 export function calcularDecimoTerceiroSR(e: {
   ano: number; salarioBase: number | null; inicio: Date | null; desligamento: Date | null;
   // Soma das variáveis (gorjeta, extras) recebidas no ano; a média é soma ÷ avos.
   variaveisSoma?: number;
+  // Fim do período a contar (quem foi registrado depois: o último dia sem registro; o mês da
+  // carteira é da contabilidade). Antes do ano = nada a pagar neste ano.
+  ate?: Date | null;
 }): Decimo13SR | null {
   if (!e.inicio || e.salarioBase == null || !(e.salarioBase > 0)) return null;
   const fimDoAno = new Date(Date.UTC(e.ano, 11, 31));
   if (e.inicio.getTime() > fimDoAno.getTime()) return null;
   if (e.desligamento && e.desligamento.getUTCFullYear() < e.ano) return null;
-  const ate = e.desligamento && e.desligamento.getUTCFullYear() === e.ano ? e.desligamento : fimDoAno;
+  if (e.ate && e.ate.getUTCFullYear() < e.ano) return null;
+  const limites = [e.desligamento, e.ate].filter((x): x is Date => x != null && x.getUTCFullYear() === e.ano);
+  const ate = limites.reduce((menor, x) => (x.getTime() < menor.getTime() ? x : menor), fimDoAno);
   const { avos, desde } = avos13(e.inicio, ate);
   if (avos <= 0) return null;
   const salario = round2(e.salarioBase);
