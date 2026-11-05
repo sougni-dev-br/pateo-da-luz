@@ -27,6 +27,7 @@ import { recusaDoItemMudado, recusaPorLote } from "./folha-lote.service.js";
 import { folhaLoteRouter } from "./folha-lote.routes.js";
 import { folhaRecibosRouter } from "./recibo-pagamento.routes.js";
 import { pagamentoMeioRouter } from "./pagamento-meio.routes.js";
+import { decimoTerceiroRouter } from "./decimo-terceiro.routes.js";
 
 export const payrollRouter = Router();
 // Lançamento manual (POST /) e conferência do lote antes da baixa (POST /pay-check).
@@ -39,6 +40,9 @@ payrollRouter.use("/folha-lotes", folhaLoteRouter);
 payrollRouter.use(folhaRecibosRouter);
 // Lista do adiantamento / 1ª quinzena para conferir e pagar.
 payrollRouter.use(pagamentoMeioRouter);
+
+// 13º dos sem registro (prévia + geração das 2 parcelas).
+payrollRouter.use("/decimo-terceiro", decimoTerceiroRouter);
 
 function parseYearMonth(q: { year?: unknown; month?: unknown }) {
   const now = new Date();

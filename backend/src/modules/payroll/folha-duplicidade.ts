@@ -143,7 +143,7 @@ export function motivoValido(v: unknown): string | null {
 }
 
 const ROTULOS: Record<string, string> = {
-  SALARIO: "Salário", ADIANTAMENTO: "Adiantamento", VALE_TRANSPORTE: "Vale-transporte", RESCISAO: "Rescisão", FERIAS: "Férias",
+  SALARIO: "Salário", ADIANTAMENTO: "Adiantamento", VALE_TRANSPORTE: "Vale-transporte", RESCISAO: "Rescisão", FERIAS: "Férias", DECIMO_TERCEIRO: "13º salário",
 };
 export const rotuloTipo = (type: string) => ROTULOS[type] ?? type;
 export const competenciaDe = (i: { competenceYear: number; competenceMonth: number }) =>
