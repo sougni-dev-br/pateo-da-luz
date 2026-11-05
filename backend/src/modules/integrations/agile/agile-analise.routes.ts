@@ -3,7 +3,7 @@ import { z } from "zod";
 import { getSessionUser, type SessionUser } from "../../security/security-utils.js";
 import { userHasPermission } from "../../security/menu-permissions.js";
 import {
-  obterCancelamentos, obterCardapio, obterDemanda, obterDescontos, obterItensCancelados, obterMargem, obterMargemBebidas, obterMargemBuffet, obterMetas, obterPerdas, obterResumo, obterVendasPorPessoa, salvarCustoBuffet, salvarMeta, UNIDADES_DE_CONSUMO, vincularBebidaAoInsumo, vincularProdutoAoPrato
+  obterCancelamentos, obterCardapio, obterConsumo, obterDemanda, obterDescontos, obterItensCancelados, obterMargem, obterMargemBebidas, obterMargemBuffet, obterMetas, obterPerdas, obterResumo, obterVendasPorPessoa, salvarCustoBuffet, salvarMeta, UNIDADES_DE_CONSUMO, vincularBebidaAoInsumo, vincularProdutoAoPrato
 } from "./agile-analise.service.js";
 import { INDICADORES_DE_META } from "./agile-analise-metas.report.js";
 
@@ -123,7 +123,9 @@ const ROTAS_DE_VISAO = [
   { caminho: "/margem", obter: obterMargem, rotulo: "a margem por prato do salão", custo: true },
   { caminho: "/margem-bebidas", obter: obterMargemBebidas, rotulo: "a margem das bebidas do salão", custo: true },
   { caminho: "/margem-buffet", obter: obterMargemBuffet, rotulo: "a margem do buffet do salão", custo: true },
-  { caminho: "/perdas", obter: obterPerdas, rotulo: "a análise de perdas do salão" }
+  { caminho: "/perdas", obter: obterPerdas, rotulo: "a análise de perdas do salão" },
+  // Sem valores de custo: so quantidades de insumo e cobertura. Basta ver a analise.
+  { caminho: "/consumo", obter: obterConsumo, rotulo: "o consumo teórico de insumos do salão" }
 ] as const;
 
 for (const { caminho, obter, rotulo, ...resto } of ROTAS_DE_VISAO) {
