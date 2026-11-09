@@ -170,6 +170,17 @@ describe("confirmarImportacaoIfood", () => {
     expect(chamadas.settlementCreate).not.toHaveBeenCalled();
   });
 
+  test("grava para loja com merchantId PENDENTE, ligando o repasse à loja certa", async () => {
+    estado.lojas = [{ id: "loja-1", nickname: "Loja Teste", externalId: "PENDENTE-1" }];
+    estado.linhas = [{
+      id: "ifood-import-202609-111", description: "Delivery iFood - Loja Teste (consolidado do mes)", status: "ACTIVE",
+      date: new Date("2026-09-30"), competenceYear: 2026, competenceMonth: 9, tickets: 5, grossAmount: 500, netAmount: 400
+    }];
+    const r = await confirmarImportacaoIfood(await arquivoSimples(), "c.xlsx", contexto);
+    expect(r).toMatchObject({ gravados: 1, repassesGravados: 1 });
+    expect((chamadas.settlementCreate.mock.calls[0]![0] as { data: Linha }).data).toMatchObject({ deliveryStoreId: "loja-1" });
+  });
+
   test("mês travado não grava nada", async () => {
     estado.travados = new Set(["2026-10"]);
     const r = await confirmarImportacaoIfood(await arquivoSimples(), "c.xlsx", contexto);

@@ -113,9 +113,37 @@ async function lerLojas(db: Banco): Promise<LojaCadastrada[]> {
   return db.deliveryStore.findMany({ where: { platform: "IFOOD" }, select: { id: true, nickname: true, externalId: true } });
 }
 
-/** A loja do arquivo (uuid do portal) precisa estar cadastrada em Integrações Delivery. */
-function acharLoja(lojas: LojaCadastrada[], loja: LojaIfoodMes): LojaCadastrada | null {
-  return lojas.find((l) => l.externalId === loja.lojaId || l.externalId === loja.lojaIdCurto) ?? null;
+type ResolverLoja = (loja: LojaIfoodMes) => LojaCadastrada | null;
+
+/**
+ * Descobre qual loja cadastrada é cada loja do arquivo. O `merchantId` do cadastro pode estar como "PENDENTE-n"
+ * (a integração oficial nunca foi liberada), então só ele não serve. O vínculo confiável vem das linhas que
+ * já foram importadas: o id termina no código da loja (`ifood-import-AAAAMM-<código>`) e a descrição traz o nome.
+ */
+async function vinculosPelasLinhasAntigas(db: Banco, lojas: LojaIfoodMes[], cadastradas: LojaCadastrada[]): Promise<Map<string, LojaCadastrada>> {
+  const vinculos = new Map<string, LojaCadastrada>();
+  if (lojas.length === 0 || cadastradas.length === 0) return vinculos;
+  const linhas = await db.revenueEntry.findMany({
+    where: {
+      sourcePlatform: { equals: SOURCE_PLATFORM, mode: "insensitive" },
+      OR: lojas.map((l) => ({ id: { startsWith: "ifood-import-", endsWith: `-${l.lojaIdCurto}` } }))
+    },
+    select: { id: true, description: true }
+  });
+  for (const l of linhas) {
+    const curto = l.id.match(/^ifood-import-\d{6}-(\d+)$/)?.[1];
+    const nome = lojaDaDescricao(l.description);
+    if (!curto || !nome || vinculos.has(curto)) continue;
+    const cadastrada = cadastradas.find((c) => chaveDaLoja(c.nickname) === chaveDaLoja(nome));
+    if (cadastrada) vinculos.set(curto, cadastrada);
+  }
+  return vinculos;
+}
+
+/** A loja do arquivo precisa estar cadastrada em Integrações Delivery: pelo merchantId ou pelo histórico de linhas importadas. */
+function criarResolvedor(cadastradas: LojaCadastrada[], vinculos: Map<string, LojaCadastrada>): ResolverLoja {
+  return (loja) =>
+    cadastradas.find((l) => l.externalId === loja.lojaId || l.externalId === loja.lojaIdCurto) ?? vinculos.get(loja.lojaIdCurto) ?? null;
 }
 
 type LinhaDoBanco = {
@@ -137,7 +165,7 @@ type Existentes = {
   naoReconhecidas: Array<{ id: string; competencia: string; status: string }>;
 };
 
-function idCurtoDaLinha(l: LinhaDoBanco, cadastradas: LojaCadastrada[], lojas: LojaIfoodMes[]): string | null {
+function idCurtoDaLinha(l: LinhaDoBanco, cadastradas: LojaCadastrada[], lojas: LojaIfoodMes[], resolver: ResolverLoja): string | null {
   const doId = l.id.match(/^ifood-import-\d{6}-(\d+)$/)?.[1];
   if (doId) return doId;
   const nome = lojaDaDescricao(l.description);
@@ -145,10 +173,10 @@ function idCurtoDaLinha(l: LinhaDoBanco, cadastradas: LojaCadastrada[], lojas: L
   const cadastrada = cadastradas.find((c) => chaveDaLoja(c.nickname) === chaveDaLoja(nome));
   if (!cadastrada) return null;
   // Linha de outra loja cadastrada (que não está neste arquivo) também é reconhecida: só não é tocada.
-  return lojas.find((x) => x.lojaId === cadastrada.externalId || x.lojaIdCurto === cadastrada.externalId)?.lojaIdCurto ?? cadastrada.externalId;
+  return lojas.find((x) => resolver(x)?.id === cadastrada.id)?.lojaIdCurto ?? cadastrada.externalId;
 }
 
-async function lerExistentes(db: Banco, lojas: LojaIfoodMes[], cadastradas: LojaCadastrada[]): Promise<Existentes> {
+async function lerExistentes(db: Banco, lojas: LojaIfoodMes[], cadastradas: LojaCadastrada[], resolver: ResolverLoja): Promise<Existentes> {
   if (lojas.length === 0) return { reconhecidas: [], naoReconhecidas: [] };
   const competencias = [...new Set(lojas.map((l) => l.competencia))];
   const linhas = (await db.revenueEntry.findMany({
@@ -168,7 +196,7 @@ async function lerExistentes(db: Banco, lojas: LojaIfoodMes[], cadastradas: Loja
   for (const l of linhas) {
     const competencia = `${l.competenceYear}-${String(l.competenceMonth).padStart(2, "0")}`;
     const consolidada = l.status === "ACTIVE" && (l.description ?? "").includes("(consolidado do mes)");
-    const loja = consolidada ? idCurtoDaLinha(l, cadastradas, lojas) : null;
+    const loja = consolidada ? idCurtoDaLinha(l, cadastradas, lojas, resolver) : null;
     if (loja) {
       reconhecidas.push({
         id: l.id, loja, competencia, orders: l.tickets, grossAmount: Number(l.grossAmount), netAmount: Number(l.netAmount), data: ymdDe(l.date)
@@ -272,7 +300,7 @@ async function idsExistentesDe(db: Banco, plano: ItemDoPlanoIfood[]): Promise<Se
   return new Set(linhas.map((l) => l.id));
 }
 
-type Montagem = { previsao: PrevisaoIfood; cadastradas: LojaCadastrada[]; novos: Map<string, SemanaDeRepasse[]> };
+type Montagem = { previsao: PrevisaoIfood; resolver: ResolverLoja; novos: Map<string, SemanaDeRepasse[]> };
 
 function contar(totais: PrevisaoIfood["totais"], item: ItemPrevisto, cadastrada: boolean, travado: boolean): void {
   if (!cadastrada) totais.semLoja += 1;
@@ -287,7 +315,8 @@ async function montarPrevisao(
   db: Banco, nome: string, lojasDoArquivo: LojaIfoodMes[], erros: string[], avisosDoArquivo: string[], alertasDoArquivo: string[]
 ): Promise<Montagem> {
   const cadastradas = await lerLojas(db);
-  const existentes = await lerExistentes(db, lojasDoArquivo, cadastradas);
+  const resolver = criarResolvedor(cadastradas, await vinculosPelasLinhasAntigas(db, lojasDoArquivo, cadastradas));
+  const existentes = await lerExistentes(db, lojasDoArquivo, cadastradas, resolver);
   const planoBruto = planejarLinhasIfood(lojasDoArquivo, existentes.reconhecidas);
   const jaExistem = await idsExistentesDe(db, planoBruto);
   const comDesconhecida = mesesComLinhaDesconhecida(existentes, lojasDoArquivo);
@@ -300,7 +329,7 @@ async function montarPrevisao(
     const desconhecida = base.acao === "CRIAR" && comDesconhecida.has(base.loja.competencia);
     const idOcupado = base.acao === "CRIAR" && jaExistem.has(base.id);
     const item: ItemDoPlanoIfood = desconhecida || idOcupado ? { ...base, acao: "CONFLITO" } : base;
-    const cadastrada = acharLoja(cadastradas, item.loja);
+    const cadastrada = resolver(item.loja);
     const travado = travados.has(item.loja.competencia);
     // Repasse só é gravado onde a linha da loja pode ser tocada: o que a tela mostra é o que acontece.
     const repasses = cadastrada && !travado && item.acao !== "CONFLITO" ? await repassesNovosDe(db, cadastrada, item.loja) : [];
@@ -316,7 +345,7 @@ async function montarPrevisao(
       arquivo: nome, erros, avisos: [...avisosDoArquivo, ...avisos], alertas: [...alertasDoArquivo, ...alertas],
       plano: itens.map(({ desconhecida: _desconhecida, ...resto }) => resto), mesesTravados: [...travados].sort(), totais
     },
-    cadastradas,
+    resolver,
     novos
   };
 }
@@ -398,7 +427,7 @@ export async function confirmarImportacaoIfood(
     async (tx) => {
       // A prévia da tela não é confiável: com o lock tomado, o plano é refeito contra o estado atual.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${CHAVE_DO_LOCK}))`;
-      const { previsao: atual, cadastradas, novos } = await montarPrevisao(tx, nome, lojas, erros, avisos, alertas);
+      const { previsao: atual, resolver, novos } = await montarPrevisao(tx, nome, lojas, erros, avisos, alertas);
       if (atual.alertas.length > 0 && !contexto.confirmouAlertas) {
         throw new ErroDeImportacao("Há alertas na prévia. Leia e marque a confirmação antes de gravar.");
       }
@@ -407,7 +436,7 @@ export async function confirmarImportacaoIfood(
       let repasses = 0;
 
       for (const item of atual.plano) {
-        const cadastrada = acharLoja(cadastradas, item.loja);
+        const cadastrada = resolver(item.loja);
         if (!cadastrada || travados.has(item.loja.competencia) || item.acao === "CONFLITO") continue;
         const { loja } = item;
         if (item.acao === "CRIAR" || item.acao === "ALTERAR") {
