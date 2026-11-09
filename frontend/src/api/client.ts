@@ -10173,6 +10173,65 @@ export function confirmKeetaImport(file: File) {
   });
 }
 
+// ── Importação do iFood (Relatório de Conciliação do portal) ──
+
+export type IfoodAcaoDaLinha = "CRIAR" | "ALTERAR" | "IGUAL" | "CONFLITO";
+
+export type IfoodLojaImportacao = {
+  lojaId: string;
+  lojaIdCurto: string;
+  competencia: string;
+  pedidos: number;
+  vendas: number;
+  taxas: number;
+  promocaoLoja: number;
+  servicos: number;
+  ajustes: number;
+  saldoAnterior: number;
+  bruto: number;
+  liquido: number;
+  liquidoComSaldo: number;
+  repasses: Array<{ inicio: string; fim: string; previsao: string; valor: number }>;
+};
+
+export type IfoodPrevisaoImportacao = {
+  arquivo: string;
+  erros: string[];
+  /** Informativos. */
+  avisos: string[];
+  /** Números que podem estar errados: a gravação exige a confirmação explícita deles. */
+  alertas: string[];
+  plano: Array<{
+    loja: IfoodLojaImportacao;
+    id: string;
+    acao: IfoodAcaoDaLinha;
+    existenteId: string | null;
+    nomeDaLoja: string | null;
+    repassesNovos: number;
+    anterior: { pedidos: number; bruto: number; liquido: number } | null;
+  }>;
+  mesesTravados: string[];
+  totais: { criar: number; alterar: number; igual: number; conflito: number; travado: number; semLoja: number };
+};
+
+export type IfoodResultadoImportacao = IfoodPrevisaoImportacao & { gravados: number; repassesGravados: number; gravadas: string[] };
+
+export function previewIfoodImport(file: File) {
+  return request<IfoodPrevisaoImportacao>("/integrations/delivery/ifood/import/preview", {
+    method: "POST",
+    body: keetaFormData(file)
+  }, IMPORT_REQUEST_TIMEOUT_MS);
+}
+
+export function confirmIfoodImport(file: File, confirmouAlertas: boolean) {
+  const formData = keetaFormData(file);
+  formData.append("confirmouAlertas", confirmouAlertas ? "true" : "false");
+  return request<IfoodResultadoImportacao>("/integrations/delivery/ifood/import/confirm", {
+    method: "POST",
+    body: formData
+  }, IMPORT_REQUEST_TIMEOUT_MS);
+}
+
 // ── Coleta de óleo ──
 
 /** A situação do PIX vem do título no Contas a Receber, onde a baixa é feita. */

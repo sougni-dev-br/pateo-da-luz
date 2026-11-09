@@ -8,6 +8,7 @@ import {
 } from "../api/client";
 import { Alert, Card, Money, PanelEyebrow, Select, SummaryCard, Table, Tabs } from "../design-system";
 import { DeliveryIfoodPainel } from "./DeliveryIfoodPainel";
+import { IfoodImportacao } from "./IfoodImportacao";
 
 type ViewMode = "painel" | "detalhado";
 const TAB_ITEMS = [
@@ -63,6 +64,7 @@ export function DeliveryIfood() {
   const [summary, setSummary] = useState<IfoodPeriodSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [recarga, setRecarga] = useState(0);
 
   const { year, month } = useMemo(() => parseMonthKey(selectedMonth || "2026-07"), [selectedMonth]);
 
@@ -86,7 +88,7 @@ export function DeliveryIfood() {
       .catch((err) => { if (alive) setError(err instanceof Error ? err.message : "Falha ao carregar faturamento."); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, [view, selectedMonth, selectedStore, year, month]);
+  }, [view, selectedMonth, selectedStore, year, month, recarga]);
 
   const storeOptions = useMemo(() => {
     return [
@@ -119,7 +121,7 @@ export function DeliveryIfood() {
       </Card>
 
       {view === "painel" ? (
-        <DeliveryIfoodPainel year={year} month={month} />
+        <DeliveryIfoodPainel key={recarga} year={year} month={month} />
       ) : (
         <DeliveryIfoodDetalhado
           summary={summary}
@@ -127,6 +129,8 @@ export function DeliveryIfood() {
           error={error}
         />
       )}
+
+      <IfoodImportacao onImportado={() => setRecarga((n) => n + 1)} />
     </div>
   );
 }
