@@ -198,6 +198,49 @@ describe("preverImportacaoIfood", () => {
     expect(r.erros[0]).toMatch(/Linha 4 da planilha/);
   });
 
+  test("loja com merchantId PENDENTE é reconhecida pelas linhas já importadas dela (id termina no código da loja)", async () => {
+    banco.lojas = [{ id: "loja-1", nickname: "Loja Teste", externalId: "PENDENTE-1" }];
+    banco.linhas = [{
+      id: "ifood-import-202609-111", description: "Delivery iFood - Loja Teste (consolidado do mes)", status: "ACTIVE",
+      date: new Date("2026-09-30"), competenceYear: 2026, competenceMonth: 9, tickets: 5, grossAmount: 500, netAmount: 400
+    }];
+    const r = await preverImportacaoIfood(await xlsx(pedido("2026-10-05", "2026-10-11")), "c.xlsx");
+    expect(r.totais).toMatchObject({ criar: 1, semLoja: 0 });
+    expect(r.plano[0]).toMatchObject({ acao: "CRIAR", nomeDaLoja: "Loja Teste" });
+  });
+
+  test("o nome na descrição da linha antiga casa com o apelido mesmo com '&' e hífen diferentes", async () => {
+    banco.lojas = [{ id: "loja-1", nickname: "Loja Um Frei Caneca", externalId: "PENDENTE-1" }];
+    banco.linhas = [{
+      id: "ifood-import-202609-111", description: "Delivery iFood - Loja Um - Frei & Caneca (consolidado do mes)", status: "ACTIVE",
+      date: new Date("2026-09-30"), competenceYear: 2026, competenceMonth: 9, tickets: 5, grossAmount: 500, netAmount: 400
+    }];
+    const r = await preverImportacaoIfood(await xlsx(pedido("2026-10-05", "2026-10-11")), "c.xlsx");
+    expect(r.plano[0]!.nomeDaLoja).toBe("Loja Um Frei Caneca");
+  });
+
+  test("sem cadastro válido nem linha antiga, a loja continua não cadastrada (não adivinha)", async () => {
+    banco.lojas = [{ id: "loja-1", nickname: "Loja Teste", externalId: "PENDENTE-1" }];
+    const r = await preverImportacaoIfood(await xlsx(pedido("2026-10-05", "2026-10-11")), "c.xlsx");
+    expect(r.totais.semLoja).toBe(1);
+  });
+
+  test("linha legada de outra loja continua sendo ignorada com merchantId PENDENTE", async () => {
+    banco.lojas = [
+      { id: "loja-1", nickname: "Loja Teste", externalId: "PENDENTE-1" },
+      { id: "loja-2", nickname: "Outra Loja", externalId: "PENDENTE-2" }
+    ];
+    banco.linhas = [
+      { id: "ifood-import-202609-111", description: "Delivery iFood - Loja Teste (consolidado do mes)", status: "ACTIVE",
+        date: new Date("2026-09-30"), competenceYear: 2026, competenceMonth: 9, tickets: 5, grossAmount: 500, netAmount: 400 },
+      { id: "cuid-legado-b", description: "Delivery iFood - Outra Loja (consolidado do mes)", status: "ACTIVE",
+        date: new Date("2026-10-22"), competenceYear: 2026, competenceMonth: 10, tickets: 9, grossAmount: 900, netAmount: 700 }
+    ];
+    const r = await preverImportacaoIfood(await xlsx(pedido("2026-10-05", "2026-10-11")), "c.xlsx");
+    expect(r.plano[0]).toMatchObject({ acao: "CRIAR", nomeDaLoja: "Loja Teste" });
+    expect(r.alertas).toEqual([]);
+  });
+
   test("loja cadastrada só pelo identificador curto também é reconhecida", async () => {
     banco.lojas = [{ id: "loja-1", nickname: "Loja Teste", externalId: "111" }];
     const r = await preverImportacaoIfood(await xlsx(pedido("2026-10-05", "2026-10-11")), "c.xlsx");
