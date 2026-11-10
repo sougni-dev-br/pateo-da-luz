@@ -56,6 +56,13 @@ describe("GET /payroll/ferias", () => {
     expect(r.body.pessoas[0].periodos[0].limiteInicioGozo).toBe("2027-01-30");
   });
 
+  test("devolve o apelido em nome e o nome do cadastro em nomeCompleto", () => {
+    const p = montarPessoa(eliana({ displayName: "Eli" }) as never, "2026-10-15");
+    expect(p.nome).toBe("Eli");
+    expect(p.nomeCompleto).toBe("Eliana Souza");
+    expect(montarPessoa(eliana() as never, "2026-10-15")).toMatchObject({ nome: "Eliana Souza", nomeCompleto: "Eliana Souza" });
+  });
+
   test("a data de registro em carteira vale mais que a admissão", () => {
     const p = montarPessoa(eliana({ admissaoCarteira: d("2025-06-01") }) as never, "2026-10-15");
     expect(p.admissao).toBe("2025-06-01");

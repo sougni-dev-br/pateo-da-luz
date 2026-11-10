@@ -8836,7 +8836,10 @@ export type PeriodoFerias = {
   solicitacao?: SolicitacaoFerias | null;
 };
 export type PessoaFerias = {
-  employeeId: string; nome: string; empresa: string | null; setor: string | null;
+  employeeId: string; nome: string;
+  /** Nome e sobrenome do cadastro, sem apelido (as folhas por empresa usam este). */
+  nomeCompleto?: string;
+  empresa: string | null; setor: string | null;
   /** Dias da semana (0 = domingo) de repouso, lidos das folgas da escala; domingo quando a escala não mostra um padrão. */
   repousoSemanal: number[]; repousoPelaEscala: boolean;
   admissao: string | null; nivel: NivelFerias; periodos: PeriodoFerias[];

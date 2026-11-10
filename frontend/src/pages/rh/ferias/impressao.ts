@@ -52,6 +52,9 @@ function agrupar<T>(itens: Array<{ empresa: string; linha: T }>): Array<FolhaEmp
     .map(([empresa, linhas]) => ({ empresa, linhas }));
 }
 
+/** As folhas por empresa (conversa e contabilidade) levam o nome completo do cadastro, não o apelido. */
+const nomeNaFolha = (pessoa: PessoaFerias): string => pessoa.nomeCompleto?.trim() || pessoa.nome;
+
 const periodoBr = (p: PeriodoFerias) => `${dataBr(p.aquisitivoInicio)} a ${dataBr(p.aquisitivoFim)}`;
 
 /** Quem ainda precisa de data: o que a tela mostra em "A programar", com o que falta de cada um. */
@@ -62,7 +65,7 @@ export function folhasDeConversa(lista: ListaFerias): Array<FolhaEmpresa<LinhaCo
       empresa: empresaDe(pessoa),
       linha: {
         chave: `${pessoa.employeeId}|${periodo.aquisitivoInicio}`,
-        nome: pessoa.nome,
+        nome: nomeNaFolha(pessoa),
         admissao: pessoa.admissao,
         periodo: periodoBr(periodo),
         limite: dataBr(periodo.limiteInicioGozo),
@@ -91,7 +94,7 @@ export function folhasParaContabilidade(lista: ListaFerias): Array<FolhaEmpresa<
           empresa: empresaDe(pessoa),
           ordem: g.gozoInicio,
           linha: {
-            chave: g.id, nome: pessoa.nome, periodo: periodoBr(periodo),
+            chave: g.id, nome: nomeNaFolha(pessoa), periodo: periodoBr(periodo),
             inicio: dataBr(g.gozoInicio), fim: dataBr(fim), retorno: dataBr(somaDias(fim, 1)),
             dias: g.dias, abono: g.diasAbono, avisarAte: `${dataBr(prazoParaAvisar(g.gozoInicio))}${g.avisadoEm ? " ✓" : ""}`, pagarAte: dataBr(prazoParaPagar(g.gozoInicio)),
             observacao: periodo.foraDoPrazo ? "Fora do prazo (pagar em dobro)"

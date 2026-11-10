@@ -15,6 +15,21 @@ const prog = (o: Partial<ProgramacaoFerias> = {}): ProgramacaoFerias => ({
   id: "g1", aquisitivoInicio: "2025-03-01", gozoInicio: "2026-12-01", gozoFim: "2026-12-30", dias: 30, diasAbono: 0, status: "PROGRAMADA", observacao: null, passouDaData: false, ...o,
 });
 
+describe("nome nas folhas por empresa", () => {
+  const comApelido = (): PessoaFerias => ({ ...pessoa("Jodeni", "Pateo", [periodo({ programacoes: [prog()] })]), nomeCompleto: "Joana Dias" });
+
+  test("a folha de conversa e a da contabilidade levam o nome completo, não o apelido", () => {
+    const l = lista([comApelido()]);
+    expect(folhasDeConversa(l)[0].linhas[0].nome).toBe("Joana Dias");
+    expect(folhasParaContabilidade(l)[0].linhas[0].nome).toBe("Joana Dias");
+  });
+
+  test("sem nome completo (dado antigo), cai no nome da tela", () => {
+    const sem = pessoa("Jodeni", "Pateo", [periodo({ programacoes: [prog()] })]);
+    expect(folhasParaContabilidade(lista([sem]))[0].linhas[0].nome).toBe("Jodeni");
+  });
+});
+
 describe("folhasDeConversa", () => {
   test("uma folha por empresa, só com quem ainda precisa de data, urgentes primeiro", () => {
     const folhas = folhasDeConversa(lista([
