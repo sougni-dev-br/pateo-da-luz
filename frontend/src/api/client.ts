@@ -7677,7 +7677,8 @@ export type ScheduleEmployee = {
   somenteOcorrencias?: boolean;
 };
 export type ScheduleEntry = { employeeId: string; day: number; type: ScheduleDayType };
-export type ScheduleVacationDay = { employeeId: string; day: number };
+/** FOLHA: férias lançadas na folha; PROGRAMACAO: combinadas em RH > Férias (ainda sem lançamento na folha). */
+export type ScheduleVacationDay = { employeeId: string; day: number; origem?: "FOLHA" | "PROGRAMACAO" };
 export type EventSize = "PEQUENO" | "MEDIO" | "GRANDE";
 export type ScheduleDateEvent = { day: number; size: EventSize };
 /** Marcações dos 10 dias antes e depois do mês — para validar a virada. */

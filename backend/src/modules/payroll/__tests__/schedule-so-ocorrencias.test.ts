@@ -10,6 +10,7 @@ vi.mock("../../../config/database.js", () => {
     employee: { findMany: vi.fn() },
     employeeScheduleDay: { findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
     payrollItem: { findMany: vi.fn() },
+    feriasProgramacao: { findMany: vi.fn() },
     scheduleDayEvent: { findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
     payrollSettings: { findUnique: vi.fn() },
     pontoFechamento: { findFirst: vi.fn() },
@@ -63,6 +64,7 @@ beforeEach(() => {
   vi.mocked(getSessionUser).mockResolvedValue({ id: "u1", name: "Eli", email: "e@x", role: "VISUALIZACAO", mustChangePassword: false } as never);
   db.employeeScheduleDay.findMany.mockImplementation(async ({ where }: { where: Record<string, unknown> }) => filtrar(where));
   db.payrollItem.findMany.mockResolvedValue([]);
+  db.feriasProgramacao.findMany.mockResolvedValue([]);
   db.scheduleDayEvent.findMany.mockResolvedValue([]);
   db.payrollSettings.findUnique.mockResolvedValue(null);
   db.pontoFechamento.findFirst.mockResolvedValue(null);
@@ -289,5 +291,36 @@ describe("POST /schedule/bulk — só ocorrências", () => {
     db.employee.findMany.mockResolvedValue([funcionario("dentro", true)]);
     const res = await salvar([{ employeeId: "dentro", day: 3, type: "TURNO" }]);
     expect(res.status).toBe(200);
+  });
+});
+
+describe("GET /schedule — férias programadas em RH > Férias", () => {
+  const ver = () => request(app).get("/schedule?year=2026&month=10");
+  beforeEach(() => { db.employee.findMany.mockResolvedValue([funcionario("dentro", true)]); });
+
+  test("férias programadas (ainda fora da folha) sombreiam a escala, inclusive as que começaram no mês anterior", async () => {
+    // 28/09 + 10 dias = 28/09 a 07/10: no mês de outubro, dias 1 a 7
+    db.feriasProgramacao.findMany.mockResolvedValue([{ employeeId: "dentro", gozoInicio: d("2026-09-28"), dias: 10 }]);
+    const res = await ver();
+    expect(res.status).toBe(200);
+    expect(res.body.vacationDays).toEqual([1, 2, 3, 4, 5, 6, 7].map((day) => ({ employeeId: "dentro", day, origem: "PROGRAMACAO" })));
+    const where = db.feriasProgramacao.findMany.mock.calls[0][0].where;
+    expect(where.status).toEqual({ in: ["PROGRAMADA", "GOZADA"] });
+    expect(where.gozoInicio.lt).toEqual(d("2026-11-01"));
+    expect(where.gozoInicio.gte).toEqual(d("2026-09-02"));
+  });
+
+  test("o dia que está na folha e na programação vale como FOLHA", async () => {
+    db.payrollItem.findMany.mockResolvedValue([{ employeeId: "dentro", periodStart: d("2026-10-05"), periodEnd: d("2026-10-06") }]);
+    db.feriasProgramacao.findMany.mockResolvedValue([{ employeeId: "dentro", gozoInicio: d("2026-10-05"), dias: 3 }]);
+    const res = await ver();
+    expect(res.body.vacationDays).toEqual([
+      { employeeId: "dentro", day: 5, origem: "FOLHA" }, { employeeId: "dentro", day: 6, origem: "FOLHA" }, { employeeId: "dentro", day: 7, origem: "PROGRAMACAO" },
+    ]);
+  });
+
+  test("sem férias, a lista vem vazia", async () => {
+    const res = await ver();
+    expect(res.body.vacationDays).toEqual([]);
   });
 });

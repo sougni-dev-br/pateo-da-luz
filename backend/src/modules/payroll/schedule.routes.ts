@@ -5,6 +5,7 @@ import { prisma } from "../../config/database.js";
 import { auditLog, getSessionUser, requestIp } from "../security/security-utils.js";
 import { holidaysForYear } from "./holidays.js";
 import { PontoFechadoError, chaveTravaMes, exigirPontoAberto, travarMeses } from "./ponto-trava.js";
+import { diasDeFeriasNoMes, fimDoGozo } from "./schedule-ferias.js";
 
 // A escala que a tela abriu mudou antes de ela salvar (outra pessoa, ou o Ponto lançando falta ou folga do banco).
 class EscalaMudouError extends Error {}
@@ -261,14 +262,20 @@ scheduleRouter.get("/", async (request, response) => {
     },
     select: { employeeId: true, periodStart: true, periodEnd: true },
   });
-  const lastDay = new Date(nextMonthStart.getTime() - 86400000);
-  const vacationDays: Array<{ employeeId: string; day: number }> = [];
-  for (const f of feriasItems) {
-    if (!f.periodStart || !f.periodEnd) continue;
-    const from = f.periodStart < monthStart ? monthStart : f.periodStart;
-    const to = f.periodEnd > lastDay ? lastDay : f.periodEnd;
-    for (let d = from.getUTCDate(); d <= to.getUTCDate(); d++) vacationDays.push({ employeeId: f.employeeId, day: d });
-  }
+  // Férias combinadas em RH > Férias (programadas ou já gozadas, com data) também ocupam a escala, mesmo antes de irem para a folha.
+  // O gozo dura no máximo 30 dias: quem começou até 29 dias antes do mês ainda pode estar de férias nele.
+  const programadas = await prisma.feriasProgramacao.findMany({
+    where: {
+      employeeId: { in: empIds }, status: { in: ["PROGRAMADA", "GOZADA"] },
+      gozoInicio: { gte: new Date(monthStart.getTime() - 29 * 86400000), lt: nextMonthStart },
+    },
+    select: { employeeId: true, gozoInicio: true, dias: true },
+  });
+  const vacationDays = diasDeFeriasNoMes(
+    feriasItems.flatMap((f) => (f.periodStart && f.periodEnd ? [{ employeeId: f.employeeId, inicio: f.periodStart, fim: f.periodEnd }] : [])),
+    programadas.flatMap((g) => (g.gozoInicio ? [{ employeeId: g.employeeId, inicio: g.gozoInicio, fim: fimDoGozo(g.gozoInicio, g.dias) }] : [])),
+    monthStart, nextMonthStart,
+  );
 
   // Eventos por data (do dia inteiro) — Pequeno/Médio/Grande, marcados no cabeçalho.
   const eventRows = await prisma.scheduleDayEvent.findMany({

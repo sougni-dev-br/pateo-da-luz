@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { CSSProperties } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
+import { type OrigemDasFerias, ROTULO_ACESSIVEL_DAS_FERIAS, TITULO_DAS_FERIAS } from "./feriasOrigem";
 import type { ScheduleDayMeta, ScheduleDayType, ScheduleEmployee } from "../../api/client";
 import {
   COLORS, DOW_LETTERS, MARCAS_OCORRENCIA, MARCAS_OCORRENCIA_PINCEL, type MarcaOcorrencia, editavelNaEscala, dataCurta, dateMs, fullName, keyOf,
@@ -29,6 +30,8 @@ type Props = {
   month: number;
   marks: Map<string, ScheduleDayType>;
   isFerias: (employeeId: string, day: number) => boolean;
+  /** De onde vêm as férias do dia (folha ou programação); sem isso, vale o texto da folha. */
+  origemDasFerias?: (employeeId: string, day: number) => OrigemDasFerias | undefined;
   canEdit: boolean;
   onMarcar: (employeeId: string, day: number, tipo: ScheduleDayType | null) => void;
   /** Marcações de turno/evento de quando a pessoa estava na escala, descartadas ao carregar. */
@@ -39,7 +42,7 @@ type Props = {
   compacto: boolean;
 };
 
-export function SoOcorrencias({ employees, days, year, month, marks, isFerias, canEdit, onMarcar, descartadas, nameCol, countCol, cell, compacto }: Props) {
+export function SoOcorrencias({ employees, days, year, month, marks, isFerias, origemDasFerias, canEdit, onMarcar, descartadas, nameCol, countCol, cell, compacto }: Props) {
   const [pincel, setPincel] = useState<MarcaOcorrencia | null>(null);
   const [aberta, setAberta] = useState(lerAberta);
   const alternar = () => setAberta((v) => { gravarAberta(!v); return !v; });
@@ -188,7 +191,7 @@ export function SoOcorrencias({ employees, days, year, month, marks, isFerias, c
                   const title = !within
                     ? (emp.terminationDate && dateMs(year, month, d.day) > new Date(emp.terminationDate).getTime()
                       ? `Desligado em ${dataCurta(emp.terminationDate)}` : "Fora do vínculo")
-                    : feriasFolha ? "Férias (gerenciado na Folha)"
+                    : feriasFolha ? TITULO_DAS_FERIAS[origemDasFerias?.(emp.id, d.day) ?? "FOLHA"]
                       : marca ? marca.ajuda
                         : d.holidayName ?? (d.isSunday ? "Domingo" : undefined);
                   const marcar = () => onMarcar(emp.id, d.day, proximaOcorrencia(marks.get(keyOf(emp.id, d.day)), pincel));
@@ -203,7 +206,7 @@ export function SoOcorrencias({ employees, days, year, month, marks, isFerias, c
                         if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); marcar(); }
                       } : undefined}
                       title={title}
-                      aria-label={`${fullName(emp)}, dia ${d.day}${feriasFolha ? ": Férias (Folha)" : marca ? `: ${marca.nome}` : ""}`}
+                      aria-label={`${fullName(emp)}, dia ${d.day}${feriasFolha ? `: ${ROTULO_ACESSIVEL_DAS_FERIAS[origemDasFerias?.(emp.id, d.day) ?? "FOLHA"]}` : marca ? `: ${marca.nome}` : ""}`}
                       style={{
                         minWidth: cell, width: cell, height: compacto ? 26 : 34, textAlign: "center",
                         borderLeft: "1px solid var(--border)", borderTop: "1px solid var(--border)",

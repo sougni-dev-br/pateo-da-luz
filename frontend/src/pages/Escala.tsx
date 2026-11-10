@@ -15,6 +15,7 @@ import {
   COLORS, DOW_LETTERS, MARCAS, MARCAS_PINCEL, MARCA_POR_TIPO, TIPOS_OCORRENCIA, type MarcaCelula, dataCurta, dateMs, editavelNaEscala, ehDiaNaoTrabalhado, fullName, keyOf, withinEmployment,
 } from "./escala/marcas";
 import { SoOcorrencias } from "./escala/SoOcorrencias";
+import { type OrigemDasFerias, TITULO_DAS_FERIAS } from "./escala/feriasOrigem";
 
 const PRINT_DOW = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
 const MONTHS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
@@ -297,6 +298,12 @@ export function Escala() {
   function isFerias(employeeId: string, day: number): boolean {
     return feriasSet.has(keyOf(employeeId, day));
   }
+  const feriasOrigem = useMemo(() => {
+    const m = new Map<string, OrigemDasFerias>();
+    for (const v of data?.vacationDays ?? []) m.set(keyOf(v.employeeId, v.day), v.origem ?? "FOLHA");
+    return m;
+  }, [data]);
+  const origemDasFerias = (employeeId: string, day: number): OrigemDasFerias | undefined => feriasOrigem.get(keyOf(employeeId, day));
 
   // Duas formas de marcar, e isso é de propósito:
   //
@@ -1071,7 +1078,7 @@ ${holidayList ? `<div class="foot"><b>Feriados de ${MONTHS[month - 1]}:</b> ${ho
                               ? `Desligado em ${dataCurta(emp.terminationDate)}`
                               : "Fora do vínculo")
                             : isFeriasDay
-                              ? "Férias (gerenciado na Folha)"
+                              ? TITULO_DAS_FERIAS[origemDasFerias(emp.id, d.day) ?? "FOLHA"]
                               : marca
                                 ? marca.ajuda
                                 : dayEvent
@@ -1113,6 +1120,7 @@ ${holidayList ? `<div class="foot"><b>Feriados de ${MONTHS[month - 1]}:</b> ${ho
             month={month}
             marks={marks}
             isFerias={isFerias}
+            origemDasFerias={origemDasFerias}
             canEdit={canEdit}
             onMarcar={marcarOcorrencia}
             descartadas={descartadas}
