@@ -40,6 +40,8 @@ const nomeDe = (e: { firstName: string; lastName: string; displayName: string | 
 export type PessoaFerias = {
   employeeId: string;
   nome: string;
+  /** Nome e sobrenome do cadastro (sem apelido): é o que vai nas folhas para a contabilidade. */
+  nomeCompleto: string;
   empresa: string | null;
   setor: string | null;
   /** Dias da semana (0 = domingo) de repouso, pelas folgas da escala; domingo quando a escala não mostra um padrão. */
@@ -100,7 +102,7 @@ export function montarPessoa(e: LinhaPessoa, hoje: string): PessoaFerias {
   const periodos = base ? periodosDeFerias({ admissao: base, hoje, programacoes, historico, solicitacoes }) : [];
   const repouso = repousoDaPessoa((e.scheduleDays ?? []).map((d) => isoDia(d.date) as string), e.scheduleRegime === "CINCO_POR_DOIS");
   return {
-    employeeId: e.id, nome: nomeDe(e), empresa: e.company?.tradeName ?? null, setor: e.sector?.trim() || null,
+    employeeId: e.id, nome: nomeDe(e), nomeCompleto: `${e.firstName} ${e.lastName}`.trim(), empresa: e.company?.tradeName ?? null, setor: e.sector?.trim() || null,
     repousoSemanal: repouso.repousos, repousoPelaEscala: repouso.inferido,
     admissao: base, nivel: piorNivel(periodos), periodos,
   };
