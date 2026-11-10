@@ -10,6 +10,7 @@ import { Alert, Button, EmptyState } from "../../design-system";
 import type { DadosParcelados } from "./ferias/FormularioParcelado";
 import { FormularioProgramacao } from "./ferias/FormularioProgramacao";
 import { type DadosDoPedido, PedidoDoColaborador } from "./ferias/PedidoDoColaborador";
+import { ImpressaoIndividual } from "./ferias/ImpressaoIndividual";
 import { ImpressaoFerias } from "./ferias/ImpressaoFerias";
 import { ImpressaoTela } from "./ferias/ImpressaoTela";
 import { LinhaDoTempo } from "./ferias/LinhaDoTempo";
@@ -53,6 +54,8 @@ export function Ferias() {
   const titulo = useRef<HTMLHeadingElement>(null);
   const gatilho = useRef<HTMLElement | null>(null);
   const [imprimindo, setImprimindo] = useState(false);
+  const [fichaDe, setFichaDe] = useState<PessoaFerias | null>(null);
+  const imprimirPessoa = (pessoa: PessoaFerias) => { gatilho.current = document.activeElement as HTMLElement | null; setFichaDe(pessoa); };
   const [imprimindoTela, setImprimindoTela] = useState(false);
   const [previa, setPrevia] = useState<Previa | null>(null);
   const [cheia, setCheia] = useState(false);
@@ -363,14 +366,14 @@ export function Ferias() {
           formularioDe={formularioDaPessoa}
           onProgramar={programarPelaLinha}
           onEditar={(pessoa, periodo, g) => abrir({ chave: `${pessoa.employeeId}|${periodo.aquisitivoInicio}`, programacao: g })}
-          onCancelar={cancelar} onConfirmar={(l, g) => void confirmarGozo(l, g)} onDesfazer={desfazer} onMover={moverBarra} onPedido={abrirPedido} />
+          onCancelar={cancelar} onConfirmar={(l, g) => void confirmarGozo(l, g)} onDesfazer={desfazer} onMover={moverBarra} onPedido={abrirPedido} onImprimir={imprimirPessoa} />
       )}
       {visiveis.length > 0 && visao === "lista" && (
         <ul className="fe-lista" role="list" aria-label="Períodos de férias">
           {visiveis.map((l) => {
             const chave = chaveDe(l);
             return (
-              <LinhaPeriodo key={chave} linha={l} ocupado={salvando} onPedido={() => abrirPedido(l.pessoa, l.periodo)}
+              <LinhaPeriodo key={chave} linha={l} ocupado={salvando} onPedido={() => abrirPedido(l.pessoa, l.periodo)} onImprimir={() => imprimirPessoa(l.pessoa)}
                 onProgramar={() => abrir({ chave })}
                 onJaGozou={() => jaGozou(l)}
                 onEditar={(g) => abrir({ chave, programacao: g })}
@@ -385,6 +388,9 @@ export function Ferias() {
       {imprimindoTela && lista && (
         <ImpressaoTela lista={lista} visao={visao} pessoas={pessoasVisiveis} pessoasDoResumo={pessoasDoResumo} linhas={visiveis} filtroRotulo={rotuloDoFiltro} empresaDaTela={empresa} ausencias={ausencias}
           onClose={() => { setImprimindoTela(false); devolverFoco(); }} />
+      )}
+      {fichaDe && lista && (
+        <ImpressaoIndividual pessoa={fichaDe} hoje={lista.hoje} onClose={() => { setFichaDe(null); devolverFoco(); }} />
       )}
       {imprimindo && lista && (
         <ImpressaoFerias lista={lista} onClose={() => { setImprimindo(false); devolverFoco(); }} />

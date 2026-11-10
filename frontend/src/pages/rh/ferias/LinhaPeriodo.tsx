@@ -1,4 +1,4 @@
-import { Check, MessageSquareText, Pencil, Plus, Trash2, Undo2 } from "lucide-react";
+import { Check, MessageSquareText, Pencil, Plus, Printer, Trash2, Undo2 } from "lucide-react";
 import type { ReactNode } from "react";
 import type { ProgramacaoFerias } from "../../../api/client";
 import { Button, StatusBadge } from "../../../design-system";
@@ -18,11 +18,13 @@ type Props = {
   onCancelar: (g: ProgramacaoFerias) => void;
   onConfirmar: (g: ProgramacaoFerias) => void;
   onDesfazer: (g: ProgramacaoFerias) => void;
+  /** Imprimir a ficha de férias da pessoa (todos os períodos dela). */
+  onImprimir?: () => void;
 };
 
 // Os botões levam o nome da pessoa e o texto visível no começo do nome acessível (WCAG 2.5.3):
 // "Programar" → "Programar férias de Ana". O ocupado usa aria-disabled para o foco não se perder.
-export function LinhaPeriodo({ linha, ocupado, formulario, onProgramar, onPedido, onJaGozou, onEditar, onCancelar, onConfirmar, onDesfazer }: Props) {
+export function LinhaPeriodo({ linha, ocupado, formulario, onProgramar, onPedido, onJaGozou, onEditar, onCancelar, onConfirmar, onDesfazer, onImprimir }: Props) {
   const { pessoa, periodo: p } = linha;
   const nome = pessoa.nome;
   const emAquisicao = p.situacao === "EM_AQUISICAO";
@@ -94,6 +96,11 @@ export function LinhaPeriodo({ linha, ocupado, formulario, onProgramar, onPedido
               aria-label={`${p.solicitacao ? "Ver pedido" : "Registrar pedido"} de férias de ${nome}`} onClick={guarda(onPedido)}>
               {p.solicitacao ? "Ver pedido" : "Registrar pedido"}
             </Button>
+          </span>
+        )}
+        {onImprimir && (
+          <span className="fe-botoes">
+            <Button size="sm" variant="secondary" leadingIcon={<Printer size={14} />} aria-disabled={ocupado} aria-label={`Imprimir férias de ${nome}`} onClick={guarda(onImprimir)}>Imprimir</Button>
           </span>
         )}
         {podeProgramar && (

@@ -1,7 +1,7 @@
 import { Fragment } from "react";
 import type { ListaFerias, PeriodoFerias, PessoaFerias } from "../../../api/client";
 import { type Ausencia, type Eixo, coberturaPorDia, mesesDoEixo, quemEstaFora, retangulo, rotulosDosMeses, segundasDoEixo, trechosDeCobertura, xDoDia, zonasDaJanela } from "./eixoDoTempo";
-import { type LinhaFerias, dataBr, ehPreProgramado, plural, podeSairA, resumoProgramacao, rotuloDaSituacao, somaDias, textoPrazo } from "./feriasFormato";
+import { type LinhaFerias, dataBr, ehPreProgramado, nomeNaFolha, plural, podeSairA, resumoProgramacao, rotuloDaSituacao, somaDias, textoPrazo } from "./feriasFormato";
 import { ROTULO_DA_SITUACAO_DO_PEDIDO, compararPedido, diferencaEmPalavras } from "./pedido";
 import { ResumoDoQueFazer } from "./ResumoDoQueFazer";
 import { ordenarPorUrgencia, periodoDaFicha, proximoPasso } from "./proximoPasso";
@@ -54,7 +54,7 @@ export function FolhaTelaLinhaDoTempo(props: PropsLinha) {
         <h2>{tituloDaFolha("linha")}</h2>
         <p>{resumoDoTopo(props)}</p>
       </header>
-      <ResumoDoQueFazer pessoas={props.pessoasDoResumo ?? pessoas} hoje={lista.hoje} classe="fe-ti-resumo" />
+      <ResumoDoQueFazer pessoas={props.pessoasDoResumo ?? pessoas} hoje={lista.hoje} classe="fe-ti-resumo" nomeDe={nomeNaFolha} />
       {opcoes.legenda && (
         <ul className="fe-ti-legenda" aria-label="Legenda">
           {LEGENDA.map(([tom, rotulo]) => <li key={tom}><i className={`fe-ti-amostra fe-ti-amostra--${tom}`} />{rotulo}</li>)}
@@ -107,7 +107,7 @@ export function FolhaTelaLinhaDoTempo(props: PropsLinha) {
               )}
               <tr className={`fe-ti-linha${periodoDaFicha(pessoa) ? "" : " fe-ti-linha--vazia"}`}>
                 <td className="fe-ti-nome">
-                  <strong>{pessoa.nome}</strong>
+                  <strong>{nomeNaFolha(pessoa)}</strong>
                   <small>{[pessoa.setor, prazoDaPessoa(pessoa)].filter(Boolean).join(" · ")}</small>
                   <FichaImpressa pessoa={pessoa} hoje={lista.hoje} dm={dm} />
                 </td>
@@ -182,7 +182,7 @@ export function FolhaTelaLista(props: PropsLista) {
         <tbody>
           {linhas.map(({ pessoa, periodo: p }) => (
             <tr key={`${pessoa.employeeId}|${p.aquisitivoInicio}`} className="fe-ti-linha">
-              <td><strong>{pessoa.nome}</strong><small>{[pessoa.setor, pessoa.empresa].filter(Boolean).join(" · ")}</small></td>
+              <td><strong>{nomeNaFolha(pessoa)}</strong><small>{[pessoa.setor, pessoa.empresa].filter(Boolean).join(" · ")}</small></td>
               <td>{dataBr(p.aquisitivoInicio)} a {dataBr(p.aquisitivoFim)}</td>
               <td><strong>{dataBr(p.limiteInicioGozo)}</strong><small>{textoPrazo(p)}</small></td>
               <td>{rotuloDaSituacao(p)}{p.diasPendentes > 0 && (p.situacao !== "EM_AQUISICAO" || ehPreProgramado(p)) ? <small>{p.diasPendentes} {plural(p.diasPendentes, "dia", "dias")} a {p.situacao === "EM_AQUISICAO" ? "pré-programar" : "programar"}</small> : null}{ehPreProgramado(p) ? <small>vale a partir de {dataBr(podeSairA(p))}</small> : null}</td>

@@ -95,3 +95,25 @@
   body.imprimindo-ferias .fe-folha:last-child { break-after: auto; page-break-after: auto; }
   body.imprimindo-ferias .fe-folhas { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
+
+/* ── Ficha individual (A4 em pé) ───────────────────────────────────── */
+.fe-imp-corpo--unico { grid-template-columns: 1fr; }
+.fe-imp-papel--retrato { width: 186mm; zoom: 0.7; margin-inline: auto; }
+.fe-ficha-periodo { margin-top: 5mm; break-inside: avoid; }
+.fe-ficha-periodo h3 { margin: 0 0 1.5mm; font-size: 10.5pt; font-weight: 700; }
+.fe-ficha-periodo h3 span { margin-left: 2mm; font-weight: 400; font-size: 9pt; color: #333; }
+.fe-ficha-resumo { display: flex; flex-wrap: wrap; gap: 1mm 8mm; margin: 0 0 2mm; font-size: 9pt; }
+.fe-ficha-resumo div { display: flex; gap: 1.5mm; }
+.fe-ficha-resumo dt { color: #333; }
+.fe-ficha-resumo dt::after { content: ":"; }
+.fe-ficha-resumo dd { margin: 0; font-weight: 700; }
+.fe-ficha-resumo dd small { font-weight: 400; }
+.fe-ficha-tabela td, .fe-ficha-tabela th { text-align: left; }
+.fe-ficha-tabela small { display: block; font-size: 7.5pt; color: #333; }
+.fe-ficha-vazio, .fe-ficha-obs { margin: 1mm 0 0; font-size: 9pt; color: #333; }
+.fe-ficha-ciente { margin-top: 14mm; break-inside: avoid; font-size: 9.5pt; }
+.fe-ficha-ciente p { margin: 0 0 12mm; }
+.fe-ficha-linhas { display: flex; gap: 10mm; }
+.fe-ficha-linhas span { flex: 1; font-size: 8.5pt; color: #333; }
+.fe-ficha-linhas span:last-child { flex: 0 0 40mm; }
+.fe-ficha-linhas i { display: block; border-top: 0.3mm solid #111; margin-bottom: 1mm; }

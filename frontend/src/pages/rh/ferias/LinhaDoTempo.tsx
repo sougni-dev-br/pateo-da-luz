@@ -1,4 +1,4 @@
-import { CalendarPlus, Check, MessageSquareText, Pencil, Sparkles, Trash2, Undo2 } from "lucide-react";
+import { CalendarPlus, Check, MessageSquareText, Pencil, Printer, Sparkles, Trash2, Undo2 } from "lucide-react";
 import { Fragment, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ListaFerias, PeriodoFerias, PessoaFerias, ProgramacaoFerias } from "../../../api/client";
 import { Button } from "../../../design-system";
@@ -31,6 +31,8 @@ export type AcoesDaLinha = {
   onMover: (pessoa: PessoaFerias, periodo: PeriodoFerias, g: ProgramacaoFerias, inicio: string) => void;
   /** Abre o pedido do colaborador (registrar ou ver) para o período. */
   onPedido: (pessoa: PessoaFerias, periodo: PeriodoFerias) => void;
+  /** Imprimir a ficha de férias da pessoa. */
+  onImprimir?: (pessoa: PessoaFerias) => void;
 };
 
 type Props = AcoesDaLinha & {
@@ -231,6 +233,12 @@ function LinhaDaPessoa({ eixo, lista, pessoa, ausencias, ocupado, aberto, previa
             aria-label={`${pedidoPeriodo.solicitacao ? "Pedido" : "Registrar pedido"} de férias de ${pessoa.nome}`}
             onClick={guarda(() => acoes.onPedido(pessoa, pedidoPeriodo))}>
             <MessageSquareText size={13} aria-hidden="true" /> {pedidoPeriodo.solicitacao ? "Pedido" : "Registrar pedido"}
+          </button>
+        )}
+        {acoes.onImprimir && !aberto && (
+          <button type="button" className="fe-tl-programar fe-tl-programar--imprimir" aria-disabled={ocupado} aria-label={`Imprimir férias de ${pessoa.nome}`}
+            onClick={guarda(() => acoes.onImprimir?.(pessoa))}>
+            <Printer size={13} aria-hidden="true" /> Imprimir
           </button>
         )}
         {alvo && !aberto && (

@@ -30,6 +30,21 @@ let imprimir: ReturnType<typeof vi.fn>;
 beforeEach(() => { imprimir = vi.fn(); window.print = imprimir as unknown as typeof window.print; document.title = "Pateo da Luz"; });
 afterEach(() => { document.body.classList.remove("imprimindo-ferias"); });
 
+describe("ImpressaoTela — nome na folha", () => {
+  const comApelido: ListaFerias = {
+    ...lista,
+    pessoas: [{ ...pessoa("Jodeni", "Pateo da Luz", [periodo()]), nomeCompleto: "Joana Dias" }],
+  };
+  const abrirCom = (visao: "linha" | "lista") =>
+    render(<ImpressaoTela lista={comApelido} visao={visao} pessoas={comApelido.pessoas} linhas={linhasDaLista(comApelido)} filtroRotulo="Todas" empresaDaTela="" ausencias={[]} onClose={() => undefined} />);
+
+  test.each(["lista", "linha"] as const)("na %s a folha mostra o nome completo, não o apelido", (visao) => {
+    abrirCom(visao);
+    expect(screen.getAllByText("Joana Dias").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Jodeni")).toBeNull();
+  });
+});
+
 describe("ImpressaoTela", () => {
   test("a linha do tempo oferece período, legenda e faixa de cobertura; a lista não", () => {
     abrir("linha");
