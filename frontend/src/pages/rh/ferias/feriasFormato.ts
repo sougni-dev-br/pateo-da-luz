@@ -21,7 +21,7 @@ const PRECISA_PROGRAMAR: SituacaoFerias[] = ["VENCIDA", "A_VENCER", "DISPONIVEL"
  */
 export function pertenceAoFiltro(p: Pick<PeriodoFerias, "situacao" | "foraDoPrazo">, filtro: FiltroFerias): boolean {
   if (filtro === "TODAS") return true;
-  if (filtro === "PENDENTES") return PRECISA_PROGRAMAR.includes(p.situacao) || (p.foraDoPrazo && p.situacao !== "EM_AQUISICAO");
+  if (filtro === "PENDENTES") return PRECISA_PROGRAMAR.includes(p.situacao) || p.foraDoPrazo;
   if (filtro === "PROGRAMADAS") return p.situacao === "PROGRAMADA";
   if (filtro === "EM_AQUISICAO") return p.situacao === "EM_AQUISICAO";
   return p.situacao === "GOZADA";
@@ -73,12 +73,16 @@ export const ROTULO_SITUACAO: Record<SituacaoFerias, string> = {
 export function tomDaSituacao(p: PeriodoFerias): StatusTone {
   if (p.nivel === "perigo") return "danger";
   if (p.nivel === "atencao") return "warning";
-  if (p.situacao === "PROGRAMADA") return "info";
+  if (p.situacao === "PROGRAMADA" || ehPreProgramado(p)) return "info";
   if (p.situacao === "GOZADA") return "success";
   return "neutral";
 }
 
+/** Período ainda em aquisição que já tem datas combinadas (a pré-programação vira programação quando o direito nasce). */
+export const ehPreProgramado = (p: Pick<PeriodoFerias, "situacao" | "programacoes">): boolean => p.situacao === "EM_AQUISICAO" && p.programacoes.length > 0;
+
 export function rotuloDaSituacao(p: PeriodoFerias): string {
+  if (ehPreProgramado(p)) return p.foraDoPrazo ? "Pré-programada fora do prazo" : "Pré-programada";
   if (p.foraDoPrazo && p.situacao !== "EM_AQUISICAO") return "Fora do prazo";
   return ROTULO_SITUACAO[p.situacao];
 }

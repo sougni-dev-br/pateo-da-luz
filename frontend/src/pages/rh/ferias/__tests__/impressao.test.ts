@@ -30,6 +30,13 @@ describe("folhasDeConversa", () => {
     expect(folhas[0].linhas[0]).toMatchObject({ urgente: true, limite: "01/09/2026", prazo: "venceu há 44 dias", diasAProgramar: 30, periodo: "01/03/2025 a 28/02/2026" });
   });
 
+  test("para a contabilidade: férias de período em aquisição saem marcadas como pré-programadas", () => {
+    const [folha] = folhasParaContabilidade(lista([
+      pessoa("Gil", "Pateo", [periodo({ aquisitivoInicio: "2026-02-01", aquisitivoFim: "2027-01-31", situacao: "EM_AQUISICAO", diasPendentes: 0, programacoes: [prog({ aquisitivoInicio: "2026-02-01", gozoInicio: "2027-06-01", dias: 30 })] })]),
+    ]));
+    expect(folha.linhas[0].observacao).toBe("Pré-programada: o direito só nasce em 01/02/2027");
+  });
+
   test("quem tem parte programada entra pelo que falta e mostra o que já foi combinado", () => {
     const [folha] = folhasDeConversa(lista([
       pessoa("Ana", "Pateo", [periodo({ diasPendentes: 10, diasProgramados: 20, programacoes: [prog({ dias: 20 })] })]),

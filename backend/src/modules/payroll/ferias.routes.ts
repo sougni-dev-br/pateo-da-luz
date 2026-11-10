@@ -130,7 +130,8 @@ export const JANELA_DIREITO_CHEGANDO_DIAS = 90;
 
 /** Períodos ainda em aquisição que se completam (e dão direito a férias) dentro da janela. */
 export function contarDireitoChegando(pessoas: PessoaFerias[], janela = JANELA_DIREITO_CHEGANDO_DIAS): number {
-  return pessoas.flatMap((p) => p.periodos).filter((p) => p.situacao === "EM_AQUISICAO" && p.diasParaCompletar !== null && p.diasParaCompletar <= janela).length;
+  // Quem já deixou todos os dias com data (pré-programados) não precisa ser lembrado de que o direito está chegando.
+  return pessoas.flatMap((p) => p.periodos).filter((p) => p.situacao === "EM_AQUISICAO" && p.diasPendentes > 0 && p.diasParaCompletar !== null && p.diasParaCompletar <= janela).length;
 }
 
 // ─── GET /payroll/ferias ────────────────────────────────────────────────────────
@@ -190,6 +191,7 @@ function pedidoDe(b: Record<string, unknown>): Pedido {
 // que a contabilidade já tem). Fica gravado como GOZADA, sem data de início.
 function pedidoJaGozado(b: Record<string, unknown>, periodo: PeriodoFerias | undefined): Pedido {
   if (!diaValido(b.aquisitivoInicio) || !periodo) throw new Recusa(400, "Período aquisitivo inválido.");
+  if (periodo.situacao === "EM_AQUISICAO") throw new Recusa(400, "Esse período aquisitivo ainda não terminou: não há o que dar como gozado.");
   if (periodo.diasPendentes <= 0) throw new Recusa(400, "Esse período não tem dias a quitar.");
   return { aquisitivoInicio: b.aquisitivoInicio, gozoInicio: null, dias: periodo.diasPendentes, diasAbono: 0, status: ST_GOZADA, observacao: "Marcado como já gozado, sem datas." };
 }
@@ -245,7 +247,6 @@ function validarDias(pedido: Pedido, periodo: PeriodoFerias, excetoId?: string) 
 
 function validarContraPeriodo(pedido: Pedido, periodo: PeriodoFerias | undefined, hoje: string, repousos: number[], atual?: { id: string; gozoInicio?: Date | null }) {
   if (!periodo) throw new Recusa(400, "Período aquisitivo inválido para este funcionário.");
-  if (periodo.situacao === "EM_AQUISICAO") throw new Recusa(400, "Esse período aquisitivo ainda não terminou: as férias só podem ser tiradas depois.");
   if (!atual && periodo.doHistorico) throw new Recusa(400, "Esse período já consta como gozado na ficha de registro da contabilidade.");
   validarDatas(pedido, periodo, hoje);
   validarDiaDeInicio(pedido, repousos, atual);
@@ -425,7 +426,6 @@ feriasRouter.put("/solicitacao", async (request, response) => {
       if (!diaValido(b.aquisitivoInicio)) throw new Recusa(400, "Período aquisitivo inválido.");
       const periodo = pessoa.periodos.find((p) => p.aquisitivoInicio === b.aquisitivoInicio);
       if (!periodo) throw new Recusa(400, "Período aquisitivo inválido para este funcionário.");
-      if (periodo.situacao === "EM_AQUISICAO") throw new Recusa(400, "Esse período aquisitivo ainda não terminou: o pedido só vale depois.");
       if (!diaValido(b.inicio)) throw new Recusa(400, "Informe a data de início pedida.");
       const dias = inteiro(b.dias, "Dias pedidos", 1, 30);
       const diasAbono = b.diasAbono === undefined || b.diasAbono === null || b.diasAbono === "" ? 0 : inteiro(b.diasAbono, "Dias de abono", 0, DIAS_ABONO);

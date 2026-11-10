@@ -2,7 +2,7 @@ import { Check, MessageSquareText, Pencil, Plus, Trash2, Undo2 } from "lucide-re
 import type { ReactNode } from "react";
 import type { ProgramacaoFerias } from "../../../api/client";
 import { Button, StatusBadge } from "../../../design-system";
-import { type LinhaFerias, dataBr, plural, podeSairA, resumoProgramacao, rotuloDaSituacao, textoPrazo, tomDaSituacao } from "./feriasFormato";
+import { type LinhaFerias, dataBr, ehPreProgramado, plural, podeSairA, resumoProgramacao, rotuloDaSituacao, textoPrazo, tomDaSituacao } from "./feriasFormato";
 import { ROTULO_DA_SITUACAO_DO_PEDIDO, compararPedido, diferencaEmPalavras, resumoDoPedido } from "./pedido";
 
 type Props = {
@@ -25,12 +25,14 @@ type Props = {
 export function LinhaPeriodo({ linha, ocupado, formulario, onProgramar, onPedido, onJaGozou, onEditar, onCancelar, onConfirmar, onDesfazer }: Props) {
   const { pessoa, periodo: p } = linha;
   const nome = pessoa.nome;
-  const podeProgramar = p.situacao !== "EM_AQUISICAO" && p.diasPendentes > 0 && !p.doHistorico;
+  const emAquisicao = p.situacao === "EM_AQUISICAO";
+  // Em aquisição também dá para combinar datas (pré-programar): elas só valem depois de a pessoa completar o período.
+  const podeProgramar = p.diasPendentes > 0 && !p.doHistorico;
   const urgente = p.nivel !== "ok";
   const guarda = (acao: () => void) => () => { if (!ocupado) acao(); };
   const comparacao = compararPedido(p);
   // Dá para pedir enquanto há o que programar; quem já gozou tudo (ou ainda está ganhando o direito) só vê o pedido que já existe.
-  const podePedir = p.solicitacao !== null && p.solicitacao !== undefined || (p.situacao !== "EM_AQUISICAO" && p.situacao !== "GOZADA" && !p.doHistorico);
+  const podePedir = p.solicitacao !== null && p.solicitacao !== undefined || (p.situacao !== "GOZADA" && !p.doHistorico);
 
   return (
     <li className={`fe-linha fe-linha--${p.nivel}`}>
@@ -51,7 +53,8 @@ export function LinhaPeriodo({ linha, ocupado, formulario, onProgramar, onPedido
       </div>
       <div className="fe-situacao">
         <StatusBadge tone={tomDaSituacao(p)}>{rotuloDaSituacao(p)}</StatusBadge>
-        {podeProgramar && <span className="fe-sub">{p.diasPendentes} {plural(p.diasPendentes, "dia", "dias")} a programar</span>}
+        {podeProgramar && <span className="fe-sub">{p.diasPendentes} {plural(p.diasPendentes, "dia", "dias")} a {emAquisicao ? "pré-programar" : "programar"}</span>}
+        {ehPreProgramado(p) && <span className="fe-sub">vale a partir de {dataBr(podeSairA(p))}</span>}
         {p.doHistorico && <span className="fe-sub">consta na ficha de registro</span>}
       </div>
       <div className="fe-acoes">
@@ -96,10 +99,10 @@ export function LinhaPeriodo({ linha, ocupado, formulario, onProgramar, onPedido
         {podeProgramar && (
           <span className="fe-botoes">
             <Button size="sm" variant={urgente ? "primary" : "secondary"} leadingIcon={<Plus size={14} />} aria-disabled={ocupado}
-              aria-label={`${p.programacoes.length ? "Programar o resto das férias" : "Programar férias"} de ${nome}`} onClick={guarda(onProgramar)}>
-              {p.programacoes.length ? "Programar o resto" : "Programar"}
+              aria-label={`${p.programacoes.length ? (emAquisicao ? "Pré-programar o resto das férias" : "Programar o resto das férias") : (emAquisicao ? "Pré-programar férias" : "Programar férias")} de ${nome}`} onClick={guarda(onProgramar)}>
+              {p.programacoes.length ? (emAquisicao ? "Pré-programar o resto" : "Programar o resto") : (emAquisicao ? "Pré-programar" : "Programar")}
             </Button>
-            <Button size="sm" variant="secondary" aria-disabled={ocupado} aria-label={`Já gozou, período de ${nome}`} onClick={guarda(onJaGozou)}>Já gozou</Button>
+            {!emAquisicao && <Button size="sm" variant="secondary" aria-disabled={ocupado} aria-label={`Já gozou, período de ${nome}`} onClick={guarda(onJaGozou)}>Já gozou</Button>}
           </span>
         )}
       </div>

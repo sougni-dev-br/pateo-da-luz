@@ -61,6 +61,26 @@ describe("próximo passo", () => {
   });
 });
 
+describe("pedido em período ainda em aquisição", () => {
+  const emAquisicao = (o: Partial<PeriodoFerias> = {}) => periodo({ aquisitivoInicio: "2026-03-01", aquisitivoFim: "2027-02-28", situacao: "EM_AQUISICAO", diasParaCompletar: 130, diasParaLimite: null, solicitacao: pedido("2027-06-01", 30), ...o });
+
+  test("sozinho: pede para responder, dizendo quando o direito nasce", () => {
+    expect(proximoPasso(emAquisicao(), HOJE)).toEqual({ texto: "Responder ao pedido (o direito nasce em 01/03/2027)", tipo: "responder", urgente: false });
+  });
+
+  test("não esconde o que está urgente em outro período da pessoa", () => {
+    const vencida = periodo({ situacao: "VENCIDA", nivel: "perigo", limiteInicioGozo: "2026-10-01" });
+    const p = pessoa([vencida, emAquisicao()]);
+    expect(periodoDaFicha(p)).toBe(vencida);
+    expect(proximoPasso(periodoDaFicha(p) as PeriodoFerias, HOJE)?.tipo).toBe("vencido");
+  });
+
+  test("o pedido do período liberado continua tendo prioridade", () => {
+    const liberado = periodo({ solicitacao: pedido("2026-12-14") });
+    expect(periodoDaFicha(pessoa([emAquisicao(), liberado]))).toBe(liberado);
+  });
+});
+
 describe("período da ficha", () => {
   test("prefere o que tem pedido, depois o que tem dias a programar, depois o que tem férias programadas", () => {
     const comPedido = periodo({ aquisitivoInicio: "2024-03-01", solicitacao: pedido("2026-12-14"), diasPendentes: 0, situacao: "PROGRAMADA" });
@@ -93,12 +113,15 @@ describe("urgência e resumo da folha", () => {
   });
 
   test("quem completa o período aquisitivo em até 90 dias entra no resumo, do mais próximo ao mais distante", () => {
-    const completa = (dias: number, fim: string) => periodo({ situacao: "EM_AQUISICAO", diasPendentes: 0, diasParaCompletar: dias, aquisitivoFim: fim });
+    const completa = (dias: number, fim: string, pendentes = 30) => periodo({ situacao: "EM_AQUISICAO", diasPendentes: pendentes, diasParaCompletar: dias, aquisitivoFim: fim });
     const itens = resumoDoQueFazer([
       nomeado("Longe", null, [completa(120, "2027-02-18")]),
       nomeado("Perto", null, [completa(20, "2026-11-09")]),
       nomeado("Meio", null, [completa(70, "2027-01-01")]),
+      nomeado("Tudo combinado", null, [completa(30, "2026-11-19", 0)]),
+      nomeado("Sobra saldo", null, [completa(80, "2027-01-11", 16)]),
     ], HOJE);
-    expect(itens).toEqual([{ tipo: "completar", urgente: true, nomes: ["Perto (10/11/2026, em 20 dias)", "Meio (02/01/2027, em 70 dias)"] }]);
+    // quem já pré-programou todos os dias não precisa de lembrete; quem ainda tem saldo sem data continua na lista
+    expect(itens).toEqual([{ tipo: "completar", urgente: true, nomes: ["Perto (10/11/2026, em 20 dias)", "Meio (02/01/2027, em 70 dias)", "Sobra saldo (12/01/2027, em 80 dias)"] }]);
   });
 });

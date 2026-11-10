@@ -36,7 +36,7 @@ export function FormularioProgramacao({ onSalvarParcelado, ...integral }: Props)
         <FormularioFerias {...integral} onPrevia={modo === "INTEGRAL" ? integral.onPrevia : undefined} />
       </div>
       <div hidden={modo !== "PARCELADA"}>
-        <FormularioParcelado nome={nome} periodo={periodo} regras={integral.regras} sugestao={integral.sugestao} autoFoco={false}
+        <FormularioParcelado nome={nome} periodo={periodo} regras={integral.regras} conflitos={integral.conflitos} sugestao={integral.sugestao} autoFoco={false}
           onPrevia={modo === "PARCELADA" ? integral.onPrevia : undefined} salvando={integral.salvando} erro={integral.erro}
           onSalvar={onSalvarParcelado} onCancelar={integral.onCancelar} />
       </div>

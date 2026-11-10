@@ -37,6 +37,26 @@ describe("situação do período", () => {
     expect(p.situacao).toBe("EM_AQUISICAO");
     expect(p.diasParaCompletar).toBe(diasEntre("2026-10-15", "2027-08-01"));
   });
+  test("pré-programação: período em aquisição abate os dias programados e continua EM_AQUISICAO", () => {
+    const pre: Programacao = { id: "p1", aquisitivoInicio: "2026-08-01", gozoInicio: "2027-09-14", dias: 14, diasAbono: 0, status: "PROGRAMADA", observacao: null };
+    const p = calc("2026-08-01", "2026-10-15", [pre])[0];
+    expect(p.situacao).toBe("EM_AQUISICAO");
+    expect(p.diasProgramados).toBe(14);
+    expect(p.diasPendentes).toBe(16);
+    expect(p.programacoes).toHaveLength(1);
+    expect(p.foraDoPrazo).toBe(false);
+    expect(p.diasParaLimite).toBeNull();
+  });
+  test("a pré-programação vira programação normal quando o período fecha: mesmo saldo e mesmo limite", () => {
+    const pre: Programacao = { id: "p1", aquisitivoInicio: "2026-08-01", gozoInicio: "2027-09-14", dias: 14, diasAbono: 0, status: "PROGRAMADA", observacao: null };
+    const antes = calc("2026-08-01", "2027-07-31", [pre])[0];
+    const depois = calc("2026-08-01", "2027-08-01", [pre])[0];
+    expect(antes.situacao).toBe("EM_AQUISICAO");
+    expect(depois.situacao).toBe("DISPONIVEL");
+    expect(depois.diasPendentes).toBe(antes.diasPendentes);
+    expect(depois.limiteInicioGozo).toBe(antes.limiteInicioGozo);
+    expect(depois.programacoes[0].passouDaData).toBe(false);
+  });
   test("período completo sem gozo fica DISPONIVEL quando o limite está longe", () => {
     const p = calc("2025-03-01", "2026-10-15").find((x) => x.aquisitivoInicio === "2025-03-01")!;
     expect(p.situacao).toBe("DISPONIVEL");

@@ -153,7 +153,13 @@ describe("período alvo", () => {
     const vencido = periodo({ aquisitivoInicio: "2024-03-01", situacao: "VENCIDA" });
     const atual = periodo();
     expect(periodoAlvo(pessoa([vencido, atual]))?.aquisitivoInicio).toBe("2024-03-01");
-    expect(periodoAlvo(pessoa([periodo({ situacao: "EM_AQUISICAO" }), periodo({ diasPendentes: 0, situacao: "PROGRAMADA" })]))).toBeNull();
+    expect(periodoAlvo(pessoa([periodo({ diasPendentes: 0, situacao: "PROGRAMADA" })]))).toBeNull();
+  });
+  test("sem período liberado, cai no que está em aquisição (pré-programação), e o liberado tem preferência", () => {
+    const emAquisicao = periodo({ aquisitivoInicio: "2026-03-01", situacao: "EM_AQUISICAO" });
+    expect(periodoAlvo(pessoa([emAquisicao]))?.aquisitivoInicio).toBe("2026-03-01");
+    expect(periodoAlvo(pessoa([periodo({ aquisitivoInicio: "2025-03-01", situacao: "DISPONIVEL" }), emAquisicao]))?.aquisitivoInicio).toBe("2025-03-01");
+    expect(periodoAlvo(pessoa([periodo({ situacao: "EM_AQUISICAO", diasPendentes: 0 })]))).toBeNull();
   });
 });
 

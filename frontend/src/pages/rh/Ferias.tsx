@@ -18,7 +18,7 @@ import { PlanejamentoFerias } from "./ferias/PlanejamentoFerias";
 import { DecidirHoje } from "./ferias/DecidirHoje";
 import { ResumoDoQueFazer } from "./ferias/ResumoDoQueFazer";
 import {
-  FILTROS, type FiltroFerias, type LinhaFerias, contarPorFiltro, dataBr, linhasDaLista, pertenceAoFiltro, plural, resumoProgramacao, somaDias,
+  FILTROS, type FiltroFerias, type LinhaFerias, contarPorFiltro, dataBr, linhasDaLista, pertenceAoFiltro, plural, podeSairA, resumoProgramacao, somaDias,
 } from "./ferias/feriasFormato";
 import { ausenciasDaLista, colegasFora } from "./ferias/eixoDoTempo";
 import { resumoDoPedido } from "./ferias/pedido";
@@ -213,10 +213,13 @@ export function Ferias() {
     const periodo = pessoa.periodos.find((p) => `${pessoa.employeeId}|${p.aquisitivoInicio}` === aberto.chave);
     return periodo ? formulario({ pessoa, periodo }, aberto) : null;
   };
+  // Antes de o período fechar a pessoa ainda não tem o direito: clique ou arrasto anterior cai no primeiro dia possível.
+  const noMinimo = (inicio: string, periodo: PeriodoFerias) => (inicio < podeSairA(periodo) ? podeSairA(periodo) : inicio);
   // Quem clica ou arrasta num dia vedado (sábado, domingo, feriado, 2 dias antes) cai no próximo dia permitido, e o formulário avisa.
   const programarPelaLinha = (pessoa: PessoaFerias, periodo: PeriodoFerias, inicio?: string, dias?: number, extra?: { diasAbono?: number; motivoDoPedido?: string }) => {
     const feriados = lista?.feriados ?? {};
-    const ajustado = inicio && motivoInicioVedado(inicio, feriados, pessoa.repousoSemanal) ? proximoInicioValido(inicio, feriados, pessoa.repousoSemanal) : inicio;
+    const naLiberacao = inicio ? noMinimo(inicio, periodo) : inicio;
+    const ajustado = naLiberacao && motivoInicioVedado(naLiberacao, feriados, pessoa.repousoSemanal) ? proximoInicioValido(naLiberacao, feriados, pessoa.repousoSemanal) : naLiberacao;
     abrir({
       chave: `${pessoa.employeeId}|${periodo.aquisitivoInicio}`,
       sugestao: ajustado && dias ? { inicio: ajustado, dias, diasAbono: extra?.diasAbono || undefined, motivoDoPedido: extra?.motivoDoPedido, ajustadoDe: ajustado !== inicio ? inicio : undefined } : undefined,
@@ -226,7 +229,8 @@ export function Ferias() {
   // Soltou a barra em outro dia: abre a edição já nessa data (com os avisos de dia vedado, colegas e prazo) para confirmar.
   const moverBarra = (pessoa: PessoaFerias, periodo: PeriodoFerias, g: ProgramacaoFerias, inicio: string) => {
     const feriados = lista?.feriados ?? {};
-    const ajustado = motivoInicioVedado(inicio, feriados, pessoa.repousoSemanal) ? proximoInicioValido(inicio, feriados, pessoa.repousoSemanal) : inicio;
+    const naLiberacao = noMinimo(inicio, periodo);
+    const ajustado = motivoInicioVedado(naLiberacao, feriados, pessoa.repousoSemanal) ? proximoInicioValido(naLiberacao, feriados, pessoa.repousoSemanal) : naLiberacao;
     abrir({ chave: `${pessoa.employeeId}|${periodo.aquisitivoInicio}`, programacao: g, sugestao: { inicio: ajustado, dias: g.dias, ajustadoDe: ajustado !== inicio ? inicio : undefined } });
   };
 

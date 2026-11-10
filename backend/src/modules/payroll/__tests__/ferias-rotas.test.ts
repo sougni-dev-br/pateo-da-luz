@@ -79,6 +79,27 @@ describe("direito a férias chegando", () => {
     expect(contarDireitoChegando([longe, perto])).toBe(1);
     expect(contarDireitoChegando([longe], 200)).toBe(1);
   });
+
+  const preProgramada = (dias: number) => ({ id: "pp", aquisitivoInicio: d("2026-08-01"), gozoInicio: d("2027-09-14"), dias, diasAbono: 0, status: "PROGRAMADA", observacao: null });
+  test("só deixa de avisar quem já pré-programou todos os dias; sobra de saldo continua no alerta", () => {
+    const hoje = "2026-12-15"; // faltam 228 dias para o direito nascer: usa janela larga
+    const inteiro = montarPessoa(eliana({ admissionDate: d("2026-08-01"), feriasProgramadas: [preProgramada(30)] }) as never, hoje);
+    const parcial = montarPessoa(eliana({ admissionDate: d("2026-08-01"), feriasProgramadas: [preProgramada(14)] }) as never, hoje);
+    const nenhum = montarPessoa(eliana({ admissionDate: d("2026-08-01") }) as never, hoje);
+    expect(contarDireitoChegando([inteiro], 365)).toBe(0);
+    expect(contarDireitoChegando([parcial], 365)).toBe(1);
+    expect(contarDireitoChegando([nenhum], 365)).toBe(1);
+  });
+
+  test("pré-programação que passa do concessivo vira alerta de prazo estourado", () => {
+    // período 01/08/2026–31/07/2027, concessivo até 31/07/2028; férias de 30 dias começando em 20/07/2028 terminam depois
+    const fora = { ...preProgramada(30), gozoInicio: d("2028-07-20") };
+    const p = montarPessoa(eliana({ admissionDate: d("2026-08-01"), feriasProgramadas: [fora] }) as never, "2026-10-15");
+    expect(p.periodos[0].situacao).toBe("EM_AQUISICAO");
+    expect(p.periodos[0].foraDoPrazo).toBe(true);
+    expect(p.periodos[0].nivel).toBe("perigo");
+    expect(contarAlertas([p]).vencidas).toBe(1);
+  });
 });
 
 describe("POST /payroll/ferias", () => {
@@ -96,11 +117,23 @@ describe("POST /payroll/ferias", () => {
     expect(auditLog).toHaveBeenCalledWith(expect.objectContaining({ action: "SCHEDULE_VACATION", entityId: "f1" }));
   });
 
-  test("recusa período que ainda está sendo adquirido", async () => {
+  test("período em aquisição: recusa data antes da liberação e aceita a pré-programação depois dela", async () => {
     db.employee.findFirst.mockResolvedValue(eliana({ admissionDate: d("2026-08-01") }));
-    const r = await request(app).post("/payroll/ferias").send({ ...corpo, aquisitivoInicio: "2026-08-01", gozoInicio: "2026-12-01" });
-    expect(r.status).toBe(400);
-    expect(r.body.message).toMatch(/ainda não terminou/);
+    const antes = await request(app).post("/payroll/ferias").send({ ...corpo, aquisitivoInicio: "2026-08-01", gozoInicio: "2026-12-01" });
+    expect(antes.status).toBe(400);
+    expect(antes.body.message).toMatch(/depois do fim do período aquisitivo/);
+    const depois = await request(app).post("/payroll/ferias").send({ ...corpo, aquisitivoInicio: "2026-08-01", gozoInicio: "2027-09-14" });
+    expect(depois.status).toBe(201);
+    expect(db.feriasProgramacao.create.mock.calls[0][0].data.status).toBe("PROGRAMADA");
+  });
+
+  test("período em aquisição não pode ser dado como gozado, nem sem datas", async () => {
+    db.employee.findFirst.mockResolvedValue(eliana({ admissionDate: d("2026-08-01") }));
+    const semDatas = await request(app).post("/payroll/ferias").send({ employeeId: "e1", aquisitivoInicio: "2026-08-01", semDatas: true });
+    expect(semDatas.status).toBe(400);
+    expect(semDatas.body.message).toMatch(/ainda não terminou/);
+    const gozada = await request(app).post("/payroll/ferias").send({ ...corpo, aquisitivoInicio: "2026-08-01", gozoInicio: "2027-09-14", status: "GOZADA" });
+    expect(gozada.status).toBe(400);
   });
 
   test("recusa início de gozo antes do fim do aquisitivo", async () => {
@@ -490,6 +523,16 @@ describe("pedido do colaborador (solicitação)", () => {
     expect(arg.create).toMatchObject({ employeeId: "e1", dias: 15, diasAbono: 0, observacao: "quer passar o Natal em família", createdById: "u1" });
     expect(arg.where.employeeId_aquisitivoInicio.employeeId).toBe("e1");
     expect(auditLog).toHaveBeenCalledWith(expect.objectContaining({ action: "REGISTER_VACATION_REQUEST", entityId: "s1" }));
+  });
+
+  test("período em aquisição aceita o pedido, desde que a data seja depois da liberação", async () => {
+    db.employee.findFirst.mockResolvedValue(eliana({ admissionDate: d("2026-08-01") }));
+    const novo = { ...pedido, aquisitivoInicio: "2026-08-01" };
+    const antes = await request(app).put("/payroll/ferias/solicitacao").send({ ...novo, inicio: "2027-06-01" });
+    expect(antes.status).toBe(400);
+    expect(antes.body.message).toMatch(/depois do fim do período aquisitivo/);
+    const depois = await request(app).put("/payroll/ferias/solicitacao").send({ ...novo, inicio: "2027-09-14" });
+    expect(depois.status).toBe(201);
   });
 
   test("trocar um pedido que já existe devolve 200 e audita a mudança com o valor anterior", async () => {

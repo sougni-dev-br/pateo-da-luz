@@ -1,7 +1,7 @@
 import { Fragment } from "react";
 import type { ListaFerias, PeriodoFerias, PessoaFerias } from "../../../api/client";
 import { type Ausencia, type Eixo, coberturaPorDia, mesesDoEixo, quemEstaFora, retangulo, rotulosDosMeses, segundasDoEixo, trechosDeCobertura, xDoDia, zonasDaJanela } from "./eixoDoTempo";
-import { type LinhaFerias, dataBr, plural, resumoProgramacao, rotuloDaSituacao, somaDias, textoPrazo } from "./feriasFormato";
+import { type LinhaFerias, dataBr, ehPreProgramado, plural, podeSairA, resumoProgramacao, rotuloDaSituacao, somaDias, textoPrazo } from "./feriasFormato";
 import { ROTULO_DA_SITUACAO_DO_PEDIDO, compararPedido, diferencaEmPalavras } from "./pedido";
 import { ResumoDoQueFazer } from "./ResumoDoQueFazer";
 import { ordenarPorUrgencia, periodoDaFicha, proximoPasso } from "./proximoPasso";
@@ -185,7 +185,7 @@ export function FolhaTelaLista(props: PropsLista) {
               <td><strong>{pessoa.nome}</strong><small>{[pessoa.setor, pessoa.empresa].filter(Boolean).join(" · ")}</small></td>
               <td>{dataBr(p.aquisitivoInicio)} a {dataBr(p.aquisitivoFim)}</td>
               <td><strong>{dataBr(p.limiteInicioGozo)}</strong><small>{textoPrazo(p)}</small></td>
-              <td>{rotuloDaSituacao(p)}{p.diasPendentes > 0 && p.situacao !== "EM_AQUISICAO" ? <small>{p.diasPendentes} {plural(p.diasPendentes, "dia", "dias")} a programar</small> : null}</td>
+              <td>{rotuloDaSituacao(p)}{p.diasPendentes > 0 && (p.situacao !== "EM_AQUISICAO" || ehPreProgramado(p)) ? <small>{p.diasPendentes} {plural(p.diasPendentes, "dia", "dias")} a {p.situacao === "EM_AQUISICAO" ? "pré-programar" : "programar"}</small> : null}{ehPreProgramado(p) ? <small>vale a partir de {dataBr(podeSairA(p))}</small> : null}</td>
               <td>{p.programacoes.length === 0 ? "—" : p.programacoes.map((g) => <span key={g.id} className="fe-ti-prog">{g.status === "GOZADA" ? "Gozou: " : ""}{resumoProgramacao(g)}</span>)}</td>
             </tr>
           ))}
@@ -217,6 +217,7 @@ function FichaImpressa({ pessoa, hoje, dm }: { pessoa: PessoaFerias; hoje: strin
           : <span className="fe-ti-mudo">ainda sem data</span>}</li>
       )}
       {pendente && <li><b>Limite</b> começar até {dm(periodo.limiteInicioGozo)}</li>}
+      {ehPreProgramado(periodo) && <li><b>Pré-programada</b> vale a partir de {dm(podeSairA(periodo))}</li>}
       {comparacao && (
         <li className={`fe-ti-situacao fe-ti-situacao--${comparacao.situacao.toLowerCase()}`}>
           {ROTULO_DA_SITUACAO_DO_PEDIDO[comparacao.situacao]}
