@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { PedidoFerias, PeriodoFerias, ProgramacaoFerias } from "../../../api/client";
 import { Alert, Button, TextField } from "../../../design-system";
-import { dataBr, fimEVolta, plural, ultimoDiaParaComecar } from "./feriasFormato";
+import { dataBr, fimEVolta, plural, prazosDaParte } from "./feriasFormato";
 import { DIAS_DE_AVISO, type Feriados, MAX_PARTES, dataValida, MIN_DIAS_PARTE_MAIOR, motivoInicioVedado, nomeDoDia, prazoParaPagar, proximoInicioValido, repousosPorExtenso } from "./regrasFerias";
 import { diasEntre } from "./eixoDoTempo";
 import { diferencaEmPalavras, resumoDoPedido } from "./pedido";
@@ -74,6 +74,9 @@ export function FormularioFerias({ nome, periodo, inicial, sugestao, regras, con
   const depoisDoLimite = datas !== null && !erroDias && datas.fim > periodo.fimConcessivo;
   const valido = datas !== null && !erroInicio && !erroDias;
   const desenhavel = datas !== null && !erroDias && inicio > periodo.aquisitivoFim;
+  // Prazos por parte: com a divisão, o "último dia" depende dos dias desta parte, e o resto tem prazo próprio.
+  const diasDoPrazo = diasInteiros && diasNum >= 1 && diasNum <= saldo ? diasNum : saldo;
+  const prazos = prazosDaParte(periodo.fimConcessivo, diasDoPrazo, !erroDias && resto > 0 ? resto : 0);
   const colegas = valido && conflitos ? conflitos(inicio, diasNum) : null;
   const avisoDias = regras && valido ? diasEntre(regras.hoje, inicio) : null;
 
@@ -120,7 +123,7 @@ export function FormularioFerias({ nome, periodo, inicial, sugestao, regras, con
       <div className="fe-form-campos">
         <TextField label="Início das férias" type="date" value={inicio} onChange={(e) => setInicio(e.target.value)} required
           error={mostraErroInicio}
-          hint={`Último dia para começar sem vencer: ${dataBr(ultimoDiaParaComecar(periodo.fimConcessivo, saldo))}${regras ? `. Repouso considerado: ${repousosPorExtenso(regras.repousos)} (${regras.repousoPelaEscala ? "pela escala" : "padrão, sem folgas na escala"})` : ""}`} />
+          hint={`Último dia para começar ${diasDoPrazo === saldo ? "sem vencer" : `esta parte de ${diasDoPrazo} ${plural(diasDoPrazo, "dia", "dias")} sem vencer`}: ${dataBr(prazos.ultimoInicioDestaParte)}${regras ? `. Repouso considerado: ${repousosPorExtenso(regras.repousos)} (${regras.repousoPelaEscala ? "pela escala" : "padrão, sem folgas na escala"})` : ""}`} />
         <TextField label="Dias de férias" type="number" inputMode="numeric" min={1} max={MAX_DIAS} value={dias} onChange={(e) => setDias(e.target.value)} required
           error={mostraErroDias} hint={`Restam ${saldo} ${plural(saldo, "dia", "dias")} neste período`} />
         {podeVender || vendeAbono ? (
@@ -183,6 +186,11 @@ export function FormularioFerias({ nome, periodo, inicial, sugestao, regras, con
       {avisoDias !== null && avisoDias < DIAS_DE_AVISO && (
         <Alert tone="warning" role={undefined}>
           {avisoDias < 0 ? "Esse início já passou." : `Faltam só ${avisoDias} ${plural(avisoDias, "dia", "dias")} para o início.`} A lei pede aviso por escrito à pessoa com {DIAS_DE_AVISO} dias de antecedência (CLT, art. 135): combine só se ela já concordou.
+        </Alert>
+      )}
+      {prazos.ultimoInicioDoResto && (
+        <Alert tone="info" role={undefined}>
+          Depois desta parte sobram {resto} {plural(resto, "dia", "dias")}: se o resto for tirado de uma vez, precisa começar até {dataBr(prazos.ultimoInicioDoResto)} para não vencer (dividido, o prazo é mais tarde).
         </Alert>
       )}
       {semParteLonga && (

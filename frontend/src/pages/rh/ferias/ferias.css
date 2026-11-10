@@ -54,6 +54,7 @@
 .fe-pessoa { display: grid; gap: 2px; min-width: 0; }
 .fe-periodo, .fe-limite, .fe-situacao { display: grid; gap: 2px; font-variant-numeric: tabular-nums; }
 .fe-situacao { justify-items: start; }
+.fe-limite strong + .fe-rotulo { margin-top: 6px; }
 .fe-acoes { display: grid; gap: 6px; justify-items: start; }
 .fe-programacao { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .fe-botoes { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
@@ -107,3 +108,18 @@
 /* Pedido do colaborador na lista */
 .fe-pedido-linha { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; font-size: var(--fs-xs); }
 .fe-pedido-linha b { color: var(--ink); }
+
+/* ── Férias integral ou parcelada ───────────────────────────────────── */
+.fe-escolha { border: 0; margin: 0; padding: 0; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.fe-escolha legend { font-size: var(--fs-sm); font-weight: 600; padding: 0; margin-bottom: 6px; }
+.fe-escolha-opcao { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-md); background: var(--paper); cursor: pointer; font-size: var(--fs-sm); }
+.fe-escolha-opcao:has(input:checked) { border-color: var(--gold-dark); background: var(--gold-tint); font-weight: 600; }
+.fe-escolha-opcao:has(input:focus-visible) { outline: 2px solid var(--gold-dark); outline-offset: 2px; }
+.fe-partes { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.fe-parte { display: grid; grid-template-columns: auto minmax(160px, 1fr) minmax(110px, 0.6fr) auto; gap: 8px 12px; align-items: start; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--paper); }
+.fe-parte-num { font-weight: 700; padding-top: 28px; }
+.fe-parte-previa { grid-column: 2 / -1; margin: 0; font-size: var(--fs-sm); color: var(--ink-soft); }
+.fe-parte-remover { align-self: end; }
+.fe-soma { margin: 0; font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+.fe-soma--erro { color: var(--danger); font-weight: 600; }
+@media (max-width: 640px) { .fe-parte { grid-template-columns: 1fr 1fr; } .fe-parte-num { grid-column: 1 / -1; padding-top: 0; } .fe-parte-previa { grid-column: 1 / -1; } }

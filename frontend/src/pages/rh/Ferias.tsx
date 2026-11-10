@@ -5,9 +5,10 @@
 import { CalendarRange, List, Maximize2, Minimize2, Printer, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { type ListaFerias, type PedidoFerias, type PeriodoFerias, type PessoaFerias, type ProgramacaoFerias, atualizarFerias, cancelarFerias, getFerias, marcarFeriasAvisado, marcarFeriasGozadas, programarFerias, removerSolicitacaoFerias, salvarSolicitacaoFerias } from "../../api/client";
+import { type ListaFerias, type PedidoFerias, type PeriodoFerias, type PessoaFerias, type ProgramacaoFerias, atualizarFerias, cancelarFerias, getFerias, marcarFeriasAvisado, marcarFeriasGozadas, programarFerias, programarFeriasParceladas, removerSolicitacaoFerias, salvarSolicitacaoFerias } from "../../api/client";
 import { Alert, Button, EmptyState } from "../../design-system";
-import { FormularioFerias } from "./ferias/FormularioFerias";
+import type { DadosParcelados } from "./ferias/FormularioParcelado";
+import { FormularioProgramacao } from "./ferias/FormularioProgramacao";
 import { type DadosDoPedido, PedidoDoColaborador } from "./ferias/PedidoDoColaborador";
 import { ImpressaoFerias } from "./ferias/ImpressaoFerias";
 import { ImpressaoTela } from "./ferias/ImpressaoTela";
@@ -149,6 +150,10 @@ export function Ferias() {
       : programarFerias(linha.pessoa.employeeId, pedido)), true,
     `Férias de ${linha.pessoa.nome} ${programacao ? "atualizadas" : "programadas"}: ${dataBr(pedido.gozoInicio)} (${pedido.dias} ${plural(pedido.dias, "dia", "dias")}).`);
 
+  const salvarParcelado = (linha: LinhaFerias, dados: DadosParcelados) =>
+    executar(() => programarFeriasParceladas(linha.pessoa.employeeId, linha.periodo.aquisitivoInicio, dados), true,
+      `Férias de ${linha.pessoa.nome} programadas em ${dados.partes.length} partes: ${dados.partes.map((p) => `${dataBr(p.gozoInicio)} (${p.dias} ${plural(p.dias, "dia", "dias")})`).join(", ")}.`);
+
   const confirmarGozo = (l: LinhaFerias, g: ProgramacaoFerias) =>
     executar(() => atualizarFerias(g.id, { status: "GOZADA" }), false, `Férias de ${l.pessoa.nome} marcadas como gozadas.`);
   const marcarAvisado = (programacaoId: string, avisado: boolean, nome: string) =>
@@ -199,9 +204,9 @@ export function Ferias() {
       onRetirar={l.periodo.solicitacao ? () => retirarPedido(l) : undefined}
       onAtender={(dados) => abrir({ chave: chaveDe(l), sugestao: { inicio: dados.inicio, dias: dados.dias, diasAbono: dados.diasAbono } })} />
   ) : (
-    <FormularioFerias key={`${ab.programacao?.id ?? "nova"}-${ab.sugestao?.inicio ?? ""}`} nome={l.pessoa.nome} periodo={l.periodo} inicial={ab.programacao}
+    <FormularioProgramacao key={`${ab.programacao?.id ?? "nova"}-${ab.sugestao?.inicio ?? ""}`} nome={l.pessoa.nome} periodo={l.periodo} inicial={ab.programacao}
       sugestao={ab.sugestao} regras={lista ? { hoje: lista.hoje, feriados: lista.feriados, repousos: l.pessoa.repousoSemanal, repousoPelaEscala: l.pessoa.repousoPelaEscala } : undefined} conflitos={conflitosDe(l.pessoa)} onPrevia={atualizarPrevia}
-      salvando={salvando} erro={erroForm} onSalvar={(pedido) => void salvar(l, pedido, ab.programacao)} onCancelar={fechar} />
+      salvando={salvando} erro={erroForm} onSalvar={(pedido) => void salvar(l, pedido, ab.programacao)} onSalvarParcelado={(dados) => void salvarParcelado(l, dados)} onCancelar={fechar} />
   ));
   const formularioDaPessoa = (pessoa: PessoaFerias) => {
     if (!aberto?.chave.startsWith(`${pessoa.employeeId}|`)) return null;
