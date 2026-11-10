@@ -43,6 +43,9 @@ export function contarPorFiltro(linhas: LinhaFerias[]): Record<FiltroFerias, num
   return Object.fromEntries(FILTROS.map((f) => [f.id, linhas.filter((l) => pertenceAoFiltro(l.periodo, f.id)).length])) as Record<FiltroFerias, number>;
 }
 
+/** O nome das folhas impressas: nome e sobrenome do cadastro, sem apelido (cai no nome da tela se o dado não trouxer). */
+export const nomeNaFolha = (pessoa: Pick<PessoaFerias, "nome" | "nomeCompleto">): string => pessoa.nomeCompleto?.trim() || pessoa.nome;
+
 export const dataBr = (iso: string | null): string => (iso ? iso.split("-").reverse().join("/") : "—");
 
 /** Primeiro dia em que o período já dá direito a sair de férias: o dia seguinte ao fim do período aquisitivo. */

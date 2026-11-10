@@ -1,5 +1,5 @@
 import type { ListaFerias, PeriodoFerias, PessoaFerias, ProgramacaoFerias } from "../../../api/client";
-import { dataBr, linhasDaLista, pertenceAoFiltro, podeSairA, somaDias, textoPrazo } from "./feriasFormato";
+import { dataBr, linhasDaLista, nomeNaFolha, pertenceAoFiltro, podeSairA, rotuloDaSituacao, somaDias, textoPrazo } from "./feriasFormato";
 import { resumoDoPedido } from "./pedido";
 import { prazoParaAvisar, prazoParaPagar } from "./regrasFerias";
 
@@ -51,9 +51,6 @@ function agrupar<T>(itens: Array<{ empresa: string; linha: T }>): Array<FolhaEmp
     .sort(([a], [b]) => (a === SEM_EMPRESA ? 1 : b === SEM_EMPRESA ? -1 : a.localeCompare(b, "pt-BR")))
     .map(([empresa, linhas]) => ({ empresa, linhas }));
 }
-
-/** As folhas por empresa (conversa e contabilidade) levam o nome completo do cadastro, não o apelido. */
-const nomeNaFolha = (pessoa: PessoaFerias): string => pessoa.nomeCompleto?.trim() || pessoa.nome;
 
 const periodoBr = (p: PeriodoFerias) => `${dataBr(p.aquisitivoInicio)} a ${dataBr(p.aquisitivoFim)}`;
 
@@ -107,4 +104,41 @@ export function folhasParaContabilidade(lista: ListaFerias): Array<FolhaEmpresa<
   }
   return agrupar(itens.sort((a, b) => a.ordem.localeCompare(b.ordem) || a.linha.nome.localeCompare(b.linha.nome, "pt-BR"))
     .map(({ empresa, linha }) => ({ empresa, linha })));
+}
+
+// ── Ficha individual: tudo das férias de uma pessoa, para entregar ou arquivar ──────────────────────────────────
+
+export type ParteDaFicha = {
+  chave: string; gozou: boolean; inicio: string; ultimoDia: string; volta: string; dias: number; abono: number; avisarAte: string; pagarAte: string;
+};
+export type PeriodoDaFicha = {
+  chave: string; periodo: string; podeSair: string; limite: string; prazo: string; situacao: string; partes: ParteDaFicha[]; pedido: string | null; observacao: string;
+};
+export type FichaIndividual = { nome: string; empresa: string; setor: string | null; admissao: string | null; periodos: PeriodoDaFicha[] };
+
+/** Os períodos da pessoa, do mais antigo ao mais novo, com cada parte programada (início, último dia, volta, prazos de aviso e pagamento). */
+export function fichaIndividual(pessoa: PessoaFerias): FichaIndividual {
+  const periodos = [...pessoa.periodos].sort((a, b) => a.aquisitivoInicio.localeCompare(b.aquisitivoInicio)).map((periodo): PeriodoDaFicha => {
+    const partes = periodo.programacoes.filter((g) => g.gozoInicio !== null).map((g): ParteDaFicha => {
+      const inicio = g.gozoInicio as string;
+      const fim = somaDias(inicio, g.dias - 1);
+      return {
+        chave: g.id, gozou: g.status === "GOZADA", inicio: dataBr(inicio), ultimoDia: dataBr(fim), volta: dataBr(somaDias(fim, 1)), dias: g.dias, abono: g.diasAbono,
+        avisarAte: dataBr(prazoParaAvisar(inicio)), pagarAte: dataBr(prazoParaPagar(inicio)),
+      };
+    });
+    const preProgramada = periodo.situacao === "EM_AQUISICAO" && periodo.programacoes.length > 0;
+    return {
+      chave: periodo.aquisitivoInicio,
+      periodo: periodoBr(periodo),
+      podeSair: dataBr(podeSairA(periodo)),
+      limite: dataBr(periodo.limiteInicioGozo),
+      prazo: textoPrazo(periodo),
+      situacao: rotuloDaSituacao(periodo),
+      partes,
+      pedido: periodo.solicitacao ? resumoDoPedido(periodo.solicitacao) : null,
+      observacao: periodo.foraDoPrazo ? "Fora do prazo (pagar em dobro)" : preProgramada ? `Pré-programada: o direito só nasce em ${dataBr(podeSairA(periodo))}` : "",
+    };
+  });
+  return { nome: nomeNaFolha(pessoa), empresa: empresaDe(pessoa), setor: pessoa.setor ?? null, admissao: pessoa.admissao, periodos };
 }

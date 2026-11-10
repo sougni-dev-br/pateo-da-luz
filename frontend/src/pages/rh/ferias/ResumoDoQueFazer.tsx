@@ -12,8 +12,8 @@ const ROTULO_DO_RESUMO: Record<ItemDoResumo["tipo"], (n: number) => string> = {
 };
 
 /** O que fazer: as providências somadas por tipo, com os nomes. Serve à tela (`fe-resumo`) e à folha impressa (`fe-ti-resumo`). */
-export function ResumoDoQueFazer({ pessoas, hoje, classe }: { pessoas: PessoaFerias[]; hoje: string; classe: "fe-resumo" | "fe-ti-resumo" }) {
-  const itens = resumoDoQueFazer(pessoas, hoje);
+export function ResumoDoQueFazer({ pessoas, hoje, classe, nomeDe }: { pessoas: PessoaFerias[]; hoje: string; classe: "fe-resumo" | "fe-ti-resumo"; nomeDe?: (p: PessoaFerias) => string }) {
+  const itens = resumoDoQueFazer(pessoas, hoje, nomeDe);
   const urgente = `${classe}--urgente`;
   return (
     <section className={classe} aria-label="O que fazer">

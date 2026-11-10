@@ -77,7 +77,8 @@ export const JANELA_DIREITO_DIAS = 90;
 export type ItemDoResumo = { tipo: "vencido" | "responder" | "definir" | "completar" | "avisar" | "confirmar"; urgente: boolean; nomes: string[] };
 
 /** O que fazer agora, somando as providências da folha por tipo (só os tipos que têm gente). */
-export function resumoDoQueFazer(pessoas: PessoaFerias[], hoje: string): ItemDoResumo[] {
+/** `nomeDe` escolhe o nome exibido (a folha impressa usa o nome completo; a tela, o apelido). */
+export function resumoDoQueFazer(pessoas: PessoaFerias[], hoje: string, nomeDe: (p: PessoaFerias) => string = (p) => p.nome): ItemDoResumo[] {
   const grupo = (t: TipoDePasso): ItemDoResumo["tipo"] => (t === "programar-resto" ? "definir" : t === "avisar-outra" ? "avisar" : t);
   const itens = new Map<ItemDoResumo["tipo"], ItemDoResumo>();
   for (const pessoa of pessoas) {
@@ -86,7 +87,7 @@ export function resumoDoQueFazer(pessoas: PessoaFerias[], hoje: string): ItemDoR
     if (!passo) continue;
     const tipo = grupo(passo.tipo);
     const atual = itens.get(tipo) ?? { tipo, urgente: false, nomes: [] };
-    itens.set(tipo, { ...atual, urgente: atual.urgente || passo.urgente, nomes: [...atual.nomes, pessoa.nome] });
+    itens.set(tipo, { ...atual, urgente: atual.urgente || passo.urgente, nomes: [...atual.nomes, nomeDe(pessoa)] });
   }
   const completando = pessoas
     .flatMap((pessoa) => pessoa.periodos
@@ -97,7 +98,7 @@ export function resumoDoQueFazer(pessoas: PessoaFerias[], hoje: string): ItemDoR
     itens.set("completar", {
       tipo: "completar",
       urgente: completando.some((c) => c.dias <= 30),
-      nomes: completando.map((c) => `${c.pessoa.nome} (${dataBr(c.direito)}, em ${c.dias} ${c.dias === 1 ? "dia" : "dias"})`),
+      nomes: completando.map((c) => `${nomeDe(c.pessoa)} (${dataBr(c.direito)}, em ${c.dias} ${c.dias === 1 ? "dia" : "dias"})`),
     });
   }
   const ordem: ItemDoResumo["tipo"][] = ["vencido", "responder", "definir", "completar", "avisar", "confirmar"];
