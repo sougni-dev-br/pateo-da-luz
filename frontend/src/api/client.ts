@@ -8858,6 +8858,10 @@ export function getFerias() {
 export function programarFerias(employeeId: string, pedido: PedidoFerias) {
   return request<{ id: string }>("/payroll/ferias", json("POST", { employeeId, ...pedido }));
 }
+/** Férias divididas em 2 ou 3 partes, gravadas juntas (ou nenhuma, se alguma parte for recusada). */
+export function programarFeriasParceladas(employeeId: string, aquisitivoInicio: string, dados: { partes: Array<{ gozoInicio: string; dias: number }>; diasAbono: number; observacao?: string }) {
+  return request<{ ids: string[] }>("/payroll/ferias/parcelado", json("POST", { employeeId, aquisitivoInicio, ...dados }));
+}
 /** Quita o saldo de um período como "já gozado", sem datas (férias tiradas antes da tela ou já na contabilidade). */
 export function marcarFeriasGozadas(employeeId: string, aquisitivoInicio: string) {
   return request<{ id: string }>("/payroll/ferias", json("POST", { employeeId, aquisitivoInicio, semDatas: true }));

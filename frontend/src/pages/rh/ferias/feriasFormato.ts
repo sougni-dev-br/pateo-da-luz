@@ -44,6 +44,11 @@ export function contarPorFiltro(linhas: LinhaFerias[]): Record<FiltroFerias, num
 }
 
 export const dataBr = (iso: string | null): string => (iso ? iso.split("-").reverse().join("/") : "—");
+
+/** Primeiro dia em que o período já dá direito a sair de férias: o dia seguinte ao fim do período aquisitivo. */
+export function podeSairA(p: Pick<PeriodoFerias, "aquisitivoFim">): string {
+  return somaDias(p.aquisitivoFim, 1);
+}
 export const plural = (n: number, um: string, varios: string) => (n === 1 ? um : varios);
 const dias = (n: number) => `${n} ${plural(n, "dia", "dias")}`;
 
@@ -101,3 +106,18 @@ export function fimEVolta(inicio: string, qtd: number): { fim: string; volta: st
 
 /** Último dia para começar `qtd` dias de férias sem passar do fim do concessivo. */
 export const ultimoDiaParaComecar = (fimConcessivo: string, qtd: number): string => somaDias(fimConcessivo, -(Math.max(qtd, 1) - 1));
+
+export type PrazosDaParte = {
+  /** Último dia para esta parte começar e ainda terminar dentro do concessivo. */
+  ultimoInicioDestaParte: string;
+  /** Se sobrar saldo: último dia para a última parte (o resto) começar sem vencer. */
+  ultimoInicioDoResto: string | null;
+};
+
+/** Prazos de uma parte das férias, dividida ou não: `dias` desta parte e `resto` que ainda sobra no período. */
+export function prazosDaParte(fimConcessivo: string, dias: number, resto: number): PrazosDaParte {
+  return {
+    ultimoInicioDestaParte: ultimoDiaParaComecar(fimConcessivo, dias),
+    ultimoInicioDoResto: resto > 0 ? ultimoDiaParaComecar(fimConcessivo, resto) : null,
+  };
+}

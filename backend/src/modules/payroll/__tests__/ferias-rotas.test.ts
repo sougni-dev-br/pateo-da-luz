@@ -218,6 +218,75 @@ describe("POST /payroll/ferias — regras de divisão e prazo", () => {
   });
 });
 
+describe("POST /payroll/ferias/parcelado", () => {
+  const base = { employeeId: "e1", aquisitivoInicio: "2025-03-01" };
+  const enviar = (corpo: Record<string, unknown>) => request(app).post("/payroll/ferias/parcelado").send({ ...base, ...corpo });
+  test("grava as partes juntas e audita cada uma", async () => {
+    db.feriasProgramacao.create.mockResolvedValueOnce({ id: "p1" }).mockResolvedValueOnce({ id: "p2" });
+    const r = await enviar({ partes: [{ gozoInicio: "2026-12-01", dias: 14 }, { gozoInicio: "2027-01-12", dias: 16 }] });
+    expect(r.status).toBe(201);
+    expect(r.body.ids).toEqual(["p1", "p2"]);
+    expect(db.feriasProgramacao.create).toHaveBeenCalledTimes(2);
+    expect(auditLog).toHaveBeenCalledTimes(2);
+  });
+  test("exige de 2 a 3 partes e sessão", async () => {
+    expect((await enviar({ partes: [{ gozoInicio: "2026-12-01", dias: 30 }] })).status).toBe(400);
+    const quatro = ["2026-12-01", "2027-01-12", "2027-02-02", "2027-02-16"].map((gozoInicio) => ({ gozoInicio, dias: 5 }));
+    expect((await enviar({ partes: quatro })).status).toBe(400);
+    (getSessionUser as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    expect((await enviar({ partes: [{ gozoInicio: "2026-12-01", dias: 14 }, { gozoInicio: "2027-01-12", dias: 16 }] })).status).toBe(401);
+  });
+  test("não grava nada quando a soma passa do saldo", async () => {
+    const r = await enviar({ partes: [{ gozoInicio: "2026-12-01", dias: 20 }, { gozoInicio: "2027-01-12", dias: 20 }] });
+    expect(r.status).toBe(400);
+    expect(r.body.message).toMatch(/a programar/);
+    expect(db.feriasProgramacao.create).not.toHaveBeenCalled();
+  });
+  test("ao fechar o saldo, uma das partes precisa ter 14 dias", async () => {
+    const r = await enviar({ partes: [{ gozoInicio: "2026-12-01", dias: 10 }, { gozoInicio: "2027-01-12", dias: 10 }, { gozoInicio: "2027-03-02", dias: 10 }] });
+    expect(r.status).toBe(400);
+    expect(r.body.message).toMatch(/pelo menos 14 dias/);
+    expect(db.feriasProgramacao.create).not.toHaveBeenCalled();
+  });
+  test("partes que se sobrepõem são recusadas", async () => {
+    const r = await enviar({ partes: [{ gozoInicio: "2026-12-01", dias: 14 }, { gozoInicio: "2026-12-10", dias: 16 }] });
+    expect(r.status).toBe(400);
+    expect(r.body.message).toMatch(/Parte 2: .*batem com outras férias/);
+    expect(db.feriasProgramacao.create).not.toHaveBeenCalled();
+  });
+  test("as partes precisam fechar o saldo: não deixa sobrar dias que depois não fecham", async () => {
+    const r = await enviar({ partes: [{ gozoInicio: "2026-12-01", dias: 10 }, { gozoInicio: "2027-01-12", dias: 10 }] });
+    expect(r.status).toBe(400);
+    expect(r.body.message).toMatch(/fechar o saldo.*restam 10 dias/);
+    expect(db.feriasProgramacao.create).not.toHaveBeenCalled();
+  });
+  test("a recusa diz qual parte falhou (início em domingo na 2ª parte)", async () => {
+    const r = await enviar({ partes: [{ gozoInicio: "2026-12-01", dias: 14 }, { gozoInicio: "2027-01-10", dias: 16 }] });
+    expect(r.status).toBe(400);
+    expect(r.body.message).toMatch(/^Parte 2: As férias não podem começar em 10\/01\/2027/);
+  });
+  test("aceita 3 partes (14 + 8 + 8)", async () => {
+    db.feriasProgramacao.create.mockResolvedValueOnce({ id: "a" }).mockResolvedValueOnce({ id: "b" }).mockResolvedValueOnce({ id: "c" });
+    const r = await enviar({ partes: [{ gozoInicio: "2026-12-01", dias: 14 }, { gozoInicio: "2027-01-12", dias: 8 }, { gozoInicio: "2027-02-16", dias: 8 }] });
+    expect(r.status).toBe(201);
+    expect(r.body.ids).toEqual(["a", "b", "c"]);
+  });
+  test("entradas malformadas dão 400, sem gravar", async () => {
+    for (const partes of ["x", { a: 1 }, [null, null], [{ gozoInicio: "2026-12-01", dias: 14.5 }, { gozoInicio: "2027-01-12", dias: 16 }], [{ gozoInicio: "31/12/2026", dias: 14 }, { gozoInicio: "2027-01-12", dias: 16 }]]) {
+      const r = await enviar({ partes });
+      expect(r.status).toBe(400);
+    }
+    expect(db.feriasProgramacao.create).not.toHaveBeenCalled();
+  });
+  test("o abono fica na primeira parte e entra na conta do saldo", async () => {
+    db.feriasProgramacao.create.mockResolvedValueOnce({ id: "p1" }).mockResolvedValueOnce({ id: "p2" });
+    const r = await enviar({ diasAbono: 10, partes: [{ gozoInicio: "2026-12-01", dias: 14 }, { gozoInicio: "2027-01-12", dias: 6 }] });
+    expect(r.status).toBe(201);
+    expect(db.feriasProgramacao.create.mock.calls[0][0].data.diasAbono).toBe(10);
+    expect(db.feriasProgramacao.create.mock.calls[1][0].data.diasAbono).toBe(0);
+  });
+});
+
 describe("POST /payroll/ferias — já gozado, sem datas", () => {
   test("quita o saldo do período como GOZADA, sem data de início", async () => {
     const r = await request(app).post("/payroll/ferias").send({ employeeId: "e1", aquisitivoInicio: "2025-03-01", semDatas: true });

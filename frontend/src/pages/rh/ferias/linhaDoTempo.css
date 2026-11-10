@@ -248,6 +248,7 @@ button.fe-tl-fantasma { cursor: pointer; }
 .fe-tl-ficha--pedido b { color: var(--ink); }
 .fe-tl-ficha--empresa b { color: var(--info); }
 .fe-tl-ficha--limite b { color: var(--danger); }
+.fe-tl-ficha--direito b { color: var(--success); }
 .fe-tl-situacao { display: inline-block; padding: 0 6px; border-radius: var(--radius-pill); background: var(--paper-soft); color: var(--ink-soft); font-weight: var(--fw-semibold); }
 .fe-tl-situacao--atendido { background: var(--tint-success); color: var(--success); }
 .fe-tl-situacao--diferente { background: var(--tint-warning); color: var(--warning); }

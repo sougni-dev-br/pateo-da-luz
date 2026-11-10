@@ -294,6 +294,77 @@ feriasRouter.post("/", async (request, response) => {
   }
 });
 
+// ─── POST /payroll/ferias/parcelado — férias divididas em 2 ou 3 partes, gravadas juntas ─────
+// Cada parte é validada contra as anteriores (saldo, mínimo de 5 dias, uma parte de 14, sobreposição),
+// como se fossem lançadas uma a uma; se qualquer uma recusar, nada é gravado. O abono (se houver) fica na 1ª parte.
+feriasRouter.post("/parcelado", async (request, response) => {
+  const user = await getSessionUser(request);
+  if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
+  const b = (request.body ?? {}) as Record<string, unknown>;
+  try {
+    const employeeId = idDe(b.employeeId);
+    if (!diaValido(b.aquisitivoInicio)) throw new Recusa(400, "Período aquisitivo inválido.");
+    const partes = Array.isArray(b.partes) ? (b.partes as Array<Record<string, unknown>>) : [];
+    if (partes.length < 2 || partes.length > MAX_PARTES) throw new Recusa(400, `Informe de 2 a ${MAX_PARTES} partes.`);
+    const hoje = hojeEmSaoPaulo();
+    const criadas = await comTrava(employeeId, async (tx) => {
+      const pessoa = await pessoaDe(tx, employeeId, hoje);
+      let periodo = pessoa.periodos.find((p) => p.aquisitivoInicio === b.aquisitivoInicio);
+      let visao = pessoa;
+      const pedidos: Pedido[] = [];
+      for (const [i, parte] of partes.entries()) {
+        let pedido: Pedido;
+        try {
+          pedido = pedidoDe({
+            aquisitivoInicio: b.aquisitivoInicio, gozoInicio: parte?.gozoInicio, dias: parte?.dias,
+            diasAbono: i === 0 ? b.diasAbono : 0, status: ST_PROGRAMADA, observacao: b.observacao,
+          });
+          validarContraPeriodo(pedido, periodo, hoje, pessoa.repousoSemanal);
+          const choque = sobreposto(pedido, visao);
+          if (choque) throw new Recusa(400, `essas datas batem com outras férias dessa pessoa (${dataBr(choque.gozoInicio)} a ${dataBr(choque.gozoFim)}).`);
+        } catch (err) {
+          // A tela precisa saber qual parte foi recusada.
+          throw err instanceof Recusa ? new Recusa(err.status, `Parte ${i + 1}: ${err.message}`) : err;
+        }
+        pedidos.push(pedido);
+        // A próxima parte enxerga esta como já programada.
+        const nova: ProgramacaoNoPeriodo = {
+          id: `parte-${i}`, aquisitivoInicio: pedido.aquisitivoInicio, gozoInicio: pedido.gozoInicio, dias: pedido.dias, diasAbono: pedido.diasAbono,
+          status: ST_PROGRAMADA, observacao: pedido.observacao, gozoFim: pedido.gozoInicio ? somarDias(pedido.gozoInicio, pedido.dias - 1) : null, passouDaData: false,
+        };
+        const atualizado = { ...(periodo as PeriodoFerias), diasPendentes: (periodo as PeriodoFerias).diasPendentes - pedido.dias - pedido.diasAbono,
+          diasAbono: (periodo as PeriodoFerias).diasAbono + pedido.diasAbono, programacoes: [...(periodo as PeriodoFerias).programacoes, nova] };
+        periodo = atualizado;
+        visao = { ...visao, periodos: visao.periodos.map((p) => (p.aquisitivoInicio === atualizado.aquisitivoInicio ? atualizado : p)) };
+      }
+      // Parcelar é dividir o período todo: sobrar saldo que depois não fecha (por exemplo, sem uma parte de 14 dias) prenderia os dias.
+      const sobra = (periodo as PeriodoFerias).diasPendentes;
+      if (sobra !== 0) throw new Recusa(400, `As partes precisam fechar o saldo do período: ainda ${sobra > 0 ? `restam ${sobra} ${plural(sobra, "dia", "dias")}` : "passou do saldo"}. Use "Programar o resto" para lançar aos poucos.`);
+      const ids: string[] = [];
+      for (const pedido of pedidos) {
+        const criada = await tx.feriasProgramacao.create({
+          data: {
+            employeeId, aquisitivoInicio: paraData(pedido.aquisitivoInicio), gozoInicio: pedido.gozoInicio ? paraData(pedido.gozoInicio) : null,
+            dias: pedido.dias, diasAbono: pedido.diasAbono, status: pedido.status, observacao: pedido.observacao, createdById: user.id,
+          },
+        });
+        ids.push(criada.id);
+      }
+      return { ids, pedidos };
+    });
+    for (const [i, pedido] of criadas.pedidos.entries()) {
+      await auditLog({
+        userId: user.id, action: "SCHEDULE_VACATION", entity: "FeriasProgramacao", entityId: criadas.ids[i],
+        newValue: { employeeId, ...pedido, parte: i + 1, de: criadas.pedidos.length, gozoFim: pedido.gozoInicio ? somarDias(pedido.gozoInicio, pedido.dias - 1) : null },
+        ...auditoria(request),
+      });
+    }
+    return response.status(201).json({ ids: criadas.ids });
+  } catch (err) {
+    return responderRecusa(err, response);
+  }
+});
+
 // ─── PATCH /payroll/ferias/:id — editar datas/dias ou marcar como gozada ─────────
 feriasRouter.patch("/:id", async (request, response) => {
   const user = await getSessionUser(request);

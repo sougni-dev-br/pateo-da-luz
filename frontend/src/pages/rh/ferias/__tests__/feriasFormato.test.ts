@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { ListaFerias, PeriodoFerias, PessoaFerias } from "../../../../api/client";
-import { contarPorFiltro, dataBr, fimEVolta, linhasDaLista, pertenceAoFiltro, resumoProgramacao, rotuloDaSituacao, textoPrazo, tomDaSituacao } from "../feriasFormato";
+import { contarPorFiltro, dataBr, fimEVolta, podeSairA, prazosDaParte, linhasDaLista, pertenceAoFiltro, resumoProgramacao, rotuloDaSituacao, textoPrazo, tomDaSituacao } from "../feriasFormato";
 
 const periodo = (o: Partial<PeriodoFerias> = {}): PeriodoFerias => ({
   aquisitivoInicio: "2025-03-01", aquisitivoFim: "2026-02-28", limiteInicioGozo: "2027-01-30", fimConcessivo: "2027-02-28",
@@ -16,6 +16,17 @@ describe("formatação", () => {
     expect(dataBr("2027-01-30")).toBe("30/01/2027");
     expect(dataBr(null)).toBe("—");
   });
+  test("podeSairA é o dia seguinte ao fim do período aquisitivo", () => {
+    expect(podeSairA({ aquisitivoFim: "2026-01-31" })).toBe("2026-02-01");
+    expect(podeSairA({ aquisitivoFim: "2026-12-31" })).toBe("2027-01-01");
+  });
+
+  test("prazosDaParte: prazo de cada parte e da última parte quando as férias são divididas", () => {
+    // concessivo termina em 31/01/2027; 14 dias + 16 dias
+    expect(prazosDaParte("2027-01-31", 14, 16)).toEqual({ ultimoInicioDestaParte: "2027-01-18", ultimoInicioDoResto: "2027-01-16" });
+    expect(prazosDaParte("2027-01-31", 30, 0)).toEqual({ ultimoInicioDestaParte: "2027-01-02", ultimoInicioDoResto: null });
+  });
+
   test("textoPrazo diz quanto falta ou há quanto venceu", () => {
     expect(textoPrazo(periodo({ diasParaLimite: 107 }))).toBe("faltam 107 dias");
     expect(textoPrazo(periodo({ diasParaLimite: 1 }))).toBe("faltam 1 dia");

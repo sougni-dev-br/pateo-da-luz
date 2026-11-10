@@ -2,7 +2,7 @@ import { Check, MessageSquareText, Pencil, Plus, Trash2, Undo2 } from "lucide-re
 import type { ReactNode } from "react";
 import type { ProgramacaoFerias } from "../../../api/client";
 import { Button, StatusBadge } from "../../../design-system";
-import { type LinhaFerias, dataBr, plural, resumoProgramacao, rotuloDaSituacao, textoPrazo, tomDaSituacao } from "./feriasFormato";
+import { type LinhaFerias, dataBr, plural, podeSairA, resumoProgramacao, rotuloDaSituacao, textoPrazo, tomDaSituacao } from "./feriasFormato";
 import { ROTULO_DA_SITUACAO_DO_PEDIDO, compararPedido, diferencaEmPalavras, resumoDoPedido } from "./pedido";
 
 type Props = {
@@ -43,6 +43,8 @@ export function LinhaPeriodo({ linha, ocupado, formulario, onProgramar, onPedido
         {dataBr(p.aquisitivoInicio)} a {dataBr(p.aquisitivoFim)}
       </div>
       <div className="fe-limite">
+        <span className="fe-rotulo">{p.situacao === "EM_AQUISICAO" ? "Pode sair a partir de" : "Já pode sair desde"}</span>
+        <strong>{dataBr(podeSairA(p))}</strong>
         <span className="fe-rotulo">Começar até</span>
         <strong>{dataBr(p.limiteInicioGozo)}</strong>
         <span className="fe-sub">{textoPrazo(p)}</span>

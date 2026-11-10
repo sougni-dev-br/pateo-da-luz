@@ -190,6 +190,16 @@ export function mockFerias(url: string, method = "GET", corpo?: unknown): unknow
     gravadas = gravadas.map((g) => (g.id === aviso[1] ? { ...g, avisadoEm: g.avisadoEm && avisado ? g.avisadoEm : quando } : g));
     return { id: aviso[1], avisadoEm: quando };
   }
+  if (/\/payroll\/ferias\/parcelado$/.test(u.pathname) && method.toUpperCase() === "POST") {
+    if (!gravadas) gravadas = sementes();
+    const d = (typeof corpo === "string" && corpo ? JSON.parse(corpo) : {}) as { employeeId?: string; aquisitivoInicio?: string; diasAbono?: number; observacao?: string; partes?: Array<{ gozoInicio: string; dias: number }> };
+    const novas: Gravada[] = (d.partes ?? []).map((parte, i) => ({
+      id: `fp-${proximoId++}`, employeeId: String(d.employeeId), aquisitivoInicio: String(d.aquisitivoInicio), gozoInicio: parte.gozoInicio, dias: Number(parte.dias),
+      diasAbono: i === 0 ? Number(d.diasAbono ?? 0) : 0, status: "PROGRAMADA", observacao: d.observacao ?? null,
+    }));
+    gravadas = [...gravadas, ...novas];
+    return { ids: novas.map((n) => n.id) };
+  }
   const m = /\/payroll\/ferias(?:\/([^/]+))?$/.exec(u.pathname);
   if (!m) return undefined;
   if (!gravadas) gravadas = sementes();

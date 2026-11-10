@@ -3,7 +3,7 @@ import { Fragment, type ReactNode, useCallback, useEffect, useLayoutEffect, useM
 import type { ListaFerias, PeriodoFerias, PessoaFerias, ProgramacaoFerias } from "../../../api/client";
 import { Button } from "../../../design-system";
 import { PistaDaPessoa } from "./PistaDaPessoa";
-import { type LinhaFerias, dataBr, plural, resumoProgramacao, textoPrazo } from "./feriasFormato";
+import { type LinhaFerias, dataBr, plural, podeSairA, resumoProgramacao, textoPrazo } from "./feriasFormato";
 import { ROTULO_DA_SITUACAO_DO_PEDIDO, compararPedido, diferencaEmPalavras, resumoDoPedido } from "./pedido";
 import {
   type Ausencia, DIAS_NO_MES, type Eixo, ZOOMS, ausenciasDaLista, coberturaPorDia, criarEixo, diaDoX, mesesDoEixo, periodoAlvo,
@@ -216,6 +216,7 @@ function LinhaDaPessoa({ eixo, lista, pessoa, ausencias, ocupado, aberto, previa
           <ul className="fe-tl-ficha" aria-label={`Pedido, empresa e prazo de ${pessoa.nome}`}>
             <li className="fe-tl-ficha--pedido"><b>Pediu</b> {resumoDoPedido(ficha.periodo.solicitacao as NonNullable<PeriodoFerias["solicitacao"]>)}</li>
             <li className="fe-tl-ficha--empresa"><b>Empresa quer</b> {ficha.comparacao.programacao ? resumoProgramacao(ficha.comparacao.programacao) : "ainda sem data"}</li>
+            <li className="fe-tl-ficha--direito"><b>{ficha.periodo.situacao === "EM_AQUISICAO" ? "Pode sair a partir de" : "Pode sair desde"}</b> {dataBr(podeSairA(ficha.periodo))}</li>
             <li className="fe-tl-ficha--limite"><b>Limite</b> começar até {dataBr(ficha.periodo.limiteInicioGozo)}</li>
             {sugestao?.motivoDoPedido && alvo?.solicitacao && <li className="fe-tl-ficha--aviso" title={sugestao.motivoDoPedido}><b>Pedido não serve</b> {sugestao.motivoDoPedido}</li>}
             <li><span className={`fe-tl-situacao fe-tl-situacao--${ficha.comparacao.situacao.toLowerCase()}`}>{ROTULO_DA_SITUACAO_DO_PEDIDO[ficha.comparacao.situacao]}</span>
