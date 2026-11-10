@@ -716,7 +716,14 @@ function mockResponseFor(url: string, method = "GET", corpo?: BodyInit | null): 
         { employeeId: "e17", day: 5, type: "FOLGA" }, { employeeId: "e17", day: 14, type: "FOLGA" },
         { employeeId: "e18", day: 4, type: "FOLGA" }, { employeeId: "e18", day: 26, type: "FOLGA" }
       ],
-      vacationDays: [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19].map((day) => ({ employeeId: "e04", day })),
+      vacationDays: [
+        ...[5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19].map((day) => ({ employeeId: "e04", day, origem: "FOLHA" as const })),
+        // Programadas em RH > Férias, ainda sem lançamento na folha.
+        ...[20, 21, 22, 23, 24, 25, 26, 27, 28, 29].map((day) => ({ employeeId: "e07", day, origem: "PROGRAMACAO" as const })),
+      ],
+      borderDays: [],
+      sundayHistory: [],
+      regraDomingo: { mulher: 2, geral: 3 },
       dateEvents: [
         { day: 11, size: "PEQUENO" },
         { day: 14, size: "MEDIO" },
