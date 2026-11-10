@@ -203,7 +203,8 @@ function LinhaDaPessoa({ eixo, lista, pessoa, ausencias, ocupado, aberto, previa
   const guarda = (f: () => void) => () => { if (!ocupado) f(); };
   // O período que tem pedido (a ficha de três linhas) ou, sem pedido, o que dá para pedir: o mais antigo já maduro.
   const periodoComPedido = pessoa.periodos.find((p) => p.solicitacao) ?? null;
-  const pedidoPeriodo = periodoComPedido ?? pessoa.periodos.find((p) => p.situacao !== "EM_AQUISICAO" && p.situacao !== "GOZADA" && !p.doHistorico) ?? null;
+  const pedidoPeriodo = periodoComPedido ?? periodoAlvo(pessoa) ?? pessoa.periodos.find((p) => p.situacao !== "EM_AQUISICAO" && p.situacao !== "GOZADA" && !p.doHistorico)
+    ?? pessoa.periodos.find((p) => p.situacao === "EM_AQUISICAO") ?? null;
   const ficha = periodoComPedido ? { periodo: periodoComPedido, comparacao: compararPedido(periodoComPedido) as NonNullable<ReturnType<typeof compararPedido>> } : null;
 
   return (

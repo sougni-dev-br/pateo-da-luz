@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { ListaFerias, PeriodoFerias, PessoaFerias } from "../../../../api/client";
-import { contarPorFiltro, dataBr, fimEVolta, podeSairA, prazosDaParte, linhasDaLista, pertenceAoFiltro, resumoProgramacao, rotuloDaSituacao, textoPrazo, tomDaSituacao } from "../feriasFormato";
+import { contarPorFiltro, dataBr, fimEVolta, ehPreProgramado, podeSairA, prazosDaParte, linhasDaLista, pertenceAoFiltro, resumoProgramacao, rotuloDaSituacao, textoPrazo, tomDaSituacao } from "../feriasFormato";
 
 const periodo = (o: Partial<PeriodoFerias> = {}): PeriodoFerias => ({
   aquisitivoInicio: "2025-03-01", aquisitivoFim: "2026-02-28", limiteInicioGozo: "2027-01-30", fimConcessivo: "2027-02-28",
@@ -15,6 +15,25 @@ describe("formatação", () => {
   test("dataBr inverte a data e trata vazio", () => {
     expect(dataBr("2027-01-30")).toBe("30/01/2027");
     expect(dataBr(null)).toBe("—");
+  });
+  test("pré-programada que passa do concessivo: entra em A programar e o rótulo avisa", () => {
+    const g = { id: "g1", aquisitivoInicio: "2026-02-01", gozoInicio: "2028-01-20", gozoFim: "2028-02-18", dias: 30, diasAbono: 0, status: "PROGRAMADA" as const, observacao: null, passouDaData: false };
+    const fora = periodo({ situacao: "EM_AQUISICAO", diasPendentes: 0, foraDoPrazo: true, nivel: "perigo", programacoes: [g] });
+    expect(pertenceAoFiltro(fora, "PENDENTES")).toBe(true);
+    expect(pertenceAoFiltro(fora, "EM_AQUISICAO")).toBe(true);
+    expect(rotuloDaSituacao(fora)).toBe("Pré-programada fora do prazo");
+    const ok = periodo({ situacao: "EM_AQUISICAO", diasPendentes: 0, programacoes: [g] });
+    expect(pertenceAoFiltro(ok, "PENDENTES")).toBe(false);
+  });
+  test("pré-programada: período em aquisição com datas combinadas", () => {
+    const g = { id: "g1", aquisitivoInicio: "2026-02-01", gozoInicio: "2027-06-01", gozoFim: "2027-06-30", dias: 30, diasAbono: 0, status: "PROGRAMADA" as const, observacao: null, passouDaData: false };
+    const pre = periodo({ situacao: "EM_AQUISICAO", diasPendentes: 0, programacoes: [g] });
+    expect(ehPreProgramado(pre)).toBe(true);
+    expect(rotuloDaSituacao(pre)).toBe("Pré-programada");
+    expect(tomDaSituacao(pre)).toBe("info");
+    expect(ehPreProgramado(periodo({ situacao: "EM_AQUISICAO" }))).toBe(false);
+    expect(rotuloDaSituacao(periodo({ situacao: "EM_AQUISICAO" }))).toBe("Em aquisição");
+    expect(ehPreProgramado(periodo({ situacao: "PROGRAMADA", programacoes: [g] }))).toBe(false);
   });
   test("podeSairA é o dia seguinte ao fim do período aquisitivo", () => {
     expect(podeSairA({ aquisitivoFim: "2026-01-31" })).toBe("2026-02-01");

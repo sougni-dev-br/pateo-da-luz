@@ -120,6 +120,7 @@
 .fe-parte-num { font-weight: 700; padding-top: 28px; }
 .fe-parte-previa { grid-column: 2 / -1; margin: 0; font-size: var(--fs-sm); color: var(--ink-soft); }
 .fe-parte-remover { align-self: end; }
+.fe-parte-previa--aviso { color: var(--warning); font-weight: 600; }
 .fe-soma { margin: 0; font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
 .fe-soma--erro { color: var(--danger); font-weight: 600; }
 @media (max-width: 640px) { .fe-parte { grid-template-columns: 1fr 1fr; } .fe-parte-num { grid-column: 1 / -1; padding-top: 0; } .fe-parte-previa { grid-column: 1 / -1; } }

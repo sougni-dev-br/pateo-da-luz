@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { PedidoFerias, PeriodoFerias, ProgramacaoFerias } from "../../../api/client";
 import { Alert, Button, TextField } from "../../../design-system";
-import { dataBr, fimEVolta, plural, prazosDaParte } from "./feriasFormato";
+import { dataBr, fimEVolta, plural, prazosDaParte, somaDias } from "./feriasFormato";
 import { DIAS_DE_AVISO, type Feriados, MAX_PARTES, dataValida, MIN_DIAS_PARTE_MAIOR, motivoInicioVedado, nomeDoDia, prazoParaPagar, proximoInicioValido, repousosPorExtenso } from "./regrasFerias";
 import { diasEntre } from "./eixoDoTempo";
 import { diferencaEmPalavras, resumoDoPedido } from "./pedido";
@@ -170,7 +170,7 @@ export function FormularioFerias({ nome, periodo, inicial, sugestao, regras, con
       )}
       {sugestao?.ajustadoDe && sugestao.ajustadoDe !== inicio && (
         <Alert tone="info" role={undefined}>
-          Mudei o início de {dataBr(sugestao.ajustadoDe)} para {dataBr(inicio)}: férias não podem começar em dia de repouso, feriado nem nos 2 dias antes.
+          Mudei o início de {dataBr(sugestao.ajustadoDe)} para {dataBr(inicio)}: {sugestao.ajustadoDe <= periodo.aquisitivoFim ? `o direito só nasce em ${dataBr(somaDias(periodo.aquisitivoFim, 1))}.` : "férias não podem começar em dia de repouso, feriado nem nos 2 dias antes."}
         </Alert>
       )}
       {colegas && colegas.mesmoSetor.length > 0 && (
@@ -181,6 +181,11 @@ export function FormularioFerias({ nome, periodo, inicial, sugestao, regras, con
       {colegas && colegas.outros.length > 0 && (
         <Alert tone="info" role={undefined}>
           Nesse período {plural(colegas.outros.length, "já estará fora", "já estarão fora")}{colegas.mesmoSetor.length > 0 ? " (outros setores)" : ""}: {colegas.outros.join(", ")}.
+        </Alert>
+      )}
+      {periodo.situacao === "EM_AQUISICAO" && (
+        <Alert tone="info" role={undefined}>
+          Pré-programação: {nome} ainda está completando o período e só adquire o direito em {dataBr(somaDias(periodo.aquisitivoFim, 1))}. A data de início tem de ser a partir desse dia; ela fica combinada e passa a valer como programação quando o direito nascer.
         </Alert>
       )}
       {avisoDias !== null && avisoDias < DIAS_DE_AVISO && (

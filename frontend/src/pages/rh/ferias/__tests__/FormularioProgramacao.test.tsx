@@ -78,4 +78,14 @@ describe("FormularioProgramacao", () => {
     expect(screen.getByLabelText("Início da 1ª parte")).toHaveValue("2026-12-01");
     expect(screen.getByLabelText("Dias da 2ª parte")).toHaveValue(6);
   });
+
+  test("parcelado avisa quem já estará fora em cada parte (colegas do mesmo setor e de outros)", () => {
+    const conflitos = vi.fn(() => ({ mesmoSetor: ["Bia"], outros: ["Caio"], setor: "Cozinha" }));
+    abrir(periodo(), { conflitos });
+    fireEvent.click(screen.getByRole("radio", { name: /Parceladas/ }));
+    fireEvent.change(screen.getByLabelText("Início da 1ª parte"), { target: { value: "2026-12-01" } });
+    expect(conflitos).toHaveBeenCalledWith("2026-12-01", 14);
+    expect(screen.getByText(/Do mesmo setor \(Cozinha\)/)).toHaveTextContent("Bia");
+    expect(screen.getByText(/\(outros setores\)/)).toHaveTextContent("Caio");
+  });
 });

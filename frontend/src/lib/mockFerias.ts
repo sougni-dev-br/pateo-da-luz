@@ -103,7 +103,7 @@ function periodosDe(p: Pessoa, doPessoa: Gravada[], doPedido: Pedido[]): Periodo
     const programados = deste.filter((g) => g.status === "PROGRAMADA").reduce((s, g) => s + g.dias, 0);
     const abono = deste.reduce((s, g) => s + g.diasAbono, 0);
     const pendentes = Math.max(0, 30 - gozados - programados - abono);
-    const limite = somaDias(fimConcessivo, -(Math.min(pendentes > 0 && !emAquisicao ? pendentes : 30, 30) - 1));
+    const limite = somaDias(fimConcessivo, -(Math.min(pendentes > 0 ? pendentes : 30, 30) - 1));
     const foraDoPrazo = deste.some((g) => g.status === "PROGRAMADA" && g.gozoInicio !== null && somaDias(g.gozoInicio, g.dias - 1) > fimConcessivo);
     const diasParaLimite = !emAquisicao && pendentes > 0 ? diasEntre(h, limite) : null;
     let situacao: SituacaoFerias;
@@ -113,10 +113,10 @@ function periodosDe(p: Pessoa, doPessoa: Gravada[], doPedido: Pedido[]): Periodo
       const d = diasParaLimite as number;
       if (d < 0) { situacao = "VENCIDA"; nivel = "perigo"; } else if (d <= 30) { situacao = "A_VENCER"; nivel = "perigo"; } else if (d <= 90) { situacao = "A_VENCER"; nivel = "atencao"; } else situacao = "DISPONIVEL";
     } else situacao = programados > 0 ? "PROGRAMADA" : "GOZADA";
-    if (!emAquisicao && foraDoPrazo) nivel = "perigo";
+    if (foraDoPrazo) nivel = "perigo";
     periodos.push({
       aquisitivoInicio: inicio, aquisitivoFim: fim, limiteInicioGozo: limite, fimConcessivo, diasDireito: 30, diasGozados: gozados,
-      diasProgramados: programados, diasAbono: abono, diasPendentes: emAquisicao ? 30 : pendentes, situacao, nivel, diasParaLimite,
+      diasProgramados: programados, diasAbono: abono, diasPendentes: pendentes, situacao, nivel, diasParaLimite,
       diasParaCompletar: emAquisicao ? diasEntre(h, somaDias(fim, 1)) : null, foraDoPrazo, doHistorico: false, programacoes: deste.map(programacaoNoPeriodo),
       solicitacao: (() => {
         const x = doPedido.find((q) => q.aquisitivoInicio === inicio);

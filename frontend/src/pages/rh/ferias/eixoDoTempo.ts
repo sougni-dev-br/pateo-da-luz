@@ -320,9 +320,14 @@ export function sugerirInicio(eixo: Eixo, p: PeriodoFerias, hoje: string, dias: 
   return { inicio, fim: somaDias(inicio, dias - 1), dias, pico: achada.pico, picoSetor: achada.picoSetor, origem: "calculada", diasAbono: 0, ...(motivoDoPedido ? { motivoDoPedido } : {}) };
 }
 
-/** O período em que um clique na linha da pessoa vai programar: o mais antigo que ainda tem o que programar. */
+/**
+ * O período em que um clique na linha da pessoa vai programar: o mais antigo que ainda tem o que programar.
+ * Sem nenhum período liberado, cai no que ainda está em aquisição (pré-programação).
+ */
 export function periodoAlvo(pessoa: PessoaFerias): PeriodoFerias | null {
-  return pessoa.periodos.find((p) => p.situacao !== "EM_AQUISICAO" && p.diasPendentes > 0 && !p.doHistorico) ?? null;
+  const aProgramar = (p: PeriodoFerias) => p.diasPendentes > 0 && !p.doHistorico;
+  return pessoa.periodos.find((p) => p.situacao !== "EM_AQUISICAO" && aProgramar(p))
+    ?? pessoa.periodos.find((p) => p.situacao === "EM_AQUISICAO" && aProgramar(p)) ?? null;
 }
 
 // ── Dias vedados (cache por escala) ────────────────────────────────────────────────

@@ -141,7 +141,7 @@ export function periodosDeFerias({ admissao, hoje, programacoes, historico, soli
     const pendentes = Math.max(0, DIAS_DIREITO - gozados - programados - abono);
     const doHistorico = diasFicha + abonoFicha >= DIAS_DIREITO;
     // Quem ainda tem menos de 30 dias a tirar pode começar mais tarde e ainda terminar no concessivo.
-    const limite = somarDias(fimConcessivo, -(Math.min(pendentes > 0 && !emAquisicao ? pendentes : DIAS_DIREITO, DIAS_DIREITO) - 1));
+    const limite = somarDias(fimConcessivo, -(Math.min(pendentes > 0 ? pendentes : DIAS_DIREITO, DIAS_DIREITO) - 1));
     // Uma parte menor pode começar depois do "limite" e ainda terminar no concessivo.
     const foraDoPrazo = doPeriodo.some((p) => p.status === "PROGRAMADA" && p.gozoInicio !== null && somarDias(p.gozoInicio, p.dias - 1) > fimConcessivo);
 
@@ -151,7 +151,7 @@ export function periodosDeFerias({ admissao, hoje, programacoes, historico, soli
     if (emAquisicao) situacao = "EM_AQUISICAO";
     else if (pendentes > 0) ({ situacao, nivel } = situacaoDoPendente(diasParaLimite as number));
     else situacao = programados > 0 ? "PROGRAMADA" : "GOZADA";
-    if (!emAquisicao && foraDoPrazo) nivel = "perigo";
+    if (foraDoPrazo) nivel = "perigo"; // vale também para uma pré-programação que passa do concessivo
 
     periodos.push({
       aquisitivoInicio: inicio,
@@ -162,7 +162,8 @@ export function periodosDeFerias({ admissao, hoje, programacoes, historico, soli
       diasGozados: gozados,
       diasProgramados: programados,
       diasAbono: abono,
-      diasPendentes: emAquisicao ? DIAS_DIREITO : pendentes,
+      // Em aquisição também desconta o que já foi pré-programado.
+      diasPendentes: pendentes,
       situacao,
       nivel,
       diasParaLimite,

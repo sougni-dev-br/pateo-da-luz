@@ -2,7 +2,7 @@ import { Plus, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { PeriodoFerias } from "../../../api/client";
 import { Alert, Button, TextField } from "../../../design-system";
-import { dataBr, fimEVolta, plural } from "./feriasFormato";
+import { dataBr, fimEVolta, plural, somaDias } from "./feriasFormato";
 import { MIN_DIAS_PARA_PARCELAR, type ParteEmEdicao, partesIniciais, validarPartes } from "./parcelamento";
 import { diasEntre } from "./eixoDoTempo";
 import { DIAS_DE_AVISO, type Feriados, MAX_PARTES, dataValida, motivoInicioVedado, nomeDoDia } from "./regrasFerias";
@@ -15,6 +15,8 @@ type Props = {
   nome: string;
   periodo: PeriodoFerias;
   regras?: { hoje: string; feriados: Feriados; repousos: number[]; repousoPelaEscala: boolean };
+  /** Quem já estará fora em parte de cada período digitado (sem a própria pessoa), com os colegas do mesmo setor à parte. */
+  conflitos?: (inicio: string, dias: number) => { mesmoSetor: string[]; outros: string[]; setor: string | null };
   /** Data (e abono) já escolhidos na linha do tempo ou vindos do pedido do colaborador: pré-preenchem a 1ª parte. */
   sugestao?: { inicio: string; diasAbono?: number };
   /** Foca o primeiro campo ao montar. Desligado quando o formulário já nasce escondido atrás da pergunta Integral/Parcelada. */
@@ -27,7 +29,7 @@ type Props = {
   onCancelar: () => void;
 };
 
-export function FormularioParcelado({ nome, periodo, regras, sugestao, autoFoco = true, onPrevia, salvando, erro, onSalvar, onCancelar }: Props) {
+export function FormularioParcelado({ nome, periodo, regras, conflitos, sugestao, autoFoco = true, onPrevia, salvando, erro, onSalvar, onCancelar }: Props) {
   const formRef = useRef<HTMLFormElement>(null);
   const saldo = periodo.diasPendentes;
   const podeVender = saldo - DIAS_ABONO >= MIN_DIAS_PARA_PARCELAR && periodo.diasAbono === 0;
@@ -83,12 +85,18 @@ export function FormularioParcelado({ nome, periodo, regras, sugestao, autoFoco 
     <form ref={formRef} className="fe-form" noValidate aria-label={`Programar férias parceladas de ${nome}`}
       onSubmit={(e) => { e.preventDefault(); salvar(); }}
       onKeyDown={(e) => { if (e.key === "Escape" && !e.defaultPrevented && !salvando) onCancelar(); }}>
+      {periodo.situacao === "EM_AQUISICAO" && (
+        <Alert tone="info" role={undefined}>
+          Pré-programação: {nome} ainda está completando o período e só adquire o direito em {dataBr(somaDias(periodo.aquisitivoFim, 1))}. Cada parte tem de começar a partir desse dia; elas ficam combinadas e passam a valer como programação quando o direito nascer.
+        </Alert>
+      )}
       <ol className="fe-partes" aria-label="Partes das férias">
         {partes.map((p, i) => {
           const dias = Number(p.dias);
           const datas = dataValida(p.inicio) && Number.isInteger(dias) && dias >= 1 ? fimEVolta(p.inicio, dias) : null;
           const erros = resultado.porParte[i];
           const passaDoPrazo = datas !== null && datas.fim > periodo.fimConcessivo;
+          const colegas = datas && !erros?.inicio && conflitos ? conflitos(p.inicio, dias) : null;
           return (
             <li key={i} className="fe-parte">
               <span className="fe-parte-num" aria-hidden="true">{i + 1}ª</span>
@@ -105,6 +113,12 @@ export function FormularioParcelado({ nome, periodo, regras, sugestao, autoFoco 
                   {passaDoPrazo && <> Termina depois do prazo ({dataBr(periodo.fimConcessivo)}): fica vencida e paga em dobro.</>}
                   {regras && diasEntre(regras.hoje, p.inicio) < DIAS_DE_AVISO && <> {diasEntre(regras.hoje, p.inicio) < 0 ? "Esse início já passou." : `Faltam só ${diasEntre(regras.hoje, p.inicio)} dias para o início.`} A lei pede aviso por escrito com {DIAS_DE_AVISO} dias de antecedência (CLT, art. 135).</>}
                 </p>
+              )}
+              {colegas && colegas.mesmoSetor.length > 0 && (
+                <p className="fe-parte-previa fe-parte-previa--aviso">Do mesmo setor ({colegas.setor}) {plural(colegas.mesmoSetor.length, "já estará fora", "já estarão fora")} nesse período: {colegas.mesmoSetor.join(", ")}.</p>
+              )}
+              {colegas && colegas.outros.length > 0 && (
+                <p className="fe-parte-previa">Nesse período {plural(colegas.outros.length, "já estará fora", "já estarão fora")}{colegas.mesmoSetor.length > 0 ? " (outros setores)" : ""}: {colegas.outros.join(", ")}.</p>
               )}
             </li>
           );

@@ -1,6 +1,6 @@
 // O que fazer a seguir com as férias de cada pessoa, em uma frase (vai na folha impressa, ao lado de cada nome).
 import type { PeriodoFerias, PessoaFerias } from "../../../api/client";
-import { dataBr, somaDias } from "./feriasFormato";
+import { dataBr, podeSairA, somaDias } from "./feriasFormato";
 import { compararPedido } from "./pedido";
 import { prazoParaAvisar } from "./regrasFerias";
 
@@ -12,8 +12,10 @@ const programadas = (p: PeriodoFerias) => p.programacoes.filter((g) => g.status 
 
 /** O período que a ficha da pessoa descreve: o que tem pedido, senão o que ainda tem dias a programar, senão o primeiro com férias programadas. */
 export function periodoDaFicha(pessoa: PessoaFerias): PeriodoFerias | null {
-  return pessoa.periodos.find((p) => p.solicitacao)
+  // O pedido de um período ainda em aquisição não pode esconder o que está urgente em outro período: fica depois dos dias a programar.
+  return pessoa.periodos.find((p) => p.solicitacao && p.situacao !== "EM_AQUISICAO")
     ?? pessoa.periodos.find(temDiasAProgramar)
+    ?? pessoa.periodos.find((p) => p.solicitacao)
     ?? pessoa.periodos.find((p) => programadas(p).length > 0)
     ?? null;
 }
@@ -33,6 +35,9 @@ export function proximoPasso(periodo: PeriodoFerias, hoje: string): PassoDaPesso
     if (comparacao?.situacao === "AGUARDANDO") return { texto: `Responder ao pedido e definir a data até ${limite}`, tipo: "responder", urgente };
     if (programadas(periodo).length > 0) return { texto: `Programar o resto (${periodo.diasPendentes} dias) até ${limite}`, tipo: "programar-resto", urgente };
     return { texto: `Definir a data até ${limite}`, tipo: "definir", urgente };
+  }
+  if (periodo.situacao === "EM_AQUISICAO" && comparacao?.situacao === "AGUARDANDO") {
+    return { texto: `Responder ao pedido (o direito nasce em ${dataBr(podeSairA(periodo))})`, tipo: "responder", urgente: false };
   }
   if (comparacao?.situacao === "DIFERENTE" && periodo.solicitacao) {
     return { texto: `Avisar que a empresa quer outra data (ele pediu ${dataBr(periodo.solicitacao.inicio)})`, tipo: "avisar-outra", urgente: false };
@@ -85,7 +90,7 @@ export function resumoDoQueFazer(pessoas: PessoaFerias[], hoje: string): ItemDoR
   }
   const completando = pessoas
     .flatMap((pessoa) => pessoa.periodos
-      .filter((p) => p.situacao === "EM_AQUISICAO" && p.diasParaCompletar !== null && p.diasParaCompletar <= JANELA_DIREITO_DIAS)
+      .filter((p) => p.situacao === "EM_AQUISICAO" && p.diasPendentes > 0 && p.diasParaCompletar !== null && p.diasParaCompletar <= JANELA_DIREITO_DIAS)
       .map((p) => ({ pessoa, dias: p.diasParaCompletar as number, direito: somaDias(p.aquisitivoFim, 1) })))
     .sort((a, b) => a.dias - b.dias);
   if (completando.length > 0) {

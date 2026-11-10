@@ -1,5 +1,5 @@
 import type { ListaFerias, PeriodoFerias, PessoaFerias, ProgramacaoFerias } from "../../../api/client";
-import { dataBr, linhasDaLista, pertenceAoFiltro, somaDias, textoPrazo } from "./feriasFormato";
+import { dataBr, linhasDaLista, pertenceAoFiltro, podeSairA, somaDias, textoPrazo } from "./feriasFormato";
 import { resumoDoPedido } from "./pedido";
 import { prazoParaAvisar, prazoParaPagar } from "./regrasFerias";
 
@@ -94,7 +94,9 @@ export function folhasParaContabilidade(lista: ListaFerias): Array<FolhaEmpresa<
             chave: g.id, nome: pessoa.nome, periodo: periodoBr(periodo),
             inicio: dataBr(g.gozoInicio), fim: dataBr(fim), retorno: dataBr(somaDias(fim, 1)),
             dias: g.dias, abono: g.diasAbono, avisarAte: `${dataBr(prazoParaAvisar(g.gozoInicio))}${g.avisadoEm ? " ✓" : ""}`, pagarAte: dataBr(prazoParaPagar(g.gozoInicio)),
-            observacao: periodo.foraDoPrazo ? "Fora do prazo (pagar em dobro)" : g.observacao ?? "",
+            observacao: periodo.foraDoPrazo ? "Fora do prazo (pagar em dobro)"
+              : periodo.situacao === "EM_AQUISICAO" ? `Pré-programada: o direito só nasce em ${dataBr(podeSairA(periodo))}${g.observacao ? ` · ${g.observacao}` : ""}`
+              : g.observacao ?? "",
           },
         });
       }
