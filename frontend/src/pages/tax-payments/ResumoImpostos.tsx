@@ -218,7 +218,7 @@ function Celula({ c, grupo, categoriaId, onVerMes }: { c: CelulaGrade; grupo: st
         tabIndex={-1}
         title={descricao}
         aria-label={descricao}
-        onClick={() => onVerMes(c.mes, categoriaId ? { id: categoriaId, nome: grupo } : undefined)}
+        onClick={() => onVerMes(c.mes, categoriaId ? { id: categoriaId, nome: grupo } : grupo === "Sem categoria" ? { id: "none", nome: grupo } : undefined)}
       >
         {c.estado === "vazio" ? (c.lacuna ? "!" : "") : c.qtd}
       </button>

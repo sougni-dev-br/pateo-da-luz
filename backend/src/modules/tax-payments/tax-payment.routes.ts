@@ -12,7 +12,7 @@ import { userHasPermission } from "../security/menu-permissions.js";
 import type { SessionUser } from "../security/security-utils.js";
 import { montarPanorama } from "./tax-payment-panorama.js";
 import { descricaoDosItens, lerNumeroDoDocumento, lerQuantidadeDeTrabalhadores, normalizarItens, type ItemGuia } from "./tax-payment-items.js";
-import { aplicarCatalogoDeCodigos } from "./tax-code-catalog.js";
+import { aplicarCatalogoDeCodigos, guardarCodigosNovos } from "./tax-code-catalog.js";
 import { lerFuncionarioDaGuia } from "./tax-payment-employee.js";
 import { diaIso, hojeBrasilia, lerData, parseValorGuia, resolverUploadImportacao, statusDaGuia } from "./tax-payment-rules.js";
 
@@ -120,8 +120,11 @@ taxPaymentRouter.get("/", async (request, response) => {
 
   if (companyId) conditions.push(`tp."companyId" = ${addParam(companyId)}`);
   if (cnpj) conditions.push(`tp."cnpj" = ${addParam(cnpj.replace(/\D/g, ""))}`);
-  if (documentType) conditions.push(`tp."documentType" ILIKE ${addParam(`%${documentType}%`)}`);
-  if (dreCategoryId) conditions.push(`tp."dreCategoryId" = ${addParam(dreCategoryId)}`);
+  // Tipo exato (sem 'contém'): filtrar "DARF" não pode trazer "DARF IR".
+  if (documentType) conditions.push(`LOWER(tp."documentType") = LOWER(${addParam(documentType)})`);
+  // "none": guias sem categoria (a célula "Sem categoria" da grade).
+  if (dreCategoryId === "none") conditions.push(`tp."dreCategoryId" IS NULL`);
+  else if (dreCategoryId) conditions.push(`tp."dreCategoryId" = ${addParam(dreCategoryId)}`);
 
   // Mesma regra de situação de Contas a Pagar e do selo da lista: cancelada, paga, vencida (antes de
   // hoje, em Brasília) ou a vencer. O status gravado só decide o cancelamento; "vencido" envelhece sozinho.
@@ -139,7 +142,11 @@ taxPaymentRouter.get("/", async (request, response) => {
     }
   }
 
-  if (withoutCompetence === "true") conditions.push(`tp."competenceDate" IS NULL`);
+  // Mesma conta do contador do painel: guia cancelada não conta como "sem competência" (só aparece se pedirem Canceladas).
+  if (withoutCompetence === "true") {
+    conditions.push(`tp."competenceDate" IS NULL`);
+    if (status !== "CANCELED") conditions.push(`tp."status" <> 'CANCELED'`);
+  }
   if (competenceStart) conditions.push(`tp."competenceDate" >= ${addParam(new Date(competenceStart))}`);
   if (competenceEnd) conditions.push(`tp."competenceDate" <= ${addParam(new Date(competenceEnd + "T23:59:59.999Z"))}`);
   if (dueStart) conditions.push(`tp."dueDate" >= ${addParam(new Date(dueStart))}`);
@@ -390,7 +397,7 @@ taxPaymentRouter.post("/", async (request, response) => {
       documentType: String(documentType).trim(),
       description: descricao,
       documentNumber: numero.valor,
-      workersCount: trabalhadores.valor,
+      workersCount: documentType.trim() === "FGTS" ? trabalhadores.valor : null,
       employeeId: funcionario.id,
       competenceDate: competencia.data,
       dueDate: dataDeVencimento,
@@ -407,6 +414,7 @@ taxPaymentRouter.post("/", async (request, response) => {
     include: { items: { orderBy: { position: "asc" } } },
   }));
   if (!created) return;
+  if (itens) await guardarCodigosNovos(documentType.trim(), itens);
 
   await auditLog({
     userId: user.id,
@@ -485,7 +493,8 @@ taxPaymentRouter.put("/:id", async (request, response) => {
 
   const tipoFinal = documentType ? String(documentType).trim() : existing.documentType;
   let funcionarioDaGuia = existing.employeeId;
-  if (employeeId !== undefined) {
+  // Só revalida quando o vínculo mudou: quem foi readmitido depois da guia não pode travar a edição dela.
+  if (employeeId !== undefined && (employeeId || null) !== existing.employeeId) {
     const lido = await lerFuncionarioDaGuia(employeeId, tipoFinal);
     if (!lido.ok) return response.status(400).json({ message: lido.message });
     funcionarioDaGuia = lido.id;
@@ -546,7 +555,7 @@ taxPaymentRouter.put("/:id", async (request, response) => {
         ? descricaoDosItens(itens)
         : description !== undefined ? ((description as string) || null) : existing.description,
       documentNumber: numeroDoDocumento,
-      workersCount: trabalhadoresDaGuia,
+      workersCount: tipoFinal === "FGTS" ? trabalhadoresDaGuia : null,
       employeeId: funcionarioDaGuia,
       competenceDate: competencia.data,
       dueDate: dataDeVencimento,
@@ -561,6 +570,7 @@ taxPaymentRouter.put("/:id", async (request, response) => {
     include: { items: { orderBy: { position: "asc" } } },
   }));
   if (!updated) return;
+  if (itens) await guardarCodigosNovos(tipoFinal, itens);
 
   await auditLog({
     userId: user.id,
@@ -641,10 +651,11 @@ taxPaymentRouter.patch("/:id/restore", async (request, response) => {
     ? (existing.dueDate && existing.dueDate < now ? "OVERDUE" : "PENDING")
     : existing.status;
 
-  const updated = await prisma.taxPayment.update({
+  const updated = await gravar(response, () => prisma.taxPayment.update({
     where: { id },
     data: { deletedAt: null, deletedById: null, status, updatedById: user.id },
-  });
+  }));
+  if (!updated) return;
 
   await auditLog({
     userId: user.id,
