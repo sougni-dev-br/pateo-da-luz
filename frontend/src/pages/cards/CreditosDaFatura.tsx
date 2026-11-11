@@ -23,6 +23,8 @@ type Props = {
   finais: CreditCardFinal[];
   onAdicionar: (ajuste: NovoAjuste) => Promise<boolean>;
   onRemover: (ajuste: Ajuste) => Promise<void>;
+  /** Passa o lançamento para outro cartão (null = fatura toda). */
+  onTrocarCartao: (ajuste: Ajuste, cardFinalId: string | null) => Promise<void>;
   /** Grava o total da fatura como o banco informa ("" apaga). */
   onTotalDoBanco: (valor: string) => Promise<boolean>;
 };
@@ -33,7 +35,7 @@ function emCentavos(valor: string | number): number {
   return Math.round(Number(valor) * 100);
 }
 
-export function CreditosDaFatura({ detalhe, editavel, finais, onAdicionar, onRemover, onTotalDoBanco }: Props) {
+export function CreditosDaFatura({ detalhe, editavel, finais, onAdicionar, onRemover, onTrocarCartao, onTotalDoBanco }: Props) {
   const ajustes = detalhe.adjustments ?? [];
   const [aberto, setAberto] = useState(false);
   const [form, setForm] = useState<NovoAjuste>(VAZIO);
@@ -91,9 +93,22 @@ export function CreditosDaFatura({ detalhe, editavel, finais, onAdicionar, onRem
               <span className="fatura-creditos-data">{formatDate(ajuste.adjustmentDate ?? ajuste.createdAt)}</span>
               <div className="fatura-creditos-desc">
                 <strong>{ajuste.description}</strong>
-                <small>
-                  {ajuste.kind === "ESTORNO" ? "Estorno / crédito" : "Cobrança já estornada"} · {nomeDoCartao(ajuste.cardFinalId)}
-                </small>
+                <small>{ajuste.kind === "ESTORNO" ? "Estorno / crédito" : "Cobrança já estornada"}</small>
+                {editavel ? (
+                  <label className="fatura-creditos-cartao">
+                    <span>Cartão:</span>
+                    <select
+                      value={ajuste.cardFinalId ?? ""}
+                      aria-label={`Cartão do lançamento: ${ajuste.description}`}
+                      onChange={(event) => void onTrocarCartao(ajuste, event.target.value || null)}
+                    >
+                      <option value="">Fatura toda (fora dos cartões)</option>
+                      {finais.map((final) => <option key={final.id} value={final.id}>{tipoDoFinal(final.kind)} — {rotuloDoFinal(final)}</option>)}
+                    </select>
+                  </label>
+                ) : (
+                  <small>Cartão: {nomeDoCartao(ajuste.cardFinalId)}</small>
+                )}
               </div>
               <span className={`fatura-creditos-valor${Number(ajuste.amount) < 0 ? " credito" : ""}`}><Money value={ajuste.amount} /></span>
               {editavel && (
@@ -186,9 +201,10 @@ export function CreditosDaFatura({ detalhe, editavel, finais, onAdicionar, onRem
             <label className="fatura-creditos-campo">
               Cartão
               <select value={form.cardFinalId ?? ""} onChange={(event) => setForm({ ...form, cardFinalId: event.target.value || null })}>
-                <option value="">Fatura toda (não sei qual cartão)</option>
+                <option value="">Fatura toda (fora dos cartões)</option>
                 {finais.map((final) => <option key={final.id} value={final.id}>{tipoDoFinal(final.kind)} — {rotuloDoFinal(final)}</option>)}
               </select>
+              <small>Escolha um cartão só se o extrato <strong>desse cartão</strong> já inclui o crédito. Se o crédito aparece só no total da fatura, deixe "Fatura toda".</small>
             </label>
             <div className="fatura-creditos-rodape">
               <Button variant="secondary" onClick={() => { setAberto(false); setTentou(false); }}>Cancelar</Button>

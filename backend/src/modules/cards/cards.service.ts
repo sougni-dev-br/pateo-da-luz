@@ -30,6 +30,18 @@ export async function getNextPurchaseNumber(tx: Prisma.TransactionClient, year: 
   return `CMP-${year}-${String(row.currentValue).padStart(6, "0")}`;
 }
 
+/**
+ * Vencimento da fatura que fecha em `mes`/`ano`: o primeiro "dia de vencimento" depois do fechamento.
+ * Fecha 5 e vence 18 → no mesmo mes; fecha 25 e vence 5 → no mes seguinte. Uma regra so para as tres
+ * formas de criar fatura (por compra, por parcela e por competencia).
+ */
+export function vencimentoDaFatura(ano: number, mes: number, closingDay: number, dueDay: number): Date {
+  const mesDoVencimento = dueDay > closingDay ? mes : mes + 1;
+  const base = new Date(ano, mesDoVencimento - 1, 1);
+  const ultimoDia = new Date(base.getFullYear(), base.getMonth() + 1, 0).getDate();
+  return new Date(base.getFullYear(), base.getMonth(), Math.min(dueDay, ultimoDia));
+}
+
 export function getCardStatementPeriod(card: CardRow, purchaseDate: Date) {
   const day = purchaseDate.getDate();
   const statementBase = day <= card.closingDay ? purchaseDate : new Date(purchaseDate.getFullYear(), purchaseDate.getMonth() + 1, 1);
@@ -37,9 +49,7 @@ export function getCardStatementPeriod(card: CardRow, purchaseDate: Date) {
   const statementMonthIndex = statementBase.getMonth();
   const lastDayOfMonth = new Date(statementYear, statementMonthIndex + 1, 0).getDate();
   const closingDate = new Date(statementYear, statementMonthIndex, Math.min(card.closingDay, lastDayOfMonth));
-  const dueBase = new Date(statementYear, statementMonthIndex + 1, 1);
-  const lastDayOfDueMonth = new Date(dueBase.getFullYear(), dueBase.getMonth() + 1, 0).getDate();
-  const dueDate = new Date(dueBase.getFullYear(), dueBase.getMonth(), Math.min(card.dueDay, lastDayOfDueMonth));
+  const dueDate = vencimentoDaFatura(statementYear, statementMonthIndex + 1, card.closingDay, card.dueDay);
   return {
     competenceYear: closingDate.getFullYear(),
     competenceMonth: closingDate.getMonth() + 1,
@@ -161,7 +171,9 @@ export async function reabrirSeDivergir(tx: Prisma.TransactionClient, statementI
 }
 
 export async function recalcularEReabrir(tx: Prisma.TransactionClient, statementIds: Iterable<string>) {
-  for (const statementId of new Set(statementIds)) {
+  // Em ordem e com lock: duas operacoes na mesma fatura nao deixam o total sem a parcela da outra.
+  for (const statementId of [...new Set(statementIds)].sort()) {
+    await tx.$queryRaw`SELECT "id" FROM "CreditCardStatement" WHERE "id" = ${statementId} FOR UPDATE`;
     const [sumRow] = await tx.$queryRaw<Array<{ total: Prisma.Decimal | number | string | null }>>`
       SELECT COALESCE(SUM("value"), 0) + COALESCE((SELECT SUM("amount") FROM "CreditCardStatementAdjustment" WHERE "statementId" = ${statementId}), 0) AS "total" FROM "CreditCardStatementItem" WHERE "statementId" = ${statementId}
     `;
@@ -258,10 +270,7 @@ export function competenciaDepois(ano: number, mes: number, meses: number): { an
 export function periodoDaCompetencia(card: { closingDay: number; dueDay: number }, ano: number, mes: number) {
   const ultimoDoMes = new Date(ano, mes, 0).getDate();
   const closingDate = new Date(ano, mes - 1, Math.min(card.closingDay, ultimoDoMes));
-  const proximo = new Date(ano, mes, 1);
-  const ultimoDoVencimento = new Date(proximo.getFullYear(), proximo.getMonth() + 1, 0).getDate();
-  const dueDate = new Date(proximo.getFullYear(), proximo.getMonth(), Math.min(card.dueDay, ultimoDoVencimento));
-  return { closingDate, dueDate };
+  return { closingDate, dueDate: vencimentoDaFatura(ano, mes, card.closingDay, card.dueDay) };
 }
 
 export function getCardStatementPeriodForInstallment(card: CardRow, purchaseDate: Date, installmentIndex: number) {
@@ -271,9 +280,7 @@ export function getCardStatementPeriodForInstallment(card: CardRow, purchaseDate
   const targetMonth = (totalMonths % 12) + 1;
   const lastDay = new Date(targetYear, targetMonth, 0).getDate();
   const closingDate = new Date(targetYear, targetMonth - 1, Math.min(card.closingDay, lastDay));
-  const dueBase = new Date(targetYear, targetMonth - 1, 1);
-  const lastDayDue = new Date(dueBase.getFullYear(), dueBase.getMonth() + 1, 0).getDate();
-  const dueDate = new Date(dueBase.getFullYear(), dueBase.getMonth(), Math.min(card.dueDay, lastDayDue));
+  const dueDate = vencimentoDaFatura(targetYear, targetMonth, card.closingDay, card.dueDay);
   return { competenceYear: targetYear, competenceMonth: targetMonth, closingDate, dueDate };
 }
 
@@ -562,7 +569,8 @@ export async function guardarSnapshotDasLinhas(tx: Prisma.TransactionClient, pur
   if (!snapshot) return;
   await tx.$executeRaw`
     UPDATE "Purchase"
-    SET "rawRow" = COALESCE("rawRow", '{}'::jsonb) || jsonb_build_object('cartaoSnapshot', ${JSON.stringify(snapshot)}::jsonb)
+    SET "rawRow" = (CASE WHEN jsonb_typeof("rawRow") = 'object' THEN "rawRow" ELSE '{}'::jsonb END)
+                   || jsonb_build_object('cartaoSnapshot', ${JSON.stringify(snapshot)}::jsonb)
     WHERE "id" = ${purchaseId}
   `;
 }
@@ -603,6 +611,7 @@ export async function reconstruirLinhasDaCompra(tx: Prisma.TransactionClient, co
       notes: fonte.notes,
       finaisPorParcela: fonte.finaisPorParcela
     });
+    await descartarSnapshot(tx, compra.id, guardado);
     return;
   }
 
@@ -618,6 +627,17 @@ export async function reconstruirLinhasDaCompra(tx: Prisma.TransactionClient, co
     notes: compra.smallExpenseNotes,
     cardFinalId: fonte?.finaisPorParcela["1"] ?? null
   });
+  await descartarSnapshot(tx, compra.id, guardado);
+}
+
+// O que foi guardado ao cancelar ja foi usado: nao deixa um retrato velho para a proxima reconstrucao.
+async function descartarSnapshot(tx: Prisma.TransactionClient, purchaseId: string, guardado: SnapshotDasLinhas | null) {
+  if (!guardado) return;
+  await tx.$executeRaw`
+    UPDATE "Purchase"
+    SET "rawRow" = "rawRow" - 'cartaoSnapshot'
+    WHERE "id" = ${purchaseId} AND jsonb_typeof("rawRow") = 'object'
+  `;
 }
 
 /**

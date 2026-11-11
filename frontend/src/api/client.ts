@@ -3041,6 +3041,14 @@ export function addStatementAdjustment(
   });
 }
 
+export function updateStatementAdjustmentCard(statementId: string, adjustmentId: string, cardFinalId: string | null) {
+  return request<{ ok: boolean; cardFinalId: string | null }>(`/cards/statements/${statementId}/adjustments/${adjustmentId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ cardFinalId })
+  });
+}
+
 export function deleteStatementAdjustment(statementId: string, adjustmentId: string) {
   return request<{ ok: boolean }>(`/cards/statements/${statementId}/adjustments/${adjustmentId}`, { method: "DELETE" });
 }
