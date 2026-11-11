@@ -27,6 +27,12 @@ const DAS: LinhaDoModelo[] = [
   { code: "1007", description: "ICMS - SIMPLES NACIONAL SP" },
 ];
 
+// DAS do MEI: INSS e ICMS (o ISS, quando houver, entra como código novo e o sistema guarda).
+const DAS_MEI: LinhaDoModelo[] = [
+  { code: "0151", description: "INSS - MEI" },
+  { code: "0083", description: "ICMS - MEI" },
+];
+
 // O FGTS Digital não tem código: as colunas da guia viram linhas.
 const FGTS: LinhaDoModelo[] = [
   { code: "", description: "FGTS Mensal" },
@@ -48,6 +54,8 @@ export function modeloDoTipo(tipo: string): ModeloDeGuia {
   switch (tipo) {
     case "Simples Nacional / DAS":
       return { numeroObrigatorio: true, rotuloDocumento: "Número do documento", dicaObservacoes: "", linhas: DAS, sugestoes: [] };
+    case "DAS MEI":
+      return { numeroObrigatorio: true, rotuloDocumento: "Número do documento", dicaObservacoes: "", linhas: DAS_MEI, sugestoes: [] };
     case "FGTS":
       return { numeroObrigatorio: true, pedeTrabalhadores: true, rotuloDocumento: "Identificador", dicaObservacoes: "Ex.: mês de referência de uma rescisão.", linhas: FGTS, sugestoes: [] };
     case "DARF":

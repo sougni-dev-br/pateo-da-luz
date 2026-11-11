@@ -13,6 +13,11 @@ const CODIGOS_DAS = [
   { code: "1007", description: "ICMS - SIMPLES NACIONAL SP" },
 ];
 
+const CODIGOS_MEI = [
+  { code: "0151", description: "INSS - MEI" },
+  { code: "0083", description: "ICMS - MEI" },
+];
+
 vi.mock("../../../api/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../../api/client")>()),
   createTaxPayment: vi.fn(async () => ({ id: "novo" })),
@@ -22,7 +27,7 @@ vi.mock("../../../api/client", async (importOriginal) => ({
   getTaxDreCategories: vi.fn(async () => [{ id: "cat-simples", name: "Simples Nacional", dreGroup: "IMPOSTOS" }, { id: "cat-outra", name: "Taxas Municipais", dreGroup: "DESPESAS_GERAIS" }]),
   // Tipos com regra devolvem categoria; IPTU não tem categoria automática.
   getTaxCategorySuggestion: vi.fn(async (tipo: string) => (tipo === "IPTU" ? { dreCategoryId: null, nome: null } : { dreCategoryId: "cat-simples", nome: "Simples Nacional" })),
-  getTaxCodes: vi.fn(async (tipo: string) => (tipo === "Simples Nacional / DAS" ? CODIGOS_DAS : [])),
+  getTaxCodes: vi.fn(async (tipo: string) => (tipo === "Simples Nacional / DAS" ? CODIGOS_DAS : tipo === "DAS MEI" ? CODIGOS_MEI : [])),
   getTaxPayments: vi.fn(async () => ({ data: [], pagination: { page: 1, pageSize: 10, total: 0, totalPages: 1 }, summary: {} })),
   getTaxPayment: vi.fn(),
 }));
@@ -113,6 +118,28 @@ describe("ModalGuia: lançar pela composição", () => {
     expect("amount" in payload).toBe(false);
     expect(onSalvo.mock.calls[0][0]).toMatch(/A baixa é feita lá/);
     expect(onSalvo.mock.calls[0][1]).toEqual({ dueDate: "2026-10-20", mes: "2026-09" });
+  });
+
+  test("DAS MEI: INSS (0151) e ICMS (0083) já vêm como linhas e a guia pode ser lançada", async () => {
+    abrir();
+    fireEvent.click(screen.getByRole("radio", { name: "DAS MEI" }));
+    fireEvent.change(screen.getByLabelText(/Vencimento/), { target: { value: "2026-11-20" } });
+    fireEvent.change(screen.getByLabelText(/Número do documento/), { target: { value: "07.20.26290.0000001-1" } });
+    expect((screen.getByLabelText("Código da linha 1") as HTMLInputElement).value).toBe("0151");
+    expect((screen.getByLabelText("Denominação da linha 1") as HTMLInputElement).value).toBe("INSS - MEI");
+    expect((screen.getByLabelText("Código da linha 2") as HTMLInputElement).value).toBe("0083");
+    fireEvent.change(screen.getByLabelText("Principal da linha 1"), { target: { value: "8190" } });
+    fireEvent.change(screen.getByLabelText("Principal da linha 2"), { target: { value: "100" } });
+    await waitFor(() => expect((screen.getByLabelText(/Categoria no DRE/) as HTMLSelectElement).value).toBe("cat-simples"));
+    fireEvent.click(botaoLancar());
+    await waitFor(() => expect(createTaxPayment).toHaveBeenCalledTimes(1));
+    const payload = vi.mocked(createTaxPayment).mock.calls[0][0];
+    expect(payload.documentType).toBe("DAS MEI");
+    expect(payload.items).toEqual([
+      expect.objectContaining({ code: "0151", description: "INSS - MEI", principal: 81.9 }),
+      expect.objectContaining({ code: "0083", description: "ICMS - MEI", principal: 1 }),
+    ]);
+    expect(payload.competenceDate).toBe("2026-10-01");
   });
 
   test("não existe mais 'Lançar e lançar outra' dentro do modal", () => {

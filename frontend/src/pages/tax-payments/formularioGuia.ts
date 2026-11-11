@@ -5,13 +5,13 @@ import { modeloDoTipo, sugestoesDoTipo } from "./modelosDeGuia";
 import { competenciaDoMes, mesDaData } from "./regras";
 
 export const TIPOS_DE_GUIA = [
-  "FGTS", "GPS / INSS", "DARF", "DARF IR", "IRRF", "Simples Nacional / DAS", "DASN",
+  "FGTS", "GPS / INSS", "DARF", "DARF IR", "IRRF", "Simples Nacional / DAS", "DAS MEI", "DASN",
   "DARE", "DARE-SP", "GARE ICMS", "GARE ISS", "TFE", "IPTU", "ISS",
   "Parcelamento Tributário", "Outros",
 ];
 
 // Os tipos que quase todo lançamento usa ficam à vista; os demais, no seletor.
-export const TIPOS_EM_DESTAQUE = ["Simples Nacional / DAS", "FGTS", "GPS / INSS", "DARF"];
+export const TIPOS_EM_DESTAQUE = ["Simples Nacional / DAS", "DAS MEI", "FGTS", "GPS / INSS", "DARF"];
 
 // Uma linha da composição da guia (código, denominação, principal, multa e juros), com os valores como o usuário digita.
 export type LinhaForm = {
