@@ -10,6 +10,7 @@ describe("categoria do DRE sugerida pelo tipo da guia", () => {
     ["Simples Nacional / DAS", null, "Simples Nacional"],
     ["SIMPLES NACIONAL - DASN", "IRPJ - CSLL - COFINS - PIS - INSS - ICMS", "Simples Nacional"],
     ["DASN", null, "Simples Nacional"],
+    ["DAS MEI", "INSS - MEI · ICMS - MEI", "Simples Nacional"],
     ["DARE", null, "GARE / ICMS"],
     ["DARE-SP", null, "GARE / ICMS"],
     ["GARE ICMS", null, "GARE / ICMS"],

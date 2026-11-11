@@ -52,6 +52,13 @@ describe("modelos de guia", () => {
     expect(linhas[4].description).toBe("INSS - SIMPLES NACIONAL");
   });
 
+  test("DAS MEI traz INSS (0151) e ICMS (0083) e a competência é o mês anterior ao vencimento", () => {
+    const linhas = linhasDoModelo("DAS MEI");
+    expect(linhas.map((l) => [l.code, l.description])).toEqual([["0151", "INSS - MEI"], ["0083", "ICMS - MEI"]]);
+    expect(modeloDoTipo("DAS MEI").numeroObrigatorio).toBe(true);
+    expect(mesSugerido("DAS MEI", "2026-11-20")).toBe("2026-10");
+  });
+
   test("FGTS pede a quantidade de trabalhadores; DAS não", () => {
     expect(modeloDoTipo("FGTS").pedeTrabalhadores).toBe(true);
     expect(modeloDoTipo("Simples Nacional / DAS").pedeTrabalhadores).toBeFalsy();
