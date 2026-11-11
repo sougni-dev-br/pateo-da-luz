@@ -72,6 +72,7 @@ async function cardStatementDetail(id: string) {
     include: {
       creditCard: { include: { finais: { orderBy: { createdAt: "asc" } } } },
       finalTotals: true,
+      adjustments: { orderBy: { createdAt: "asc" } },
       items: {
         include: {
           purchase: { include: { supplier: true, _count: { select: { items: true } } } },
@@ -120,6 +121,7 @@ function recusouLinhaForaDoDre(
 
 type DetalheParaConferencia = {
   items: Array<{ cardFinalId?: string | null; value: Prisma.Decimal | number | string }>;
+  adjustments?: Array<{ cardFinalId?: string | null; amount: Prisma.Decimal | number | string }>;
   creditCard?: { finais?: Array<{ id: string; label: string; last4Digits: string; kind: string; isActive: boolean }> };
   finalTotals?: Array<{ cardFinalId: string; statedAmount: Prisma.Decimal | number | string }>;
 };
@@ -135,7 +137,10 @@ function recusouExtratoDivergente(
   if (declarados.length === 0) return false;
   const finais = detalhe.creditCard?.finais ?? [];
   const subtotais = subtotaisPorFinal(
-    detalhe.items.map((item) => ({ cardFinalId: item.cardFinalId ?? null, value: item.value })),
+    [
+      ...detalhe.items.map((item) => ({ cardFinalId: item.cardFinalId ?? null, value: item.value })),
+      ...(detalhe.adjustments ?? []).map((ajuste) => ({ cardFinalId: ajuste.cardFinalId ?? null, value: ajuste.amount }))
+    ],
     finais
   );
   const divergentes = divergenciasDeExtrato(subtotais, declarados);
@@ -516,11 +521,19 @@ cardsRouter.get("/statements/:id", async (request, response) => {
   }
 
   const subtotaisPorCartao = subtotaisPorFinal(
-    statement.items.map((item) => ({ cardFinalId: item.cardFinalId, value: item.value })),
+    [
+      ...statement.items.map((item) => ({ cardFinalId: item.cardFinalId, value: item.value })),
+      ...statement.adjustments.map((ajuste) => ({ cardFinalId: ajuste.cardFinalId, value: ajuste.amount }))
+    ],
     statement.creditCard.finais
   );
+  const emCentavos = (valor: { toString(): string } | number) => Math.round(Number(valor.toString()) * 100);
+  const totalDosItens = statement.items.reduce((soma, item) => soma + emCentavos(item.value), 0) / 100;
+  const totalDosAjustes = statement.adjustments.reduce((soma, ajuste) => soma + emCentavos(ajuste.amount), 0) / 100;
   response.json({
     ...statement,
+    totalDosItens,
+    totalDosAjustes,
     subtotaisPorCartao,
     divergenciasPorCartao: divergenciasDeExtrato(subtotaisPorCartao, statement.finalTotals)
   });
@@ -705,7 +718,7 @@ cardsRouter.post("/statements/:id/items", async (request, response) => {
     });
 
     const [totalRow] = await tx.$queryRaw<Array<{ total: Prisma.Decimal | number | string | null }>>`
-      SELECT COALESCE(SUM("value"), 0) AS "total"
+      SELECT COALESCE(SUM("value"), 0) + COALESCE((SELECT SUM("amount") FROM "CreditCardStatementAdjustment" WHERE "statementId" = ${statement.id}), 0) AS "total"
       FROM "CreditCardStatementItem"
       WHERE "statementId" = ${statement.id}
     `;
@@ -759,7 +772,7 @@ cardsRouter.delete("/statements/:id/items/:itemId", async (request, response) =>
   await prisma.$transaction(async (tx) => {
     await tx.creditCardStatementItem.delete({ where: { id: item.id } });
     const [totalRow] = await tx.$queryRaw<Array<{ total: Prisma.Decimal | number | string | null }>>`
-      SELECT COALESCE(SUM("value"), 0) AS "total"
+      SELECT COALESCE(SUM("value"), 0) + COALESCE((SELECT SUM("amount") FROM "CreditCardStatementAdjustment" WHERE "statementId" = ${statement.id}), 0) AS "total"
       FROM "CreditCardStatementItem"
       WHERE "statementId" = ${statement.id}
     `;
@@ -908,6 +921,149 @@ cardsRouter.post("/statements/:id/items-check", async (request, response) => {
     userAgent: String(request.headers["user-agent"] ?? "")
   });
   response.json({ atualizados });
+});
+
+const TIPOS_DE_AJUSTE = ["ESTORNO", "COBRANCA_ESTORNADA"] as const;
+const LIMITE_DO_AJUSTE = 9_999_999;
+
+// Credito/estorno que o banco lanca na fatura e nao e compra do ERP. So muda o total da fatura (e o
+// valor a pagar) e o subtotal do cartao: nao entra no DRE nem no CMV.
+cardsRouter.post("/statements/:id/adjustments", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  if (!user) return;
+
+  const statement = await prisma.creditCardStatement.findUnique({ where: { id: request.params.id } });
+  if (!statement) {
+    response.status(404).json({ message: "Fatura nao encontrada." });
+    return;
+  }
+  if (!STATUS_EDITAVEIS.includes(statement.status)) {
+    response.status(409).json({ message: "Fatura fechada, paga ou cancelada nao recebe lancamentos. Reabra a fatura antes." });
+    return;
+  }
+
+  const tipo = String(request.body.tipo ?? "").toUpperCase() as (typeof TIPOS_DE_AJUSTE)[number];
+  const description = String(request.body.description ?? "").trim();
+  const valor = parseDecimalInput(request.body.valor);
+  if (!TIPOS_DE_AJUSTE.includes(tipo)) {
+    response.status(400).json({ message: "Escolha o tipo: estorno/credito ou cobranca ja estornada." });
+    return;
+  }
+  if (!description || description.length > 200) {
+    response.status(400).json({ message: "Informe a descricao (ate 200 caracteres)." });
+    return;
+  }
+  if (valor === null || valor <= 0 || valor > LIMITE_DO_AJUSTE) {
+    response.status(400).json({ message: "Informe um valor maior que zero." });
+    return;
+  }
+
+  const cardFinalId = asText(request.body.cardFinalId);
+  if (cardFinalId) {
+    const final = await prisma.creditCardFinal.findUnique({ where: { id: cardFinalId } });
+    if (!final || final.creditCardId !== statement.creditCardId) {
+      response.status(400).json({ message: "Esse cartao nao pertence a conta desta fatura." });
+      return;
+    }
+  }
+
+  const assinado = tipo === "ESTORNO" ? -valor : valor;
+  const ajuste = await prisma.$transaction(async (tx) => {
+    const criado = await tx.creditCardStatementAdjustment.create({
+      data: {
+        statementId: statement.id,
+        cardFinalId,
+        kind: tipo,
+        description,
+        amount: new Prisma.Decimal(assinado),
+        adjustmentDate: request.body.adjustmentDate ? localDate(request.body.adjustmentDate) : null,
+        notes: asText(request.body.notes),
+        createdByUserId: user.id
+      }
+    });
+    await recalcularEReabrir(tx, [statement.id]);
+    return criado;
+  });
+
+  await auditLog({
+    userId: user.id,
+    action: "CREATE_CREDIT_CARD_STATEMENT_ADJUSTMENT",
+    entity: "CreditCardStatement",
+    entityId: statement.id,
+    newValue: { adjustmentId: ajuste.id, tipo, description, amount: assinado, cardFinalId },
+    ipAddress: requestIp(request),
+    userAgent: String(request.headers["user-agent"] ?? "")
+  });
+  response.status(201).json(ajuste);
+});
+
+cardsRouter.delete("/statements/:id/adjustments/:adjustmentId", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  if (!user) return;
+
+  const ajuste = await prisma.creditCardStatementAdjustment.findUnique({ where: { id: request.params.adjustmentId } });
+  if (!ajuste || ajuste.statementId !== request.params.id) {
+    response.status(404).json({ message: "Lancamento nao encontrado nesta fatura." });
+    return;
+  }
+  const statement = await prisma.creditCardStatement.findUnique({ where: { id: request.params.id } });
+  if (!statement || !STATUS_EDITAVEIS.includes(statement.status)) {
+    response.status(409).json({ message: "Fatura fechada, paga ou cancelada nao pode ser alterada. Reabra a fatura antes." });
+    return;
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.creditCardStatementAdjustment.delete({ where: { id: ajuste.id } });
+    await recalcularEReabrir(tx, [statement.id]);
+  });
+
+  await auditLog({
+    userId: user.id,
+    action: "DELETE_CREDIT_CARD_STATEMENT_ADJUSTMENT",
+    entity: "CreditCardStatement",
+    entityId: statement.id,
+    previousValue: ajuste,
+    ipAddress: requestIp(request),
+    userAgent: String(request.headers["user-agent"] ?? "")
+  });
+  response.json({ ok: true });
+});
+
+// Total da fatura como o banco informa: so para conferir com a soma dos itens e dos creditos.
+cardsRouter.put("/statements/:id/extract-total", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  if (!user) return;
+
+  const statement = await prisma.creditCardStatement.findUnique({ where: { id: request.params.id } });
+  if (!statement) {
+    response.status(404).json({ message: "Fatura nao encontrada." });
+    return;
+  }
+  if (!STATUS_EDITAVEIS.includes(statement.status)) {
+    response.status(409).json({ message: "Fatura fechada, paga ou cancelada nao pode ser alterada. Reabra a fatura antes." });
+    return;
+  }
+  const bruto = request.body.valor;
+  const vazio = bruto === null || bruto === undefined || String(bruto).trim() === "";
+  const valor = vazio ? null : parseDecimalInput(bruto);
+  if (!vazio && (valor === null || valor < 0 || valor > LIMITE_DO_TOTAL_DO_EXTRATO)) {
+    response.status(400).json({ message: "Total da fatura invalido." });
+    return;
+  }
+  await prisma.creditCardStatement.update({
+    where: { id: statement.id },
+    data: { statedTotalAmount: valor === null ? null : new Prisma.Decimal(valor) }
+  });
+  await auditLog({
+    userId: user.id,
+    action: "SET_CREDIT_CARD_STATEMENT_EXTRACT_TOTAL",
+    entity: "CreditCardStatement",
+    entityId: statement.id,
+    newValue: { statedTotalAmount: valor },
+    ipAddress: requestIp(request),
+    userAgent: String(request.headers["user-agent"] ?? "")
+  });
+  response.json({ ok: true, statedTotalAmount: valor });
 });
 
 cardsRouter.put("/statements/:id/final-totals/:finalId", async (request, response) => {
@@ -1220,7 +1376,7 @@ cardsRouter.post("/statements/items/:itemId/reallocate", async (request, respons
     });
 
     const [sourceTotalRow] = await tx.$queryRaw<Array<{ total: Prisma.Decimal | number | string | null }>>`
-      SELECT COALESCE(SUM("value"), 0) AS "total"
+      SELECT COALESCE(SUM("value"), 0) + COALESCE((SELECT SUM("amount") FROM "CreditCardStatementAdjustment" WHERE "statementId" = ${sourceStatement.id}), 0) AS "total"
       FROM "CreditCardStatementItem"
       WHERE "statementId" = ${sourceStatement.id}
     `;
@@ -1230,7 +1386,7 @@ cardsRouter.post("/statements/items/:itemId/reallocate", async (request, respons
     });
 
     const [targetTotalRow] = await tx.$queryRaw<Array<{ total: Prisma.Decimal | number | string | null }>>`
-      SELECT COALESCE(SUM("value"), 0) AS "total"
+      SELECT COALESCE(SUM("value"), 0) + COALESCE((SELECT SUM("amount") FROM "CreditCardStatementAdjustment" WHERE "statementId" = ${targetStatementId}), 0) AS "total"
       FROM "CreditCardStatementItem"
       WHERE "statementId" = ${targetStatementId}
     `;
@@ -1295,7 +1451,9 @@ cardsRouter.post("/statements/:id/close", async (request, response) => {
   if (recusouLinhaForaDoDre(statement.items, response)) return;
   if (recusouExtratoDivergente(statement, response)) return;
 
-  const totalAmount = statement.items.reduce((sum, item) => sum + Number(item.value ?? 0), 0);
+  const totalAmount =
+    (statement.items.reduce((sum, item) => sum + Math.round(Number(item.value ?? 0) * 100), 0) +
+      statement.adjustments.reduce((sum, ajuste) => sum + Math.round(Number(ajuste.amount ?? 0) * 100), 0)) / 100;
   const period = getCardStatementPeriod({
     id: statement.creditCard.id,
     name: statement.creditCard.name,
@@ -1587,7 +1745,10 @@ cardsRouter.get("/statements/:id/pdf", async (request, response) => {
         `Fechamento: ${formatDateValue(statement.closingDate)}`,
         `Vencimento: ${formatDateValue(statement.dueDate)}`,
         `Status: ${statement.status}`,
-        `Total: ${formatCurrency(statement.totalAmount)}`
+        `Total: ${formatCurrency(statement.totalAmount)}`,
+        ...(statement.adjustments.length > 0
+          ? [`Creditos e estornos incluidos: ${formatCurrency(statement.adjustments.reduce((soma, ajuste) => soma + Number(ajuste.amount), 0))}`]
+          : [])
       ]
     },
     {
@@ -1605,7 +1766,21 @@ cardsRouter.get("/statements/:id/pdf", async (request, response) => {
           item.notes ?? "-"
         ])
       }
-    }
+    },
+    ...(statement.adjustments.length > 0
+      ? [{
+          heading: "Creditos e estornos",
+          table: {
+            headers: ["Data", "Descricao", "Tipo", "Valor"],
+            rows: statement.adjustments.map((ajuste) => [
+              formatDateValue(ajuste.adjustmentDate ?? ajuste.createdAt),
+              ajuste.description,
+              ajuste.kind === "ESTORNO" ? "Estorno" : "Cobranca ja estornada",
+              formatCurrency(ajuste.amount)
+            ])
+          }
+        }]
+      : [])
   ]);
 
   await auditLog({

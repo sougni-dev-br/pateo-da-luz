@@ -2,6 +2,7 @@ import { ArrowRightLeft, CheckCircle2, Plus, RefreshCw, Save, X } from "lucide-r
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
+  addStatementAdjustment,
   AppUser,
   checkCardStatementItem,
   closeCardStatement,
@@ -9,6 +10,7 @@ import {
   CreditCardStatement,
   CreditCardStatementDetail,
   deleteCardStatementItem,
+  deleteStatementAdjustment,
   downloadCardStatementPdf,
   getCardStatement,
   getCardStatements,
@@ -19,6 +21,7 @@ import {
   saveCardStatement,
   setCardStatementStatus,
   setCardStatus,
+  setStatementExtractTotal,
   setStatementFinalTotal,
   setStatementItemsChecked,
   setStatementItemsFinal
@@ -28,6 +31,7 @@ import { CadastroDoCartao } from "./cards/CadastroDoCartao";
 import { ListaDeFaturas } from "./cards/ListaDeFaturas";
 import { ResumoDosCartoes } from "./cards/ResumoDosCartoes";
 import { resumoDasFaturas, vencimentoRelativo } from "./cards/resumo-de-faturas";
+import { CreditosDaFatura, type NovoAjuste } from "./cards/CreditosDaFatura";
 import { FaturaPorCartao } from "./cards/FaturaPorCartao";
 import { Notice, useNotice } from "../components/Notice";
 import { Dialog } from "../components/ui/Dialog";
@@ -345,6 +349,50 @@ export function Cards({ user }: CardsProps) {
     });
   }
 
+  function adicionarAjuste(ajuste: NovoAjuste): Promise<boolean> {
+    return enfileirar(async () => {
+      if (!statementDetail) return false;
+      try {
+        await addStatementAdjustment(statementDetail.id, ajuste);
+        setStatementDetail(await getCardStatement(statementDetail.id));
+        setNotice({ tone: "success", message: "Lançamento adicionado. O total da fatura foi atualizado." });
+        await load();
+        return true;
+      } catch (error) {
+        setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao adicionar o lançamento." });
+        return false;
+      }
+    });
+  }
+
+  function removerAjuste(ajuste: { id: string }): Promise<void> {
+    return enfileirar(async () => {
+      if (!statementDetail) return;
+      try {
+        await deleteStatementAdjustment(statementDetail.id, ajuste.id);
+        setStatementDetail(await getCardStatement(statementDetail.id));
+        setNotice({ tone: "success", message: "Lançamento removido. O total da fatura foi atualizado." });
+        await load();
+      } catch (error) {
+        setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao remover o lançamento." });
+      }
+    });
+  }
+
+  function gravarTotalDoBanco(valor: string): Promise<boolean> {
+    return enfileirar(async () => {
+      if (!statementDetail) return false;
+      try {
+        await setStatementExtractTotal(statementDetail.id, valor.trim() ? valor : null);
+        setStatementDetail(await getCardStatement(statementDetail.id));
+        return true;
+      } catch (error) {
+        setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao gravar o total da fatura." });
+        return false;
+      }
+    });
+  }
+
   function gravarTotalDoExtrato(cardFinalId: string, valor: string): Promise<boolean> {
     return enfileirar(async () => {
       if (!statementDetail) return false;
@@ -605,7 +653,10 @@ export function Cards({ user }: CardsProps) {
               <div className="fatura-detalhe-total">
                 <span>Total da fatura</span>
                 <strong><Money value={statementDetail.totalAmount} /></strong>
-                <small>{statementDetail.items.length} lançamento(s)</small>
+                <small>
+                  {statementDetail.items.length} lançamento(s)
+                  {(statementDetail.adjustments ?? []).length > 0 && <> · inclui crédito/estorno de <Money value={statementDetail.totalDosAjustes ?? 0} /></>}
+                </small>
               </div>
               <div className="fatura-detalhe-acoes">
                 {canManage && statementDetail.status === "OPEN" && (
@@ -633,6 +684,14 @@ export function Cards({ user }: CardsProps) {
                 }}
               />
             </div>
+            <CreditosDaFatura
+              detalhe={statementDetail}
+              editavel={canManage && ["OPEN", "CHECKED"].includes(statementDetail.status)}
+              finais={(statementDetail.creditCard.finais ?? []).filter((final) => final.isActive)}
+              onAdicionar={adicionarAjuste}
+              onRemover={removerAjuste}
+              onTotalDoBanco={gravarTotalDoBanco}
+            />
             {canManage && ["OPEN", "CHECKED"].includes(statementDetail.status) && (
               <p className="subsection text-muted">
                 Toda linha da fatura vem de uma compra. Anuidade, juros ou tarifa: lance como compra paga no cartão, com o item, em{" "}

@@ -140,12 +140,19 @@ export async function reabrirSeDivergir(tx: Prisma.TransactionClient, statementI
     include: {
       creditCard: { include: { finais: true } },
       finalTotals: true,
-      items: { select: { cardFinalId: true, value: true } }
+      items: { select: { cardFinalId: true, value: true } },
+      adjustments: { select: { cardFinalId: true, amount: true } }
     }
   });
   if (!fatura || fatura.status !== "CHECKED" || fatura.finalTotals.length === 0) return false;
   const divergentes = divergenciasDeExtrato(
-    subtotaisPorFinal(fatura.items.map((item) => ({ cardFinalId: item.cardFinalId, value: item.value })), fatura.creditCard.finais),
+    subtotaisPorFinal(
+      [
+        ...fatura.items.map((item) => ({ cardFinalId: item.cardFinalId, value: item.value })),
+        ...(fatura.adjustments ?? []).map((ajuste) => ({ cardFinalId: ajuste.cardFinalId, value: ajuste.amount }))
+      ],
+      fatura.creditCard.finais
+    ),
     fatura.finalTotals
   );
   if (divergentes.length === 0) return false;
@@ -156,7 +163,7 @@ export async function reabrirSeDivergir(tx: Prisma.TransactionClient, statementI
 export async function recalcularEReabrir(tx: Prisma.TransactionClient, statementIds: Iterable<string>) {
   for (const statementId of new Set(statementIds)) {
     const [sumRow] = await tx.$queryRaw<Array<{ total: Prisma.Decimal | number | string | null }>>`
-      SELECT COALESCE(SUM("value"), 0) AS "total" FROM "CreditCardStatementItem" WHERE "statementId" = ${statementId}
+      SELECT COALESCE(SUM("value"), 0) + COALESCE((SELECT SUM("amount") FROM "CreditCardStatementAdjustment" WHERE "statementId" = ${statementId}), 0) AS "total" FROM "CreditCardStatementItem" WHERE "statementId" = ${statementId}
     `;
     await tx.creditCardStatement.update({
       where: { id: statementId },

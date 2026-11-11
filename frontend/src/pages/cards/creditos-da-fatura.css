@@ -1,0 +1,41 @@
+.fatura-creditos { border: 1px solid var(--border); border-radius: 16px; background: var(--surface); padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; }
+.fatura-creditos > header { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-between; align-items: flex-start; }
+.fatura-creditos h3 { margin: 0; font-size: 17px; }
+.fatura-creditos header p { margin: 2px 0 0; color: var(--muted); font-size: 13px; max-width: 64ch; }
+.fatura-creditos-vazio { margin: 0; color: var(--muted); }
+.fatura-creditos-lista { list-style: none; margin: 0; padding: 0; }
+.fatura-creditos-lista li { display: grid; grid-template-columns: 84px minmax(0, 1fr) auto auto; gap: 12px; align-items: center; padding: 10px 0; border-top: 1px solid var(--border); }
+.fatura-creditos-lista li:first-child { border-top: 0; }
+.fatura-creditos-data { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.fatura-creditos-desc { display: flex; flex-direction: column; min-width: 0; }
+.fatura-creditos-desc small { color: var(--muted); font-size: 12.5px; }
+.fatura-creditos-valor { font-weight: 700; font-variant-numeric: tabular-nums; }
+.fatura-creditos-valor.credito, .fatura-creditos-conta dd.credito { color: var(--success); }
+.fatura-creditos-conta { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin: 0; padding: 12px 14px; border-radius: 12px; background: var(--row-hover); }
+.fatura-creditos-conta div { display: flex; flex-direction: column; gap: 2px; }
+.fatura-creditos-conta dt { color: var(--muted); font-size: 12.5px; }
+.fatura-creditos-conta dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; font-size: 17px; }
+.fatura-creditos-conta .total dd { font-size: 22px; font-weight: 800; }
+.fatura-creditos-banco { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: 13px; color: var(--muted); }
+.fatura-creditos-banco input { width: 160px; height: 36px; text-align: right; font-variant-numeric: tabular-nums; border: 1px solid var(--border); border-radius: 10px; padding: 0 10px; background: transparent; color: var(--text); }
+
+.fatura-creditos-form { display: flex; flex-direction: column; gap: 14px; }
+.fatura-creditos-form fieldset { border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px; margin: 0; display: flex; flex-direction: column; gap: 10px; }
+.fatura-creditos-form legend { padding: 0 6px; font-weight: 600; }
+.fatura-creditos-form fieldset label { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
+.fatura-creditos-form fieldset label input { margin-top: 4px; }
+.fatura-creditos-form fieldset label span { display: flex; flex-direction: column; gap: 2px; }
+.fatura-creditos-form small { color: var(--muted); font-size: 12.5px; }
+.fatura-creditos-campo { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.fatura-creditos-campo input, .fatura-creditos-campo select { min-height: 40px; padding: 0 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); font-size: 14px; }
+.fatura-creditos-duas { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.fatura-creditos-erro { color: var(--danger); font-size: 12.5px; font-weight: 600; }
+.fatura-creditos-rodape { display: flex; justify-content: flex-end; gap: 8px; }
+
+@media (max-width: 720px) {
+  .fatura-creditos { padding: 14px; }
+  .fatura-creditos-lista li { grid-template-columns: minmax(0, 1fr) auto auto; }
+  .fatura-creditos-data { grid-column: 1 / -1; }
+  .fatura-creditos-rodape > * { flex: 1; }
+}
+.fatura-lista-creditos { color: var(--success); font-size: 12px; font-weight: 600; }
