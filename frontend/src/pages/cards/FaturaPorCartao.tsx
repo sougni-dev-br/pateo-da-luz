@@ -212,6 +212,7 @@ export function FaturaPorCartao({ detalhe, podeEditar, onClassificar, onTotalDoE
                   parte={Math.round(((subtotal?.total ?? 0) / totalGeral) * 100)}
                   declarado={declarado}
                   divergencia={divergentes.get(final.id)}
+                  creditos={(detalhe.adjustments ?? []).filter((ajuste) => ajuste.cardFinalId === final.id).reduce((soma, ajuste) => soma + Math.round(Number(ajuste.amount) * 100), 0) / 100}
                   gravado={gravadoId === final.id}
                   rascunho={rascunhos[final.id] ?? declarado}
                   onRascunho={(valor) => setRascunhos({ ...rascunhos, [final.id]: valor })}

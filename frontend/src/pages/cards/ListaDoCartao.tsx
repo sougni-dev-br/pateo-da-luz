@@ -39,6 +39,8 @@ type Props = {
   acoes: AcoesDaLinha;
   /** Conta sem cartões cadastrados: uma lista só, com todos os lançamentos. */
   semFinais?: boolean;
+  /** Soma dos créditos/estornos lançados neste cartão (já incluída no subtotal). */
+  creditos?: number;
 };
 
 export function ListaDoCartao(props: Props) {
@@ -67,6 +69,7 @@ export function ListaDoCartao(props: Props) {
         </div>
         <div className="fatura-lista-total">
           <strong><Money value={props.subtotal?.total ?? 0} /></strong>
+          {props.creditos ? <small className="fatura-lista-creditos">inclui crédito/estorno de <Money value={props.creditos} /></small> : null}
           {final && <span className="fatura-lista-parte" aria-hidden><i style={{ width: `${props.parte}%` }} /></span>}
         </div>
       </header>

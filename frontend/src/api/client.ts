@@ -1445,10 +1445,26 @@ export type SmallExpenseReport = {
 export type SubtotalDoCartao = { cardFinalId: string | null; itens: number; total: number };
 export type DivergenciaDoCartao = { cardFinalId: string; calculado: number; declarado: number; diferenca: number };
 
+export type CreditCardStatementAdjustment = {
+  id: string;
+  statementId: string;
+  cardFinalId: string | null;
+  kind: "ESTORNO" | "COBRANCA_ESTORNADA" | string;
+  description: string;
+  amount: string;
+  adjustmentDate: string | null;
+  notes: string | null;
+  createdAt: string;
+};
+
 export type CreditCardStatementDetail = Omit<CreditCardStatement, "_count"> & {
   creditCard: CreditCard;
   items: CreditCardStatementItem[];
   finalTotals?: Array<{ cardFinalId: string; statedAmount: string }>;
+  adjustments?: CreditCardStatementAdjustment[];
+  totalDosItens?: number;
+  totalDosAjustes?: number;
+  statedTotalAmount?: string | null;
   subtotaisPorCartao?: SubtotalDoCartao[];
   divergenciasPorCartao?: DivergenciaDoCartao[];
 };
@@ -3011,6 +3027,29 @@ export function setStatementItemsChecked(statementId: string, itemIds: string[],
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ itemIds, checked })
+  });
+}
+
+export function addStatementAdjustment(
+  statementId: string,
+  payload: { tipo: "ESTORNO" | "COBRANCA_ESTORNADA"; description: string; valor: string; cardFinalId: string | null; adjustmentDate: string | null }
+) {
+  return request<CreditCardStatementAdjustment>(`/cards/statements/${statementId}/adjustments`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function deleteStatementAdjustment(statementId: string, adjustmentId: string) {
+  return request<{ ok: boolean }>(`/cards/statements/${statementId}/adjustments/${adjustmentId}`, { method: "DELETE" });
+}
+
+export function setStatementExtractTotal(statementId: string, valor: string | null) {
+  return request<{ ok: boolean; statedTotalAmount: number | null }>(`/cards/statements/${statementId}/extract-total`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ valor })
   });
 }
 

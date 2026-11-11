@@ -652,11 +652,34 @@ model CreditCardFinal {
   isActive        Boolean                         @default(true)
   items           CreditCardStatementItem[]
   statementTotals CreditCardStatementFinalTotal[]
+  adjustments     CreditCardStatementAdjustment[]
   createdAt       DateTime                        @default(now())
   updatedAt       DateTime                        @updatedAt
 
   @@unique([creditCardId, last4Digits])
   @@index([creditCardId])
+}
+
+// Credito ou estorno que o banco lanca na fatura e que nao e uma compra do ERP (a compra cancelada
+// nao existe aqui). Entra no total da fatura e no subtotal do cartao; nao entra no DRE nem no CMV.
+// amount tem sinal: negativo reduz a fatura (estorno), positivo aumenta (cobranca ja estornada).
+model CreditCardStatementAdjustment {
+  id              String              @id @default(cuid())
+  statementId     String
+  statement       CreditCardStatement @relation(fields: [statementId], references: [id], onDelete: Cascade)
+  cardFinalId     String?
+  cardFinal       CreditCardFinal?    @relation(fields: [cardFinalId], references: [id], onDelete: SetNull)
+  kind            String
+  description     String
+  amount          Decimal             @db.Decimal(12, 2)
+  adjustmentDate  DateTime?
+  notes           String?
+  createdByUserId String?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  @@index([statementId])
+  @@index([cardFinalId])
 }
 
 // Total que o extrato do banco traz para um final, informado pelo Eli para conferir.
@@ -689,6 +712,9 @@ model CreditCardStatement {
   generatedPurchaseId String?
   items               CreditCardStatementItem[]
   finalTotals         CreditCardStatementFinalTotal[]
+  adjustments         CreditCardStatementAdjustment[]
+  /// Total da fatura como o banco informa, para conferir com a soma dos itens e dos ajustes.
+  statedTotalAmount   Decimal?                        @db.Decimal(12, 2)
   createdAt           DateTime                        @default(now())
   updatedAt           DateTime                        @updatedAt
 
@@ -3049,7 +3075,7 @@ model Employee {
   pontoDias              PontoDia[]
   pontoFechamentos       PontoFechamento[]
   feriasProgramadas      FeriasProgramacao[]
-  feriasSolicitadas          FeriasSolicitacao[]
+  feriasSolicitadas      FeriasSolicitacao[]
   anotacoesCarteira      EmployeeAnotacaoCarteira[]
   // Auditoria / soft delete
   createdById            String
@@ -4382,23 +4408,23 @@ enum PontoFechamentoStatus {
 }
 
 model PontoDia {
-  id             String      @id @default(cuid())
-  employeeId     String
-  employee       Employee    @relation(fields: [employeeId], references: [id])
-  date           DateTime    @db.Date
-  origem         PontoOrigem
+  id            String      @id @default(cuid())
+  employeeId    String
+  employee      Employee    @relation(fields: [employeeId], references: [id])
+  date          DateTime    @db.Date
+  origem        PontoOrigem
   /// Batidas "HH:mm" em ordem: entrada, saída, entrada, saída…
-  marcacoes      String[]
+  marcacoes     String[]
   /// Dia do relógio que alguém corrigiu à mão: a próxima importação não o sobrescreve.
-  editadoManual  Boolean     @default(false)
+  editadoManual Boolean     @default(false)
   /// Horas do dia abonadas por atestado de horas, médico do trabalho etc.: pagas, não viram atraso nem saem do banco.
-  abonoMin       Int         @default(0)
+  abonoMin      Int         @default(0)
   /// ATESTADO_HORAS | MEDICO_TRABALHO | ACOMPANHAR_FAMILIAR | OUTRO (validado no serviço).
-  abonoMotivo    String?
-  notes          String?
-  createdById    String
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
+  abonoMotivo   String?
+  notes         String?
+  createdById   String
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
 
   @@unique([employeeId, date])
   @@index([date])
