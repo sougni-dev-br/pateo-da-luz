@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 // O crédito entra no total, no subtotal do cartão e no valor a pagar; não entra no DRE nem no CMV.
 
 const tx = {
-  creditCardStatementAdjustment: { create: vi.fn(), delete: vi.fn() },
+  creditCardStatementAdjustment: { create: vi.fn(), delete: vi.fn(), update: vi.fn(), deleteMany: vi.fn(async () => ({ count: 1 })) },
   creditCardStatement: { update: vi.fn(), findUnique: vi.fn(async () => null) },
   $queryRaw: vi.fn(async () => [{ total: -155.1 }]),
 };
@@ -38,7 +38,7 @@ const fatura = (status = "OPEN") => ({ id: "s1", creditCardId: "c1", status });
 beforeEach(() => {
   vi.clearAllMocks();
   db.creditCardStatement.findUnique.mockResolvedValue(fatura());
-  db.creditCardFinal.findUnique.mockResolvedValue({ id: "f2", creditCardId: "c1" });
+  db.creditCardFinal.findUnique.mockResolvedValue({ id: "f2", creditCardId: "c1", isActive: true });
   tx.creditCardStatementAdjustment.create.mockResolvedValue({ id: "a1" });
 });
 
@@ -95,7 +95,7 @@ describe("remover crédito ou estorno", () => {
     db.creditCardStatementAdjustment.findUnique.mockResolvedValue({ id: "a1", statementId: "s1", amount: "-155.10" });
     const r = await request(app).delete("/cards/statements/s1/adjustments/a1");
     expect(r.status).toBe(200);
-    expect(tx.creditCardStatementAdjustment.delete).toHaveBeenCalledWith({ where: { id: "a1" } });
+    expect(tx.creditCardStatementAdjustment.deleteMany).toHaveBeenCalledWith({ where: { id: "a1" } });
     expect(tx.creditCardStatement.update).toHaveBeenCalled();
     expect(auditLog.mock.calls[0][0]).toMatchObject({ action: "DELETE_CREDIT_CARD_STATEMENT_ADJUSTMENT" });
   });
@@ -159,5 +159,51 @@ describe("o crédito conta no subtotal do cartão e na conferência", () => {
       },
     };
     expect(await reabrirSeDivergir(fake as never, "s1")).toBe(true);
+  });
+});
+
+describe("trocar o cartão de um crédito já lançado", () => {
+  beforeEach(() => {
+    db.creditCardStatementAdjustment.findUnique.mockResolvedValue({ id: "a1", statementId: "s1", cardFinalId: "f2", amount: "-155.10" });
+  });
+
+  test("passa o crédito para outro cartão e recalcula", async () => {
+    const r = await request(app).patch("/cards/statements/s1/adjustments/a1").send({ cardFinalId: "f2" });
+    expect(r.status).toBe(200);
+    expect(tx.creditCardStatementAdjustment.update).toHaveBeenCalledWith({ where: { id: "a1" }, data: { cardFinalId: "f2" } });
+    expect(tx.creditCardStatement.update).toHaveBeenCalled();
+    expect(auditLog.mock.calls[0][0]).toMatchObject({ action: "UPDATE_CREDIT_CARD_STATEMENT_ADJUSTMENT" });
+  });
+
+  test("cartão vazio devolve o crédito para 'fatura toda'", async () => {
+    const r = await request(app).patch("/cards/statements/s1/adjustments/a1").send({ cardFinalId: null });
+    expect(r.status).toBe(200);
+    expect(tx.creditCardStatementAdjustment.update).toHaveBeenCalledWith({ where: { id: "a1" }, data: { cardFinalId: null } });
+  });
+
+  test("recusa cartão de outra conta, lançamento de outra fatura e fatura fechada", async () => {
+    db.creditCardFinal.findUnique.mockResolvedValue({ id: "f9", creditCardId: "outra" });
+    expect((await request(app).patch("/cards/statements/s1/adjustments/a1").send({ cardFinalId: "f9" })).status).toBe(400);
+    db.creditCardStatementAdjustment.findUnique.mockResolvedValue({ id: "a1", statementId: "outra" });
+    expect((await request(app).patch("/cards/statements/s1/adjustments/a1").send({ cardFinalId: null })).status).toBe(404);
+    db.creditCardStatementAdjustment.findUnique.mockResolvedValue({ id: "a1", statementId: "s1" });
+    db.creditCardStatement.findUnique.mockResolvedValue(fatura("CLOSED"));
+    expect((await request(app).patch("/cards/statements/s1/adjustments/a1").send({ cardFinalId: null })).status).toBe(409);
+    expect(tx.creditCardStatementAdjustment.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("mensagem quando o total do cartão não bate e há crédito lançado nele", () => {
+  test("orienta a mover o crédito para 'fatura toda'", async () => {
+    db.creditCardStatement.findUnique.mockResolvedValue({
+      ...fatura("OPEN"), generatedPurchaseId: null,
+      creditCard: { finais: [{ id: "f2", label: "Virtual", last4Digits: "2222", kind: "VIRTUAL", isActive: true }] },
+      finalTotals: [{ cardFinalId: "f2", statedAmount: "3182.44" }],
+      items: [{ description: "Compra", value: "3182.44", cardFinalId: "f2", purchaseId: "p", purchase: { status: "ACTIVE", _count: { items: 1 } } }],
+      adjustments: [{ cardFinalId: "f2", amount: "-155.10" }],
+    });
+    const r = await request(app).patch("/cards/statements/s1/status").send({ status: "CHECKED" });
+    expect(r.status).toBe(422);
+    expect(r.body.message).toContain("Fatura toda");
   });
 });

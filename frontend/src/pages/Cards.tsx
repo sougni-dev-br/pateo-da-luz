@@ -24,7 +24,8 @@ import {
   setStatementExtractTotal,
   setStatementFinalTotal,
   setStatementItemsChecked,
-  setStatementItemsFinal
+  setStatementItemsFinal,
+  updateStatementAdjustmentCard
 } from "../api/client";
 import { CartoesCadastrados } from "./cards/CartoesCadastrados";
 import { CadastroDoCartao } from "./cards/CadastroDoCartao";
@@ -365,6 +366,19 @@ export function Cards({ user }: CardsProps) {
     });
   }
 
+  function trocarCartaoDoAjuste(ajuste: { id: string }, cardFinalId: string | null): Promise<void> {
+    return enfileirar(async () => {
+      if (!statementDetail) return;
+      try {
+        await updateStatementAdjustmentCard(statementDetail.id, ajuste.id, cardFinalId);
+        setStatementDetail(await getCardStatement(statementDetail.id));
+        setNotice({ tone: "success", message: "Cartão do lançamento atualizado." });
+      } catch (error) {
+        setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao trocar o cartão do lançamento." });
+      }
+    });
+  }
+
   function removerAjuste(ajuste: { id: string }): Promise<void> {
     return enfileirar(async () => {
       if (!statementDetail) return;
@@ -690,6 +704,7 @@ export function Cards({ user }: CardsProps) {
               finais={(statementDetail.creditCard.finais ?? []).filter((final) => final.isActive)}
               onAdicionar={adicionarAjuste}
               onRemover={removerAjuste}
+              onTrocarCartao={trocarCartaoDoAjuste}
               onTotalDoBanco={gravarTotalDoBanco}
             />
             {canManage && ["OPEN", "CHECKED"].includes(statementDetail.status) && (

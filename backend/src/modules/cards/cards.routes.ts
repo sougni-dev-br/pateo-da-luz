@@ -88,7 +88,23 @@ async function cardStatementDetail(id: string) {
 }
 
 const STATUS_DE_FATURA_FECHADA = ["CLOSED", "PAID"];
-const STATUS_EDITAVEIS = ["OPEN", "CHECKED"];
+const STATUS_EDITAVEIS: CreditCardStatementStatus[] = ["OPEN", "CHECKED"];
+
+class RecusaDeFechamento extends Error {
+  constructor(public readonly status: number, message: string) {
+    super(message);
+  }
+}
+
+// Transicoes de status que a tela faz pela rota de status. Fechar, pagar e reabrir tem rota propria
+// (geram ou cancelam o titulo e aplicam as travas do fechamento).
+function transicaoPermitida(atual: string, novo: string, temTitulo: boolean): boolean {
+  if (atual === novo) return true;
+  if ((atual === "OPEN" && novo === "CHECKED") || (atual === "CHECKED" && novo === "OPEN")) return true;
+  if ((atual === "OPEN" || atual === "CHECKED") && novo === "CANCELLED") return !temTitulo;
+  if (atual === "CANCELLED" && novo === "OPEN") return true;
+  return false;
+}
 const MAX_LINHAS_POR_LOTE = 1000;
 const LIMITE_DO_TOTAL_DO_EXTRATO = 9_999_999_999;
 
@@ -146,6 +162,8 @@ function recusouExtratoDivergente(
   const divergentes = divergenciasDeExtrato(subtotais, declarados);
   if (divergentes.length === 0) return false;
   const reais = (valor: number) => `R$ ${valor.toFixed(2).replace(".", ",")}`;
+  const idsDivergentes = new Set(divergentes.map((d) => d.cardFinalId));
+  const comCredito = (detalhe.adjustments ?? []).some((ajuste) => ajuste.cardFinalId && idsDivergentes.has(ajuste.cardFinalId));
   const lista = divergentes
     .map((d) => {
       const final = finais.find((f) => f.id === d.cardFinalId);
@@ -154,7 +172,7 @@ function recusouExtratoDivergente(
     })
     .join("; ");
   response.status(422).json({
-    message: `O total de um cartao da fatura nao bate com o extrato — ${lista}. Classifique os itens sem cartao definido (inclusive os de cartao inativo: reative o cartao no cadastro para reclassificar) ou corrija o total informado.`,
+    message: `O total de um cartao da fatura nao bate com o extrato — ${lista}. Classifique os itens sem cartao definido (inclusive os de cartao inativo: reative o cartao no cadastro para reclassificar) ou corrija o total informado.${comCredito ? " Ha credito/estorno lancado nesse cartao: se o extrato dele nao inclui o credito, mova o credito para \"Fatura toda\" na secao Creditos e estornos." : ""}`,
     divergenciasPorCartao: divergentes
   });
   return true;
@@ -576,9 +594,16 @@ cardsRouter.post("/statements", async (request, response) => {
       return;
     }
     const mudouDeCartao = atual.creditCardId !== creditCardId;
-    if (mudouDeCartao && (await prisma.creditCardStatementItem.count({ where: { statementId: id } })) > 0) {
-      response.status(409).json({ message: "Uma fatura que ja tem lancamentos nao pode trocar de cartao." });
-      return;
+    if (mudouDeCartao) {
+      const [itens, ajustes, totais] = await Promise.all([
+        prisma.creditCardStatementItem.count({ where: { statementId: id } }),
+        prisma.creditCardStatementAdjustment.count({ where: { statementId: id } }),
+        prisma.creditCardStatementFinalTotal.count({ where: { statementId: id } })
+      ]);
+      if (itens + ajustes + totais > 0) {
+        response.status(409).json({ message: "Uma fatura que ja tem lancamentos, creditos ou totais do extrato nao pode trocar de cartao." });
+        return;
+      }
     }
   }
   const statement = request.body.id
@@ -636,8 +661,11 @@ cardsRouter.patch("/statements/:id/status", async (request, response) => {
     response.status(404).json({ message: "Fatura nao encontrada." });
     return;
   }
-  if (STATUS_DE_FATURA_FECHADA.includes(status) && recusouLinhaForaDoDre(previous.items, response)) return;
-  if ((status === "CHECKED" || STATUS_DE_FATURA_FECHADA.includes(status)) && recusouExtratoDivergente(previous, response)) return;
+  if (!transicaoPermitida(previous.status, status, Boolean(previous.generatedPurchaseId))) {
+    response.status(409).json({ message: "Esta troca de situacao nao e permitida por aqui. Para fechar, pagar ou reabrir a fatura use as acoes proprias." });
+    return;
+  }
+  if (status === "CHECKED" && recusouExtratoDivergente(previous, response)) return;
 
   const statement = await prisma.creditCardStatement.update({
     where: { id: request.params.id },
@@ -953,8 +981,14 @@ cardsRouter.post("/statements/:id/adjustments", async (request, response) => {
     response.status(400).json({ message: "Informe a descricao (ate 200 caracteres)." });
     return;
   }
-  if (valor === null || valor <= 0 || valor > LIMITE_DO_AJUSTE) {
-    response.status(400).json({ message: "Informe um valor maior que zero." });
+  const centavos = valor === null ? 0 : Math.round(valor * 100);
+  if (valor === null || centavos < 1 || valor > LIMITE_DO_AJUSTE) {
+    response.status(400).json({ message: "Informe um valor de pelo menos 1 centavo." });
+    return;
+  }
+  const dataDoAjuste = request.body.adjustmentDate ? parseDate(request.body.adjustmentDate) : null;
+  if (request.body.adjustmentDate && !dataDoAjuste) {
+    response.status(400).json({ message: "Data invalida." });
     return;
   }
 
@@ -965,9 +999,13 @@ cardsRouter.post("/statements/:id/adjustments", async (request, response) => {
       response.status(400).json({ message: "Esse cartao nao pertence a conta desta fatura." });
       return;
     }
+    if (!final.isActive) {
+      response.status(400).json({ message: "Esse cartao esta inativo." });
+      return;
+    }
   }
 
-  const assinado = tipo === "ESTORNO" ? -valor : valor;
+  const assinado = (tipo === "ESTORNO" ? -centavos : centavos) / 100;
   const ajuste = await prisma.$transaction(async (tx) => {
     const criado = await tx.creditCardStatementAdjustment.create({
       data: {
@@ -976,7 +1014,7 @@ cardsRouter.post("/statements/:id/adjustments", async (request, response) => {
         kind: tipo,
         description,
         amount: new Prisma.Decimal(assinado),
-        adjustmentDate: request.body.adjustmentDate ? localDate(request.body.adjustmentDate) : null,
+        adjustmentDate: dataDoAjuste,
         notes: asText(request.body.notes),
         createdByUserId: user.id
       }
@@ -997,6 +1035,56 @@ cardsRouter.post("/statements/:id/adjustments", async (request, response) => {
   response.status(201).json(ajuste);
 });
 
+// Troca o cartao de um credito ja lancado (ou o devolve para "fatura toda"): o subtotal do cartao muda.
+cardsRouter.patch("/statements/:id/adjustments/:adjustmentId", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
+  if (!user) return;
+
+  const ajuste = await prisma.creditCardStatementAdjustment.findUnique({ where: { id: request.params.adjustmentId } });
+  if (!ajuste || ajuste.statementId !== request.params.id) {
+    response.status(404).json({ message: "Lancamento nao encontrado nesta fatura." });
+    return;
+  }
+  const statement = await prisma.creditCardStatement.findUnique({ where: { id: request.params.id } });
+  if (!statement || !STATUS_EDITAVEIS.includes(statement.status)) {
+    response.status(409).json({ message: "Fatura fechada, paga ou cancelada nao pode ser alterada. Reabra a fatura antes." });
+    return;
+  }
+  if (!("cardFinalId" in (request.body ?? {}))) {
+    response.status(400).json({ message: "Informe o cartao (ou vazio para a fatura toda)." });
+    return;
+  }
+  const cardFinalId = asText(request.body.cardFinalId);
+  if (cardFinalId) {
+    const final = await prisma.creditCardFinal.findUnique({ where: { id: cardFinalId } });
+    if (!final || final.creditCardId !== statement.creditCardId) {
+      response.status(400).json({ message: "Esse cartao nao pertence a conta desta fatura." });
+      return;
+    }
+    if (!final.isActive) {
+      response.status(400).json({ message: "Esse cartao esta inativo." });
+      return;
+    }
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.creditCardStatementAdjustment.update({ where: { id: ajuste.id }, data: { cardFinalId } });
+    await recalcularEReabrir(tx, [statement.id]);
+  });
+
+  await auditLog({
+    userId: user.id,
+    action: "UPDATE_CREDIT_CARD_STATEMENT_ADJUSTMENT",
+    entity: "CreditCardStatement",
+    entityId: statement.id,
+    previousValue: { adjustmentId: ajuste.id, cardFinalId: ajuste.cardFinalId },
+    newValue: { adjustmentId: ajuste.id, cardFinalId },
+    ipAddress: requestIp(request),
+    userAgent: String(request.headers["user-agent"] ?? "")
+  });
+  response.json({ ok: true, cardFinalId });
+});
+
 cardsRouter.delete("/statements/:id/adjustments/:adjustmentId", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA"]);
   if (!user) return;
@@ -1012,10 +1100,15 @@ cardsRouter.delete("/statements/:id/adjustments/:adjustmentId", async (request, 
     return;
   }
 
-  await prisma.$transaction(async (tx) => {
-    await tx.creditCardStatementAdjustment.delete({ where: { id: ajuste.id } });
-    await recalcularEReabrir(tx, [statement.id]);
+  const removidos = await prisma.$transaction(async (tx) => {
+    const resultado = await tx.creditCardStatementAdjustment.deleteMany({ where: { id: ajuste.id } });
+    if (resultado.count > 0) await recalcularEReabrir(tx, [statement.id]);
+    return resultado.count;
   });
+  if (removidos === 0) {
+    response.status(404).json({ message: "Lancamento nao encontrado nesta fatura." });
+    return;
+  }
 
   await auditLog({
     userId: user.id,
@@ -1238,7 +1331,7 @@ cardsRouter.post("/purchases/:purchaseId/shift-installments", async (request, re
     return;
   }
 
-  const editavel = (status: string) => STATUS_EDITAVEIS.includes(status);
+  const editavel = (status: string) => (STATUS_EDITAVEIS as string[]).includes(status);
   if (linhas.some((linha) => !editavel(linha.statement.status))) {
     response.status(409).json({ message: "Alguma parcela esta em fatura fechada, paga ou cancelada. Reabra a fatura antes de mover a compra." });
     return;
@@ -1264,6 +1357,7 @@ cardsRouter.post("/purchases/:purchaseId/shift-installments", async (request, re
 
   const origens = new Set(linhas.map((linha) => linha.statementId));
   const afetadas = new Set<string>(origens);
+  try {
   await prisma.$transaction(async (tx) => {
     const idsDestino = new Map<string, string>();
     for (const [chave, destino] of destinos) {
@@ -1296,6 +1390,13 @@ cardsRouter.post("/purchases/:purchaseId/shift-installments", async (request, re
     // Totais das faturas mexidas; conferida que deixou de bater com o extrato volta para Aberta.
     await recalcularEReabrir(tx, afetadas);
   });
+  } catch (error) {
+    if ((error as { code?: string })?.code === "P2002") {
+      response.status(409).json({ message: "Outra operacao criou a fatura de destino ao mesmo tempo. Tente de novo." });
+      return;
+    }
+    throw error;
+  }
 
   await auditLog({
     userId: user.id,
@@ -1436,6 +1537,10 @@ cardsRouter.post("/statements/:id/close", async (request, response) => {
     response.status(404).json({ message: "Fatura nao encontrada." });
     return;
   }
+  if (!STATUS_EDITAVEIS.includes(statement.status)) {
+    response.status(409).json({ message: "So uma fatura aberta ou conferida pode ser fechada." });
+    return;
+  }
 
   // Fechar a fatura escreve em dois meses: cria/atualiza uma Purchase na
   // competencia do fechamento e um titulo a pagar no vencimento. Ate aqui so o
@@ -1451,28 +1556,39 @@ cardsRouter.post("/statements/:id/close", async (request, response) => {
   if (recusouLinhaForaDoDre(statement.items, response)) return;
   if (recusouExtratoDivergente(statement, response)) return;
 
-  const totalAmount =
-    (statement.items.reduce((sum, item) => sum + Math.round(Number(item.value ?? 0) * 100), 0) +
-      statement.adjustments.reduce((sum, ajuste) => sum + Math.round(Number(ajuste.amount ?? 0) * 100), 0)) / 100;
-  const period = getCardStatementPeriod({
-    id: statement.creditCard.id,
-    name: statement.creditCard.name,
-    bankName: statement.creditCard.bankName,
-    last4Digits: statement.creditCard.last4Digits,
-    closingDay: statement.creditCard.closingDay,
-    dueDay: statement.creditCard.dueDay
-  }, statement.closingDate);
-
-  await prisma.$transaction(async (tx) => {
-    await tx.creditCardStatement.update({
-      where: { id: statement.id },
-      data: {
-        totalAmount: new Prisma.Decimal(totalAmount),
-        status: "CLOSED"
+  try {
+    await prisma.$transaction(async (tx) => {
+      // Reserva o fechamento: so quem pegar a fatura ainda aberta/conferida segue. Dois cliques
+      // (ou duas abas) nao geram dois titulos, e fatura paga ou cancelada nunca volta a fechar.
+      const reserva = await tx.creditCardStatement.updateMany({
+        where: { id: statement.id, status: { in: STATUS_EDITAVEIS } },
+        data: { status: "CLOSED" }
+      });
+      if (reserva.count === 0) {
+        throw new RecusaDeFechamento(409, "Esta fatura nao esta mais aberta (outra operacao pode ter acabado de fecha-la). Atualize a tela.");
       }
-    });
+      // O total sai do banco, dentro da transacao: compras + creditos/estornos de agora.
+      const [soma] = await tx.$queryRaw<Array<{ total: Prisma.Decimal | number | string | null }>>`
+        SELECT COALESCE(SUM("value"), 0) + COALESCE((SELECT SUM("amount") FROM "CreditCardStatementAdjustment" WHERE "statementId" = ${statement.id}), 0) AS "total"
+        FROM "CreditCardStatementItem"
+        WHERE "statementId" = ${statement.id}
+      `;
+      const totalAmount = Math.round(Number(soma?.total ?? 0) * 100) / 100;
+      if (totalAmount <= 0) {
+        throw new RecusaDeFechamento(422, "O total da fatura (compras menos creditos e estornos) esta zerado ou negativo e nao gera titulo a pagar. Confira os lancamentos, ou deixe o credito para a proxima fatura.");
+      }
+      const atual = await tx.creditCardStatement.findUnique({ where: { id: statement.id }, select: { generatedPurchaseId: true } });
+      const generatedPurchaseId = atual?.generatedPurchaseId ?? null;
 
-    if (!statement.generatedPurchaseId) {
+      await tx.creditCardStatement.update({
+        where: { id: statement.id },
+        data: {
+          totalAmount: new Prisma.Decimal(totalAmount),
+          status: "CLOSED"
+        }
+      });
+
+    if (!generatedPurchaseId) {
       await createCardStatementPurchase(tx, {
         statementId: statement.id,
         card: {
@@ -1489,7 +1605,7 @@ cardsRouter.post("/statements/:id/close", async (request, response) => {
       });
     } else {
       await tx.purchase.update({
-        where: { id: statement.generatedPurchaseId },
+        where: { id: generatedPurchaseId },
         data: {
           totalAmount: new Prisma.Decimal(totalAmount)
         }
@@ -1503,7 +1619,7 @@ cardsRouter.post("/statements/:id/close", async (request, response) => {
       // caso de alguem fechar de novo uma fatura ja quitada.
       await tx.paymentInstallment.updateMany({
         where: {
-          purchaseId: statement.generatedPurchaseId,
+          purchaseId: generatedPurchaseId,
           status: { notIn: ["PAID", "PAID_LATE"] }
         },
         data: {
@@ -1513,7 +1629,14 @@ cardsRouter.post("/statements/:id/close", async (request, response) => {
         }
       });
     }
-  });
+    });
+  } catch (error) {
+    if (error instanceof RecusaDeFechamento) {
+      response.status(error.status).json({ message: error.message });
+      return;
+    }
+    throw error;
+  }
 
   const updated = await cardStatementDetail(statement.id);
   await auditLog({
@@ -2014,10 +2137,11 @@ cardsRouter.post("/link-purchase", async (request, response) => {
     invoiceNumber: string | null;
     purchaseNumber: string | null;
     rawRow: unknown;
+    status: string;
   }>>`
     SELECT p."id", p."purchaseDate", p."creditCardId", p."smallExpenseMoneyOrigin", p."smallExpenseResponsibleName", p."smallExpenseAuthorizedBy",
            p."smallExpenseNotes", p."smallExpenseTypeId", p."totalAmount", s."name" AS "supplierName", p."invoiceNumber", p."purchaseNumber",
-           p."rawRow"
+           p."rawRow", p."status"
     FROM "Purchase" p
     JOIN "Supplier" s ON s."id" = p."supplierId"
     WHERE p."id" = ${purchaseId}
@@ -2025,6 +2149,19 @@ cardsRouter.post("/link-purchase", async (request, response) => {
   `;
   if (!purchase) {
     response.status(404).json({ message: "Compra nao encontrada." });
+    return;
+  }
+
+  if (purchase.status !== "ACTIVE") {
+    response.status(409).json({ message: "Compra cancelada nao entra na fatura. Restaure a compra antes." });
+    return;
+  }
+  const linhasAtuais = await prisma.creditCardStatementItem.findMany({
+    where: { purchaseId: purchase.id },
+    include: { statement: { select: { status: true } } }
+  });
+  if (linhasAtuais.some((linha) => !STATUS_EDITAVEIS.includes(linha.statement.status))) {
+    response.status(409).json({ message: "Alguma parcela desta compra esta em fatura fechada ou paga. Reabra a fatura antes de revincular." });
     return;
   }
 
