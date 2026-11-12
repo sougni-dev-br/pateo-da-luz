@@ -3160,9 +3160,11 @@ export function closeCardStatement(id: string) {
   });
 }
 
-export function reopenCardStatement(id: string) {
+export function reopenCardStatement(id: string, justificativa: string) {
   return request<CreditCardStatementDetail>(`/cards/statements/${id}/reopen`, {
-    method: "POST"
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ justificativa })
   });
 }
 

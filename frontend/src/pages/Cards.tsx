@@ -30,6 +30,7 @@ import {
 import { CartoesCadastrados } from "./cards/CartoesCadastrados";
 import { CadastroDoCartao } from "./cards/CadastroDoCartao";
 import { ListaDeFaturas } from "./cards/ListaDeFaturas";
+import { ReabrirFaturaDialog } from "./cards/ReabrirFaturaDialog";
 import { ResumoDosCartoes } from "./cards/ResumoDosCartoes";
 import { resumoDasFaturas, vencimentoRelativo } from "./cards/resumo-de-faturas";
 import { CreditosDaFatura, type NovoAjuste } from "./cards/CreditosDaFatura";
@@ -96,6 +97,7 @@ export function Cards({ user }: CardsProps) {
     dueDate: todayDate(),
     notes: ""
   });
+  const [statementToReopen, setStatementToReopen] = useState<CreditCardStatement | null>(null);
   const [reallocateItem, setReallocateItem] = useState<CreditCardStatementDetail["items"][number] | null>(null);
   const [reallocateTargetId, setReallocateTargetId] = useState("");
   const [reallocateReason, setReallocateReason] = useState("");
@@ -291,18 +293,16 @@ export function Cards({ user }: CardsProps) {
     }
   }
 
-  async function reopenStatement(statement: CreditCardStatement) {
-    const confirmMessage = statement.status === "PAID"
-      ? "Reabrir fatura paga? A parcela gerada (ainda não baixada) será cancelada. A fatura voltará ao status Aberta."
-      : "Reabrir fatura fechada? Ela voltará ao status Aberta e poderá receber novos lançamentos.";
-    if (!window.confirm(confirmMessage)) return;
+  async function reopenStatement(statement: CreditCardStatement, justificativa: string) {
     try {
-      const reaberta = await reopenCardStatement(statement.id);
+      const reaberta = await reopenCardStatement(statement.id, justificativa);
       if (statementDetail?.id === statement.id) setStatementDetail(reaberta);
-      setNotice({ tone: "success", message: "Fatura reaberta com sucesso." });
+      setNotice({ tone: "success", message: "Fatura reaberta. O título dela no Contas a pagar foi cancelado." });
+      setStatementToReopen(null);
       await load();
     } catch (error) {
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "Erro ao reabrir fatura." });
+      setStatementToReopen(null);
     }
   }
 
@@ -619,7 +619,7 @@ export function Cards({ user }: CardsProps) {
         onPeriodo={setPeriod}
         onAbrir={(fatura, conferir) => openStatement(fatura, conferir ? { mode: "review" } : undefined)}
         onFechar={(fatura) => void closeStatement(fatura)}
-        onReabrir={(fatura) => void reopenStatement(fatura)}
+        onReabrir={(fatura) => setStatementToReopen(fatura)}
         onPdf={(fatura) => void pdf(fatura)}
         onNova={openStatementEditor}
       />
@@ -715,6 +715,14 @@ export function Cards({ user }: CardsProps) {
             )}
           </section>
         </>
+      )}
+
+      {statementToReopen && (
+        <ReabrirFaturaDialog
+          fatura={statementToReopen}
+          onConfirmar={(justificativa) => reopenStatement(statementToReopen, justificativa)}
+          onCancelar={() => setStatementToReopen(null)}
+        />
       )}
 
       {reallocateItem && statementDetail && (
