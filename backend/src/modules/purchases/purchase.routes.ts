@@ -23,7 +23,8 @@ import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
 import { gravarConversaoDoItemDeCompra, recordPurchaseInventoryEntry } from "../inventory/inventory.routes.js";
 import { detectarEmbalagem, normalizarUnidade } from "../../shared/unidades/conversao.js";
 import { fatorSugeridoPeloPreco, linhasSuspeitas, pareceEmbalagem, precoDeReferencia, precoNaContagem, precoNormal, validarEmbalagem } from "./revisao-embalagem.js";
-import { guardarSnapshotDasLinhas, reconstruirLinhasDaCompra, removeCardStatementItemsForPurchase, syncCardStatementItemForPurchase, syncCardStatementItemsForPurchase } from "../cards/cards.service.js";
+import { faturasTravadasDaCompra, mensagemDeFaturaTravada } from "./fatura-travada.js";
+import { DeslocamentoDeFaturaError, guardarSnapshotDasLinhas, reconstruirLinhasDaCompra, removeCardStatementItemsForPurchase, syncCardStatementItemForPurchase, syncCardStatementItemsForPurchase } from "../cards/cards.service.js";
 import { addPurchaseToCycle, findOrCreateOpenCycle, updatePurchaseInCycle } from "../suppliers/supplier-billing-cycle.service.js";
 import { REIMBURSEMENT_PAYMENT_TYPE, REIMBURSEMENT_SOURCE, ReimbursementError, ehCategoriaFuncionario } from "../reimbursements/reimbursement-rules.js";
 import { fornecedorDoFuncionario, reabrirReembolsoDoAgregador, retirarCompraCancelada, sincronizarCompraNoReembolso, validarQuemPagou } from "../reimbursements/reimbursement.service.js";
@@ -2288,6 +2289,14 @@ purchaseRouter.put("/:id", async (request, response) => {
     response.status(400).json({ message: "Compra cancelada nao pode ser editada." });
     return;
   }
+
+  // Editar apaga e recria as parcelas nas faturas. Em fatura fechada ou paga o titulo do Contas a
+  // pagar nao acompanha: recusado, a fatura precisa ser reaberta (com justificativa) antes.
+  const recusaEdicao = mensagemDeFaturaTravada(await faturasTravadasDaCompra(request.params.id), "editar");
+  if (recusaEdicao) {
+    response.status(409).json({ message: recusaEdicao });
+    return;
+  }
   const doParcelamento = await parcelamentoDaCompra(request.params.id);
   if (doParcelamento) {
     response.status(409).json({ message: mensagemCompraDeParcelamento(doParcelamento, "editar") });
@@ -2719,7 +2728,8 @@ purchaseRouter.put("/:id", async (request, response) => {
           numberOfInstallments,
           categoryName: firstItem?.rawCategory ?? null,
           notes: paymentMethodName ?? null,
-          cardFinalId: request.body.creditCardFinalId ? String(request.body.creditCardFinalId) : linhaRemovida.cardFinalId
+          cardFinalId: request.body.creditCardFinalId ? String(request.body.creditCardFinalId) : linhaRemovida.cardFinalId,
+          recusarDeslocamento: true
         });
       } else if (isSmallExpense) {
         await syncCardStatementItemForPurchase(tx, {
@@ -2793,6 +2803,10 @@ purchaseRouter.put("/:id", async (request, response) => {
   } catch (error) {
     if (error instanceof EdicaoComParcelaPagaError) {
       response.status(409).json({ message: MENSAGEM_PARCELA_PAGA });
+      return;
+    }
+    if (error instanceof DeslocamentoDeFaturaError) {
+      response.status(409).json({ message: error.message });
       return;
     }
     if (error instanceof ReimbursementError) {
@@ -2915,23 +2929,9 @@ purchaseRouter.patch("/:id/cancel", async (request, response) => {
   // Cancelar apaga as linhas da compra nas faturas. Em fatura fechada ou paga o
   // titulo nao acompanha, e como ele nao entra no DRE, o dinheiro sairia do caixa
   // sem despesa nenhuma. Recusado: a fatura precisa ser reaberta antes.
-  const faturasFechadas = await prisma.$queryRaw<Array<{ status: string; competenceYear: number; competenceMonth: number; cardName: string }>>`
-    SELECT DISTINCT s."status"::text AS "status", s."competenceYear", s."competenceMonth", c."name" AS "cardName"
-    FROM "CreditCardStatementItem" si
-    JOIN "CreditCardStatement" s ON s."id" = si."statementId"
-    JOIN "CreditCard" c ON c."id" = s."creditCardId"
-    WHERE si."purchaseId" = ${request.params.id}
-      AND s."status" IN ('CLOSED', 'PAID')
-  `;
-  if (faturasFechadas.length > 0) {
-    const rotulo = (f: (typeof faturasFechadas)[number]) =>
-      `${String(f.competenceMonth).padStart(2, "0")}/${f.competenceYear} do ${f.cardName}`;
-    const pagas = faturasFechadas.filter((f) => f.status === "PAID");
-    response.status(409).json({
-      message: pagas.length > 0
-        ? `A compra esta na fatura ${pagas.map(rotulo).join(", ")}, ja paga: o dinheiro saiu e a compra nao pode ser cancelada. Se o cartao estornou o valor, o estorno entra na fatura em que aparecer.`
-        : `A compra esta na fatura ${faturasFechadas.map(rotulo).join(", ")}, ja fechada. Reabra a fatura antes de cancelar a compra, e feche de novo depois.`
-    });
+  const recusaDeFatura = mensagemDeFaturaTravada(await faturasTravadasDaCompra(request.params.id), "cancelar");
+  if (recusaDeFatura) {
+    response.status(409).json({ message: recusaDeFatura });
     return;
   }
 

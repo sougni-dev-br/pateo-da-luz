@@ -324,6 +324,14 @@ async function resolveOpenStatementShift(
   );
 }
 
+/** A edicao da compra empurraria parcelas para outro mes porque uma fatura do caminho esta fechada. */
+export class DeslocamentoDeFaturaError extends Error {
+  constructor() {
+    super("Uma das faturas dessa compra ja esta fechada, e a edicao deslocaria parcelas para outro mes. Reabra a fatura (com justificativa) antes de editar a compra.");
+    this.name = "DeslocamentoDeFaturaError";
+  }
+}
+
 export async function syncCardStatementItemsForPurchase(tx: Prisma.TransactionClient, input: {
   purchaseId: string;
   cardId: string;
@@ -337,6 +345,8 @@ export async function syncCardStatementItemsForPurchase(tx: Prisma.TransactionCl
   cardFinalId?: string | null;
   /** Cartão de cada parcela (número da parcela → final), p.ex. vindo do que foi guardado ao cancelar. */
   finaisPorParcela?: Record<string, string | null | undefined>;
+  /** Edicao de compra existente: se alguma fatura do caminho esta fechada, recusa em vez de empurrar parcelas para o mes seguinte. */
+  recusarDeslocamento?: boolean;
 }) {
   const anteriores = await lerLinhasAnteriores(tx, input.purchaseId);
   const finalPadrao = await finalValido(tx, input.cardFinalId || primeiroFinal(anteriores), input.cardId);
@@ -374,6 +384,7 @@ export async function syncCardStatementItemsForPurchase(tx: Prisma.TransactionCl
   const results: { statementId: string; installment: number; value: number }[] = [];
 
   const statementShift = await resolveOpenStatementShift(tx, card, input.purchaseDate, n);
+  if (input.recusarDeslocamento && statementShift > 0) throw new DeslocamentoDeFaturaError();
 
   for (let i = 0; i < n; i++) {
     const period = getCardStatementPeriodForInstallment(card, input.purchaseDate, i + statementShift);

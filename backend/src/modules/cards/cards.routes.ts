@@ -88,6 +88,7 @@ async function cardStatementDetail(id: string) {
 }
 
 const STATUS_DE_FATURA_FECHADA = ["CLOSED", "PAID"];
+const JUSTIFICATIVA_MINIMA = 10;
 const STATUS_EDITAVEIS: CreditCardStatementStatus[] = ["OPEN", "CHECKED"];
 
 class RecusaDeFechamento extends Error {
@@ -1670,6 +1671,19 @@ cardsRouter.post("/statements/:id/reopen", async (request, response) => {
     return;
   }
 
+  // Reabrir cancela o titulo no Contas a pagar: so com o motivo escrito, que fica registrado.
+  const justificativa = String(request.body?.justificativa ?? "").trim();
+  if (justificativa.length < JUSTIFICATIVA_MINIMA) {
+    response.status(400).json({
+      message: `Informe a justificativa da reabertura (pelo menos ${JUSTIFICATIVA_MINIMA} caracteres): ela fica registrada na fatura e na auditoria.`
+    });
+    return;
+  }
+  if (justificativa.length > 500) {
+    response.status(400).json({ message: "A justificativa aceita ate 500 caracteres." });
+    return;
+  }
+
   // Reabrir cancela o titulo a pagar da fatura, o que muda o mes tanto quanto
   // fechar. Mesma trava, mesmas duas datas.
   try {
@@ -1715,9 +1729,10 @@ cardsRouter.post("/statements/:id/reopen", async (request, response) => {
         installmentsCancelled = cancelled.count;
       }
 
+      const registro = `Reaberta em ${new Date().toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })} por ${user.name ?? "usuario"}: ${justificativa}`;
       await tx.creditCardStatement.update({
         where: { id: statement.id },
-        data: { status: "OPEN" }
+        data: { status: "OPEN", notes: [statement.notes, registro].filter(Boolean).join("\n") }
       });
     });
   } catch (err) {
@@ -1740,7 +1755,8 @@ cardsRouter.post("/statements/:id/reopen", async (request, response) => {
     newValue: {
       status: "OPEN",
       previousStatus: statement.status,
-      installmentsCancelled
+      installmentsCancelled,
+      justificativa
     },
     ipAddress: requestIp(request),
     userAgent: String(request.headers["user-agent"] ?? "")
