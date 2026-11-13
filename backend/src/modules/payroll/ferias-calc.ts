@@ -53,7 +53,9 @@ export type HistoricoFerias = {
   abonoFim?: string | null;
 };
 
-export type ProgramacaoNoPeriodo = Programacao & { gozoFim: string | null; passouDaData: boolean };
+/** O título de pagamento lançado para estas férias (vem do recibo da contabilidade ou do lançamento manual). */
+export type PagamentoDasFerias = { id: string; valor: number; vencimento: string; pago: boolean };
+export type ProgramacaoNoPeriodo = Programacao & { gozoFim: string | null; passouDaData: boolean; pagamento?: PagamentoDasFerias | null };
 
 export type PeriodoFerias = {
   aquisitivoInicio: string;

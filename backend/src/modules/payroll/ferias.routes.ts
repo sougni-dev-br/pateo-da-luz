@@ -3,6 +3,7 @@ import { Router } from "express";
 import { prisma } from "../../config/database.js";
 import { auditLog, getSessionUser, requestIp } from "../security/security-utils.js";
 import { hojeEmSaoPaulo } from "./extras-comum.js";
+import { feriasReciboRouter } from "./ferias-recibo.routes.js";
 import {
   DIAS_ABONO, diaValido, periodosDeFerias, piorNivel, somarDias, somarMeses,
   type HistoricoFerias, type NivelAlerta, type PeriodoFerias, type Programacao, type ProgramacaoNoPeriodo, type Solicitacao,
@@ -18,6 +19,8 @@ import { SEMANAS_DE_ESCALA_LIDAS, feriadosEntre, motivoInicioVedado, repousoDaPe
 // conseguem, juntos, passar de 30 dias no mesmo período.
 
 export const feriasRouter = Router();
+// Aviso e recibo de férias da contabilidade → título no Contas a Pagar.
+feriasRouter.use("/recibo", feriasReciboRouter);
 
 const MIN_DIAS_GOZO = 5;
 const MAX_PARTES = 3;
@@ -136,10 +139,28 @@ export function contarDireitoChegando(pessoas: PessoaFerias[], janela = JANELA_D
   return pessoas.flatMap((p) => p.periodos).filter((p) => p.situacao === "EM_AQUISICAO" && p.diasPendentes > 0 && p.diasParaCompletar !== null && p.diasParaCompletar <= janela).length;
 }
 
+/** Cada programação com o título de pagamento já lançado (mesma pessoa e mesmo início de gozo), para a tela mostrar o valor e o vencimento. */
+async function comPagamentos(pessoas: PessoaFerias[]): Promise<PessoaFerias[]> {
+  const ids = pessoas.filter((p) => p.periodos.some((x) => x.programacoes.length > 0)).map((p) => p.employeeId);
+  if (ids.length === 0) return pessoas;
+  const itens = await prisma.payrollItem.findMany({
+    where: { type: "FERIAS", deletedAt: null, status: { not: "CANCELED" }, employeeId: { in: ids }, periodStart: { not: null } },
+    select: { id: true, employeeId: true, periodStart: true, amount: true, dueDate: true, paymentDate: true },
+  });
+  const porChave = new Map(itens.map((i) => [`${i.employeeId}|${isoDia(i.periodStart)}`, { id: i.id, valor: Number(i.amount), vencimento: isoDia(i.dueDate) as string, pago: i.paymentDate !== null }]));
+  return pessoas.map((p) => ({
+    ...p,
+    periodos: p.periodos.map((per) => ({
+      ...per,
+      programacoes: per.programacoes.map((g) => ({ ...g, pagamento: g.gozoInicio ? porChave.get(`${p.employeeId}|${g.gozoInicio}`) ?? null : null })),
+    })),
+  }));
+}
+
 // ─── GET /payroll/ferias ────────────────────────────────────────────────────────
 feriasRouter.get("/", async (_request, response) => {
   const hoje = hojeEmSaoPaulo();
-  const pessoas = await carregarFerias(hoje);
+  const pessoas = await comPagamentos(await carregarFerias(hoje));
   const semData = pessoas.filter((p) => !p.admissao).map((p) => ({ employeeId: p.employeeId, nome: p.nome }));
   // Feriados do ano passado até o limite de datas aceitas: a tela marca e evita os dias vedados.
   const feriados = feriadosEntre(somarMeses(hoje, -12), somarMeses(hoje, 12 * (ANOS_A_FRENTE + 1)));

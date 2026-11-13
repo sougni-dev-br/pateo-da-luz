@@ -1,7 +1,7 @@
 import { Check, MessageSquareText, Pencil, Plus, Printer, Trash2, Undo2 } from "lucide-react";
 import type { ReactNode } from "react";
 import type { ProgramacaoFerias } from "../../../api/client";
-import { Button, StatusBadge } from "../../../design-system";
+import { Button, Money, StatusBadge } from "../../../design-system";
 import { type LinhaFerias, dataBr, ehPreProgramado, plural, podeSairA, resumoProgramacao, rotuloDaSituacao, textoPrazo, tomDaSituacao } from "./feriasFormato";
 import { ROTULO_DA_SITUACAO_DO_PEDIDO, compararPedido, diferencaEmPalavras, resumoDoPedido } from "./pedido";
 
@@ -73,6 +73,11 @@ export function LinhaPeriodo({ linha, ocupado, formulario, onProgramar, onPedido
           return (
             <div key={g.id} className="fe-programacao">
               <span>{g.status === "GOZADA" ? "Gozou: " : p.solicitacao ? "Empresa quer: " : ""}{resumo}</span>
+              {g.pagamento && (
+                <span className={`fe-pagamento${g.pagamento.pago ? " fe-pagamento--pago" : ""}`}>
+                  {g.pagamento.pago ? "Pago" : "A pagar"} <Money value={g.pagamento.valor} /> · vence {dataBr(g.pagamento.vencimento)}
+                </span>
+              )}
               <span className="fe-botoes">
                 {g.status === "PROGRAMADA" && g.passouDaData && (
                   <Button size="sm" variant="secondary" leadingIcon={<Check size={14} />} aria-disabled={ocupado} aria-label={`Confirmar que gozou, férias de ${nome} (${resumo})`} onClick={guarda(() => onConfirmar(g))}>Confirmar que gozou</Button>

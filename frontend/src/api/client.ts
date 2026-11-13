@@ -8869,6 +8869,8 @@ export type ProgramacaoFerias = {
   dias: number; diasAbono: number; status: "PROGRAMADA" | "GOZADA"; observacao: string | null; passouDaData: boolean;
   /** Quando a pessoa foi avisada por escrito das datas; vazio = ainda não avisada. */
   avisadoEm?: string | null;
+  /** O título de pagamento já lançado para estas férias (recibo da contabilidade ou lançamento manual). */
+  pagamento?: { id: string; valor: number; vencimento: string; pago: boolean } | null;
 };
 /** O que o colaborador pediu para um período aquisitivo; a empresa decide pela programação. */
 export type SolicitacaoFerias = {
@@ -8901,6 +8903,18 @@ export type ListaFerias = {
   /** "AAAA-MM-DD" → nome do feriado (São Paulo), do ano passado até o limite de datas aceitas. */
   feriados: Record<string, string>;
 };
+/** O que o aviso e recibo de férias da contabilidade trouxe, já casado com o cadastro e com a programação. */
+export type ReciboFeriasPrevia = {
+  employeeId: string; nome: string; nomeNoRecibo: string | null; arquivo: string; hash: string;
+  aquisitivoInicio: string | null; aquisitivoFim: string | null; gozoInicio: string; gozoFim: string; dias: number;
+  vencimento: string; proventos: number | null; descontos: number | null; liquido: number;
+  programacaoId: string | null; avisos: string[];
+};
+/** Lê o recibo (PDF em base64); com aplicar=true lança o título de férias no Contas a Pagar. Mais de uma pessoa com o nome: 409 com `candidatos`. */
+export function importarReciboFerias(fileBase64: string, fileName: string, aplicar: boolean, employeeId?: string) {
+  return request<{ previa: ReciboFeriasPrevia; aplicado: boolean; id?: string }>("/payroll/ferias/recibo", json("POST", { fileBase64, fileName, aplicar, employeeId }));
+}
+
 export type PedidoFerias = {
   aquisitivoInicio: string; gozoInicio: string; dias: number; diasAbono: number; observacao?: string; status?: "PROGRAMADA" | "GOZADA";
 };
