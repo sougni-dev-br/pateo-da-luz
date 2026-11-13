@@ -53,18 +53,23 @@ const iso = (d: Date) => d.toISOString().slice(0, 10);
 const mmaaaa = (mes: number, ano: number) => `${String(mes).padStart(2, "0")}/${ano}`;
 const ROTULOS_SR = [ROTULO_13_PARCELA_1, ROTULO_13_PARCELA_2];
 
-type Variaveis = { porPessoa: Map<string, Map<number, number>>; status: Map<number, string> };
+// `apurados`: os meses que entram na média — fechados, ou abertos mas já encerrados (dados provisórios).
+// Mês em andamento (período que ainda não terminou) fica de fora até fechar: valor parcial puxaria a média para baixo.
+type Variaveis = { porPessoa: Map<string, Map<number, number>>; status: Map<number, string>; apurados: Set<number> };
 
 // Variáveis de cada pessoa por mês: gorjeta + hora extra + adicional noturno (o DSR sobre a hora
 // extra fica de fora, como na contabilidade). Só os meses 1 a 11 servem ao 13º.
 async function variaveisDoAno(ano: number): Promise<Variaveis> {
-  const periodos = await prisma.tipPeriod.findMany({ where: { competenceYear: ano }, select: { competenceMonth: true } });
+  const periodos = await prisma.tipPeriod.findMany({ where: { competenceYear: ano }, select: { competenceMonth: true, periodEnd: true } });
   const porPessoa = new Map<string, Map<number, number>>();
   const status = new Map<number, string>();
+  const apurados = new Set<number>();
+  const agora = Date.now();
   for (const per of periodos) {
     if (per.competenceMonth > 11) continue;
     const comp = await computeTipCommission(ano, per.competenceMonth, { incluirDadosPessoais: true });
     status.set(per.competenceMonth, comp.status ?? "OPEN");
+    if (comp.status === "CLOSED" || per.periodEnd.getTime() < agora) apurados.add(per.competenceMonth);
     for (const p of comp.participants) {
       if (!p.employeeId) continue;
       const v = (p.rateioAmount ?? 0) + (p.valorHoraExtra ?? 0) + (p.valorAdicionalNoturno ?? 0);
@@ -73,21 +78,23 @@ async function variaveisDoAno(ano: number): Promise<Variaveis> {
       porPessoa.set(p.employeeId, meses);
     }
   }
-  return { porPessoa, status };
+  return { porPessoa, status, apurados };
 }
 
-// Avisos sobre a base da média: mês sem apuração de gorjeta ou ainda aberta pesa como zero/provisório.
-function avisosDaBase(ano: number, status: Map<number, string>): string[] {
+// Avisos sobre a base da média: mês sem apuração, em andamento ou ainda não fechado.
+function avisosDaBase(ano: number, status: Map<number, string>, apurados: Set<number>): string[] {
   const abertos: string[] = [];
+  const andamento: string[] = [];
   const ausentes: string[] = [];
   for (let m = 1; m <= 11; m += 1) {
     const st = status.get(m);
     if (st == null) ausentes.push(mmaaaa(m, ano));
-    else if (st !== "CLOSED") abertos.push(mmaaaa(m, ano));
+    else if (st !== "CLOSED") (apurados.has(m) ? abertos : andamento).push(mmaaaa(m, ano));
   }
   const avisos: string[] = [];
   if (abertos.length > 0) avisos.push(`Gorjeta ainda não fechada em ${abertos.join(", ")}: a média desses meses pode mudar. Parcela não paga é atualizada quando você gerar de novo.`);
-  if (ausentes.length > 0) avisos.push(`Sem apuração de gorjeta em ${ausentes.join(", ")}: esses meses contam como zero na média.`);
+  if (andamento.length > 0) avisos.push(`Gorjeta de ${andamento.join(", ")} em andamento: fica de fora da média até fechar (a 2ª parcela só é gerada depois).`);
+  if (ausentes.length > 0) avisos.push(`Sem apuração de gorjeta em ${ausentes.join(", ")}: esses meses ficam de fora da média (a gorjeta já era paga; a média usa só os meses apurados).`);
   return avisos;
 }
 
@@ -142,7 +149,7 @@ export async function listarDecimoTerceiroSR(ano: number): Promise<PreviaDecimo1
     const salario = v.baseSalary == null ? null : Number(v.baseSalary);
     let calculo = calcularDecimoTerceiroSR({
       ano, salarioBase: salario, inicio: e.admissionDate, desligamento: e.terminationDate, ate: fim,
-      variaveis: variaveis.porPessoa.get(e.id),
+      variaveis: variaveis.porPessoa.get(e.id), mesesApurados: variaveis.apurados,
     });
     // Registrado sem avos sem registro neste ano (carteira logo no começo ou em anos anteriores): nada a mostrar.
     if (preRegistro && !calculo && salario != null && salario > 0) continue;
@@ -169,7 +176,7 @@ export async function listarDecimoTerceiroSR(ano: number): Promise<PreviaDecimo1
       preRegistro, semRegistroAte: fim ? iso(fim) : null, registroEm: preRegistro && e.admissaoCarteira ? iso(e.admissaoCarteira) : null,
     });
   }
-  const avisos = avisosDaBase(ano, variaveis.status);
+  const avisos = avisosDaBase(ano, variaveis.status, variaveis.apurados);
   return { ano, linhas, novembroFechado: variaveis.status.get(11) === "CLOSED", avisos };
 }
 
