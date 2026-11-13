@@ -8507,7 +8507,7 @@ export type ExtratoPreviewItem = {
   matched: boolean; employeeId: string | null; employeeName: string | null; isActive: boolean | null;
 };
 /** Folha do mês ou adiantamento do dia 20: o mesmo "Extrato Mensal" da contabilidade. */
-export type CalculoExtrato = "MENSAL" | "ADIANTAMENTO";
+export type CalculoExtrato = "MENSAL" | "ADIANTAMENTO" | "DECIMO_TERCEIRO";
 export type PrevisaoImportacaoRh = {
   novos: number; atualizar: number; zerados: number; desligados: number; excluidosAMao: number; jaPagos: number; comOutroRotulo: number;
 };

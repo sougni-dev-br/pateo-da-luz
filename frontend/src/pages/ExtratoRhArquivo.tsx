@@ -113,7 +113,7 @@ export function ExtratoRhArquivo({ arquivo, onImportado, onNotice, onLancando }:
       {preview && (
         <>
           <FormGrid cols={4}>
-            <SummaryCard compact label="Extrato" value={preview.calculo === "ADIANTAMENTO" ? "Adiantamento (dia 20)" : "Folha do mês"} tone={preview.calculo === "ADIANTAMENTO" ? "warning" : "neutral"} />
+            <SummaryCard compact label="Extrato" value={preview.calculo === "DECIMO_TERCEIRO" ? "13º salário (1ª parcela)" : preview.calculo === "ADIANTAMENTO" ? "Adiantamento (dia 20)" : "Folha do mês"} tone={preview.calculo === "MENSAL" ? "neutral" : "warning"} />
             <SummaryCard compact label="Competência" value={`${MONTHS[preview.competenceMonth] ?? preview.competenceMonth}/${preview.competenceYear}`} />
             <SummaryCard compact label="Total líquido" moneyValue={preview.totalLiquido} tone="success" />
             <SummaryCard compact label="Casaram no cadastro" value={`${preview.matchedCount} de ${preview.items.length}`} tone={preview.matchedCount === preview.items.length ? "success" : "warning"} />
@@ -166,7 +166,9 @@ export function ExtratoRhArquivo({ arquivo, onImportado, onNotice, onLancando }:
               {textoBotaoImportar(preview, importing)}
             </Button>
             <span style={{ color: "var(--muted)", fontSize: 12 }}>
-              {preview.calculo === "ADIANTAMENTO"
+              {preview.calculo === "DECIMO_TERCEIRO"
+                ? "Lança a 1ª parcela do 13º de cada pessoa no Contas a Pagar (vence no último dia do mês), cadastra quem falta e guarda o PDF e os holerites."
+                : preview.calculo === "ADIANTAMENTO"
                 ? "Lança o adiantamento do dia 20 de cada pessoa no Contas a Pagar, cadastra quem falta e guarda o PDF e os holerites."
                 : "Lança o salário líquido de cada pessoa no Contas a Pagar (vence no dia 5 do mês seguinte), cadastra quem falta e guarda o PDF e os holerites."}
               {preview.lancamentosExistentes > 0 && " Quem já tem o lançamento deste extrato é atualizado, sem duplicar."}

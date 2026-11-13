@@ -6,7 +6,11 @@ import type { ExtratoPreview, ImportExtratoResult } from "../api/client";
 const reais = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const mmaaaa = (mes: number, ano: number) => `${String(mes).padStart(2, "0")}/${ano}`;
 const tipo = (calculo: ExtratoPreview["calculo"], n: number) =>
-  calculo === "ADIANTAMENTO" ? (n === 1 ? "adiantamento" : "adiantamentos") : (n === 1 ? "salário" : "salários");
+  calculo === "DECIMO_TERCEIRO" ? "13º (1ª parcela)"
+    : calculo === "ADIANTAMENTO" ? (n === 1 ? "adiantamento" : "adiantamentos") : (n === 1 ? "salário" : "salários");
+const venceEm = (calculo: ExtratoPreview["calculo"]) =>
+  calculo === "DECIMO_TERCEIRO" ? " com vencimento no último dia do mês (30/11)"
+    : calculo === "ADIANTAMENTO" ? " com vencimento no dia 20" : " com vencimento no dia 5 do mês seguinte";
 
 type Previa = Pick<ExtratoPreview, "calculo" | "competenceMonth" | "competenceYear" | "items" | "matchedCount" | "totalLiquido" | "lancamentosExistentes"> & {
   previsao?: ExtratoPreview["previsao"];
@@ -31,6 +35,7 @@ function semLancamento(p: NonNullable<Previa["previsao"]>, comp: string): string
 export function textoBotaoImportar(p: Previa, importando: boolean): string {
   if (soAtualiza(p)) return importando ? "Atualizando…" : "Atualizar e guardar o extrato";
   if (importando) return "Lançando…";
+  if (p.calculo === "DECIMO_TERCEIRO") return "Lançar 13º no Contas a Pagar";
   return p.calculo === "ADIANTAMENTO" ? "Lançar adiantamentos no Contas a Pagar" : "Lançar salários no Contas a Pagar";
 }
 
@@ -44,7 +49,7 @@ export function confirmacaoImportar(p: Previa): string {
   if (existentes >= total) {
     return `Os ${total} ${tipo(p.calculo, total)} de ${comp} já estão no Contas a Pagar. Reimportar atualiza os mesmos lançamentos (total ${reais(p.totalLiquido)}), sem duplicar, e guarda o PDF e os holerites. Continuar?`;
   }
-  const vence = p.calculo === "ADIANTAMENTO" ? " com vencimento no dia 20" : " com vencimento no dia 5 do mês seguinte";
+  const vence = venceEm(p.calculo);
   const partes = existentes > 0
     ? `Lançar ${novos} ${tipo(p.calculo, novos)} novo(s) de ${comp}${vence} e atualizar ${existentes} que já estão no Contas a Pagar, sem duplicar`
     : `Lançar ${total} ${tipo(p.calculo, total)} de ${comp}${vence} no Contas a Pagar`;
@@ -62,7 +67,7 @@ function confirmacaoComPrevisao(p: Previa, v: NonNullable<Previa["previsao"]>): 
   if (v.novos === 0 && v.atualizar > 0 && fora.length === 0) {
     return `Os ${v.atualizar} ${tipo(p.calculo, v.atualizar)} de ${comp} já estão no Contas a Pagar. Reimportar atualiza os mesmos lançamentos${valor}, sem duplicar, e guarda o PDF e os holerites. Continuar?`;
   }
-  const vence = p.calculo === "ADIANTAMENTO" ? " com vencimento no dia 20" : " com vencimento no dia 5 do mês seguinte";
+  const vence = venceEm(p.calculo);
   const partes = v.atualizar > 0
     ? `Lançar ${v.novos} ${tipo(p.calculo, v.novos)} novo(s) de ${comp}${v.novos > 0 ? vence : ""} e atualizar ${v.atualizar} que já estão no Contas a Pagar, sem duplicar`
     : `Lançar ${v.novos} ${tipo(p.calculo, v.novos)} de ${comp}${v.novos > 0 ? vence : ""} no Contas a Pagar`;

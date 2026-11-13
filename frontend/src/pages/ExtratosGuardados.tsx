@@ -148,8 +148,8 @@ export function ExtratosGuardados({ recarregar = 0, onErro }: Props) {
                 <Table.Row>
                   <Table.Td style={{ whiteSpace: "nowrap" }}>
                     {MESES[e.competenceMonth]}/{e.competenceYear}{" "}
-                    <StatusBadge tone={e.calculo === "ADIANTAMENTO" ? "warning" : "neutral"}>
-                      {e.calculo === "ADIANTAMENTO" ? "Adiantamento" : "Folha do mês"}
+                    <StatusBadge tone={e.calculo === "MENSAL" ? "neutral" : "warning"}>
+                      {e.calculo === "DECIMO_TERCEIRO" ? "13º salário" : e.calculo === "ADIANTAMENTO" ? "Adiantamento" : "Folha do mês"}
                     </StatusBadge>
                   </Table.Td>
                   <Table.Td>{e.empresa || "—"}</Table.Td>

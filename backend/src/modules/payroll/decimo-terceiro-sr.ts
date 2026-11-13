@@ -14,6 +14,9 @@ export const PARCELA_1_DIA = { mes: 11, dia: 30 } as const;
 export const PARCELA_2_DIA = { mes: 12, dia: 20 } as const;
 export const ROTULO_13_PARCELA_1 = "13º Salário - 1ª parcela";
 export const ROTULO_13_PARCELA_2 = "13º Salário - 2ª parcela";
+// 1ª parcela que vem do extrato da contabilidade (CLT). Rótulo próprio: quem foi registrado depois
+// tem as duas coisas (o extrato e o período sem registro) e a chave única inclui o rótulo.
+export const ROTULO_13_EXTRATO_PARCELA_1 = "13º Salário - 1ª parcela (extrato)";
 
 export type Decimo13SR = {
   ano: number; avos: number; desde: string; salario: number; mediaVariaveis: number; base: number; total: number;

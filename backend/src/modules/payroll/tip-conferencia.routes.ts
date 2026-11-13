@@ -205,6 +205,9 @@ tipConferenciaRouter.post("/periods/:year/:month/extratos", async (request, resp
   try { lido = await parseExtratoMensal(buffer); } catch (err) {
     return response.status(422).json({ message: "Não foi possível ler o PDF do extrato. " + (err as Error).message });
   }
+  if (lido.calculo === "DECIMO_TERCEIRO") {
+    return response.status(422).json({ message: "Este é o extrato do 13º salário. A conferência da gorjeta usa o extrato da folha do mês; o do 13º sobe em RH → Retorno do RH." });
+  }
   if (lido.calculo === "ADIANTAMENTO") {
     return response.status(422).json({ message: "Este é o extrato do ADIANTAMENTO (dia 20). A conferência da gorjeta usa o extrato da folha do mês; o do adiantamento sobe em RH → Retorno do RH." });
   }
