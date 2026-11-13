@@ -32,7 +32,7 @@ vi.mock("../../../api/client", async (importOriginal) => ({
   getTaxPayment: vi.fn(),
 }));
 
-import { createTaxPayment, getCompanies, getEmployees, getTaxPayment, getTaxPayments } from "../../../api/client";
+import { createTaxPayment, getCompanies, getEmployees, getTaxCategorySuggestion, getTaxPayment, getTaxPayments } from "../../../api/client";
 import { ModalGuia } from "../ModalGuia";
 
 const VALORES_DAS = ["46971", "29890", "108803", "23571", "358689", "206087"];
@@ -361,6 +361,24 @@ describe("ModalGuia: editar guia", () => {
     expect(screen.getByText(/estorne o pagamento lá/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Abrir em Contas a Pagar para estornar" }));
     expect(onContasAPagar).toHaveBeenCalledWith(expect.objectContaining({ id: "g1" }));
+  });
+
+  test("guia gravada que troca de tipo recalcula a categoria do DRE (a antiga não vale mais)", async () => {
+    vi.mocked(getTaxPayment).mockResolvedValue(detalhe() as never);
+    vi.mocked(getTaxCategorySuggestion).mockImplementation(async (tipo: string) => (tipo === "FGTS" ? { dreCategoryId: "cat-outra", nome: "Taxas Municipais" } : { dreCategoryId: "cat-simples", nome: "Simples Nacional" }));
+    abrir({ editId: "g1" });
+    await screen.findByLabelText("Principal da linha 1");
+    expect((screen.getByLabelText(/Categoria no DRE/) as HTMLSelectElement).value).toBe("cat-simples");
+    fireEvent.click(screen.getByRole("radio", { name: "FGTS" }));
+    await waitFor(() => expect((screen.getByLabelText(/Categoria no DRE/) as HTMLSelectElement).value).toBe("cat-outra"));
+  });
+
+  test("duplicar recalcula a categoria pelas linhas da cópia (não copia a da guia de origem)", async () => {
+    vi.mocked(getTaxPayment).mockResolvedValue(detalhe({ dreCategoryId: "cat-outra" }) as never);
+    vi.mocked(getTaxCategorySuggestion).mockImplementation(async () => ({ dreCategoryId: "cat-simples", nome: "Simples Nacional" }));
+    abrir({ duplicarDe: "g1" });
+    await screen.findByLabelText("Principal da linha 1");
+    await waitFor(() => expect((screen.getByLabelText(/Categoria no DRE/) as HTMLSelectElement).value).toBe("cat-simples"));
   });
 
   test("o rodapé diz Fechar (cancelar a guia é outra coisa, na situação da guia)", async () => {
