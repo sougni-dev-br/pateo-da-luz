@@ -3,9 +3,9 @@
 //   posterior ou que a pessoa nunca tenha sido registrada. Mês com 15 dias ou mais = 1 avo.
 //   Quem foi registrado no ano (admissaoCarteira): o período sem registro vai até o fim do mês
 //   anterior à carteira; o mês da carteira e o resto do ano vêm do extrato da contabilidade.
-// - Base: salário base vigente em 20/12 + média mensal das variáveis do ano (gorjeta, hora
-//   extra, adicional noturno e DSR; soma ÷ avos, como o CLT faz), ÷ 12 × avos.
-// - Duas parcelas: 50% até 30/11 e o restante até 20/12.
+// - Base: salário base vigente em 20/12 + média mensal das variáveis (gorjeta, hora extra e
+//   adicional noturno) pela regra da contabilidade — ver calcularDecimoTerceiroSR.
+// - Duas parcelas: 50% até 30/11 e o acerto (13º completo − 1ª paga) até 20/12.
 // CLT não passa por aqui: o valor vem do extrato da contabilidade.
 import { avos13 } from "./rescisao-verbas-opcionais.js";
 import { round2 } from "./vt-calc.js";
@@ -19,8 +19,14 @@ export const ROTULO_13_PARCELA_2 = "13º Salário - 2ª parcela";
 export const ROTULO_13_EXTRATO_PARCELA_1 = "13º Salário - 1ª parcela (extrato)";
 
 export type Decimo13SR = {
-  ano: number; avos: number; desde: string; salario: number; mediaVariaveis: number; base: number; total: number;
-  parcela1: number; parcela2: number; vencimento1: string; vencimento2: string; memoria: string;
+  ano: number;
+  // Avos do ano todo (até dezembro) e os usados na 1ª parcela (até novembro; 12 para o ano inteiro).
+  avos: number; avosParcela1: number; desde: string; salario: number;
+  // Média mensal das variáveis: até outubro (1ª parcela) e até novembro (13º completo).
+  mediaParcela1: number; mediaFinal: number;
+  // 1ª parcela; 13º completo; 2ª parcela = completo − 1ª (se a 1ª foi paga como calculada).
+  parcela1: number; total: number; parcela2: number;
+  vencimento1: string; vencimento2: string; memoria: string;
 };
 
 // O que fazer com uma parcela ao gerar, conforme o que já existe no banco (inclusive excluído).
@@ -50,11 +56,21 @@ export function fimSemRegistro(admissao: Date | null, carteira: Date | null): Da
   return new Date(Date.UTC(carteira.getUTCFullYear(), carteira.getUTCMonth(), 0));
 }
 
+// Variáveis por mês (1 a 12): gorjeta + hora extra + adicional noturno. O DSR sobre a hora extra NÃO
+// entra: é como a contabilidade calcula o 13º do CLT (conferido nos extratos de 11/2026).
+export type VariaveisPorMes = ReadonlyMap<number, number>;
+
+// Regra da contabilidade (conferida centavo a centavo com os extratos reais do 13º adiantamento):
+// - média mensal = soma das variáveis dos meses já apurados ÷ número desses meses (avos até lá),
+//   NÃO ÷ 12. Quem entrou em agosto tem a média de agosto a outubro dividida por 3.
+// - 1ª parcela = (salário + média até outubro) ÷ 12 × avos da 1ª ÷ 2, onde os avos da 1ª são os
+//   de até novembro, e 12 para quem trabalhou o ano todo (50% do salário, como nos extratos).
+// - 13º completo = (salário + média até novembro) ÷ 12 × avos do ano.
+// - 2ª parcela = 13º completo − o que a 1ª parcela pagou: assim ninguém recebe a mais nem a menos.
 // null = não há 13º a gerar (sem início, sem salário, saiu antes do ano, ou 0 avos).
 export function calcularDecimoTerceiroSR(e: {
   ano: number; salarioBase: number | null; inicio: Date | null; desligamento: Date | null;
-  // Soma das variáveis (gorjeta, extras) recebidas no ano; a média é soma ÷ avos.
-  variaveisSoma?: number;
+  variaveis?: VariaveisPorMes;
   // Fim do período a contar (quem foi registrado depois: o último dia sem registro; o mês da
   // carteira é da contabilidade). Antes do ano = nada a pagar neste ano.
   ate?: Date | null;
@@ -65,19 +81,57 @@ export function calcularDecimoTerceiroSR(e: {
   if (e.desligamento && e.desligamento.getUTCFullYear() < e.ano) return null;
   if (e.ate && e.ate.getUTCFullYear() < e.ano) return null;
   const limites = [e.desligamento, e.ate].filter((x): x is Date => x != null && x.getUTCFullYear() === e.ano);
-  const ate = limites.reduce((menor, x) => (x.getTime() < menor.getTime() ? x : menor), fimDoAno);
-  const { avos, desde } = avos13(e.inicio, ate);
+  const limite = limites.reduce((menor, x) => (x.getTime() < menor.getTime() ? x : menor), fimDoAno);
+  const fimDoMes = (mes: number) => new Date(Date.UTC(e.ano, mes, 0));
+  const ateMes = (mes: number) => (fimDoMes(mes).getTime() < limite.getTime() ? fimDoMes(mes) : limite);
+  const avosAte = (mes: number) => avos13(e.inicio!, ateMes(mes)).avos;
+
+  const avos = avosAte(12);
   if (avos <= 0) return null;
+  const avosNov = avosAte(11);
+  // Quem trabalhou de janeiro a novembro recebe 50% cheio na 1ª (12 avos): é o que a contabilidade
+  // faz. Nunca mais que os avos do ano, para a 2ª parcela não ficar negativa (saída em novembro).
+  const avosPrimeira = Math.min(avosNov >= 11 ? 12 : avosNov, avos);
+  // Média até o mês: soma dos meses ≤ mes (e ≤ mês do limite) ÷ avos até lá.
+  const mediaAte = (mes: number) => {
+    const n = avosAte(mes);
+    if (n <= 0) return 0;
+    const ultimo = Math.min(mes, limite.getUTCMonth() + 1);
+    let soma = 0;
+    for (const [m, v] of e.variaveis ?? []) if (m >= 1 && m <= ultimo && Number.isFinite(v)) soma += v;
+    return Math.max(0, soma) / n;
+  };
+  const media1 = mediaAte(10);
+  const mediaFinal = mediaAte(11);
   const salario = round2(e.salarioBase);
-  const mediaVariaveis = round2(Math.max(0, e.variaveisSoma ?? 0) / avos);
-  const base = round2(salario + mediaVariaveis);
-  const total = round2((base / 12) * avos);
-  const parcela1 = round2(total / 2);
+  const parcela1 = round2(((salario + media1) / 12 * avosPrimeira) / 2);
+  const total = round2((salario + mediaFinal) / 12 * avos);
   const parcela2 = round2(total - parcela1);
+  const desde = avos13(e.inicio, ateMes(12)).desde;
+  const plural = (n: number) => `${n} ${n === 1 ? "avo" : "avos"}`;
   return {
-    ano: e.ano, avos, desde, salario, mediaVariaveis, base, total, parcela1, parcela2,
+    ano: e.ano, avos, avosParcela1: avosPrimeira, desde, salario, mediaParcela1: round2(media1), mediaFinal: round2(mediaFinal), parcela1, total, parcela2,
     vencimento1: iso(e.ano, PARCELA_1_DIA.mes, PARCELA_1_DIA.dia),
     vencimento2: iso(e.ano, PARCELA_2_DIA.mes, PARCELA_2_DIA.dia),
-    memoria: `(S ${br(salario)}${mediaVariaveis > 0 ? ` + média variáveis ${br(mediaVariaveis)}` : ""}) ÷ 12 × ${avos} ${avos === 1 ? "avo" : "avos"} = ${br(total)} (desde ${desde.split("-").reverse().join("/")})`,
+    memoria: `1ª: (S ${br(salario)} + média ${br(round2(media1))}) ÷ 12 × ${plural(avosPrimeira)} ÷ 2 = ${br(parcela1)} · `
+      + `13º: (S ${br(salario)} + média ${br(round2(mediaFinal))}) ÷ 12 × ${plural(avos)} = ${br(total)} · 2ª = ${br(parcela2)} (desde ${desde.split("-").reverse().join("/")})`,
   };
+}
+
+// 2ª parcela de fato: o 13º completo menos o que a 1ª parcela pagou. Se a 1ª passou do total (a
+// média caiu, o salário foi corrigido para baixo), a 2ª é zero e a diferença aparece como excesso.
+export function segundaParcela(total: number, primeiraPaga: number): { valor: number; excesso: number } {
+  const resto = round2(total - primeiraPaga);
+  return resto >= 0 ? { valor: resto, excesso: 0 } : { valor: 0, excesso: round2(-resto) };
+}
+
+// Quanto a 1ª parcela JÁ pagou, para a 2ª fazer o acerto. Paga: o valor realmente pago (pode ter
+// sido ajustado na baixa). Excluída (à mão = paga por fora): conta como calculada. Ainda a pagar:
+// será atualizada para o valor calculado, então conta o calculado.
+export function primeiraParaAcerto(
+  item: { deletedAt: Date | null; paymentDate: Date | null; paidAmount: unknown; amount: unknown } | null, calculada: number,
+): number {
+  if (!item || item.deletedAt || !item.paymentDate) return calculada;
+  const pago = Number(item.paidAmount ?? item.amount);
+  return Number.isFinite(pago) ? round2(pago) : calculada;
 }
