@@ -124,3 +124,7 @@
 .fe-soma { margin: 0; font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
 .fe-soma--erro { color: var(--danger); font-weight: 600; }
 @media (max-width: 640px) { .fe-parte { grid-template-columns: 1fr 1fr; } .fe-parte-num { grid-column: 1 / -1; padding-top: 0; } .fe-parte-previa { grid-column: 1 / -1; } }
+
+/* ── Pagamento lançado da programação (recibo da contabilidade) ───────── */
+.fe-pagamento { display: inline-flex; gap: 4px; align-items: center; padding: 0 8px; border-radius: var(--radius-pill); background: var(--tint-info); color: var(--info); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; }
+.fe-pagamento--pago { background: var(--tint-success); color: var(--success); }

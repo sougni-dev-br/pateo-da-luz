@@ -200,6 +200,18 @@ export function mockFerias(url: string, method = "GET", corpo?: unknown): unknow
     gravadas = [...gravadas, ...novas];
     return { ids: novas.map((n) => n.id) };
   }
+  if (/\/payroll\/ferias\/recibo$/.test(u.pathname) && method.toUpperCase() === "POST") {
+    // Recibo de demonstração (pessoa e valores fictícios): o PDF vira uma prévia pronta, para ver o fluxo sem backend.
+    const d = (typeof corpo === "string" && corpo ? JSON.parse(corpo) : {}) as { fileName?: string; aplicar?: boolean };
+    const ini = somaDias(hoje(), 21);
+    const previa = {
+      employeeId: "f1", nome: "Carla Exemplo", nomeNoRecibo: "CARLA EXEMPLO", arquivo: d.fileName ?? "recibo.pdf", hash: "0".repeat(64),
+      aquisitivoInicio: somaMeses(ini, -12), aquisitivoFim: somaDias(ini, -1), gozoInicio: ini, gozoFim: somaDias(ini, 29), dias: 30,
+      vencimento: somaDias(ini, -2), proventos: 5333.68, descontos: 700, liquido: 4633.68, programacaoId: null,
+      avisos: ["Não há férias programadas no ERP com início em " + ini.split("-").reverse().join("/") + ": o título será lançado mesmo assim."],
+    };
+    return d.aplicar ? { previa, aplicado: true, id: "pi-mock" } : { previa, aplicado: false };
+  }
   const m = /\/payroll\/ferias(?:\/([^/]+))?$/.exec(u.pathname);
   if (!m) return undefined;
   if (!gravadas) gravadas = sementes();

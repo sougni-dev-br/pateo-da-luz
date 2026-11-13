@@ -9,6 +9,7 @@ vi.mock("../../../config/database.js", () => {
     employee: { findMany: vi.fn(), findFirst: vi.fn() },
     feriasProgramacao: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn(), delete: vi.fn() },
     feriasSolicitacao: { findUnique: vi.fn(), upsert: vi.fn(), delete: vi.fn() },
+    payrollItem: { findMany: vi.fn() },
     $queryRaw: vi.fn(async () => []),
   };
   // A transação roda o callback com o mesmo banco de mentira (o FOR UPDATE é só uma consulta).
@@ -43,6 +44,7 @@ beforeEach(() => {
   db.employee.findFirst.mockResolvedValue(eliana());
   db.employee.findMany.mockResolvedValue([eliana()]);
   db.feriasProgramacao.create.mockResolvedValue({ id: "f1" });
+  db.payrollItem.findMany.mockResolvedValue([]);
 });
 
 describe("GET /payroll/ferias", () => {
@@ -74,6 +76,36 @@ describe("GET /payroll/ferias", () => {
     const aVencer = montarPessoa(eliana() as never, "2026-12-15");
     expect(contarAlertas([vencida])).toEqual({ vencidas: 1, aVencer: 0 });
     expect(contarAlertas([aVencer])).toEqual({ vencidas: 0, aVencer: 1 });
+  });
+});
+
+describe("GET /payroll/ferias — pagamento lançado", () => {
+  const prog = { id: "pg1", aquisitivoInicio: d("2025-03-01"), gozoInicio: d("2026-12-02"), dias: 30, diasAbono: 0, status: "PROGRAMADA", observacao: null };
+  const titulo = (o: Record<string, unknown> = {}) => ({ id: "t1", employeeId: "e1", periodStart: d("2026-12-02"), amount: "4633.68", dueDate: d("2026-11-30"), paymentDate: null, ...o });
+
+  test("cada programação traz o título de pagamento lançado para o mesmo início de gozo", async () => {
+    db.employee.findMany.mockResolvedValue([eliana({ feriasProgramadas: [prog] })]);
+    db.payrollItem.findMany.mockResolvedValue([titulo(), titulo({ id: "t2", periodStart: d("2027-02-01") })]);
+    const r = await request(app).get("/payroll/ferias");
+    const g = r.body.pessoas[0].periodos.flatMap((p: { programacoes: unknown[] }) => p.programacoes)[0];
+    expect(g.pagamento).toEqual({ id: "t1", valor: 4633.68, vencimento: "2026-11-30", pago: false });
+    expect(db.payrollItem.findMany.mock.calls[0][0].where).toMatchObject({ type: "FERIAS", deletedAt: null, employeeId: { in: ["e1"] } });
+  });
+
+  test("pago quando o título tem data de pagamento; sem título, nulo; sem programação, nem consulta", async () => {
+    db.employee.findMany.mockResolvedValue([eliana({ feriasProgramadas: [prog] })]);
+    db.payrollItem.findMany.mockResolvedValue([titulo({ paymentDate: d("2026-11-30") })]);
+    const pago = await request(app).get("/payroll/ferias");
+    expect(pago.body.pessoas[0].periodos.flatMap((p: { programacoes: Array<{ pagamento: { pago: boolean } }> }) => p.programacoes)[0].pagamento.pago).toBe(true);
+
+    db.payrollItem.findMany.mockResolvedValue([]);
+    const sem = await request(app).get("/payroll/ferias");
+    expect(sem.body.pessoas[0].periodos.flatMap((p: { programacoes: Array<{ pagamento: unknown }> }) => p.programacoes)[0].pagamento).toBeNull();
+
+    db.payrollItem.findMany.mockClear();
+    db.employee.findMany.mockResolvedValue([eliana()]);
+    await request(app).get("/payroll/ferias");
+    expect(db.payrollItem.findMany).not.toHaveBeenCalled();
   });
 });
 

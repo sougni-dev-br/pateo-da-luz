@@ -2,7 +2,7 @@
 // já foi decidido. O período e o limite vêm calculados da data de registro (o mesmo
 // critério do relatório da contabilidade); a tela só grava a programação. O filtro fica no
 // endereço (?filtro=…): o link do Dashboard e o botão voltar abrem no lugar certo.
-import { CalendarRange, List, Maximize2, Minimize2, Printer, RefreshCw } from "lucide-react";
+import { CalendarRange, FileUp, List, Maximize2, Minimize2, Printer, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { type ListaFerias, type PedidoFerias, type PeriodoFerias, type PessoaFerias, type ProgramacaoFerias, atualizarFerias, cancelarFerias, getFerias, marcarFeriasAvisado, marcarFeriasGozadas, programarFerias, programarFeriasParceladas, removerSolicitacaoFerias, salvarSolicitacaoFerias } from "../../api/client";
@@ -12,6 +12,7 @@ import { FormularioProgramacao } from "./ferias/FormularioProgramacao";
 import { type DadosDoPedido, PedidoDoColaborador } from "./ferias/PedidoDoColaborador";
 import { ImpressaoIndividual } from "./ferias/ImpressaoIndividual";
 import { ImpressaoFerias } from "./ferias/ImpressaoFerias";
+import { ImportarRecibos } from "./ferias/ImportarRecibos";
 import { ImpressaoTela } from "./ferias/ImpressaoTela";
 import { LinhaDoTempo } from "./ferias/LinhaDoTempo";
 import { LinhaPeriodo } from "./ferias/LinhaPeriodo";
@@ -54,6 +55,7 @@ export function Ferias() {
   const titulo = useRef<HTMLHeadingElement>(null);
   const gatilho = useRef<HTMLElement | null>(null);
   const [imprimindo, setImprimindo] = useState(false);
+  const [importando, setImportando] = useState(false);
   const [fichaDe, setFichaDe] = useState<PessoaFerias | null>(null);
   const imprimirPessoa = (pessoa: PessoaFerias) => { gatilho.current = document.activeElement as HTMLElement | null; setFichaDe(pessoa); };
   const [imprimindoTela, setImprimindoTela] = useState(false);
@@ -84,11 +86,11 @@ export function Ferias() {
     return () => document.body.classList.remove("fe-sem-rolagem");
   }, [cheia]);
   useEffect(() => {
-    if (!cheia || aberto || imprimindo || imprimindoTela) return;
+    if (!cheia || aberto || imprimindo || imprimindoTela || importando) return;
     const sair = (e: KeyboardEvent) => { if (e.key === "Escape") setCheia(false); };
     window.addEventListener("keydown", sair);
     return () => window.removeEventListener("keydown", sair);
-  }, [cheia, aberto, imprimindo, imprimindoTela]);
+  }, [cheia, aberto, imprimindo, imprimindoTela, importando]);
 
   const todasAsLinhas = useMemo(() => (lista ? linhasDaLista(lista) : []), [lista]);
   const empresas = useMemo(() => [...new Set(todasAsLinhas.flatMap((l) => (l.pessoa.empresa ? [l.pessoa.empresa] : [])))].sort((a, b) => a.localeCompare(b, "pt-BR")), [todasAsLinhas]);
@@ -332,6 +334,10 @@ export function Ferias() {
             onClick={() => { if (lista && linhas.length > 0) { gatilho.current = document.activeElement as HTMLElement | null; setImprimindo(true); } }}>
             Folhas por empresa
           </Button>
+          <Button variant="secondary" size="sm" leadingIcon={<FileUp size={14} />}
+            onClick={() => { gatilho.current = document.activeElement as HTMLElement | null; setImportando(true); }}>
+            Importar recibos
+          </Button>
           <Button variant="secondary" size="sm" leadingIcon={<RefreshCw size={14} />} aria-disabled={carregando} onClick={() => { if (!carregando) void carregar(); }}>
             {carregando && lista ? "Atualizando…" : "Atualizar"}
           </Button>
@@ -391,6 +397,9 @@ export function Ferias() {
       )}
       {fichaDe && lista && (
         <ImpressaoIndividual pessoa={fichaDe} hoje={lista.hoje} onClose={() => { setFichaDe(null); devolverFoco(); }} />
+      )}
+      {importando && (
+        <ImportarRecibos onLancou={() => void carregar()} onClose={() => { setImportando(false); devolverFoco(); }} />
       )}
       {imprimindo && lista && (
         <ImpressaoFerias lista={lista} onClose={() => { setImprimindo(false); devolverFoco(); }} />
