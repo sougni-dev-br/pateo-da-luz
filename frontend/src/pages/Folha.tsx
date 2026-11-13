@@ -16,6 +16,7 @@ import { maskMoney, moneyToMasked } from "../utils/format";
 import { AfastamentoModal } from "./folha/AfastamentoModal";
 import { LancamentoManualModal } from "./folha/LancamentoManualModal";
 import { MenuExcecoes } from "./folha/MenuExcecoes";
+import { PendenciasFolha } from "./folha/PendenciasFolha";
 import "./folha/folha-ui.css";
 import { PagamentoMeio } from "./folha/PagamentoMeio";
 import { reciboDoLancamento } from "./folha/semRegistro";
@@ -643,6 +644,8 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
             {canEdit && secao === "lancamentos" && <Button leadingIcon={<Wand2 size={14} />} onClick={() => handlePreview("FOLHA")} disabled={busy}>Prever folha</Button>}
           </div>
         </div>
+
+        {secao === "lancamentos" && podeRecibo && <PendenciasFolha year={year} month={month} />}
 
         {/* Configurações */}
         {showSettings && settings && (

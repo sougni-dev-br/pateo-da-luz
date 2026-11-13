@@ -42,3 +42,20 @@
   .folha-passo + .folha-passo { border-left: 0; border-top: 1px solid var(--line); }
   .folha-barra-acoes { margin-left: 0; justify-content: flex-start; }
 }
+
+/* O que fazer neste mês */
+.folha-pendencias { margin: 0 0 16px; padding: 12px 16px; border: 1px solid var(--line); border-left: 3px solid var(--warning); border-radius: 10px; background: var(--paper); }
+.folha-pendencias[data-vazio] { border-left-color: var(--success); }
+.folha-pendencias-titulo { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 14px; }
+.folha-pendencias-titulo svg { color: var(--warning); }
+.folha-pendencias[data-vazio] .folha-pendencias-titulo svg { color: var(--success); }
+.folha-pendencias ul { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 4px; }
+.folha-pendencias li { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; padding: 4px 0; border-top: 1px dashed var(--line); }
+.folha-pendencias li:first-child { border-top: 0; }
+.folha-pendencia-link { flex: none; font-size: 13px; font-weight: 600; color: var(--info); text-decoration: none; }
+.folha-pendencia-link:hover { text-decoration: underline; }
+
+/* Variação contra o mês anterior */
+.folha-variacao { display: block; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.folha-variacao[data-sobe="true"] { color: var(--warning); }
+.folha-variacao[data-sobe="false"] { color: var(--info); }

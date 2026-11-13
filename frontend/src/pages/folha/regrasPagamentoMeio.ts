@@ -83,3 +83,10 @@ export function vencimentoDaLista(linhas: LinhaPagamentoMeio[]): string | null {
   for (const l of linhas) conta.set(l.vencimento, (conta.get(l.vencimento) ?? 0) + 1);
   return [...conta.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
 }
+
+/** Variação em relação ao mês anterior; só vale a pena avisar quando passa do limite (padrão 10%). */
+export function variacaoContraAnterior(atual: number, anterior: number | undefined, limitePct = 10): { pct: number; sobe: boolean } | null {
+  if (anterior == null || !(anterior > 0) || !(atual > 0)) return null;
+  const pct = ((atual - anterior) / anterior) * 100;
+  return Math.abs(pct) >= limitePct ? { pct: Math.round(Math.abs(pct)), sobe: pct > 0 } : null;
+}

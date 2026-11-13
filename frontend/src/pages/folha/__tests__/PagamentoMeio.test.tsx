@@ -154,3 +154,17 @@ test("quinzena com valor a atualizar: a confirmação mostra o valor atual e o n
   expect(lista.linhas[0].aviso).toMatch(/o cálculo de hoje dá R\$\s?1\.100,00/);
 });
 
+
+test("oferece abrir o Contas a Pagar já filtrado pelo vencimento dos títulos em aberto", async () => {
+  montar();
+  const link = await screen.findByRole("link", { name: "Dar baixa no Contas a Pagar" });
+  expect(link.getAttribute("href")).toBe("/financeiro/contas-a-pagar?de=2026-10-20&ate=2026-10-20&aba=abertos");
+});
+
+test("avisa quando o valor da pessoa mudou mais de 10% em relação ao mês anterior", async () => {
+  const mesAnterior = dados([linha({ employeeId: "a", nome: "Ana Exemplo", valor: 800 })]);
+  api.getPagamentoMeio.mockImplementation(async (_ano: number, mes: number) => (mes === 9 ? mesAnterior : ANTES));
+  montar();
+  expect(await screen.findByText(/▲ 29% vs mês anterior/)).toBeInTheDocument(); // 1034 contra 800
+  expect(screen.getAllByText(/vs mês anterior/)).toHaveLength(1); // as outras pessoas não tinham valor anterior
+});

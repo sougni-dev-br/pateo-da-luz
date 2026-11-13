@@ -7,6 +7,7 @@ import { Alert, Button, EmptyState, IconButton, Money, StatusBadge, SummaryCard,
 import { hasPermission } from "../lib/permissions";
 import { descreverParcela, parcelaClt, parcelaDaLinha, resumirClt, resumirParcela, type Parcela13 } from "./decimo13/parcelas";
 import { nomeProprio } from "./gorjeta/NomePessoa";
+import { LinkInterno, linkContasAPagar } from "./folha/LinkInterno";
 import { type Passo, Passos } from "./folha/Passos";
 import "./folha/folha-ui.css";
 
@@ -87,8 +88,9 @@ export function Decimo13() {
       detalhe: `${r.pessoas} calculada(s) aqui${r.semCalculo > 0 ? ` · ${r.semCalculo} sem cálculo` : ""}` },
     { titulo: "Lançar no Contas a Pagar", estado: r.aLancar > 0 ? "atual" : "feito", acao: botaoLancar,
       detalhe: r.aLancar > 0 ? `Falta lançar ${r.aLancar} (${brl(r.totalALancar)})` : r.pessoas > 0 ? "Tudo lançado" : "Nada a lançar" },
-    { titulo: "Pagar e imprimir", estado: r.aLancar > 0 ? "pendente" : "atual",
-      detalhe: "A baixa é feita no Contas a Pagar" },
+    { titulo: "Dar a baixa", estado: r.aLancar > 0 ? "pendente" : "atual",
+      detalhe: r.lancadas > 0 ? "Pague e dê a baixa no Contas a Pagar" : "Depois de lançar, a baixa é no Contas a Pagar",
+      acao: r.lancadas > 0 && vencimento ? <LinkInterno para={linkContasAPagar(vencimento)} className="ds-button ds-button-md ds-button-secondary">Abrir no Contas a Pagar</LinkInterno> : undefined },
   ];
 
   return (

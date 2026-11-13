@@ -12,13 +12,14 @@ import { SEM_DADOS_BANCARIOS, linhasDadosBancarios } from "../gorjeta/dadosBanca
 import { BarraFiltro, opcoesDe, useFiltro } from "../gorjeta/filtro";
 import { money, mutedStyle } from "../gorjeta/gorjetaUtils";
 import { NomePessoa, nomeProprio } from "../gorjeta/NomePessoa";
+import { LinkInterno, linkContasAPagar } from "./LinkInterno";
 import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "../gorjeta/ordenacao";
 import {
   COLUNAS_OPCIONAIS_PDF, type ModoImpressaoFolha, competenciaPdf, gerarPdfListaPagamento,
 } from "../gorjeta/pdfFolhaLiquidos";
 import "../gorjeta/gorjeta.css";
 import {
-  KIND_DO_TIPO, diaDoPagamento, TITULO_PAGAMENTO, aLancar, ddmmaaaa, listaParaPdf, precisaAtualizar, regrasDoPdf, resultadoDoLancamento,
+  KIND_DO_TIPO, diaDoPagamento, variacaoContraAnterior, TITULO_PAGAMENTO, aLancar, ddmmaaaa, listaParaPdf, precisaAtualizar, regrasDoPdf, resultadoDoLancamento,
   seloDoPdf, textoSituacao, vencimentoDaLista,
 } from "./regrasPagamentoMeio";
 
@@ -130,6 +131,8 @@ export function PagamentoMeio({ tipo, year, month, canEdit, percentAdiantamento,
   const [lancando, setLancando] = useState(false);
   const [resultado, setResultado] = useState<{ tom: "success" | "warning" | "error"; linhas: string[] } | null>(null);
   const [imprimindo, setImprimindo] = useState(false);
+  // Valor de cada pessoa no mês anterior (só para avisar de variação grande; se não vier, nada muda).
+  const [anterior, setAnterior] = useState<Map<string, number>>(new Map());
   const ord = useOrdenacao("pagamento-meio");
   const col = useColunas("pagamento-meio");
   const colPdf = useColunas("pagamento-meio-pdf");
@@ -145,11 +148,22 @@ export function PagamentoMeio({ tipo, year, month, canEdit, percentAdiantamento,
       if (vez !== pedido.current) return undefined;
       setDados(d);
       setErro(null);
+      void carregarAnterior(vez);
       return d;
     } catch (e) {
       if (vez !== pedido.current) return undefined;
       setErro((e as Error).message);
       return null;
+    }
+  }
+  async function carregarAnterior(vez: number) {
+    const mesAnterior = month === 1 ? { y: year - 1, m: 12 } : { y: year, m: month - 1 };
+    try {
+      const d = await getPagamentoMeio(mesAnterior.y, mesAnterior.m, tipo);
+      if (vez !== pedido.current) return;
+      setAnterior(new Map(d.linhas.map((l) => [l.employeeId, l.valor])));
+    } catch {
+      if (vez === pedido.current) setAnterior(new Map());
     }
   }
   // Outro mês ou outro tipo: lista nova do zero (o resultado de um lançamento é do mês e do tipo
@@ -162,6 +176,7 @@ export function PagamentoMeio({ tipo, year, month, canEdit, percentAdiantamento,
     if (contextoAtual.current !== contexto) {
       contextoAtual.current = contexto;
       setDados(null);
+      setAnterior(new Map());
       setErro(null);
       setConfirmando(false);
       setResultado(null);
@@ -259,6 +274,7 @@ export function PagamentoMeio({ tipo, year, month, canEdit, percentAdiantamento,
   const th = (c: string) => ({ coluna: c, ordem: ord.ordem, onOrdenar: () => ord.alternar(c, TEXTO.has(c) ? "asc" : "desc") });
   const semDados = dados.linhas.filter((l) => l.situacao !== "PAGO" && linhasDadosBancarios(l).length === 0).length;
   const aPagar = dados.linhas.filter((l) => l.situacao !== "PAGO").length;
+  const vencimentoAberto = vencimentoDaLista(dados.linhas.filter((l) => l.situacao === "LANCADO"));
 
   return (
     <div className="pagamento-meio">
@@ -283,6 +299,11 @@ export function PagamentoMeio({ tipo, year, month, canEdit, percentAdiantamento,
             title="Mostra o que vai ser lançado e pede confirmação antes de gravar">
             Lançar no Contas a Pagar ({pendentes.length})
           </Button>
+        )}
+        {dados.lancado.pessoas > 0 && vencimentoAberto && (
+          <LinkInterno para={linkContasAPagar(vencimentoAberto)} className="ds-button ds-button-md ds-button-secondary">
+            Dar baixa no Contas a Pagar
+          </LinkInterno>
         )}
         <SeletorColunas colunas={COLUNAS} ocultas={col.ocultas} alternar={col.alternar} mostrarTodas={col.mostrarTodas} />
         <div className="folha-pdf-acao">
@@ -353,7 +374,13 @@ export function PagamentoMeio({ tipo, year, month, canEdit, percentAdiantamento,
                           </div>
                         )}
                       </Table.Td>
-                      <Table.Td style={{ fontWeight: 700, whiteSpace: "nowrap" }}>{money(l.valor)}</Table.Td>
+                      <Table.Td style={{ fontWeight: 700, whiteSpace: "nowrap" }}>
+                        {money(l.valor)}
+                        {(() => {
+                          const v = variacaoContraAnterior(l.valor, anterior.get(l.employeeId));
+                          return v ? <span className="folha-variacao" data-sobe={v.sobe} title={`Mês anterior: ${money(anterior.get(l.employeeId) ?? 0)}`}>{v.sobe ? "▲" : "▼"} {v.pct}% vs mês anterior</span> : null;
+                        })()}
+                      </Table.Td>
                       {v("situacao") && (
                         <Table.Td>
                           <span style={{ whiteSpace: "nowrap" }}><StatusBadge tone={SITUACAO_TOM[l.situacao]}>{SITUACAO_ROTULO[l.situacao]}</StatusBadge></span>

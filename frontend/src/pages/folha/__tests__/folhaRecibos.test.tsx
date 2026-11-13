@@ -9,6 +9,8 @@ vi.mock("../../../api/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../../api/client")>()),
   getPayroll: vi.fn(), getPayrollSettings: vi.fn(async () => { throw new Error("sem"); }), getVtFares: vi.fn(async () => []),
   getEmployees: vi.fn(async () => []), getRecibosPagoAntes: vi.fn(),
+  getPagamentoMeio: vi.fn(async () => ({ aLancar: { pessoas: 0, total: 0 }, linhas: [], avisos: [] })),
+  getDecimoTerceiro: vi.fn(async () => ({ ano: 2026, linhas: [], clt: [] })),
 }));
 vi.mock("../../gorjeta/reciboPagamento", () => ({ imprimirRecibosPagamento: vi.fn(async () => "blob:recibo") }));
 
