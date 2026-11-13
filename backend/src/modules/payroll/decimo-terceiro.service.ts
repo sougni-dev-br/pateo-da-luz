@@ -39,6 +39,8 @@ export type LinhaDecimo13 = {
   acerto: number | null;
   // Registrado depois do início real: só o período sem registro entra aqui (até `semRegistroAte`).
   preRegistro: boolean; semRegistroAte: string | null; registroEm: string | null;
+  // Variáveis de mês informadas à mão (substituem a apuração no cálculo).
+  informadas: VariavelInformada[];
 };
 
 export type PreviaDecimo13 = {
@@ -56,7 +58,11 @@ const ROTULOS_SR = [ROTULO_13_PARCELA_1, ROTULO_13_PARCELA_2];
 
 // `apurados`: os meses que entram na média — fechados, ou abertos mas já encerrados (dados provisórios).
 // Mês em andamento (período que ainda não terminou) fica de fora até fechar: valor parcial puxaria a média para baixo.
-type Variaveis = { porPessoa: Map<string, Map<number, number>>; status: Map<number, string>; apurados: Set<number> };
+export type VariavelInformada = { mes: number; valor: number; motivo: string };
+type Variaveis = {
+  porPessoa: Map<string, Map<number, number>>; status: Map<number, string>; apurados: Set<number>;
+  informadas: Map<string, VariavelInformada[]>;
+};
 
 // Variáveis de cada pessoa por mês: gorjeta + hora extra + adicional noturno (o DSR sobre a hora
 // extra fica de fora, como na contabilidade). Só os meses 1 a 11 servem ao 13º.
@@ -79,7 +85,18 @@ async function variaveisDoAno(ano: number): Promise<Variaveis> {
       porPessoa.set(p.employeeId, meses);
     }
   }
-  return { porPessoa, status, apurados };
+  // Valor informado à mão substitui o da apuração, só aqui (a gorjeta em si não muda).
+  const informadas = new Map<string, VariavelInformada[]>();
+  const registros = await prisma.decimoTerceiroVariavel.findMany({
+    where: { ano, mes: { lte: 11 } }, select: { employeeId: true, mes: true, valor: true, motivo: true }, orderBy: { mes: "asc" },
+  });
+  for (const r of registros) {
+    const meses = porPessoa.get(r.employeeId) ?? new Map<number, number>();
+    meses.set(r.mes, round2(Number(r.valor)));
+    porPessoa.set(r.employeeId, meses);
+    informadas.set(r.employeeId, [...(informadas.get(r.employeeId) ?? []), { mes: r.mes, valor: round2(Number(r.valor)), motivo: r.motivo }]);
+  }
+  return { porPessoa, status, apurados, informadas };
 }
 
 // Avisos sobre a base da média: mês sem apuração, em andamento ou ainda não fechado.
@@ -150,7 +167,9 @@ export async function listarDecimoTerceiroSR(ano: number): Promise<PreviaDecimo1
     const salario = v.baseSalary == null ? null : Number(v.baseSalary);
     let calculo = calcularDecimoTerceiroSR({
       ano, salarioBase: salario, inicio: e.admissionDate, desligamento: e.terminationDate, ate: fim,
-      variaveis: variaveis.porPessoa.get(e.id), mesesApurados: variaveis.apurados,
+      // Mês informado à mão conta para esta pessoa mesmo sem apuração (a gorjeta paga por fora é o caso típico).
+      variaveis: variaveis.porPessoa.get(e.id),
+      mesesApurados: new Set([...variaveis.apurados, ...(variaveis.informadas.get(e.id) ?? []).map((i) => i.mes)]),
     });
     // Registrado sem avos sem registro neste ano (carteira logo no começo ou em anos anteriores): nada a mostrar.
     if (preRegistro && !calculo && salario != null && salario > 0) continue;
@@ -175,10 +194,45 @@ export async function listarDecimoTerceiroSR(ano: number): Promise<PreviaDecimo1
       p2: { ...p2Linha, excesso: p2?.excesso ?? 0 },
       acerto: calculo && p2 && pagoNa2 != null ? round2(p2.valor - pagoNa2 - p2.excesso) : null,
       preRegistro, semRegistroAte: fim ? iso(fim) : null, registroEm: preRegistro && e.admissaoCarteira ? iso(e.admissaoCarteira) : null,
+      informadas: variaveis.informadas.get(e.id) ?? [],
     });
   }
   const avisos = avisosDaBase(ano, variaveis.status, variaveis.apurados);
   return { ano, linhas, novembroFechado: variaveis.status.get(11) === "CLOSED", avisos };
+}
+
+export type EntradaVariavel = { employeeId: string; ano: number; mes: number; valor: number; motivo: string };
+
+// Valida a entrada de uma variável informada: erro em texto claro, ou null se está ok.
+export function validarVariavelInformada(e: Partial<EntradaVariavel>): string | null {
+  if (typeof e.employeeId !== "string" || e.employeeId === "" || e.employeeId.length > 64) return "Funcionário obrigatório.";
+  if (!Number.isInteger(e.mes) || (e.mes as number) < 1 || (e.mes as number) > 11) return "Mês inválido: o 13º usa os meses de 1 a 11.";
+  if (typeof e.valor !== "number" || !Number.isFinite(e.valor) || e.valor < 0 || e.valor > 1_000_000) return "Valor inválido.";
+  if (typeof e.motivo !== "string" || e.motivo.trim().length < 5) return "Informe o motivo (mínimo 5 caracteres).";
+  if (e.motivo.length > 300) return "Motivo muito longo (máximo 300 caracteres).";
+  return null;
+}
+
+// Grava (ou troca) a variável do mês da pessoa. Devolve o valor anterior, para a auditoria.
+export async function informarVariavelDecimo13(e: EntradaVariavel, userId: string): Promise<{ anterior: number | null }> {
+  const emp = await prisma.employee.findFirst({ where: { id: e.employeeId, deletedAt: null }, select: { id: true } });
+  if (!emp) throw new Error("Funcionário não encontrado.");
+  const chave = { employeeId_ano_mes: { employeeId: e.employeeId, ano: e.ano, mes: e.mes } };
+  const antes = await prisma.decimoTerceiroVariavel.findUnique({ where: chave, select: { valor: true } });
+  const valor = round2(e.valor);
+  await prisma.decimoTerceiroVariavel.upsert({
+    where: chave,
+    create: { id: crypto.randomUUID(), employeeId: e.employeeId, ano: e.ano, mes: e.mes, valor, motivo: e.motivo.trim(), criadoPorId: userId },
+    update: { valor, motivo: e.motivo.trim(), atualizadoPorId: userId },
+  });
+  return { anterior: antes ? round2(Number(antes.valor)) : null };
+}
+
+export async function removerVariavelDecimo13(employeeId: string, ano: number, mes: number): Promise<{ anterior: number | null }> {
+  const r = await prisma.decimoTerceiroVariavel.findUnique({ where: { employeeId_ano_mes: { employeeId, ano, mes } }, select: { valor: true } });
+  if (!r) return { anterior: null };
+  await prisma.decimoTerceiroVariavel.delete({ where: { employeeId_ano_mes: { employeeId, ano, mes } } });
+  return { anterior: round2(Number(r.valor)) };
 }
 
 export type ResultadoGeracao = {

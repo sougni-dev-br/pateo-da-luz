@@ -10579,7 +10579,16 @@ export type Decimo13Linha = {
   acerto: number | null;
   // Registrado depois do início real: só o período sem registro entra (até semRegistroAte).
   preRegistro: boolean; semRegistroAte: string | null; registroEm: string | null;
+  // Variáveis do mês informadas à mão (substituem a apuração só no cálculo do 13º).
+  informadas?: Decimo13VariavelInformada[];
 };
+export type Decimo13VariavelInformada = { mes: number; valor: number; motivo: string };
+export function informarVariavelDecimo13(body: { year: number; employeeId: string; mes: number; valor: number; motivo: string }) {
+  return request<{ ok: true }>("/payroll/decimo-terceiro/variavel", json("PUT", body));
+}
+export function removerVariavelDecimo13(year: number, employeeId: string, mes: number) {
+  return request<{ ok: true }>(`/payroll/decimo-terceiro/variavel?year=${year}&employeeId=${encodeURIComponent(employeeId)}&mes=${mes}`, { method: "DELETE" });
+}
 // CLT: o valor vem do extrato da contabilidade; parcela nula = ainda aguardando o extrato.
 export type Decimo13ParcelaClt = { valor: number; pago: boolean };
 export type Decimo13LinhaClt = { employeeId: string; nome: string; setor: string | null; parcela1: Decimo13ParcelaClt | null; parcela2: Decimo13ParcelaClt | null };

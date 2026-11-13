@@ -2986,7 +2986,8 @@ model Employee {
   vtPeriodicity          VtPeriodicity              @default(QUINZENAL)
   vtFixedAmount          Decimal?                   @db.Decimal(12, 2)
   vtLegs                 EmployeeVtLeg[]
-  vtFaltaDeductions      VtFaltaDeduction[]
+  decimoVariaveis        DecimoTerceiroVariavel[]
+  vtFaltaDeductions     VtFaltaDeduction[]
   vtMonthlyFareId        String?
   vtMonthlyFare          VtFare?                    @relation("EmployeeMonthlyFare", fields: [vtMonthlyFareId], references: [id])
   // Desligamento
@@ -3417,6 +3418,26 @@ model EmployeeTipHistory {
 // Histórico do cadastro: salário, vínculo, empresa, cargo etc. com a data a partir da
 // qual valem. Cálculo de mês passado usa o valor VIGENTE naquele mês, não o atual.
 // Valores em texto ("2200.00", "NAO_CLT", "true"); nunca guarda CPF.
+// Variável (gorjeta + hora extra + adicional noturno) de um mês informada à mão para o 13º, quando
+// a apuração do mês não tem o dado da pessoa (ex.: gorjeta paga por fora). Substitui o valor da
+// apuração só no cálculo do 13º; não altera a gorjeta nem gera pagamento.
+model DecimoTerceiroVariavel {
+  id          String   @id
+  employeeId  String
+  employee    Employee @relation(fields: [employeeId], references: [id])
+  ano         Int
+  mes         Int
+  valor       Decimal  @db.Decimal(12, 2)
+  motivo      String
+  criadoPorId String?
+  atualizadoPorId String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([employeeId, ano, mes])
+  @@index([ano])
+}
+
 model EmployeeHistorico {
   id            String   @id
   employeeId    String
