@@ -10580,7 +10580,10 @@ export type Decimo13Linha = {
   // Registrado depois do início real: só o período sem registro entra (até semRegistroAte).
   preRegistro: boolean; semRegistroAte: string | null; registroEm: string | null;
 };
-export type Decimo13Previa = { ano: number; linhas: Decimo13Linha[]; novembroFechado: boolean; avisos: string[] };
+// CLT: o valor vem do extrato da contabilidade; parcela nula = ainda aguardando o extrato.
+export type Decimo13ParcelaClt = { valor: number; pago: boolean };
+export type Decimo13LinhaClt = { employeeId: string; nome: string; setor: string | null; parcela1: Decimo13ParcelaClt | null; parcela2: Decimo13ParcelaClt | null };
+export type Decimo13Previa = { ano: number; linhas: Decimo13Linha[]; novembroFechado: boolean; avisos: string[]; clt: Decimo13LinhaClt[] };
 export function getDecimoTerceiro(year: number) {
   return request<Decimo13Previa>(`/payroll/decimo-terceiro?year=${year}`);
 }

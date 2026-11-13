@@ -1,0 +1,61 @@
+/* Telas da Folha: barra de competência, passos e ajustes de painel. Só tokens do tema. */
+.folha-sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+.folha-barra { display: flex; align-items: center; justify-content: space-between; gap: 10px 16px; flex-wrap: wrap; margin: 0 0 16px; }
+.folha-barra-grupo { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.folha-barra-acoes { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; margin-left: auto; }
+.folha-competencia { display: inline-flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
+.folha-competencia > strong { min-width: 64px; padding: 0 8px; text-align: center; font-size: 14px; font-variant-numeric: tabular-nums; }
+.folha-competencia .ds-button { border-color: transparent; box-shadow: none; }
+
+.folha-regra { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; margin: 0 0 16px; padding: 10px 14px; border-left: 3px solid var(--gold); border-radius: 0 8px 8px 0; background: var(--paper-soft, #f6f7f9); font-size: 13px; color: var(--ink); }
+.folha-regra b { font-weight: 600; }
+.folha-regra span { color: var(--muted); }
+
+.folha-passos { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 0; margin: 0 0 16px; padding: 0; list-style: none; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--paper); }
+.folha-passo { display: grid; grid-template-columns: auto 1fr; grid-auto-rows: min-content; align-content: start; gap: 2px 12px; align-items: center; padding: 12px 16px; position: relative; min-width: 0; }
+.folha-passo + .folha-passo { border-left: 1px solid var(--line); }
+.folha-passo-marca { grid-row: 1 / span 2; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; border: 1.5px solid var(--line); background: var(--paper); font-size: 13px; font-weight: 600; color: var(--muted); }
+.folha-passo-titulo { font-size: 14px; font-weight: 600; line-height: 1.25; }
+.folha-passo-detalhe { font-size: 12px; color: var(--muted); line-height: 1.3; }
+.folha-passo-acao { grid-column: 1 / -1; margin-top: 8px; }
+.folha-passo[data-estado="atual"] { background: var(--gold-tint, rgba(185, 154, 88, 0.1)); }
+.folha-passo[data-estado="atual"] .folha-passo-marca { border-color: var(--gold); background: var(--gold); color: #fff; }
+.folha-passo[data-estado="feito"] .folha-passo-marca { border-color: var(--success); background: var(--success); color: #fff; }
+.folha-passo[data-estado="pendente"] .folha-passo-titulo { color: var(--muted); }
+
+.folha-tabela td.num, .folha-tabela th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.folha-grupo > td { padding-top: 12px; padding-bottom: 8px; background: var(--paper-soft, #f6f7f9); border-top: 1px solid var(--line); }
+.folha-grupo-titulo { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-weight: 600; font-size: 13px; }
+.folha-grupo-titulo small { font-weight: 400; color: var(--muted); font-size: 12px; }
+.folha-total > td { font-weight: 700; background: var(--paper-soft, #f6f7f9); border-top: 2px solid var(--line); }
+.folha-nota { display: block; margin-top: 2px; font-size: 12px; font-weight: 400; color: var(--muted); }
+.folha-filtro { max-width: 280px; }
+
+/* O painel de pagamento já está dentro da tela: sem caixa dupla. */
+.folha-tela .pagamento-meio { border: 0; padding: 0; margin: 0 0 8px; }
+.folha-tela .pagamento-meio .cabecalho-painel { padding-bottom: 2px; }
+.folha-aviso-longo summary { cursor: pointer; font-weight: 600; }
+.folha-aviso-longo p { margin: 6px 0 0; overflow-wrap: anywhere; }
+
+@media (max-width: 720px) {
+  .folha-passo + .folha-passo { border-left: 0; border-top: 1px solid var(--line); }
+  .folha-barra-acoes { margin-left: 0; justify-content: flex-start; }
+}
+
+/* O que fazer neste mês */
+.folha-pendencias { margin: 0 0 16px; padding: 12px 16px; border: 1px solid var(--line); border-left: 3px solid var(--warning); border-radius: 10px; background: var(--paper); }
+.folha-pendencias[data-vazio] { border-left-color: var(--success); }
+.folha-pendencias-titulo { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 14px; }
+.folha-pendencias-titulo svg { color: var(--warning); }
+.folha-pendencias[data-vazio] .folha-pendencias-titulo svg { color: var(--success); }
+.folha-pendencias ul { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 4px; }
+.folha-pendencias li { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; padding: 4px 0; border-top: 1px dashed var(--line); }
+.folha-pendencias li:first-child { border-top: 0; }
+.folha-pendencia-link { flex: none; font-size: 13px; font-weight: 600; color: var(--info); text-decoration: none; }
+.folha-pendencia-link:hover { text-decoration: underline; }
+
+/* Variação contra o mês anterior */
+.folha-variacao { display: block; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.folha-variacao[data-sobe="true"] { color: var(--warning); }
+.folha-variacao[data-sobe="false"] { color: var(--info); }

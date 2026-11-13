@@ -39,8 +39,8 @@ beforeEach(() => {
   api.generatePayroll.mockResolvedValue({ created: 1, skipped: 0, ajustados: 0, avisos: [] });
 });
 
-const montar = (canEdit = true, onLancado = vi.fn()) =>
-  render(<PagamentoMeio year={2026} month={10} canEdit={canEdit} percentAdiantamento={40} diaAdiantamento={20} versao="1" onLancado={onLancado} />);
+const montar = (canEdit = true, onLancado = vi.fn(), tipo: "ADIANTAMENTO" | "QUINZENA" = "ADIANTAMENTO") =>
+  render(<PagamentoMeio tipo={tipo} year={2026} month={10} canEdit={canEdit} percentAdiantamento={40} diaAdiantamento={20} versao="1" onLancado={onLancado} />);
 
 test("mostra a situação de cada pessoa, agrupada por empresa, com o resumo", async () => {
   montar();
@@ -106,12 +106,12 @@ test("PDF: pagos à parte, quem falta lançar marcado e selo de prévia", async 
   expect(opcoes.apoio).toContain("vencimento 20/10/2026");
 });
 
-test("troca para a 1ª quinzena e lembra a escolha", async () => {
-  montar();
+test("cada tela pede só o seu pagamento, sem seletor de tipo", async () => {
+  montar(true, vi.fn(), "QUINZENA");
   await screen.findByText("Carla Exemplo");
-  fireEvent.change(screen.getByRole("combobox", { name: "Qual pagamento" }), { target: { value: "QUINZENA" } });
-  await waitFor(() => expect(api.getPagamentoMeio).toHaveBeenLastCalledWith(2026, 10, "QUINZENA"));
-  expect(window.localStorage.getItem("pagamento-meio:tipo")).toBe("QUINZENA");
+  expect(api.getPagamentoMeio).toHaveBeenCalledWith(2026, 10, "QUINZENA");
+  expect(screen.queryByRole("combobox", { name: "Qual pagamento" })).toBeNull();
+  expect(screen.getByText(/Lista de pagamento · 1ª quinzena/)).toBeInTheDocument();
 });
 
 test("erro da API (sem permissão) aparece na tela", async () => {
@@ -154,3 +154,17 @@ test("quinzena com valor a atualizar: a confirmação mostra o valor atual e o n
   expect(lista.linhas[0].aviso).toMatch(/o cálculo de hoje dá R\$\s?1\.100,00/);
 });
 
+
+test("oferece abrir o Contas a Pagar já filtrado pelo vencimento dos títulos em aberto", async () => {
+  montar();
+  const link = await screen.findByRole("link", { name: "Dar baixa no Contas a Pagar" });
+  expect(link.getAttribute("href")).toBe("/financeiro/contas-a-pagar?de=2026-10-20&ate=2026-10-20&aba=abertos");
+});
+
+test("avisa quando o valor da pessoa mudou mais de 10% em relação ao mês anterior", async () => {
+  const mesAnterior = dados([linha({ employeeId: "a", nome: "Ana Exemplo", valor: 800 })]);
+  api.getPagamentoMeio.mockImplementation(async (_ano: number, mes: number) => (mes === 9 ? mesAnterior : ANTES));
+  montar();
+  expect(await screen.findByText(/▲ 29% vs mês anterior/)).toBeInTheDocument(); // 1034 contra 800
+  expect(screen.getAllByText(/vs mês anterior/)).toHaveLength(1); // as outras pessoas não tinham valor anterior
+});

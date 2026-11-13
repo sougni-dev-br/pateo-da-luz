@@ -22,3 +22,21 @@ export function reciboDoLancamento(i: { type: string; details?: unknown }): "QUI
   if (i.type !== "ADIANTAMENTO" || d?.semRegistro !== true) return null;
   return d.primeiraQuinzena === true ? "QUINZENA" : "ADIANTAMENTO";
 }
+
+/** Título de quem não tem registro (marca `details.semRegistro`). */
+export const ehDeSemRegistro = (i: { details?: Record<string, unknown> | null }) => i.details?.semRegistro === true;
+
+/**
+ * Itens da prévia da folha (adiantamento + salário). O "Gerar folha" nunca cria o de quem é sem registro
+ * (o adiantamento dele e a 1ª quinzena têm tela própria), então a prévia também não o mostra nem soma:
+ * o botão promete exatamente o que o servidor vai criar.
+ */
+export function itensDaPreviaDaFolha<T extends { type: string; exists: boolean; details?: Record<string, unknown> | null }>(
+  itens: T[],
+): { daFolha: T[]; semRegistroFora: number } {
+  const folha = itens.filter((i) => i.type === "ADIANTAMENTO" || i.type === "SALARIO");
+  return {
+    daFolha: folha.filter((i) => !ehDeSemRegistro(i)),
+    semRegistroFora: folha.filter((i) => ehDeSemRegistro(i) && !i.exists).length,
+  };
+}

@@ -1,4 +1,4 @@
-import { Banknote, Bus, Check, ChevronLeft, ChevronRight, Clock, Coins, Palmtree, Pencil, Printer, RefreshCw, Settings, Trash2, UserMinus, Wallet, Wand2 } from "lucide-react";
+import { Banknote, Bus, Check, ChevronLeft, ChevronRight, Clock, Coins, Palmtree, Pencil, Printer, RefreshCw, Settings, Trash2, Wallet, Wand2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
   Employee, PayrollComputedItem, PayrollItemType, PayrollKind, PayrollList, PayrollListItem, PayrollOverride, PayrollPreview, PayrollSettings,
@@ -14,10 +14,14 @@ import {
 import { hasPermission } from "../lib/permissions";
 import { maskMoney, moneyToMasked } from "../utils/format";
 import { AfastamentoModal } from "./folha/AfastamentoModal";
-import { DecimoTerceiroSemRegistro } from "./folha/DecimoTerceiroSemRegistro";
 import { LancamentoManualModal } from "./folha/LancamentoManualModal";
+import { MenuExcecoes } from "./folha/MenuExcecoes";
+import { ROTAS_RH } from "./rh/rotasRh";
+import { PendenciasFolha } from "./folha/PendenciasFolha";
+import "./folha/folha-ui.css";
 import { PagamentoMeio } from "./folha/PagamentoMeio";
-import { adiantamentosSrAGerar, quinzenasSrAGerar, reciboDoLancamento } from "./folha/semRegistro";
+import { itensDaPreviaDaFolha, reciboDoLancamento } from "./folha/semRegistro";
+import { LinkInterno } from "./folha/LinkInterno";
 import { AvisoReciboImpresso, useImprimirRecibos } from "./gorjeta/ImprimirRecibos";
 
 const MONTHS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
@@ -124,7 +128,7 @@ function BarraRecibos({ itens, imprimindo, onImprimir }: {
 }
 
 /** A Folha virou três telas no menu (Folha → ...): cada uma mostra só a sua parte. */
-export type SecaoFolha = "lancamentos" | "vt" | "adiantamento";
+export type SecaoFolha = "lancamentos" | "vt" | "adiantamento" | "quinzena";
 // O mês escolhido vale para as três telas da Folha nesta aba do navegador (sem armazenamento: o mês atual).
 const CHAVE_COMPETENCIA = "folha:competencia";
 function competenciaInicial(): { year: number; month: number } {
@@ -139,7 +143,7 @@ function competenciaInicial(): { year: number; month: number } {
 }
 
 const TITULO_SECAO: Record<SecaoFolha, string> = {
-  lancamentos: "Folha de pagamento", vt: "Vale-transporte", adiantamento: "Adiantamento e 1ª quinzena",
+  lancamentos: "Folha de pagamento", vt: "Vale-transporte", adiantamento: "Adiantamento (dia 20)", quinzena: "1ª quinzena (dia 15)",
 };
 
 export function Folha({ secao = "lancamentos" }: { secao?: SecaoFolha }) {
@@ -522,11 +526,15 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
     }
   }
 
+  // Adiantamento e 1ª quinzena têm tela própria: cada uma mostra só o seu pagamento.
+  const pagamentoDoMeio = secao === "adiantamento" ? "ADIANTAMENTO" : secao === "quinzena" ? "QUINZENA" : null;
   const s = list?.summary;
   // Só os itens do escopo escolhido aparecem e são gerados.
+  const daPreviaDaFolha = preview ? itensDaPreviaDaFolha(preview.items) : { daFolha: [], semRegistroFora: 0 };
   const itensDoEscopo: PayrollComputedItem[] = preview
-    ? preview.items.filter((i) => (previewScope === "VT" ? i.type === "VALE_TRANSPORTE" : i.type === "ADIANTAMENTO" || i.type === "SALARIO"))
+    ? (previewScope === "VT" ? preview.items.filter((i) => i.type === "VALE_TRANSPORTE") : daPreviaDaFolha.daFolha)
     : [];
+  const semRegistroFora = previewScope === "FOLHA" ? daPreviaDaFolha.semRegistroFora : 0;
   const previewNew = itensDoEscopo.filter((i) => !i.exists).length;
   // Total do escopo já refletindo os ajustes manuais — é o que vai ser gerado.
   const previewTotal = itensDoEscopo.filter((i) => !i.exists).reduce((a, i) => {
@@ -547,12 +555,6 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
   const novosVtQ1 = novosVtDe(1);
   const novosVtQ2 = novosVtDe(2);
   const novosFolha = itensDoEscopo.filter((i) => !i.exists && (i.type === "ADIANTAMENTO" || i.type === "SALARIO")).length;
-  // Adiantamento do dia 20 de quem é sem registro e recebe adiantamento: lançado sozinho (o
-  // salário deles sai pela lista da gorjeta, que desconta este título pelo valor pago).
-  const novosAdiantamentoSr = adiantamentosSrAGerar(itensDoEscopo);
-  // 1ª quinzena (dia 15) de quem é sem registro e recebe por quinzena: idem, e a lista desconta.
-  const quinzenasSr = quinzenasSrAGerar(itensDoEscopo);
-  const quinzenasSrTotal = quinzenasSr.novas + quinzenasSr.desatualizadas;
 
   // Conferência: VT já lançado da quinzena escolhida, ordenado por funcionário.
   //
@@ -622,31 +624,32 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
       <Notice notice={notice} />
 
       {/* Apuração de gorjeta e Retorno do RH eram abas daqui: agora são itens próprios do menu Folha. */}
-      <section className="panel">
-        <div className="section-heading">
-          <div>
-            <PanelEyebrow>Folha</PanelEyebrow>
-            <h2>{TITULO_SECAO[secao]}</h2>
+      <section className="panel folha-tela">
+        <h2 className="folha-sr">{TITULO_SECAO[secao]}</h2>
+        <div className="folha-barra">
+          <div className="folha-barra-grupo">
+            <div className="folha-competencia" role="group" aria-label="Competência">
+              <IconButton size="sm" label="Mês anterior" icon={<ChevronLeft size={16} />} onClick={() => goMonth(-1)} />
+              <input
+                type="month"
+                value={`${year}-${String(month).padStart(2, "0")}`}
+                onChange={(e) => { const [y, m] = e.target.value.split("-").map(Number); if (y && m) { setYear(y); setMonth(m); } }}
+                aria-label="Mês e ano"
+                style={{ padding: "4px 6px", border: 0, background: "transparent", font: "inherit", color: "inherit" }}
+              />
+              <IconButton size="sm" label="Próximo mês" icon={<ChevronRight size={16} />} onClick={() => goMonth(1)} />
+            </div>
+            <IconButton size="sm" label="Recarregar" icon={<RefreshCw size={15} />} onClick={load} />
           </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-            <Button variant="secondary" onClick={() => goMonth(-1)} aria-label="Mês anterior"><ChevronLeft size={16} /></Button>
-            <input
-              type="month"
-              value={`${year}-${String(month).padStart(2, "0")}`}
-              onChange={(e) => { const [y, m] = e.target.value.split("-").map(Number); if (y && m) { setYear(y); setMonth(m); } }}
-              aria-label="Mês e ano"
-              style={{ padding: "6px 8px", border: "1px solid var(--border)", borderRadius: 8, font: "inherit", background: "var(--surface, #fff)", color: "inherit" }}
-            />
-            <Button variant="secondary" onClick={() => goMonth(1)} aria-label="Próximo mês"><ChevronRight size={16} /></Button>
-            <Button variant="secondary" onClick={load} aria-label="Recarregar"><RefreshCw size={15} /></Button>
-            <Button variant="secondary" leadingIcon={<Settings size={14} />} onClick={() => setShowSettings((v) => !v)}>Configurações</Button>
-            {canEdit && secao === "lancamentos" && <Button variant="secondary" leadingIcon={<Palmtree size={14} />} onClick={openVacation}>Lançar férias</Button>}
-            {canEdit && secao === "lancamentos" && <Button variant="secondary" leadingIcon={<UserMinus size={14} />} onClick={() => setShowAfastamento(true)}>Lançar afastamento</Button>}
-            {canEdit && secao === "lancamentos" && <Button variant="secondary" leadingIcon={<Coins size={14} />} onClick={() => setShowManual(true)}>Lançar à mão</Button>}
+          <div className="folha-barra-acoes">
+            <Button variant="secondary" leadingIcon={<Settings size={14} />} onClick={() => setShowSettings((v) => !v)} aria-expanded={showSettings}>Configurações</Button>
+            {canEdit && secao === "lancamentos" && <MenuExcecoes onFerias={openVacation} onAfastamento={() => setShowAfastamento(true)} onManual={() => setShowManual(true)} />}
             {canEdit && secao === "vt" && <Button leadingIcon={<Bus size={14} />} onClick={() => handlePreview("VT")} disabled={busy}>Prever VT</Button>}
             {canEdit && secao === "lancamentos" && <Button leadingIcon={<Wand2 size={14} />} onClick={() => handlePreview("FOLHA")} disabled={busy}>Prever folha</Button>}
           </div>
         </div>
+
+        {secao === "lancamentos" && podeRecibo && <PendenciasFolha year={year} month={month} />}
 
         {/* Configurações */}
         {showSettings && settings && (
@@ -665,6 +668,8 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
               {canEdit && <Button onClick={handleSaveSettings} disabled={busy}>Salvar configurações</Button>}
             </div>
 
+            {/* As tarifas pertencem ao VT: nas outras telas só as regras da folha. */}
+            {secao === "vt" && (
             <div style={{ borderTop: "1px solid var(--border)", marginTop: 16, paddingTop: 14 }}>
               <PanelEyebrow>Tarifas de transporte</PanelEyebrow>
               <div style={{ fontSize: "0.82em", color: "var(--muted)", margin: "4px 0 10px" }}>
@@ -769,6 +774,7 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
                 </div>
               )}
             </div>
+            )}
           </div>
         )}
 
@@ -788,13 +794,13 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
         )}
 
         {/* Adiantamento e 1ª quinzena: conferir o que está no Contas a Pagar, lançar o que falta e imprimir para pagar. */}
-        {secao === "adiantamento" && !podeRecibo && (
+        {pagamentoDoMeio && !podeRecibo && (
           <Alert tone="warning">A lista do adiantamento mostra valores e PIX: é preciso permissão de ver Funcionários.</Alert>
         )}
         {/* Depois de a folha do mês responder (a versão nasce certa e a lista não carrega duas vezes);
             se a folha falhar, a lista abre do mesmo jeito: ela tem a sua própria consulta. */}
-        {secao === "adiantamento" && podeRecibo && (list || (!loading && error)) && (
-          <PagamentoMeio year={year} month={month} canEdit={canEdit}
+        {pagamentoDoMeio && podeRecibo && (list || (!loading && error)) && (
+          <PagamentoMeio tipo={pagamentoDoMeio} year={year} month={month} canEdit={canEdit}
             percentAdiantamento={settings ? Number(settings.advancePercent) : null}
             diaAdiantamento={settings?.advanceDueDay ?? null}
             versao={(list?.items ?? []).filter((i) => i.type === "ADIANTAMENTO").map((i) => `${i.id}:${i.amount}:${i.status}`).join("|")}
@@ -906,14 +912,6 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
                 )}
                 {canEdit && previewScope === "FOLHA" && (
                   <>
-                    <Button variant="secondary" leadingIcon={<Banknote size={14} />} onClick={() => handleGenerate("QUINZENA_SR")} disabled={busy || quinzenasSrTotal === 0}
-                      title="Lança só a 1ª quinzena (dia 15) dos sem registro que recebem por quinzena: metade do salário base vigente no dia 15. Gerar de novo atualiza a que ainda não foi paga. No dia, dê a baixa no Contas a Pagar com o valor pago: a lista de pagamento desconta esse valor.">
-                      Gerar 1ª quinzena (sem registro) ({quinzenasSrTotal})
-                    </Button>
-                    <Button variant="secondary" leadingIcon={<Banknote size={14} />} onClick={() => handleGenerate("ADIANTAMENTO_SR")} disabled={busy || novosAdiantamentoSr === 0}
-                      title="Lança só o adiantamento do dia 20 dos sem registro que recebem adiantamento. No dia, dê a baixa no Contas a Pagar com o valor pago: a lista de pagamento desconta esse valor.">
-                      Lançar adiantamento dos sem registro ({novosAdiantamentoSr})
-                    </Button>
                     <Button leadingIcon={<Banknote size={14} />} onClick={() => handleGenerate("FOLHA")} disabled={busy || novosFolha === 0} title="Fecha adiantamento + salário">
                       Gerar folha ({novosFolha})
                     </Button>
@@ -921,6 +919,12 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
                 )}
               </div>
             </div>
+            {semRegistroFora > 0 && (
+              <Alert tone="info">
+                {semRegistroFora} {semRegistroFora === 1 ? "pessoa sem registro fica" : "pessoas sem registro ficam"} de fora da folha: o adiantamento (dia 20) e a 1ª quinzena delas são lançados em{" "}
+                <LinkInterno para={ROTAS_RH.adiantamento}>Adiantamento</LinkInterno> e <LinkInterno para={ROTAS_RH.quinzena}>1ª quinzena</LinkInterno>.
+              </Alert>
+            )}
             {preview.warnings && preview.warnings.length > 0 && (
               <Alert tone="warning">
                 {preview.warnings.map((w, i) => <div key={i}>{w}</div>)}
@@ -980,7 +984,6 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
           </div>
         )}
 
-        {secao === "lancamentos" && canEdit && podeRecibo && <DecimoTerceiroSemRegistro year={year} onGerado={() => void load()} />}
         {loading && secao === "lancamentos" && <EmptyState title="Carregando folha..." />}
         {!loading && secao === "lancamentos" && list && list.items.length === 0 && !preview && (
           <EmptyState

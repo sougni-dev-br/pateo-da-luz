@@ -13,6 +13,7 @@ import { prisma } from "../../config/database.js";
 import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
 import { computeTipCommission } from "./tip-commission.service.js";
 import { cadastrosVigentes } from "./cadastro-historico.service.js";
+import { type LinhaDecimo13Clt, montarLinhasClt } from "./decimo-terceiro-clt.js";
 import {
   calcularDecimoTerceiroSR, decidirParcela, fimSemRegistro, primeiraParaAcerto, ROTULO_13_EXTRATO_PARCELA_1, ROTULO_13_PARCELA_1,
   ROTULO_13_PARCELA_2, segundaParcela, type Decimo13SR,
@@ -259,4 +260,26 @@ export async function gerarDecimoTerceiroSR(ano: number, userId: string, parcela
   }, { timeout: 30_000, maxWait: 10_000 });
   const semCalculo = previa.linhas.filter((l) => !l.calculo).length;
   return { ano, parcela, criadas, atualizadas, restauradas, semCalculo, avisos: [...previa.avisos, ...avisos] };
+}
+
+// Quem tem registro: só mostra o que o extrato da contabilidade já trouxe (o cálculo é dela).
+export async function listarDecimoTerceiroClt(ano: number): Promise<LinhaDecimo13Clt[]> {
+  const emps = await prisma.employee.findMany({
+    where: { deletedAt: null, terminationDate: null, recebeDecimoTerceiro: true },
+    select: { id: true, firstName: true, lastName: true, sector: true, modality: true, baseSalary: true, admissionDate: true, terminationDate: true },
+    orderBy: [{ firstName: "asc" }],
+  });
+  const vigentes = await cadastrosVigentes(
+    emps.map((e) => ({ ...e, baseSalary: e.baseSalary == null ? null : Number(e.baseSalary) })),
+    () => diaRef(ano),
+  );
+  const clt = emps.filter((e) => vigentes.get(e.id)?.modality === "CLT");
+  const itens = await prisma.payrollItem.findMany({
+    where: { type: "DECIMO_TERCEIRO", competenceYear: ano, deletedAt: null, employeeId: { in: clt.map((e) => e.id) } },
+    select: { employeeId: true, periodLabel: true, amount: true, status: true },
+  });
+  return montarLinhasClt(
+    clt.map((e) => ({ employeeId: e.id, nome: nomeDe(e), setor: e.sector })),
+    itens.map((i) => ({ ...i, amount: Number(i.amount), status: String(i.status) })),
+  );
 }

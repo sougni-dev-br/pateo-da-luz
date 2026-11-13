@@ -2,7 +2,7 @@
 import { Router } from "express";
 import { auditLog, getSessionUser, requestIp } from "../security/security-utils.js";
 import { podeVerDadosPessoais } from "./dados-pessoais.js";
-import { gerarDecimoTerceiroSR, listarDecimoTerceiroSR } from "./decimo-terceiro.service.js";
+import { gerarDecimoTerceiroSR, listarDecimoTerceiroClt, listarDecimoTerceiroSR } from "./decimo-terceiro.service.js";
 
 export const decimoTerceiroRouter = Router();
 
@@ -27,7 +27,8 @@ decimoTerceiroRouter.get("/", async (request, response) => {
   if (!(await podeVerDadosPessoais(request))) return response.status(403).json({ message: MSG_SEM_PERMISSAO });
   const ano = lerAno(request.query.year);
   if (ano == null) return response.status(400).json({ message: MSG_ANO });
-  response.json(await listarDecimoTerceiroSR(ano));
+  // CLT: lista só de leitura (o valor vem do extrato da contabilidade).
+  response.json({ ...(await listarDecimoTerceiroSR(ano)), clt: await listarDecimoTerceiroClt(ano) });
 });
 
 decimoTerceiroRouter.post("/generate", async (request, response) => {

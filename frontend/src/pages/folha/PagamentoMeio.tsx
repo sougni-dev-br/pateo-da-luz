@@ -6,23 +6,26 @@ import { useEffect, useRef, useState } from "react";
 import {
   type LinhaPagamentoMeio, type PagamentoMeio as Dados, type TipoPagamentoMeio, generatePayroll, getPagamentoMeio,
 } from "../../api/client";
-import { Alert, Button, Select, StatusBadge, Table } from "../../design-system";
+import { Alert, Button, EmptyState, Select, StatusBadge, Table } from "../../design-system";
 import { type ColunaOpcional, SeletorColunas, useColunas } from "../gorjeta/colunas";
 import { SEM_DADOS_BANCARIOS, linhasDadosBancarios } from "../gorjeta/dadosBancarios";
 import { BarraFiltro, opcoesDe, useFiltro } from "../gorjeta/filtro";
 import { money, mutedStyle } from "../gorjeta/gorjetaUtils";
 import { NomePessoa, nomeProprio } from "../gorjeta/NomePessoa";
+import { LinkInterno, linkContasAPagar } from "./LinkInterno";
 import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "../gorjeta/ordenacao";
 import {
   COLUNAS_OPCIONAIS_PDF, type ModoImpressaoFolha, competenciaPdf, gerarPdfListaPagamento,
 } from "../gorjeta/pdfFolhaLiquidos";
 import "../gorjeta/gorjeta.css";
 import {
-  KIND_DO_TIPO, diaDoPagamento, TITULO_PAGAMENTO, aLancar, ddmmaaaa, listaParaPdf, precisaAtualizar, regrasDoPdf, resultadoDoLancamento,
+  KIND_DO_TIPO, diaDoPagamento, variacaoContraAnterior, TITULO_PAGAMENTO, aLancar, ddmmaaaa, listaParaPdf, precisaAtualizar, regrasDoPdf, resultadoDoLancamento,
   seloDoPdf, textoSituacao, vencimentoDaLista,
 } from "./regrasPagamentoMeio";
 
 type Props = {
+  /** Cada pagamento tem a sua tela: 1ª quinzena (dia 15) ou adiantamento (dia 20). */
+  tipo: TipoPagamentoMeio;
   year: number;
   month: number;
   canEdit: boolean;
@@ -48,12 +51,24 @@ const MODOS_IMPRESSAO = [{ value: "empresa", label: "Por empresa" }, { value: "a
 
 // Preferências de quem confere; sem armazenamento (aba anônima), voltam ao padrão.
 const CHAVE_MODO = "pagamento-meio:modo-impressao";
-const CHAVE_TIPO = "pagamento-meio:tipo";
 function lerPreferencia<T extends string>(chave: string, valores: readonly T[], padrao: T): T {
   try { const v = window.localStorage.getItem(chave); return valores.includes(v as T) ? (v as T) : padrao; } catch { return padrao; }
 }
 function gravarPreferencia(chave: string, valor: string) {
   try { window.localStorage.setItem(chave, valor); } catch { /* só não lembra */ }
+}
+
+// Aviso com uma lista de nomes no fim ("…: Ana, Bruno, …"): a frase fica à vista e os nomes abrem sob demanda.
+function AvisoDaLista({ texto }: { texto: string }) {
+  const i = texto.lastIndexOf(": ");
+  const nomes = i > 0 ? texto.slice(i + 2).replace(/\.$/, "").split(/,\s*/).filter(Boolean) : [];
+  if (texto.length < 160 || nomes.length < 3) return <div>{texto}</div>;
+  return (
+    <details className="folha-aviso-longo">
+      <summary>{texto.slice(0, i)} ({nomes.length})</summary>
+      <p>{nomes.join(", ")}</p>
+    </details>
+  );
 }
 
 const plural = (n: number, um: string, varios: string) => `${n} ${n === 1 ? um : varios}`;
@@ -108,8 +123,7 @@ function Confirmacao({ tipo, linhas, lancando, onConfirmar, onCancelar }: {
   );
 }
 
-export function PagamentoMeio({ year, month, canEdit, percentAdiantamento, diaAdiantamento, versao, onLancado }: Props) {
-  const [tipo, setTipo] = useState<TipoPagamentoMeio>(() => lerPreferencia(CHAVE_TIPO, ["ADIANTAMENTO", "QUINZENA"] as const, "ADIANTAMENTO"));
+export function PagamentoMeio({ tipo, year, month, canEdit, percentAdiantamento, diaAdiantamento, versao, onLancado }: Props) {
   const [modo, setModo] = useState<ModoImpressaoFolha>(() => lerPreferencia(CHAVE_MODO, ["empresa", "alfabetica"] as const, "empresa"));
   const [dados, setDados] = useState<Dados | null>(null);
   const [erro, setErro] = useState<string | null>(null);
@@ -117,7 +131,8 @@ export function PagamentoMeio({ year, month, canEdit, percentAdiantamento, diaAd
   const [lancando, setLancando] = useState(false);
   const [resultado, setResultado] = useState<{ tom: "success" | "warning" | "error"; linhas: string[] } | null>(null);
   const [imprimindo, setImprimindo] = useState(false);
-  const tipos = (["ADIANTAMENTO", "QUINZENA"] as const).map((t) => ({ value: t, label: `${TITULO_PAGAMENTO[t]} (${diaDoPagamento(t, diaAdiantamento)})` }));
+  // Valor de cada pessoa no mês anterior (só para avisar de variação grande; se não vier, nada muda).
+  const [anterior, setAnterior] = useState<Map<string, number>>(new Map());
   const ord = useOrdenacao("pagamento-meio");
   const col = useColunas("pagamento-meio");
   const colPdf = useColunas("pagamento-meio-pdf");
@@ -133,11 +148,22 @@ export function PagamentoMeio({ year, month, canEdit, percentAdiantamento, diaAd
       if (vez !== pedido.current) return undefined;
       setDados(d);
       setErro(null);
+      void carregarAnterior(vez);
       return d;
     } catch (e) {
       if (vez !== pedido.current) return undefined;
       setErro((e as Error).message);
       return null;
+    }
+  }
+  async function carregarAnterior(vez: number) {
+    const mesAnterior = month === 1 ? { y: year - 1, m: 12 } : { y: year, m: month - 1 };
+    try {
+      const d = await getPagamentoMeio(mesAnterior.y, mesAnterior.m, tipo);
+      if (vez !== pedido.current) return;
+      setAnterior(new Map(d.linhas.map((l) => [l.employeeId, l.valor])));
+    } catch {
+      if (vez === pedido.current) setAnterior(new Map());
     }
   }
   // Outro mês ou outro tipo: lista nova do zero (o resultado de um lançamento é do mês e do tipo
@@ -150,6 +176,7 @@ export function PagamentoMeio({ year, month, canEdit, percentAdiantamento, diaAd
     if (contextoAtual.current !== contexto) {
       contextoAtual.current = contexto;
       setDados(null);
+      setAnterior(new Map());
       setErro(null);
       setConfirmando(false);
       setResultado(null);
@@ -220,16 +247,6 @@ export function PagamentoMeio({ year, month, canEdit, percentAdiantamento, diaAd
         <strong>Lista de pagamento · {TITULO_PAGAMENTO[tipo]} ({diaDoPagamento(tipo, diaAdiantamento)})</strong>
         <span>O que está no Contas a Pagar, o que falta lançar e o que já foi pago — com os dados bancários para pagar.</span>
       </div>
-      <div className="cabecalho-painel-acoes">
-        <Select aria-label="Qual pagamento" options={tipos} value={tipo} disabled={lancando}
-          onChange={(e) => {
-            const t = e.target.value as TipoPagamentoMeio;
-            // O filtro de uma lista (empresa, situação) não serve para a outra.
-            filtro.limpar();
-            setTipo(t);
-            gravarPreferencia(CHAVE_TIPO, t);
-          }} />
-      </div>
     </div>
   );
 
@@ -257,6 +274,7 @@ export function PagamentoMeio({ year, month, canEdit, percentAdiantamento, diaAd
   const th = (c: string) => ({ coluna: c, ordem: ord.ordem, onOrdenar: () => ord.alternar(c, TEXTO.has(c) ? "asc" : "desc") });
   const semDados = dados.linhas.filter((l) => l.situacao !== "PAGO" && linhasDadosBancarios(l).length === 0).length;
   const aPagar = dados.linhas.filter((l) => l.situacao !== "PAGO").length;
+  const vencimentoAberto = vencimentoDaLista(dados.linhas.filter((l) => l.situacao === "LANCADO"));
 
   return (
     <div className="pagamento-meio">
@@ -271,7 +289,7 @@ export function PagamentoMeio({ year, month, canEdit, percentAdiantamento, diaAd
         <div role="listitem" className="pm-cartao pm-total"><span>Total do mês</span><strong>{money(dados.total)}</strong><small>{plural(dados.linhas.length, "pessoa", "pessoas")}</small></div>
       </div>
 
-      {dados.avisos.length > 0 && <Alert tone="warning">{dados.avisos.map((a) => <div key={a}>{a}</div>)}</Alert>}
+      {dados.avisos.length > 0 && <Alert tone="warning">{dados.avisos.map((a) => <AvisoDaLista key={a} texto={a} />)}</Alert>}
       {avisoResultado}
 
       <div className="pagamento-meio-acoes">
@@ -281,6 +299,11 @@ export function PagamentoMeio({ year, month, canEdit, percentAdiantamento, diaAd
             title="Mostra o que vai ser lançado e pede confirmação antes de gravar">
             Lançar no Contas a Pagar ({pendentes.length})
           </Button>
+        )}
+        {dados.lancado.pessoas > 0 && vencimentoAberto && (
+          <LinkInterno para={linkContasAPagar(vencimentoAberto)} className="ds-button ds-button-md ds-button-secondary">
+            Dar baixa no Contas a Pagar
+          </LinkInterno>
         )}
         <SeletorColunas colunas={COLUNAS} ocultas={col.ocultas} alternar={col.alternar} mostrarTodas={col.mostrarTodas} />
         <div className="folha-pdf-acao">
@@ -313,7 +336,7 @@ export function PagamentoMeio({ year, month, canEdit, percentAdiantamento, diaAd
       )}
 
       {dados.linhas.length === 0 ? (
-        <span style={mutedStyle}>Nada de {TITULO_PAGAMENTO[tipo].toLowerCase()} neste mês: nem no Contas a Pagar, nem a lançar.</span>
+        <EmptyState title={`Nada de ${TITULO_PAGAMENTO[tipo].toLowerCase()} neste mês`} description="Não há título no Contas a Pagar nem pessoa a lançar. Troque o mês acima para ver outro período." />
       ) : (
         <>
           <BarraFiltro filtro={filtro} total={dados.linhas.length} visiveis={filtradas.length} placeholder="Filtrar por nome, empresa, PIX, banco…"
@@ -351,7 +374,13 @@ export function PagamentoMeio({ year, month, canEdit, percentAdiantamento, diaAd
                           </div>
                         )}
                       </Table.Td>
-                      <Table.Td style={{ fontWeight: 700, whiteSpace: "nowrap" }}>{money(l.valor)}</Table.Td>
+                      <Table.Td style={{ fontWeight: 700, whiteSpace: "nowrap" }}>
+                        {money(l.valor)}
+                        {(() => {
+                          const v = variacaoContraAnterior(l.valor, anterior.get(l.employeeId));
+                          return v ? <span className="folha-variacao" data-sobe={v.sobe} title={`Mês anterior: ${money(anterior.get(l.employeeId) ?? 0)}`}>{v.sobe ? "▲" : "▼"} {v.pct}% vs mês anterior</span> : null;
+                        })()}
+                      </Table.Td>
                       {v("situacao") && (
                         <Table.Td>
                           <span style={{ whiteSpace: "nowrap" }}><StatusBadge tone={SITUACAO_TOM[l.situacao]}>{SITUACAO_ROTULO[l.situacao]}</StatusBadge></span>
