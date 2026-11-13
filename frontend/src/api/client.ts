@@ -10562,24 +10562,32 @@ export function faltasParaEscalaPonto(year: number, month: number, simular: bool
   return request<FaltasParaEscala>("/payroll/ponto/faltas-para-escala", json("POST", { year, month, simular }));
 }
 
-// 13º dos sem registro: prévia (por pessoa) e geração das duas parcelas.
+// 13º dos sem registro: prévia (por pessoa) e geração por parcela. A 2ª é o acerto (13º completo − 1ª paga).
 export type Decimo13Calculo = {
-  ano: number; avos: number; desde: string; salario: number; mediaVariaveis: number; base: number; total: number;
-  parcela1: number; parcela2: number; vencimento1: string; vencimento2: string; memoria: string;
+  ano: number; avos: number; avosParcela1: number; desde: string; salario: number;
+  mediaParcela1: number; mediaFinal: number; parcela1: number; total: number; parcela2: number;
+  vencimento1: string; vencimento2: string; memoria: string;
+};
+export type Decimo13Parcela = {
+  existe: boolean; paga: boolean; lancado: number | null; devido: number | null; gerar: boolean;
 };
 export type Decimo13Linha = {
   employeeId: string; nome: string; setor: string | null; calculo: Decimo13Calculo | null; motivoSemCalculo: string | null;
-  parcela1Existe: boolean; parcela2Existe: boolean;
+  p1: Decimo13Parcela;
+  p2: Decimo13Parcela & { excesso: number };
+  // Só com a 2ª paga: o que falta pagar (+) ou foi pago a mais (−) pelo cálculo de hoje.
+  acerto: number | null;
   // Registrado depois do início real: só o período sem registro entra (até semRegistroAte).
   preRegistro: boolean; semRegistroAte: string | null; registroEm: string | null;
 };
+export type Decimo13Previa = { ano: number; linhas: Decimo13Linha[]; novembroFechado: boolean; avisos: string[] };
 export function getDecimoTerceiro(year: number) {
-  return request<{ ano: number; linhas: Decimo13Linha[] }>(`/payroll/decimo-terceiro?year=${year}`);
+  return request<Decimo13Previa>(`/payroll/decimo-terceiro?year=${year}`);
 }
-export function gerarDecimoTerceiro(year: number) {
-  return request<{ ano: number; criadas: number; restauradas: number; semCalculo: number; avisos: string[] }>("/payroll/decimo-terceiro/generate", {
+export function gerarDecimoTerceiro(year: number, parcela: 1 | 2) {
+  return request<{ ano: number; parcela: 1 | 2; criadas: number; atualizadas: number; restauradas: number; semCalculo: number; avisos: string[] }>("/payroll/decimo-terceiro/generate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ year })
+    body: JSON.stringify({ year, parcela })
   });
 }
