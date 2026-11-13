@@ -10563,7 +10563,7 @@ export function getDecimoTerceiro(year: number) {
   return request<{ ano: number; linhas: Decimo13Linha[] }>(`/payroll/decimo-terceiro?year=${year}`);
 }
 export function gerarDecimoTerceiro(year: number) {
-  return request<{ ano: number; criadas: number; semCalculo: Array<{ nome: string; motivo: string | null }> }>("/payroll/decimo-terceiro/generate", {
+  return request<{ ano: number; criadas: number; restauradas: number; semCalculo: number; avisos: string[] }>("/payroll/decimo-terceiro/generate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ year })

@@ -23,6 +23,23 @@ export type Decimo13SR = {
   parcela1: number; parcela2: number; vencimento1: string; vencimento2: string; memoria: string;
 };
 
+// O que fazer com uma parcela ao gerar, conforme o que já existe no banco (inclusive excluído).
+// Pago, existente e excluído à mão NUNCA são mexidos: só o excluído sem autor (legado) volta.
+export type ParcelaExistente = { deletedAt: Date | null; deletedById: string | null; paymentDate: Date | null } | null;
+export type DecisaoParcela = "criar" | "restaurar" | "ja-existe" | "ja-pago" | "excluida-a-mao";
+export function decidirParcela(e: ParcelaExistente): DecisaoParcela {
+  if (!e) return "criar";
+  if (e.deletedAt) return e.deletedById ? "excluida-a-mao" : "restaurar";
+  return e.paymentDate ? "ja-pago" : "ja-existe";
+}
+
+// De onde vem um lançamento de 13º: o extrato da contabilidade (CLT) ou o cálculo sem registro.
+// Os dois convivem para quem foi registrado depois; dois do MESMO lado e da mesma parcela, não.
+export function familia13(rotulo: string): { parcela: 1 | 2 | null; origem: "EXTRATO" | "SEM_REGISTRO" } {
+  const parcela = /1ª\s*parcela/i.test(rotulo) ? 1 : /2ª\s*parcela/i.test(rotulo) ? 2 : null;
+  return { parcela, origem: /\(extrato\)/i.test(rotulo) ? "EXTRATO" : "SEM_REGISTRO" };
+}
+
 const br = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const iso = (ano: number, mes: number, dia: number) => new Date(Date.UTC(ano, mes - 1, dia)).toISOString().slice(0, 10);
 

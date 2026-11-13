@@ -9,7 +9,7 @@ import {
 
 type Db = Prisma.TransactionClient | typeof prisma;
 
-export type Origem = "CADASTRO" | "EQUIPE_GORJETA" | "CONFERENCIA_GORJETA" | "IMPORTADOR_PLANILHA" | "BACKFILL";
+export type Origem = "CADASTRO" | "EQUIPE_GORJETA" | "CONFERENCIA_GORJETA" | "IMPORTADOR_PLANILHA" | "BACKFILL" | "FICHA_REGISTRO";
 
 // Grava uma linha por campo que mudou. Chamar na MESMA transação que altera o cadastro:
 // cadastro alterado sem histórico faria um mês passado ser recalculado com o valor novo.

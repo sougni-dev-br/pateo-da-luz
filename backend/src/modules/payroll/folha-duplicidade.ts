@@ -9,6 +9,8 @@
 // Liberados de propósito: as parcelas da MESMA rescisão (grupoRescisao) e o lançamento
 // marcado como complemento (details.complemento, com motivo e autor).
 
+import { familia13 } from "./decimo-terceiro-sr.js";
+
 export const MOTIVO_MINIMO = 10;
 
 export type ItemFolha = {
@@ -68,8 +70,13 @@ export function mesmoPagamento(a: ItemFolha, b: ItemFolha): boolean {
   if (a.employeeId !== b.employeeId || a.type !== b.type) return false;
   if (a.competenceYear !== b.competenceYear || a.competenceMonth !== b.competenceMonth) return false;
   // 13º: quem foi registrado depois recebe o do extrato (contabilidade) e o do período sem
-  // registro, no mesmo mês e com rótulos próprios. São pagamentos diferentes, não duplicidade.
-  if (a.type === "DECIMO_TERCEIRO") return false;
+  // registro, no mesmo mês e com rótulos próprios: pagamentos diferentes. Mesma parcela e mesma
+  // origem com rótulo diferente (lançado à mão, por exemplo) continua sendo duplicidade.
+  if (a.type === "DECIMO_TERCEIRO") {
+    const fa = familia13(a.periodLabel ?? "");
+    const fb = familia13(b.periodLabel ?? "");
+    return fa.parcela != null && fa.parcela === fb.parcela && fa.origem === fb.origem;
+  }
   if (a.type === "RESCISAO") {
     const ga = grupoRescisao(a.details);
     return !(ga && ga === grupoRescisao(b.details));

@@ -3426,7 +3426,7 @@ model EmployeeHistorico {
   valorNovo     String?
   vigenteDesde  DateTime @db.Date
   motivo        String?
-  origem        String // CADASTRO | EQUIPE_GORJETA | CONFERENCIA_GORJETA | IMPORTADOR_PLANILHA | BACKFILL
+  origem        String // CADASTRO | EQUIPE_GORJETA | CONFERENCIA_GORJETA | IMPORTADOR_PLANILHA | BACKFILL | FICHA_REGISTRO
   // Backfill: id do AuditLog de onde a linha veio (rodar de novo não duplica).
   origemRef     String?
   criadoPorId   String?

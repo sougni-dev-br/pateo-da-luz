@@ -35,11 +35,11 @@ export type CalculoExtrato = "MENSAL" | "ADIANTAMENTO" | "DECIMO_TERCEIRO";
 // Qual cálculo o extrato é. "13o Adiantamento" NÃO pode cair em MENSAL: viraria o salário do
 // mês. Qualquer outro "Cálculo: 13..." (2ª parcela) é recusado até haver um exemplo para ler.
 export function calculoDoTexto(txt: string): CalculoExtrato {
-  if (/C[áa]lculo:\s*13/i.test(txt)) {
-    if (/C[áa]lculo:\s*13\s*[oº°]?\s*Adiantamento/i.test(txt)) return "DECIMO_TERCEIRO";
+  if (/C[áa]lculo:[ \t]*13/i.test(txt)) {
+    if (/C[áa]lculo:[ \t]*13[ \t]*[oº°]?[ \t]*Adiantamento/i.test(txt)) return "DECIMO_TERCEIRO";
     throw new Error("Extrato de 13º que não é o adiantamento (1ª parcela): este tipo ainda não é lido pelo sistema, nada foi importado.");
   }
-  return /C[áa]lculo:\s*Adiantamento/i.test(txt) ? "ADIANTAMENTO" : "MENSAL";
+  return /C[áa]lculo:[ \t]*Adiantamento/i.test(txt) ? "ADIANTAMENTO" : "MENSAL";
 }
 
 export type ExtratoParsed = {
@@ -82,7 +82,7 @@ export function lerTextoExtrato(txt: string): ExtratoParsed {
 
   // Cada funcionário vai de "<matrícula> <NOME> Empr.:" até o próximo "NF:".
   const funcionarios: ExtratoFuncionario[] = [];
-  const blockRe = /(\d+)\s+([A-ZÀ-Ú][A-ZÀ-Ú'’.\s]+?)\s*Empr\.:([\s\S]*?)NF:/g;
+  const blockRe = /(\d+)\s+([A-ZÀ-Ú][A-ZÀ-Ú'’.\s]+?)Empr\.:([\s\S]*?)NF:/g;
   let m: RegExpExecArray | null;
   while ((m = blockRe.exec(txt))) {
     const nome = m[2].replace(/\s+/g, " ").trim();
@@ -529,6 +529,15 @@ export async function importExtrato(opts: {
         `(${brl(jaLancado.amount)}, ${jaLancado.paymentDate ? "pago" : "em aberto"}); o extrato (${brl(f.liquido)}) não criou outro. Confira o valor à mão.`,
       );
       continue;
+    }
+    if (decimo) {
+      const semRegistro = await prisma.payrollItem.findMany({
+        where: { employeeId: empId, type: "DECIMO_TERCEIRO", competenceYear, deletedAt: null, NOT: { periodLabel: chaveUnica.periodLabel } },
+        select: { details: true },
+      });
+      if (semRegistro.some((i) => (i.details as { preRegistro?: unknown } | null)?.preRegistro !== true)) {
+        avisosDaImportacao.push(`${f.nome}: já tem 13º lançado como sem registro (ano inteiro) e também está neste extrato da contabilidade. Confira para não pagar duas vezes.`);
+      }
     }
     const { valor, detalhes } = await lancamento(f, empId);
     if (existente) {
