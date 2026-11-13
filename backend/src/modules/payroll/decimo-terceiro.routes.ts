@@ -2,7 +2,10 @@
 import { Router } from "express";
 import { auditLog, getSessionUser, requestIp } from "../security/security-utils.js";
 import { podeVerDadosPessoais } from "./dados-pessoais.js";
-import { gerarDecimoTerceiroSR, listarDecimoTerceiroClt, listarDecimoTerceiroSR } from "./decimo-terceiro.service.js";
+import {
+  gerarDecimoTerceiroSR, informarVariavelDecimo13, listarDecimoTerceiroClt, listarDecimoTerceiroSR, removerVariavelDecimo13,
+  validarVariavelInformada,
+} from "./decimo-terceiro.service.js";
 
 export const decimoTerceiroRouter = Router();
 
@@ -29,6 +32,50 @@ decimoTerceiroRouter.get("/", async (request, response) => {
   if (ano == null) return response.status(400).json({ message: MSG_ANO });
   // CLT: lista só de leitura (o valor vem do extrato da contabilidade).
   response.json({ ...(await listarDecimoTerceiroSR(ano)), clt: await listarDecimoTerceiroClt(ano) });
+});
+
+// Variável do mês informada à mão (substitui a apuração só no cálculo do 13º). Exige a mesma permissão da prévia.
+decimoTerceiroRouter.put("/variavel", async (request, response) => {
+  const user = await getSessionUser(request);
+  if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
+  if (!(await podeVerDadosPessoais(request))) return response.status(403).json({ message: MSG_SEM_PERMISSAO });
+  const c = request.body ?? {};
+  const ano = lerAno(c.year);
+  if (ano == null) return response.status(400).json({ message: MSG_ANO });
+  const entrada = { employeeId: c.employeeId, ano, mes: c.mes, valor: c.valor, motivo: c.motivo };
+  const erro = validarVariavelInformada(entrada);
+  if (erro) return response.status(400).json({ message: erro });
+  let anterior: number | null;
+  try {
+    ({ anterior } = await informarVariavelDecimo13(entrada, user.id));
+  } catch (error) {
+    return response.status(422).json({ message: error instanceof Error ? error.message : "Não foi possível gravar." });
+  }
+  // Fora do try: o valor já foi gravado, então falha de auditoria não vira "não gravou".
+  await auditLog({
+    userId: user.id, action: "SET_DECIMO_TERCEIRO_VARIAVEL", entity: "DecimoTerceiroVariavel", entityId: entrada.employeeId,
+    previousValue: { valor: anterior }, newValue: { ano, mes: entrada.mes, valor: entrada.valor },
+    ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
+  }).catch(() => undefined);
+  response.json({ ok: true });
+});
+
+decimoTerceiroRouter.delete("/variavel", async (request, response) => {
+  const user = await getSessionUser(request);
+  if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
+  if (!(await podeVerDadosPessoais(request))) return response.status(403).json({ message: MSG_SEM_PERMISSAO });
+  const ano = lerAno(request.query.year);
+  if (ano == null) return response.status(400).json({ message: MSG_ANO });
+  const employeeId = String(request.query.employeeId ?? "");
+  const mes = Number(request.query.mes);
+  if (!employeeId || !Number.isInteger(mes) || mes < 1 || mes > 11) return response.status(400).json({ message: "Funcionário ou mês inválido." });
+  const { anterior } = await removerVariavelDecimo13(employeeId, ano, mes);
+  await auditLog({
+    userId: user.id, action: "REMOVE_DECIMO_TERCEIRO_VARIAVEL", entity: "DecimoTerceiroVariavel", entityId: employeeId,
+    previousValue: { ano, mes, valor: anterior },
+    ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
+  });
+  response.json({ ok: true });
 });
 
 decimoTerceiroRouter.post("/generate", async (request, response) => {

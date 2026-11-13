@@ -10,6 +10,7 @@ const prismaFalso = vi.hoisted(() => ({
   employee: { findMany: vi.fn() },
   payrollItem: { findMany: vi.fn() },
   tipPeriod: { findMany: vi.fn() },
+  decimoTerceiroVariavel: { findMany: vi.fn(async () => []) },
   dRECategory: { findFirst: vi.fn() },
   $transaction: vi.fn(),
 }));
@@ -45,6 +46,7 @@ beforeEach(() => {
   vi.mocked(getSessionUser).mockResolvedValue({ id: "u1", name: "Eli" } as never);
   vi.mocked(podeVerDadosPessoais).mockResolvedValue(true);
   prismaFalso.tipPeriod.findMany.mockResolvedValue([]);
+  prismaFalso.decimoTerceiroVariavel.findMany.mockResolvedValue([]);
   prismaFalso.dRECategory.findFirst.mockResolvedValue({ id: "dre1" });
   prismaFalso.employee.findMany.mockResolvedValue([CLT_ANA, CLT_BIA, SR_DORA]);
   vi.mocked(cadastrosVigentes).mockImplementation((async (emps: Array<{ id: string; modality: string }>) =>

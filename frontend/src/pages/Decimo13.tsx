@@ -6,6 +6,7 @@ import { useSession } from "../context/SessionContext";
 import { Alert, Button, EmptyState, IconButton, Money, StatusBadge, SummaryCard, Table, Tabs, TextField } from "../design-system";
 import { hasPermission } from "../lib/permissions";
 import { descreverParcela, parcelaClt, parcelaDaLinha, resumirClt, resumirParcela, type Parcela13 } from "./decimo13/parcelas";
+import { VariavelInformada } from "./decimo13/VariavelInformada";
 import { nomeProprio } from "./gorjeta/NomePessoa";
 import { LinkInterno, linkContasAPagar } from "./folha/LinkInterno";
 import { type Passo, Passos } from "./folha/Passos";
@@ -205,6 +206,7 @@ export function Decimo13() {
                             {l.preRegistro && l.semRegistroAte && l.registroEm ? (
                               <span className="folha-nota">só o período sem registro (até {fmtData(l.semRegistroAte)}); registrado em {fmtData(l.registroEm)}, o resto vem da contabilidade</span>
                             ) : null}
+                            <VariavelInformada linha={l} ano={year} podeEditar={canEdit} aoMudar={carregar} aoErro={(message) => setNotice({ tone: "error", message })} />
                           </Table.Td>
                           {l.calculo ? (
                             <>
