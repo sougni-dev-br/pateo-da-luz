@@ -105,6 +105,7 @@ const Companies = lazy(() => import("./pages/Companies").then((module) => ({ def
 const Funcionarios = lazy(() => import("./pages/Funcionarios").then((module) => ({ default: module.Funcionarios })));
 const Escala = lazy(() => import("./pages/Escala").then((module) => ({ default: module.Escala })));
 const Folha = lazy(() => import("./pages/Folha").then((module) => ({ default: module.Folha })));
+const Decimo13 = lazy(() => import("./pages/Decimo13").then((module) => ({ default: module.Decimo13 })));
 const FolhaGorjeta = lazy(() => import("./pages/FolhaGorjeta").then((module) => ({ default: module.FolhaGorjeta })));
 const ExtratoRh = lazy(() => import("./pages/ExtratoRh").then((module) => ({ default: module.ExtratoRh })));
 const Ponto = lazy(() => import("./pages/rh/Ponto").then((module) => ({ default: module.Ponto })));
@@ -220,7 +221,9 @@ const sections = [
   // A antiga "Folha e VT" virou três telas; as três usam a permissão da Folha ("payroll"),
   // a mesma de antes: ninguém perde nem ganha acesso com a divisão.
   { id: "payroll-ponto", label: "Ponto", icon: Clock3, showInSidebar: true, group: "Folha", path: ROTAS_RH.ponto, matchers: [ROTAS_RH.ponto], permissionId: "payroll", description: "Faltas, atrasos, horas extras e adicional noturno do mês pela CLT: importa o relógio, lança o papel e fecha para a folha" },
-  { id: "payroll-adiantamento", label: "Adiantamento e 1ª quinzena", icon: Banknote, showInSidebar: true, group: "Folha", path: ROTAS_RH.adiantamento, matchers: [ROTAS_RH.adiantamento], permissionId: "payroll", description: "Quem recebe no dia 15 e no dia 20: o que está no Contas a Pagar, o que falta lançar e a lista para pagar no banco" },
+  { id: "payroll-quinzena", label: "1ª quinzena (dia 15)", icon: Banknote, showInSidebar: true, group: "Folha", path: ROTAS_RH.quinzena, matchers: [ROTAS_RH.quinzena], permissionId: "payroll", description: "Quem recebe por quinzena no dia 15: o que está no Contas a Pagar, o que falta lançar e a lista para pagar no banco" },
+  { id: "payroll-adiantamento", label: "Adiantamento (dia 20)", icon: Banknote, showInSidebar: true, group: "Folha", path: ROTAS_RH.adiantamento, matchers: [ROTAS_RH.adiantamento], permissionId: "payroll", description: "Quem recebe adiantamento no dia 20: o que está no Contas a Pagar, o que falta lançar e a lista para pagar no banco" },
+  { id: "payroll-13o", label: "13º salário", icon: Banknote, showInSidebar: true, group: "Folha", path: ROTAS_RH.decimoTerceiro, matchers: [ROTAS_RH.decimoTerceiro], permissionId: "payroll", description: "1ª e 2ª parcela do 13º: conferir o cálculo, lançar no Contas a Pagar e pagar" },
   { id: "payroll", label: "Folha de pagamento", icon: WalletCards, showInSidebar: true, group: "Folha", path: ROTAS_RH.folha, matchers: [ROTAS_RH.folha, "/pessoal/folha"], description: "Lançamentos do mês (adiantamento, salário, VT, férias), prévia da folha, férias e afastamento" },
   // O Retorno do RH lê e importa o extrato pelas rotas /payroll/tip/extrato*, que o
   // backend autoriza pelo módulo da Gorjeta — por isso herda "payroll-tips".
@@ -802,6 +805,8 @@ export function App() {
               <Route path={ROTAS_RH.rescisoes} element={<Rescisoes />} />
               <Route path={ROTAS_RH.folha} element={<Folha key="lancamentos" secao="lancamentos" />} />
               <Route path={ROTAS_RH.vt} element={<Folha key="vt" secao="vt" />} />
+              <Route path={ROTAS_RH.quinzena} element={<Folha key="quinzena" secao="quinzena" />} />
+              <Route path={ROTAS_RH.decimoTerceiro} element={<Decimo13 />} />
               <Route path={ROTAS_RH.adiantamento} element={<Folha key="adiantamento" secao="adiantamento" />} />
               <Route path={ROTAS_RH.retorno} element={<ExtratoRh />} />
               <Route path={ROTAS_RH.extras} element={<Extras />} />

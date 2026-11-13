@@ -80,7 +80,12 @@ describe("Folha dividida em três telas", () => {
     await screen.findByText("Ana Exemplo");
     expect(screen.getByRole("heading", { name: "Folha de pagamento" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Prever folha" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Lançar férias" })).toBeTruthy();
+    // Férias, afastamento e lançamento à mão ficam num menu só, não soltos na barra do topo.
+    expect(screen.queryByRole("button", { name: "Lançar férias" })).toBeNull();
+    fireEvent.pointerDown(screen.getByRole("button", { name: /Exceções/ }), { button: 0, ctrlKey: false });
+    expect(await screen.findByRole("menuitem", { name: "Lançar férias" })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "Lançar afastamento" })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "Lançar à mão" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Prever VT" })).toBeNull();
     expect(screen.queryByText(/Vale-transporte ·/)).toBeNull();
     expect(screen.queryByText(/Lista de pagamento ·/)).toBeNull();
@@ -100,7 +105,14 @@ describe("Folha dividida em três telas", () => {
     vi.mocked(getPayroll).mockResolvedValue(LISTA);
     render(<Folha secao="adiantamento" />, sessao(false));
     expect(await screen.findByText(/é preciso permissão de ver Funcionários/)).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Adiantamento e 1ª quinzena" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Adiantamento (dia 20)" })).toBeTruthy();
     expect(screen.queryByText("Ana Exemplo")).toBeNull();
+  });
+
+  test("1ª quinzena: tem tela própria com o seu título", async () => {
+    vi.mocked(getPayroll).mockResolvedValue(LISTA);
+    render(<Folha secao="quinzena" />, sessao(false));
+    expect(await screen.findByText(/é preciso permissão de ver Funcionários/)).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "1ª quinzena (dia 15)" })).toBeTruthy();
   });
 });

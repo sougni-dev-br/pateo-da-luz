@@ -942,7 +942,7 @@ export async function computeTipCommission(
     // Sem a permissão de Funcionários o valor vem null (oculto): o aviso sai do mesmo jeito, sem valor.
     const semTitulo = naLista.filter(({ p, e }) => e.recebeAdiantamento && !e.pagamentoQuinzenal && !e.adiantamentoLancado
       && (p.adiantamentoSalarial == null || p.adiantamentoSalarial > 0)).map(({ p }) => p);
-    if (semTitulo.length) warnings.push(`Recebem adiantamento, mas o de ${competencia} não está lançado em Contas a Pagar — a lista desconta os ${regras.adiantamentoPercent ?? 0}% do cadastro, não o que foi pago. Lance em Folha → Adiantamento e 1ª quinzena e dê a baixa com o valor pago: ${listar(semTitulo)}.`);
+    if (semTitulo.length) warnings.push(`Recebem adiantamento, mas o de ${competencia} não está lançado em Contas a Pagar — a lista desconta os ${regras.adiantamentoPercent ?? 0}% do cadastro, não o que foi pago. Lance em Folha → Adiantamento (dia 20) ou 1ª quinzena (dia 15) e dê a baixa com o valor pago: ${listar(semTitulo)}.`);
   }
   // Texto de horas que a conta não entende vira zero: quem fecha precisa ver.
   const ilegivel = (t: string | null) => t != null && t.trim() !== "" && (parseHoras(t) == null || parseHoras(t)! < 0);

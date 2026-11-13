@@ -23,6 +23,8 @@ import {
 } from "./regrasPagamentoMeio";
 
 type Props = {
+  /** Cada pagamento tem a sua tela: 1ª quinzena (dia 15) ou adiantamento (dia 20). */
+  tipo: TipoPagamentoMeio;
   year: number;
   month: number;
   canEdit: boolean;
@@ -48,7 +50,6 @@ const MODOS_IMPRESSAO = [{ value: "empresa", label: "Por empresa" }, { value: "a
 
 // Preferências de quem confere; sem armazenamento (aba anônima), voltam ao padrão.
 const CHAVE_MODO = "pagamento-meio:modo-impressao";
-const CHAVE_TIPO = "pagamento-meio:tipo";
 function lerPreferencia<T extends string>(chave: string, valores: readonly T[], padrao: T): T {
   try { const v = window.localStorage.getItem(chave); return valores.includes(v as T) ? (v as T) : padrao; } catch { return padrao; }
 }
@@ -108,8 +109,7 @@ function Confirmacao({ tipo, linhas, lancando, onConfirmar, onCancelar }: {
   );
 }
 
-export function PagamentoMeio({ year, month, canEdit, percentAdiantamento, diaAdiantamento, versao, onLancado }: Props) {
-  const [tipo, setTipo] = useState<TipoPagamentoMeio>(() => lerPreferencia(CHAVE_TIPO, ["ADIANTAMENTO", "QUINZENA"] as const, "ADIANTAMENTO"));
+export function PagamentoMeio({ tipo, year, month, canEdit, percentAdiantamento, diaAdiantamento, versao, onLancado }: Props) {
   const [modo, setModo] = useState<ModoImpressaoFolha>(() => lerPreferencia(CHAVE_MODO, ["empresa", "alfabetica"] as const, "empresa"));
   const [dados, setDados] = useState<Dados | null>(null);
   const [erro, setErro] = useState<string | null>(null);
@@ -117,7 +117,6 @@ export function PagamentoMeio({ year, month, canEdit, percentAdiantamento, diaAd
   const [lancando, setLancando] = useState(false);
   const [resultado, setResultado] = useState<{ tom: "success" | "warning" | "error"; linhas: string[] } | null>(null);
   const [imprimindo, setImprimindo] = useState(false);
-  const tipos = (["ADIANTAMENTO", "QUINZENA"] as const).map((t) => ({ value: t, label: `${TITULO_PAGAMENTO[t]} (${diaDoPagamento(t, diaAdiantamento)})` }));
   const ord = useOrdenacao("pagamento-meio");
   const col = useColunas("pagamento-meio");
   const colPdf = useColunas("pagamento-meio-pdf");
@@ -219,16 +218,6 @@ export function PagamentoMeio({ year, month, canEdit, percentAdiantamento, diaAd
       <div className="cabecalho-painel-texto">
         <strong>Lista de pagamento · {TITULO_PAGAMENTO[tipo]} ({diaDoPagamento(tipo, diaAdiantamento)})</strong>
         <span>O que está no Contas a Pagar, o que falta lançar e o que já foi pago — com os dados bancários para pagar.</span>
-      </div>
-      <div className="cabecalho-painel-acoes">
-        <Select aria-label="Qual pagamento" options={tipos} value={tipo} disabled={lancando}
-          onChange={(e) => {
-            const t = e.target.value as TipoPagamentoMeio;
-            // O filtro de uma lista (empresa, situação) não serve para a outra.
-            filtro.limpar();
-            setTipo(t);
-            gravarPreferencia(CHAVE_TIPO, t);
-          }} />
       </div>
     </div>
   );
