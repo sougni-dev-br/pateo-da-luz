@@ -1,9 +1,9 @@
 import { fireEvent, render as renderRaw, screen, waitFor, within } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import type { Decimo13Linha, Decimo13LinhaClt } from "../../../api/client";
 import { SessionContext, type SessionContextValue } from "../../../context/SessionContext";
 import { HideValuesProvider } from "../../../design-system";
+import { lancada, linhaClt, linhaSr, parcela } from "./fixtures";
 
 const api = vi.hoisted(() => ({ getDecimoTerceiro: vi.fn(), gerarDecimoTerceiro: vi.fn() }));
 vi.mock("../../../api/client", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../../api/client")>()), ...api }));
@@ -11,27 +11,23 @@ vi.mock("../../../api/client", async (importOriginal) => ({ ...(await importOrig
 import { Decimo13 } from "../../Decimo13";
 
 // 13º com sem registro e CLT na mesma lista. Dados fictícios.
-const calculo = { ano: 2026, avos: 12, desde: "2026-01-01", salario: 2000, mediaVariaveis: 100, base: 2100, total: 2100,
-  parcela1: 1000, parcela2: 1100, vencimento1: "2026-11-30", vencimento2: "2026-12-20", memoria: "" };
-const sr = (over: Partial<Decimo13Linha>): Decimo13Linha => ({
-  employeeId: "s1", nome: "Ana Exemplo", setor: null, calculo, motivoSemCalculo: null, parcela1Existe: false, parcela2Existe: false,
-  preRegistro: false, semRegistroAte: null, registroEm: null, ...over });
-const clt = (over: Partial<Decimo13LinhaClt>): Decimo13LinhaClt => ({ employeeId: "c1", nome: "CARLOS EXEMPLO", setor: null, parcela1: null, parcela2: null, ...over });
-
 const sessao = (): SessionContextValue => ({
   user: { id: "u1", name: "Fulano", role: "ADMIN", permissions: {} },
   setUser: () => undefined, hideSensitiveValues: false, toggleSensitiveValues: () => undefined, canAccessSection: () => true, hasPermission: () => true,
 } as unknown as SessionContextValue);
 const render = (ui: ReactElement) => renderRaw(<SessionContext.Provider value={sessao()}><HideValuesProvider>{ui}</HideValuesProvider></SessionContext.Provider>);
 
+const previa = (over: object = {}) => ({
+  ano: 2026, novembroFechado: true, avisos: [],
+  linhas: [linhaSr(), linhaSr({ employeeId: "s2", nome: "Bia Exemplo", p1: lancada(1000) })],
+  clt: [linhaClt(), linhaClt({ employeeId: "c2", nome: "Dora Exemplo", parcela1: { valor: 900, pago: true } })],
+  ...over,
+});
+
 beforeEach(() => {
   vi.clearAllMocks();
-  api.getDecimoTerceiro.mockResolvedValue({
-    ano: 2026,
-    linhas: [sr({}), sr({ employeeId: "s2", nome: "Bia Exemplo", parcela1Existe: true })],
-    clt: [clt({}), clt({ employeeId: "c2", nome: "Dora Exemplo", parcela1: { valor: 900, pago: true } })],
-  });
-  api.gerarDecimoTerceiro.mockResolvedValue({ ano: 2026, criadas: 1, restauradas: 0, semCalculo: 0, avisos: [] });
+  api.getDecimoTerceiro.mockResolvedValue(previa());
+  api.gerarDecimoTerceiro.mockResolvedValue({ ano: 2026, parcela: 1, criadas: 1, atualizadas: 0, restauradas: 0, semCalculo: 0, avisos: [] });
 });
 
 test("mostra os dois grupos e a situação de cada pessoa", async () => {
@@ -71,4 +67,42 @@ test("lança só a parcela da aba, depois de confirmar", async () => {
   expect(api.gerarDecimoTerceiro).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Confirmar lançamento" }));
   await waitFor(() => expect(api.gerarDecimoTerceiro).toHaveBeenCalledWith(expect.any(Number), 2));
+});
+
+test("2ª parcela fica travada até a gorjeta de novembro fechar, e diz por quê", async () => {
+  api.getDecimoTerceiro.mockResolvedValue(previa({ novembroFechado: false }));
+  render(<Decimo13 />);
+  await screen.findByText("Ana Exemplo");
+  fireEvent.click(screen.getByRole("tab", { name: "2ª parcela" }));
+  expect(await screen.findByText(/gorjeta de novembro estiver fechada/)).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /Lançar 2ª parcela/ })).toBeNull();
+  // a 1ª não depende disso
+  fireEvent.click(screen.getByRole("tab", { name: "1ª parcela" }));
+  expect(await screen.findByRole("button", { name: /Lançar 1ª parcela/ })).toBeInTheDocument();
+});
+
+test("parcela em aberto com valor desatualizado mostra para quanto vai e conta como a atualizar", async () => {
+  api.getDecimoTerceiro.mockResolvedValue(previa({ linhas: [linhaSr({ p1: lancada(900, { devido: 1000, gerar: true }) })], clt: [] }));
+  render(<Decimo13 />);
+  expect(await screen.findByText(/passa a R\$\s?1\.000,00 ao gerar de novo/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: /Lançar 1ª parcela \(1\)/ }));
+  expect(screen.getByText(/atualizar 1 em aberto/)).toBeInTheDocument();
+});
+
+test("parcela excluída à mão aparece como tal e não conta como a lançar", async () => {
+  api.getDecimoTerceiro.mockResolvedValue(previa({ linhas: [linhaSr({ p1: parcela({ existe: true, lancado: null, gerar: false }) })], clt: [] }));
+  render(<Decimo13 />);
+  expect(await screen.findByText("Excluída à mão")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /Lançar 1ª parcela/ })).toBeNull();
+});
+
+test("mostra os avisos da base (gorjeta aberta) e os avisos da geração", async () => {
+  api.getDecimoTerceiro.mockResolvedValue(previa({ avisos: ["Gorjeta ainda não fechada em 11/2026: a média pode mudar."] }));
+  api.gerarDecimoTerceiro.mockResolvedValue({ ano: 2026, parcela: 1, criadas: 1, atualizadas: 2, restauradas: 0, semCalculo: 0, avisos: ["Ana: parcela excluída à mão."] });
+  render(<Decimo13 />);
+  expect(await screen.findByText(/Gorjeta ainda não fechada/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: /Lançar 1ª parcela/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Confirmar lançamento" }));
+  expect(await screen.findByText(/parcela excluída à mão/)).toBeInTheDocument();
+  expect(await screen.findByText(/1 lançada\(s\) e 2 atualizada\(s\)/)).toBeInTheDocument();
 });

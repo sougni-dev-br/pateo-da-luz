@@ -26,6 +26,9 @@ export function Decimo13() {
   const [parcela, setParcela] = useState<Parcela13>(1);
   const [linhas, setLinhas] = useState<Decimo13Linha[] | null>(null);
   const [clt, setClt] = useState<Decimo13LinhaClt[]>([]);
+  // A 2ª parcela depende da média: só se gera com a gorjeta de novembro fechada.
+  const [novembroFechado, setNovembroFechado] = useState(false);
+  const [avisosDaBase, setAvisosDaBase] = useState<string[]>([]);
   const [erro, setErro] = useState<string | null>(null);
   const [confirmando, setConfirmando] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -42,10 +45,13 @@ export function Decimo13() {
       if (meu !== pedido.current) return;
       setLinhas(r.linhas);
       setClt(r.clt ?? []);
+      setNovembroFechado(r.novembroFechado);
+      setAvisosDaBase(r.avisos);
     } catch (e) {
       if (meu !== pedido.current) return;
       setLinhas(null);
       setClt([]);
+      setAvisosDaBase([]);
       setErro(e instanceof Error ? e.message : "Não foi possível calcular o 13º.");
     }
   }, [year]);
@@ -61,10 +67,13 @@ export function Decimo13() {
     setAvisosDaGeracao([]);
     try {
       const r = await gerarDecimoTerceiro(year, parcela);
-      const feitas = r.criadas + r.restauradas;
-      setNotice(feitas > 0
-        ? { tone: "success", message: `${feitas} título(s) da ${parcela}ª parcela lançado(s) no Contas a Pagar. A baixa é feita lá.` }
-        : { tone: "info", message: "Nenhuma parcela nova: tudo o que podia ser lançado já estava lançado." });
+      const partes = [
+        r.criadas + r.restauradas > 0 ? `${r.criadas + r.restauradas} lançada(s)` : null,
+        r.atualizadas > 0 ? `${r.atualizadas} atualizada(s)` : null,
+      ].filter(Boolean);
+      setNotice(partes.length > 0
+        ? { tone: "success", message: `${parcela}ª parcela do 13º: ${partes.join(" e ")} no Contas a Pagar. A baixa é feita lá.` }
+        : { tone: "info", message: `Nada a lançar na ${parcela}ª parcela: tudo o que podia ser lançado já está lançado e atualizado.` });
       setAvisosDaGeracao(r.avisos);
       setConfirmando(false);
       await carregar();
@@ -85,22 +94,27 @@ export function Decimo13() {
   const rc = resumirClt(itensClt.map((i) => i.p));
   const vencimento = itens.find((i) => i.p.vencimento)?.p.vencimento ?? null;
   const lancadasClt = rc.pessoas - rc.aguardando;
-  const totalGeral = r.totalALancar + r.totalLancado + rc.total;
+  const aGerar = r.novas + r.atualizar;
+  const totalGeral = r.totalNovas + r.totalLancado + rc.total;
+  const podeGerar = canEdit && aGerar > 0 && !confirmando && (parcela === 1 || novembroFechado);
 
   const termo = semAcento(busca.trim());
   const bate = (nome: string) => termo === "" || semAcento(nome).includes(termo);
   const vistosSr = itens.filter((i) => bate(i.l.nome));
   const vistosClt = itensClt.filter((i) => bate(i.l.nome));
 
-  const botaoLancar = canEdit && r.aLancar > 0 && !confirmando ? (
-    <Button leadingIcon={<Banknote size={14} />} onClick={() => setConfirmando(true)}>Lançar {parcela}ª parcela ({r.aLancar})</Button>
+  const botaoLancar = podeGerar ? (
+    <Button leadingIcon={<Banknote size={14} />} onClick={() => setConfirmando(true)}>Lançar {parcela}ª parcela ({aGerar})</Button>
   ) : undefined;
+  const aguardaNovembro = parcela === 2 && !novembroFechado && aGerar > 0;
   const passos: Passo[] = [
     { titulo: "Conferir o cálculo", estado: "feito",
       detalhe: `${r.pessoas} calculada(s) aqui${r.semCalculo > 0 ? ` · ${r.semCalculo} sem cálculo` : ""}` },
-    { titulo: "Lançar no Contas a Pagar", estado: r.aLancar > 0 ? "atual" : "feito", acao: botaoLancar,
-      detalhe: r.aLancar > 0 ? `Falta lançar ${r.aLancar} (${brl(r.totalALancar)})` : r.pessoas > 0 ? "Tudo lançado" : "Nada a lançar" },
-    { titulo: "Dar a baixa", estado: r.aLancar > 0 ? "pendente" : "atual",
+    { titulo: "Lançar no Contas a Pagar", estado: aGerar > 0 ? "atual" : "feito", acao: botaoLancar,
+      detalhe: aguardaNovembro ? "Disponível quando a gorjeta de novembro estiver fechada: a média precisa dela"
+        : aGerar > 0 ? [r.novas > 0 ? `Falta lançar ${r.novas} (${brl(r.totalNovas)})` : null, r.atualizar > 0 ? `${r.atualizar} a atualizar` : null].filter(Boolean).join(" · ")
+        : r.pessoas > 0 ? "Tudo lançado" : "Nada a lançar" },
+    { titulo: "Dar a baixa", estado: aGerar > 0 ? "pendente" : "atual",
       detalhe: r.lancadas > 0 ? "Pague e dê a baixa no Contas a Pagar" : "Depois de lançar, a baixa é no Contas a Pagar",
       acao: r.lancadas > 0 && vencimento ? <LinkInterno para={linkContasAPagar(vencimento)} className="ds-button ds-button-md ds-button-secondary">Abrir no Contas a Pagar</LinkInterno> : undefined },
   ];
@@ -134,11 +148,15 @@ export function Decimo13() {
           <>
             <Passos rotulo={`Passos da ${parcela}ª parcela`} passos={passos} />
 
+            {avisosDaBase.length > 0 && <Alert tone="warning">{avisosDaBase.map((a, i) => <div key={i}>{a}</div>)}</Alert>}
             {avisosDaGeracao.length > 0 && <Alert tone="warning">{avisosDaGeracao.map((a, i) => <div key={i}>{a}</div>)}</Alert>}
 
             {confirmando && (
               <Alert tone="warning">
-                <div>Vai lançar {r.aLancar} título(s) da {parcela}ª parcela, {brl(r.totalALancar)} no total, com vencimento em {vencimento ? fmtData(vencimento) : "—"}. Quem já foi lançado não muda.</div>
+                <div>
+                  Vai lançar {r.novas} título(s) novo(s) da {parcela}ª parcela ({brl(r.totalNovas)}), com vencimento em {vencimento ? fmtData(vencimento) : "—"}
+                  {r.atualizar > 0 ? ` e atualizar ${r.atualizar} em aberto para o cálculo de hoje` : ""}. Parcela já paga não muda.
+                </div>
                 <div className="form-actions">
                   <Button variant="secondary" disabled={busy} onClick={() => setConfirmando(false)}>Cancelar</Button>
                   <Button disabled={busy} onClick={() => void lancar()}>{busy ? "Lançando…" : "Confirmar lançamento"}</Button>
@@ -147,7 +165,7 @@ export function Decimo13() {
             )}
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, margin: "0 0 16px" }}>
-              <SummaryCard compact label="Falta lançar" moneyValue={r.totalALancar} tone={r.aLancar > 0 ? "warning" : undefined} detail={`${r.aLancar} pessoa(s)`} />
+              <SummaryCard compact label="Falta lançar" moneyValue={r.totalNovas} tone={aGerar > 0 ? "warning" : undefined} detail={`${r.novas} pessoa(s)${r.atualizar > 0 ? ` · ${r.atualizar} a atualizar` : ""}`} />
               <SummaryCard compact label="Já no Contas a Pagar" moneyValue={r.totalLancado + rc.total} detail={`${r.lancadas + lancadasClt} pessoa(s)`} />
               <SummaryCard compact label={`Total da ${parcela}ª parcela`} moneyValue={totalGeral} detail={`${r.pessoas + lancadasClt} pessoa(s)`} />
             </div>
@@ -190,11 +208,21 @@ export function Decimo13() {
                           </Table.Td>
                           {l.calculo ? (
                             <>
-                              <Table.Td title={l.calculo.memoria}>{l.calculo.avos}/12 <span className="folha-nota" style={{ display: "inline" }}>desde {fmtData(l.calculo.desde)}</span></Table.Td>
+                              <Table.Td title={l.calculo.memoria}>{parcela === 1 ? l.calculo.avosParcela1 : l.calculo.avos}/12 <span className="folha-nota" style={{ display: "inline" }}>desde {fmtData(l.calculo.desde)}</span></Table.Td>
                               <Table.Td align="right" className="num"><Money value={l.calculo.salario} /></Table.Td>
-                              <Table.Td align="right" className="num"><Money value={l.calculo.mediaVariaveis} /></Table.Td>
-                              <Table.Td align="right" className="num" style={{ fontWeight: 600 }}><Money value={p.valor} /></Table.Td>
-                              <Table.Td><StatusBadge tone={p.situacao === "LANCADA" ? "success" : "warning"}>{p.situacao === "LANCADA" ? "Lançada" : "Falta lançar"}</StatusBadge></Table.Td>
+                              <Table.Td align="right" className="num"><Money value={parcela === 1 ? l.calculo.mediaParcela1 : l.calculo.mediaFinal} /></Table.Td>
+                              <Table.Td align="right" className="num" style={{ fontWeight: 600 }}>
+                                {p.situacao === "EXCLUIDA" ? <span style={{ color: "var(--muted)" }}>—</span> : <Money value={p.valor} />}
+                                {p.atualizarPara != null && <span className="folha-nota">passa a {brl(p.atualizarPara)} ao gerar de novo</span>}
+                                {parcela === 2 && l.acerto != null && Math.abs(l.acerto) >= 0.01 && (
+                                  <span className="folha-nota">{l.acerto > 0 ? `falta pagar ${brl(l.acerto)} (acerto)` : `pago a mais ${brl(-l.acerto)}`}</span>
+                                )}
+                              </Table.Td>
+                              <Table.Td>
+                                <StatusBadge tone={p.situacao === "PAGA" ? "success" : p.situacao === "LANCADA" ? "info" : p.situacao === "EXCLUIDA" ? "neutral" : "warning"}>
+                                  {p.situacao === "PAGA" ? "Paga" : p.situacao === "LANCADA" ? "Lançada" : p.situacao === "EXCLUIDA" ? "Excluída à mão" : "Falta lançar"}
+                                </StatusBadge>
+                              </Table.Td>
                             </>
                           ) : (
                             <Table.Td colSpan={5} style={{ color: "var(--muted)" }}>{l.motivoSemCalculo}</Table.Td>

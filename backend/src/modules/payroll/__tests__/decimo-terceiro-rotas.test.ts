@@ -25,7 +25,7 @@ vi.mock("../payroll.service.js", () => ({ FOLHA_CATEGORY: "Folha", computeStatus
 import { cadastrosVigentes } from "../cadastro-historico.service.js";
 import { podeVerDadosPessoais } from "../dados-pessoais.js";
 import { decimoTerceiroRouter } from "../decimo-terceiro.routes.js";
-import { ROTULO_13_PARCELA_1, ROTULO_13_PARCELA_2 } from "../decimo-terceiro-sr.js";
+import { ROTULO_13_PARCELA_1 } from "../decimo-terceiro-sr.js";
 import { getSessionUser } from "../../security/security-utils.js";
 
 const app = express();
@@ -113,25 +113,18 @@ describe("POST /payroll/decimo-terceiro/generate — parcela", () => {
     expect(rotulosCriados().map((x) => [x.periodLabel, x.competenceMonth])).toEqual([[ROTULO_13_PARCELA_1, 11]]);
   });
 
-  test("parcela 2: cria só a 2ª, vencendo em dezembro", async () => {
-    const r = await request(app).post("/payroll/decimo-terceiro/generate").send({ year: 2026, parcela: 2 });
-    expect(r.body.criadas).toBe(1);
-    expect(rotulosCriados().map((x) => [x.periodLabel, x.competenceMonth])).toEqual([[ROTULO_13_PARCELA_2, 12]]);
-  });
-
-  test("sem parcela: gera as duas, como antes", async () => {
+  test("sem parcela no corpo, gera a 1ª (padrão da rota)", async () => {
     const r = await request(app).post("/payroll/decimo-terceiro/generate").send({ year: 2026 });
-    expect(r.body.criadas).toBe(2);
-    expect(rotulosCriados().map((x) => x.periodLabel).sort()).toEqual([ROTULO_13_PARCELA_1, ROTULO_13_PARCELA_2].sort());
+    expect(r.status).toBe(200);
+    expect(rotulosCriados().map((x) => x.periodLabel)).toEqual([ROTULO_13_PARCELA_1]);
   });
 
-  test("parcela fora de 1 e 2 é ignorada (gera as duas), não vira erro nem outro valor", async () => {
-    for (const parcela of [0, 3, "1", null]) {
-      tx.payrollItem.createMany.mockClear();
+  test("parcela fora de 1 e 2 é recusada com 400 e nada é gravado", async () => {
+    for (const parcela of [0, 3, "x"]) {
       const r = await request(app).post("/payroll/decimo-terceiro/generate").send({ year: 2026, parcela });
-      expect(r.status).toBe(200);
-      expect(r.body.criadas).toBe(2);
+      expect(r.status).toBe(400);
     }
+    expect(tx.payrollItem.createMany).not.toHaveBeenCalled();
   });
 
   test("a parcela já lançada não é recriada quando se pede a outra", async () => {

@@ -24,7 +24,8 @@ export function pendenciasDoDecimo(mes: number, linhas: Decimo13Linha[], clt: De
   const sr = resumirParcela(linhas.map((l) => parcelaDaLinha(l, n)));
   const c = resumirClt(clt.map((l) => parcelaClt(l, n)));
   const out: Pendencia[] = [];
-  if (sr.aLancar > 0) out.push({ chave: "13-sr", texto: `13º salário (${n}ª parcela): ${pessoas(sr.aLancar)} a lançar`, destino });
+  const aGerar = sr.novas + sr.atualizar;
+  if (aGerar > 0) out.push({ chave: "13-sr", texto: `13º salário (${n}ª parcela): ${pessoas(aGerar)} a lançar${sr.atualizar > 0 ? ` ou atualizar` : ""}`, destino });
   if (c.aguardando > 0) out.push({ chave: "13-clt", texto: `13º salário (${n}ª parcela): ${pessoas(c.aguardando)} CLT aguardando o extrato da contabilidade`, destino });
   return out;
 }
