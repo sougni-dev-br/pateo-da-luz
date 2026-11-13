@@ -1,5 +1,5 @@
 import { Banknote, ChevronLeft, ChevronRight } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Decimo13Linha, Decimo13LinhaClt, gerarDecimoTerceiro, getDecimoTerceiro } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
 import { useSession } from "../context/SessionContext";
@@ -30,30 +30,42 @@ export function Decimo13() {
   const [confirmando, setConfirmando] = useState(false);
   const [busy, setBusy] = useState(false);
   const [busca, setBusca] = useState("");
+  const [avisosDaGeracao, setAvisosDaGeracao] = useState<string[]>([]);
 
-  async function carregar() {
+  // Só a resposta da última consulta vale: trocar de ano rápido não deixa linhas do ano anterior na tela.
+  const pedido = useRef(0);
+  const carregar = useCallback(async () => {
+    const meu = ++pedido.current;
     setErro(null);
     try {
       const r = await getDecimoTerceiro(year);
+      if (meu !== pedido.current) return;
       setLinhas(r.linhas);
       setClt(r.clt ?? []);
     } catch (e) {
+      if (meu !== pedido.current) return;
       setLinhas(null);
       setClt([]);
       setErro(e instanceof Error ? e.message : "Não foi possível calcular o 13º.");
     }
-  }
+  }, [year]);
   useEffect(() => {
     setLinhas(null);
     setConfirmando(false);
+    setAvisosDaGeracao([]);
     if (podeVer) void carregar();
-  }, [year, podeVer]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [carregar, podeVer]);
 
   async function lancar() {
     setBusy(true);
+    setAvisosDaGeracao([]);
     try {
       const r = await gerarDecimoTerceiro(year, parcela);
-      setNotice({ tone: "success", message: `${r.criadas} título(s) da ${parcela}ª parcela lançado(s) no Contas a Pagar. A baixa é feita lá.` });
+      const feitas = r.criadas + r.restauradas;
+      setNotice(feitas > 0
+        ? { tone: "success", message: `${feitas} título(s) da ${parcela}ª parcela lançado(s) no Contas a Pagar. A baixa é feita lá.` }
+        : { tone: "info", message: "Nenhuma parcela nova: tudo o que podia ser lançado já estava lançado." });
+      setAvisosDaGeracao(r.avisos);
       setConfirmando(false);
       await carregar();
     } catch (e) {
@@ -121,6 +133,8 @@ export function Decimo13() {
         {linhas && (
           <>
             <Passos rotulo={`Passos da ${parcela}ª parcela`} passos={passos} />
+
+            {avisosDaGeracao.length > 0 && <Alert tone="warning">{avisosDaGeracao.map((a, i) => <div key={i}>{a}</div>)}</Alert>}
 
             {confirmando && (
               <Alert tone="warning">

@@ -31,7 +31,7 @@ beforeEach(() => {
     linhas: [sr({}), sr({ employeeId: "s2", nome: "Bia Exemplo", parcela1Existe: true })],
     clt: [clt({}), clt({ employeeId: "c2", nome: "Dora Exemplo", parcela1: { valor: 900, pago: true } })],
   });
-  api.gerarDecimoTerceiro.mockResolvedValue({ ano: 2026, criadas: 1, semCalculo: [] });
+  api.gerarDecimoTerceiro.mockResolvedValue({ ano: 2026, criadas: 1, restauradas: 0, semCalculo: 0, avisos: [] });
 });
 
 test("mostra os dois grupos e a situação de cada pessoa", async () => {
