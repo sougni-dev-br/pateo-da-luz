@@ -67,6 +67,9 @@ export function mesmoPagamento(a: ItemFolha, b: ItemFolha): boolean {
   if (a.id && b.id && a.id === b.id) return false;
   if (a.employeeId !== b.employeeId || a.type !== b.type) return false;
   if (a.competenceYear !== b.competenceYear || a.competenceMonth !== b.competenceMonth) return false;
+  // 13º: quem foi registrado depois recebe o do extrato (contabilidade) e o do período sem
+  // registro, no mesmo mês e com rótulos próprios. São pagamentos diferentes, não duplicidade.
+  if (a.type === "DECIMO_TERCEIRO") return false;
   if (a.type === "RESCISAO") {
     const ga = grupoRescisao(a.details);
     return !(ga && ga === grupoRescisao(b.details));

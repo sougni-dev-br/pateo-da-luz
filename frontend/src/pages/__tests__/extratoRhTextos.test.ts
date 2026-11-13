@@ -92,3 +92,12 @@ test("resumo mostra os adiantamentos tirados da folha do mês", () => {
   expect(resumoImportacao({ calculo: "MENSAL", titulosNovos: 18, titulosAtualizados: 0, adiantamentosDaFolha: 17 }))
     .toBe("18 salários lançado(s) no Contas a Pagar; 17 adiantamento(s) lançado(s) a partir da folha (valor bruto).");
 });
+
+test("extrato do 13º (1ª parcela): botão e confirmação dizem 13º, com vencimento no fim do mês", () => {
+  const p = previa({ calculo: "DECIMO_TERCEIRO", competenceMonth: 11 });
+  expect(textoBotaoImportar(p, false)).toBe("Lançar 13º no Contas a Pagar");
+  const c = confirmacaoImportar(p);
+  expect(c).toContain("13º (1ª parcela) de 11/2026");
+  expect(c).toContain("vencimento no último dia do mês (30/11)");
+  expect(c).not.toMatch(/salário|adiantamento/);
+});

@@ -6,6 +6,7 @@ import crypto from "node:crypto";
 import { PDFParse } from "pdf-parse";
 import { prisma } from "../../config/database.js";
 import { FOLHA_CATEGORY } from "./payroll.service.js";
+import { ROTULO_13_EXTRATO_PARCELA_1 } from "./decimo-terceiro-sr.js";
 import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
 import { lerDetalhesExtrato } from "./rh-extract-detalhes.js";
 import { avisosDoExtrato, guardarExtrato, preencherAdmissaoCarteira } from "./rh-extract-store.service.js";
@@ -26,9 +27,20 @@ export type ExtratoFuncionario = {
   situacao: string | null;
 };
 
-// O mesmo "Extrato Mensal" da contabilidade sai em dois cálculos: a folha do mês
-// (líquido já sem o adiantamento) e o adiantamento do dia 20 ("Cálculo: Adiantamento").
-export type CalculoExtrato = "MENSAL" | "ADIANTAMENTO";
+// O mesmo "Extrato Mensal" da contabilidade sai em três cálculos: a folha do mês
+// (líquido já sem o adiantamento), o adiantamento do dia 20 ("Cálculo: Adiantamento") e a
+// 1ª parcela do 13º ("Cálculo: 13o Adiantamento"). A 2ª parcela do 13º ainda não é lida.
+export type CalculoExtrato = "MENSAL" | "ADIANTAMENTO" | "DECIMO_TERCEIRO";
+
+// Qual cálculo o extrato é. "13o Adiantamento" NÃO pode cair em MENSAL: viraria o salário do
+// mês. Qualquer outro "Cálculo: 13..." (2ª parcela) é recusado até haver um exemplo para ler.
+export function calculoDoTexto(txt: string): CalculoExtrato {
+  if (/C[áa]lculo:\s*13/i.test(txt)) {
+    if (/C[áa]lculo:\s*13\s*[oº°]?\s*Adiantamento/i.test(txt)) return "DECIMO_TERCEIRO";
+    throw new Error("Extrato de 13º que não é o adiantamento (1ª parcela): este tipo ainda não é lido pelo sistema, nada foi importado.");
+  }
+  return /C[áa]lculo:\s*Adiantamento/i.test(txt) ? "ADIANTAMENTO" : "MENSAL";
+}
 
 export type ExtratoParsed = {
   calculo: CalculoExtrato;
@@ -66,7 +78,7 @@ export function lerTextoExtrato(txt: string): ExtratoParsed {
   const comp = txt.match(/EXTRATO MENSAL\s*\n?\s*(\d{2})\/(\d{4})/) ?? txt.match(/(\d{2})\/(\d{4})/);
   const competenceMonth = comp ? Number(comp[1]) : 0;
   const competenceYear = comp ? Number(comp[2]) : 0;
-  const calculo: CalculoExtrato = /C[áa]lculo:\s*Adiantamento/i.test(txt) ? "ADIANTAMENTO" : "MENSAL";
+  const calculo = calculoDoTexto(txt);
 
   // Cada funcionário vai de "<matrícula> <NOME> Empr.:" até o próximo "NF:".
   const funcionarios: ExtratoFuncionario[] = [];
@@ -86,7 +98,8 @@ export function lerTextoExtrato(txt: string): ExtratoParsed {
       null;
     // Na folha do mês é o desconto (DESC.ADIANT.SALARIAL); no extrato do adiantamento é o
     // provento (980 ADIANTAMENTO SALARIAL), sem o troco do arredondamento.
-    const adiant = calculo === "ADIANTAMENTO"
+    const adiant = calculo === "DECIMO_TERCEIRO" ? null
+      : calculo === "ADIANTAMENTO"
       ? body.match(/ADIANTAMENTO SALARIAL\s+P\s+(\d{1,3}(?:\.\d{3})*,\d{2})/)?.[1] ?? null
       : body.match(/DESC\.ADIANT\.SALARIAL\s+(\d{1,3}(?:\.\d{3})*,\d{2})/)?.[1] ?? null;
     const situacao = body.match(/(Trabalhando|Demitid[oa]|Afastad[oa]|F[ée]rias)\s+CPF:/)?.[1] ?? null;
@@ -178,15 +191,20 @@ const ddmmEmSaoPaulo = (d: Date) =>
   new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit" }).format(d);
 
 export function avisoExcluidoAMao(nome: string, calculo: CalculoExtrato, mmaaaa: string, deletedAt: Date): string {
-  const tipo = calculo === "ADIANTAMENTO" ? "Adiantamento" : "Salário";
+  const tipo = calculo === "ADIANTAMENTO" ? "Adiantamento" : calculo === "DECIMO_TERCEIRO" ? "13º" : "Salário";
   return `Lançamento de ${nome} (${tipo} ${mmaaaa}) foi excluído à mão em ${ddmmEmSaoPaulo(deletedAt)} e não foi recriado; se precisar, restaure pela Folha.`;
 }
 
 function chaveDoExtrato(calculo: CalculoExtrato, mmaaaa: string) {
+  if (calculo === "DECIMO_TERCEIRO") return { type: "DECIMO_TERCEIRO" as const, periodLabel: ROTULO_13_EXTRATO_PARCELA_1 };
   return calculo === "ADIANTAMENTO"
     ? { type: "ADIANTAMENTO" as const, periodLabel: `Adiantamento ${mmaaaa}` }
     : { type: "SALARIO" as const, periodLabel: `Extrato ${mmaaaa}` };
 }
+
+// Como o tipo aparece nos avisos da importação.
+const nomeDoLancamento = (calculo: CalculoExtrato) =>
+  calculo === "DECIMO_TERCEIRO" ? "13º (1ª parcela)" : calculo === "ADIANTAMENTO" ? "adiantamento" : "salário";
 
 // Quantas pessoas do extrato já têm o lançamento dele no Contas a Pagar. Reimportar
 // atualiza esses (o upsert casa pela chave), não duplica — a tela precisa dizer isso.
@@ -258,7 +276,7 @@ export async function preverImportacao(
       && i.deletedAt == null && mesmoValor(Number(i.amount), p.liquido));
     if (ativo || vaiConverter) { r.atualizar += 1; continue; }
     if (ehZero(p.liquido)) { r.zerados += 1; continue; }
-    if (await outroDoMesmoPagamento({ employeeId: p.employeeId, competenceYear, competenceMonth, ...chave })) { r.comOutroRotulo += 1; continue; }
+    if (chave.type !== "DECIMO_TERCEIRO" && await outroDoMesmoPagamento({ employeeId: p.employeeId, competenceYear, competenceMonth, ...chave })) { r.comOutroRotulo += 1; continue; }
     r.novos += 1;
   }
   return r;
@@ -378,8 +396,13 @@ export async function importExtrato(opts: {
 
   const settings = await prisma.payrollSettings.findUnique({ where: { id: "singleton" } });
   const adiantamento = parsed.calculo === "ADIANTAMENTO";
+  const decimo = parsed.calculo === "DECIMO_TERCEIRO";
+  const nomeLanc = nomeDoLancamento(parsed.calculo);
   let dueDate: Date;
-  if (adiantamento) {
+  if (decimo) {
+    // 1ª parcela do 13º vence no último dia da competência (30/11).
+    dueDate = new Date(Date.UTC(competenceYear, competenceMonth, 0));
+  } else if (adiantamento) {
     // Adiantamento vence no próprio mês da competência, no dia do adiantamento (20).
     const dia = opts.dueDay ?? settings?.advanceDueDay ?? 20;
     dueDate = new Date(Date.UTC(competenceYear, competenceMonth - 1, Math.min(dia, 28)));
@@ -397,10 +420,13 @@ export async function importExtrato(opts: {
   const saidaDe = new Map(allEmp.map((e) => [e.id, e.terminationDate ?? null]));
   const mmaaaa = `${String(competenceMonth).padStart(2, "0")}/${competenceYear}`;
   const { type: tipo, periodLabel } = chaveDoExtrato(parsed.calculo, mmaaaa);
-  const details = (f: ExtratoFuncionario) => ({ calculo: parsed.calculo, liquido: f.liquido, gorjeta: f.gorjeta, adiantamento: f.adiantamento, empresa: parsed.empresa });
+  const details = (f: ExtratoFuncionario) => ({
+    calculo: parsed.calculo, liquido: f.liquido, gorjeta: f.gorjeta, adiantamento: f.adiantamento, empresa: parsed.empresa,
+    ...(decimo ? { decimoTerceiro: true, parcela: 1 } : {}),
+  });
 
   // Salário combinado vigente na competência (folha do mês): o SALARIO vai pelo valor integral.
-  const combinados = adiantamento ? new Map<string, number>() : await mapaCombinados(competenceYear, competenceMonth,
+  const combinados = adiantamento || decimo ? new Map<string, number>() : await mapaCombinados(competenceYear, competenceMonth,
     parsed.funcionarios.map((f) => (f.cpfNorm ? byCpf.get(f.cpfNorm) : undefined)).filter((x): x is string => Boolean(x)));
   const avisosDaImportacao: string[] = [];
   // Gorjeta da competência: só calculada se alguém tiver combinado, e uma vez.
@@ -451,7 +477,7 @@ export async function importExtrato(opts: {
     if (aposSaida({ employeeId: empId, type: tipo, competenceYear, competenceMonth }, saida)) {
       titulosPulados += 1;
       desligados += 1;
-      avisosDaImportacao.push(`${f.nome} saiu em ${ddmmaaaa(saida!)}: ${tipo === "ADIANTAMENTO" ? "adiantamento" : "salário"} de ${mmaaaa} não lançado (competência depois da saída).`);
+      avisosDaImportacao.push(`${f.nome} saiu em ${ddmmaaaa(saida!)}: ${nomeLanc} de ${mmaaaa} não lançado (competência depois da saída).`);
       continue;
     }
     if (adiantamento) await converterAdiantamentoGravadoComoSalario(empId, competenceYear, competenceMonth, mmaaaa, periodLabel, f.liquido, opts.userId);
@@ -459,7 +485,7 @@ export async function importExtrato(opts: {
     // foi adiantado no dia 20. Sem lançamento de adiantamento no mês, cria um a partir dele
     // (valor bruto: antes do IRRF retido e sem o troco). O extrato do adiantamento, se vier
     // depois, cai na mesma chave e acerta para o valor pago.
-    if (!adiantamento && (f.adiantamento ?? 0) > 0 && await lancarAdiantamentoDaFolha({
+    if (parsed.calculo === "MENSAL" && (f.adiantamento ?? 0) > 0 && await lancarAdiantamentoDaFolha({
       employeeId: empId, competenceYear, competenceMonth, mmaaaa, valor: f.adiantamento!,
       diaAdiantamento: settings?.advanceDueDay ?? 20, dreCategoryId, empresa: parsed.empresa, userId: opts.userId,
     })) adiantamentosDaFolha += 1;
@@ -480,7 +506,7 @@ export async function importExtrato(opts: {
     if (ativo && existente!.paymentDate != null) {
       titulosPulados += 1;
       jaPagos += 1;
-      avisosDaImportacao.push(`${f.nome}: ${tipo === "ADIANTAMENTO" ? "adiantamento" : "salário"} de ${mmaaaa} já pago: não atualizado (extrato traz ${brl(f.liquido)}).`);
+      avisosDaImportacao.push(`${f.nome}: ${nomeLanc} de ${mmaaaa} já pago: não atualizado (extrato traz ${brl(f.liquido)}).`);
       continue;
     }
     // Líquido zero não vira lançamento novo (nem restaura um excluído): fica só no
@@ -493,12 +519,13 @@ export async function importExtrato(opts: {
     }
     // Ia criar (ou restaurar) o lançamento do extrato, mas o mesmo pagamento já existe com
     // outro rótulo: não cria o segundo. Avisa com os dois valores para conferir à mão.
-    const jaLancado = ativo ? null : await outroDoMesmoPagamento(chaveUnica);
+    // O 13º do extrato convive com o 13º do período sem registro (outro rótulo, de propósito).
+    const jaLancado = ativo || chaveUnica.type === "DECIMO_TERCEIRO" ? null : await outroDoMesmoPagamento({ ...chaveUnica, type: chaveUnica.type });
     if (jaLancado) {
       titulosPulados += 1;
       comOutroRotulo += 1;
       avisosDaImportacao.push(
-        `${f.nome}: ${tipo === "ADIANTAMENTO" ? "adiantamento" : "salário"} de ${mmaaaa} já está na Folha como "${jaLancado.periodLabel}" ` +
+        `${f.nome}: ${nomeLanc} de ${mmaaaa} já está na Folha como "${jaLancado.periodLabel}" ` +
         `(${brl(jaLancado.amount)}, ${jaLancado.paymentDate ? "pago" : "em aberto"}); o extrato (${brl(f.liquido)}) não criou outro. Confira o valor à mão.`,
       );
       continue;
