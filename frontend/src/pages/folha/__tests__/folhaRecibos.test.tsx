@@ -8,13 +8,13 @@ import { SessionContext, type SessionContextValue } from "../../../context/Sessi
 vi.mock("../../../api/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../../api/client")>()),
   getPayroll: vi.fn(), getPayrollSettings: vi.fn(async () => { throw new Error("sem"); }), getVtFares: vi.fn(async () => []),
-  getEmployees: vi.fn(async () => []), getRecibosPagoAntes: vi.fn(),
+  getEmployees: vi.fn(async () => []), getRecibosPagoAntes: vi.fn(), previewPayroll: vi.fn(),
   getPagamentoMeio: vi.fn(async () => ({ aLancar: { pessoas: 0, total: 0 }, linhas: [], avisos: [] })),
   getDecimoTerceiro: vi.fn(async () => ({ ano: 2026, linhas: [], clt: [] })),
 }));
 vi.mock("../../gorjeta/reciboPagamento", () => ({ imprimirRecibosPagamento: vi.fn(async () => "blob:recibo") }));
 
-import { getPayroll, getRecibosPagoAntes } from "../../../api/client";
+import { getPayroll, getRecibosPagoAntes, previewPayroll } from "../../../api/client";
 import { imprimirRecibosPagamento } from "../../gorjeta/reciboPagamento";
 import { Folha } from "../../Folha";
 
@@ -116,5 +116,23 @@ describe("Folha dividida em três telas", () => {
     render(<Folha secao="quinzena" />, sessao(false));
     expect(await screen.findByText(/é preciso permissão de ver Funcionários/)).toBeTruthy();
     expect(screen.getByRole("heading", { name: "1ª quinzena (dia 15)" })).toBeTruthy();
+  });
+
+  test("prévia da folha: o sem registro fica de fora e o botão conta só o que o servidor vai criar", async () => {
+    vi.mocked(getPayroll).mockResolvedValue(LISTA);
+    const comp = (over: object) => ({ employeeId: "x", employeeName: "Pessoa", employeeDisplayName: null, sector: null, periodLabel: "p", periodStart: null, periodEnd: null,
+      dueDate: "2026-09-20T00:00:00.000Z", workedDays: null, freeDays: null, exists: false, details: null, amount: 1000, ...over });
+    vi.mocked(previewPayroll).mockResolvedValue({ warnings: [], items: [
+      comp({ employeeId: "a", employeeName: "Ana Clt", type: "ADIANTAMENTO" }),
+      comp({ employeeId: "b", employeeName: "Bia Clt", type: "SALARIO" }),
+      comp({ employeeId: "c", employeeName: "Caio Semregistro", type: "ADIANTAMENTO", details: { semRegistro: true } }),
+    ] } as never);
+    render(<Folha secao="lancamentos" />, sessao(true));
+    await screen.findByText("Ana Exemplo");
+    fireEvent.click(screen.getAllByRole("button", { name: "Prever folha" })[0]);
+    expect(await screen.findByRole("button", { name: "Gerar folha (2)" })).toBeTruthy();
+    expect(screen.queryByText("Caio Semregistro")).toBeNull();
+    expect(screen.getByText(/1 pessoa sem registro fica de fora da folha/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Adiantamento" }).getAttribute("href")).toBe("/rh/folha/adiantamento");
   });
 });

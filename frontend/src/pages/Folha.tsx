@@ -16,10 +16,12 @@ import { maskMoney, moneyToMasked } from "../utils/format";
 import { AfastamentoModal } from "./folha/AfastamentoModal";
 import { LancamentoManualModal } from "./folha/LancamentoManualModal";
 import { MenuExcecoes } from "./folha/MenuExcecoes";
+import { ROTAS_RH } from "./rh/rotasRh";
 import { PendenciasFolha } from "./folha/PendenciasFolha";
 import "./folha/folha-ui.css";
 import { PagamentoMeio } from "./folha/PagamentoMeio";
-import { reciboDoLancamento } from "./folha/semRegistro";
+import { itensDaPreviaDaFolha, reciboDoLancamento } from "./folha/semRegistro";
+import { LinkInterno } from "./folha/LinkInterno";
 import { AvisoReciboImpresso, useImprimirRecibos } from "./gorjeta/ImprimirRecibos";
 
 const MONTHS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
@@ -528,9 +530,11 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
   const pagamentoDoMeio = secao === "adiantamento" ? "ADIANTAMENTO" : secao === "quinzena" ? "QUINZENA" : null;
   const s = list?.summary;
   // Só os itens do escopo escolhido aparecem e são gerados.
+  const daPreviaDaFolha = preview ? itensDaPreviaDaFolha(preview.items) : { daFolha: [], semRegistroFora: 0 };
   const itensDoEscopo: PayrollComputedItem[] = preview
-    ? preview.items.filter((i) => (previewScope === "VT" ? i.type === "VALE_TRANSPORTE" : i.type === "ADIANTAMENTO" || i.type === "SALARIO"))
+    ? (previewScope === "VT" ? preview.items.filter((i) => i.type === "VALE_TRANSPORTE") : daPreviaDaFolha.daFolha)
     : [];
+  const semRegistroFora = previewScope === "FOLHA" ? daPreviaDaFolha.semRegistroFora : 0;
   const previewNew = itensDoEscopo.filter((i) => !i.exists).length;
   // Total do escopo já refletindo os ajustes manuais — é o que vai ser gerado.
   const previewTotal = itensDoEscopo.filter((i) => !i.exists).reduce((a, i) => {
@@ -915,6 +919,12 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
                 )}
               </div>
             </div>
+            {semRegistroFora > 0 && (
+              <Alert tone="info">
+                {semRegistroFora} {semRegistroFora === 1 ? "pessoa sem registro fica" : "pessoas sem registro ficam"} de fora da folha: o adiantamento (dia 20) e a 1ª quinzena delas são lançados em{" "}
+                <LinkInterno para={ROTAS_RH.adiantamento}>Adiantamento</LinkInterno> e <LinkInterno para={ROTAS_RH.quinzena}>1ª quinzena</LinkInterno>.
+              </Alert>
+            )}
             {preview.warnings && preview.warnings.length > 0 && (
               <Alert tone="warning">
                 {preview.warnings.map((w, i) => <div key={i}>{w}</div>)}
