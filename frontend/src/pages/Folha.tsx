@@ -16,6 +16,7 @@ import { maskMoney, moneyToMasked } from "../utils/format";
 import { AfastamentoModal } from "./folha/AfastamentoModal";
 import { LancamentoManualModal } from "./folha/LancamentoManualModal";
 import { MenuExcecoes } from "./folha/MenuExcecoes";
+import "./folha/folha-ui.css";
 import { PagamentoMeio } from "./folha/PagamentoMeio";
 import { reciboDoLancamento } from "./folha/semRegistro";
 import { AvisoReciboImpresso, useImprimirRecibos } from "./gorjeta/ImprimirRecibos";
@@ -618,24 +619,25 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
       <Notice notice={notice} />
 
       {/* Apuração de gorjeta e Retorno do RH eram abas daqui: agora são itens próprios do menu Folha. */}
-      <section className="panel">
-        <div className="section-heading">
-          <div>
-            <PanelEyebrow>Folha</PanelEyebrow>
-            <h2>{TITULO_SECAO[secao]}</h2>
+      <section className="panel folha-tela">
+        <h2 className="folha-sr">{TITULO_SECAO[secao]}</h2>
+        <div className="folha-barra">
+          <div className="folha-barra-grupo">
+            <div className="folha-competencia" role="group" aria-label="Competência">
+              <IconButton size="sm" label="Mês anterior" icon={<ChevronLeft size={16} />} onClick={() => goMonth(-1)} />
+              <input
+                type="month"
+                value={`${year}-${String(month).padStart(2, "0")}`}
+                onChange={(e) => { const [y, m] = e.target.value.split("-").map(Number); if (y && m) { setYear(y); setMonth(m); } }}
+                aria-label="Mês e ano"
+                style={{ padding: "4px 6px", border: 0, background: "transparent", font: "inherit", color: "inherit" }}
+              />
+              <IconButton size="sm" label="Próximo mês" icon={<ChevronRight size={16} />} onClick={() => goMonth(1)} />
+            </div>
+            <IconButton size="sm" label="Recarregar" icon={<RefreshCw size={15} />} onClick={load} />
           </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
-            <Button variant="secondary" onClick={() => goMonth(-1)} aria-label="Mês anterior"><ChevronLeft size={16} /></Button>
-            <input
-              type="month"
-              value={`${year}-${String(month).padStart(2, "0")}`}
-              onChange={(e) => { const [y, m] = e.target.value.split("-").map(Number); if (y && m) { setYear(y); setMonth(m); } }}
-              aria-label="Mês e ano"
-              style={{ padding: "6px 8px", border: "1px solid var(--border)", borderRadius: 8, font: "inherit", background: "var(--surface, #fff)", color: "inherit" }}
-            />
-            <Button variant="secondary" onClick={() => goMonth(1)} aria-label="Próximo mês"><ChevronRight size={16} /></Button>
-            <Button variant="secondary" onClick={load} aria-label="Recarregar"><RefreshCw size={15} /></Button>
-            <Button variant="secondary" leadingIcon={<Settings size={14} />} onClick={() => setShowSettings((v) => !v)}>Configurações</Button>
+          <div className="folha-barra-acoes">
+            <Button variant="secondary" leadingIcon={<Settings size={14} />} onClick={() => setShowSettings((v) => !v)} aria-expanded={showSettings}>Configurações</Button>
             {canEdit && secao === "lancamentos" && <MenuExcecoes onFerias={openVacation} onAfastamento={() => setShowAfastamento(true)} onManual={() => setShowManual(true)} />}
             {canEdit && secao === "vt" && <Button leadingIcon={<Bus size={14} />} onClick={() => handlePreview("VT")} disabled={busy}>Prever VT</Button>}
             {canEdit && secao === "lancamentos" && <Button leadingIcon={<Wand2 size={14} />} onClick={() => handlePreview("FOLHA")} disabled={busy}>Prever folha</Button>}

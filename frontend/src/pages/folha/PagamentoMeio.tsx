@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   type LinhaPagamentoMeio, type PagamentoMeio as Dados, type TipoPagamentoMeio, generatePayroll, getPagamentoMeio,
 } from "../../api/client";
-import { Alert, Button, Select, StatusBadge, Table } from "../../design-system";
+import { Alert, Button, EmptyState, Select, StatusBadge, Table } from "../../design-system";
 import { type ColunaOpcional, SeletorColunas, useColunas } from "../gorjeta/colunas";
 import { SEM_DADOS_BANCARIOS, linhasDadosBancarios } from "../gorjeta/dadosBancarios";
 import { BarraFiltro, opcoesDe, useFiltro } from "../gorjeta/filtro";
@@ -55,6 +55,19 @@ function lerPreferencia<T extends string>(chave: string, valores: readonly T[], 
 }
 function gravarPreferencia(chave: string, valor: string) {
   try { window.localStorage.setItem(chave, valor); } catch { /* só não lembra */ }
+}
+
+// Aviso com uma lista de nomes no fim ("…: Ana, Bruno, …"): a frase fica à vista e os nomes abrem sob demanda.
+function AvisoDaLista({ texto }: { texto: string }) {
+  const i = texto.lastIndexOf(": ");
+  const nomes = i > 0 ? texto.slice(i + 2).replace(/\.$/, "").split(/,\s*/).filter(Boolean) : [];
+  if (texto.length < 160 || nomes.length < 3) return <div>{texto}</div>;
+  return (
+    <details className="folha-aviso-longo">
+      <summary>{texto.slice(0, i)} ({nomes.length})</summary>
+      <p>{nomes.join(", ")}</p>
+    </details>
+  );
 }
 
 const plural = (n: number, um: string, varios: string) => `${n} ${n === 1 ? um : varios}`;
@@ -260,7 +273,7 @@ export function PagamentoMeio({ tipo, year, month, canEdit, percentAdiantamento,
         <div role="listitem" className="pm-cartao pm-total"><span>Total do mês</span><strong>{money(dados.total)}</strong><small>{plural(dados.linhas.length, "pessoa", "pessoas")}</small></div>
       </div>
 
-      {dados.avisos.length > 0 && <Alert tone="warning">{dados.avisos.map((a) => <div key={a}>{a}</div>)}</Alert>}
+      {dados.avisos.length > 0 && <Alert tone="warning">{dados.avisos.map((a) => <AvisoDaLista key={a} texto={a} />)}</Alert>}
       {avisoResultado}
 
       <div className="pagamento-meio-acoes">
@@ -302,7 +315,7 @@ export function PagamentoMeio({ tipo, year, month, canEdit, percentAdiantamento,
       )}
 
       {dados.linhas.length === 0 ? (
-        <span style={mutedStyle}>Nada de {TITULO_PAGAMENTO[tipo].toLowerCase()} neste mês: nem no Contas a Pagar, nem a lançar.</span>
+        <EmptyState title={`Nada de ${TITULO_PAGAMENTO[tipo].toLowerCase()} neste mês`} description="Não há título no Contas a Pagar nem pessoa a lançar. Troque o mês acima para ver outro período." />
       ) : (
         <>
           <BarraFiltro filtro={filtro} total={dados.linhas.length} visiveis={filtradas.length} placeholder="Filtrar por nome, empresa, PIX, banco…"
