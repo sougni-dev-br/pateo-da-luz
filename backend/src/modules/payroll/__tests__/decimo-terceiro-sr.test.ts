@@ -133,3 +133,45 @@ describe("fimSemRegistro — o mês da carteira é da contabilidade", () => {
     expect(fimSemRegistro(d("2026-03-10"), d("2026-02-01"))).toBeNull();
   });
 });
+
+describe("meses sem apuração de gorjeta ficam fora da média", () => {
+  const base = { ano: 2026, salarioBase: 2400, inicio: d("2024-01-01"), desligamento: null };
+  test("a gorjeta já era paga de jan a jun: sem apuração, o mês não soma nem entra na divisão", () => {
+    const variaveis = meses({ 7: 300, 8: 300, 9: 300, 10: 300 });
+    const apurados = new Set([7, 8, 9, 10]);
+    expect(calcularDecimoTerceiroSR({ ...base, variaveis, mesesApurados: apurados })!.mediaParcela1).toBe(300);
+    // sem a regra (todos os meses contam), os 6 meses sem dado puxariam a média para baixo: 1200 ÷ 10
+    expect(calcularDecimoTerceiroSR({ ...base, variaveis })!.mediaParcela1).toBe(120);
+  });
+  test("mês APURADO em que a pessoa não ganhou nada conta como zero", () => {
+    const r = calcularDecimoTerceiroSR({ ...base, variaveis: meses({ 7: 400 }), mesesApurados: new Set([7, 8, 9, 10]) })!;
+    expect(r.mediaParcela1).toBe(100); // 400 ÷ 4 meses apurados
+  });
+  test("nenhum mês apurado: média zero, sem divisão por zero", () => {
+    const r = calcularDecimoTerceiroSR({ ...base, variaveis: meses({ 7: 400 }), mesesApurados: new Set() })!;
+    expect(r.mediaParcela1).toBe(0);
+    expect(r.mediaFinal).toBe(0);
+    expect(r.total).toBe(2400);
+  });
+  test("só os meses em que a pessoa tinha avo entram: antes da admissão não conta, mesmo apurado", () => {
+    const r = calcularDecimoTerceiroSR({
+      ano: 2026, salarioBase: 2400, inicio: d("2026-09-01"), desligamento: null, variaveis: meses({ 7: 9999, 9: 600, 10: 400 }), mesesApurados: new Set([7, 8, 9, 10]),
+    })!;
+    expect(r.mediaParcela1).toBe(500); // (600 + 400) ÷ 2 meses (set e out)
+  });
+  test("a média até novembro usa novembro quando ele está apurado, e a estimativa ignora quando não está", () => {
+    const variaveis = meses({ 9: 300, 10: 300, 11: 900 });
+    const comNov = calcularDecimoTerceiroSR({ ...base, variaveis, mesesApurados: new Set([9, 10, 11]) })!;
+    const semNov = calcularDecimoTerceiroSR({ ...base, variaveis, mesesApurados: new Set([9, 10]) })!;
+    expect(comNov.mediaFinal).toBe(500); // 1500 ÷ 3
+    expect(semNov.mediaFinal).toBe(300); // novembro ainda não apurado: fica de fora
+  });
+  test("período sem registro: só os meses apurados até o limite", () => {
+    const r = calcularDecimoTerceiroSR({
+      ano: 2026, salarioBase: 1200, inicio: d("2026-01-01"), desligamento: null, ate: d("2026-09-30"),
+      variaveis: meses({ 7: 300, 8: 300, 9: 300, 10: 9999 }), mesesApurados: new Set([7, 8, 9, 10]),
+    })!;
+    expect(r.avos).toBe(9);
+    expect(r.mediaFinal).toBe(300);
+  });
+});

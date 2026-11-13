@@ -58,18 +58,23 @@ export function avosFerias(inicio: Date, saida: Date): AvosFerias {
 
 // 13º: ano civil da saída, de max(01/01, início) até a saída; cada mês com 15 dias ou mais
 // trabalhados conta 1 avo.
-export function avos13(inicio: Date, saida: Date): { avos: number; desde: string } {
+export function mesesDe13(inicio: Date, saida: Date): { meses: number[]; desde: string } {
   const ano = saida.getUTCFullYear();
   const primeiro = new Date(Date.UTC(ano, 0, 1));
   const desde = utc(inicio) > utc(primeiro) ? inicio : primeiro;
-  if (utc(desde) > utc(saida)) return { avos: 0, desde: isoDia(desde) };
-  let avos = 0;
+  if (utc(desde) > utc(saida)) return { meses: [], desde: isoDia(desde) };
+  const meses: number[] = [];
   for (let mes0 = desde.getUTCMonth(); mes0 <= saida.getUTCMonth(); mes0 += 1) {
     const ini = new Date(Math.max(utc(desde), Date.UTC(ano, mes0, 1)));
     const fim = new Date(Math.min(utc(saida), Date.UTC(ano, mes0, ultimoDia(ano, mes0))));
-    if (diasEntre(ini, fim) >= DIAS_FRACAO_AVO) avos += 1;
+    if (diasEntre(ini, fim) >= DIAS_FRACAO_AVO) meses.push(mes0 + 1);
   }
-  return { avos, desde: isoDia(desde) };
+  return { meses, desde: isoDia(desde) };
+}
+
+export function avos13(inicio: Date, saida: Date): { avos: number; desde: string } {
+  const { meses, desde } = mesesDe13(inicio, saida);
+  return { avos: meses.length, desde };
 }
 
 // Aviso prévio indenizado: 30 dias + 3 por ano completo, até 90.

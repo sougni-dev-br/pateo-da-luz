@@ -7,7 +7,7 @@
 //   adicional noturno) pela regra da contabilidade — ver calcularDecimoTerceiroSR.
 // - Duas parcelas: 50% até 30/11 e o acerto (13º completo − 1ª paga) até 20/12.
 // CLT não passa por aqui: o valor vem do extrato da contabilidade.
-import { avos13 } from "./rescisao-verbas-opcionais.js";
+import { avos13, mesesDe13 } from "./rescisao-verbas-opcionais.js";
 import { round2 } from "./vt-calc.js";
 
 export const PARCELA_1_DIA = { mes: 11, dia: 30 } as const;
@@ -61,8 +61,11 @@ export function fimSemRegistro(admissao: Date | null, carteira: Date | null): Da
 export type VariaveisPorMes = ReadonlyMap<number, number>;
 
 // Regra da contabilidade (conferida centavo a centavo com os extratos reais do 13º adiantamento):
-// - média mensal = soma das variáveis dos meses já apurados ÷ número desses meses (avos até lá),
-//   NÃO ÷ 12. Quem entrou em agosto tem a média de agosto a outubro dividida por 3.
+// - média mensal = soma das variáveis dos meses já apurados ÷ número desses meses, NÃO ÷ 12. Quem
+//   entrou em agosto tem a média de agosto a outubro dividida por 3. Mês SEM apuração de gorjeta no
+//   sistema fica de fora (nem soma, nem entra na divisão): a gorjeta já era paga nesses meses (decisão
+//   do Eli, 13/11/2026), então contar zero pagaria a menos. Mês apurado em que a pessoa não ganhou
+//   nada conta como zero.
 // - 1ª parcela = (salário + média até outubro) ÷ 12 × avos da 1ª ÷ 2, onde os avos da 1ª são os
 //   de até novembro, e 12 para quem trabalhou o ano todo (50% do salário, como nos extratos).
 // - 13º completo = (salário + média até novembro) ÷ 12 × avos do ano.
@@ -71,6 +74,8 @@ export type VariaveisPorMes = ReadonlyMap<number, number>;
 export function calcularDecimoTerceiroSR(e: {
   ano: number; salarioBase: number | null; inicio: Date | null; desligamento: Date | null;
   variaveis?: VariaveisPorMes;
+  // Meses (1 a 12) com apuração de gorjeta no sistema. Ausente = todos os meses contam.
+  mesesApurados?: ReadonlySet<number>;
   // Fim do período a contar (quem foi registrado depois: o último dia sem registro; o mês da
   // carteira é da contabilidade). Antes do ano = nada a pagar neste ano.
   ate?: Date | null;
@@ -92,14 +97,17 @@ export function calcularDecimoTerceiroSR(e: {
   // Quem trabalhou de janeiro a novembro recebe 50% cheio na 1ª (12 avos): é o que a contabilidade
   // faz. Nunca mais que os avos do ano, para a 2ª parcela não ficar negativa (saída em novembro).
   const avosPrimeira = Math.min(avosNov >= 11 ? 12 : avosNov, avos);
-  // Média até o mês: soma dos meses ≤ mes (e ≤ mês do limite) ÷ avos até lá.
+  // Média até o mês: só os meses em que a pessoa tinha avo E que têm apuração, ÷ quantos são.
   const mediaAte = (mes: number) => {
-    const n = avosAte(mes);
-    if (n <= 0) return 0;
-    const ultimo = Math.min(mes, limite.getUTCMonth() + 1);
+    const doAvo = mesesDe13(e.inicio!, ateMes(mes)).meses;
+    const contam = e.mesesApurados ? doAvo.filter((m) => e.mesesApurados!.has(m)) : doAvo;
+    if (contam.length === 0) return 0;
     let soma = 0;
-    for (const [m, v] of e.variaveis ?? []) if (m >= 1 && m <= ultimo && Number.isFinite(v)) soma += v;
-    return Math.max(0, soma) / n;
+    for (const m of contam) {
+      const v = e.variaveis?.get(m);
+      if (v != null && Number.isFinite(v)) soma += v;
+    }
+    return Math.max(0, soma) / contam.length;
   };
   const media1 = mediaAte(10);
   const mediaFinal = mediaAte(11);
