@@ -10626,6 +10626,12 @@ export type Decimo13Calculo = {
 };
 export type Decimo13Parcela = {
   existe: boolean; paga: boolean; lancado: number | null; devido: number | null; gerar: boolean;
+  /** Só a diferença do combinado: ainda não há título do extrato do 13º para somar. */
+  aguardaExtrato?: boolean;
+  /** Só a diferença do combinado: já faz parte do título do extrato (não entra de novo no total). */
+  somadaAoExtrato?: boolean;
+  /** Título do extrato pago com valor diferente do líquido: conferir antes de lançar a diferença à parte. */
+  conferir?: boolean;
 };
 export type Decimo13Linha = {
   employeeId: string; nome: string; setor: string | null; calculo: Decimo13Calculo | null; motivoSemCalculo: string | null;
@@ -10650,12 +10656,22 @@ export function removerVariavelDecimo13(year: number, employeeId: string, mes: n
 // CLT: o valor vem do extrato da contabilidade; parcela nula = ainda aguardando o extrato.
 export type Decimo13ParcelaClt = { valor: number; pago: boolean };
 export type Decimo13LinhaClt = { employeeId: string; nome: string; setor: string | null; parcela1: Decimo13ParcelaClt | null; parcela2: Decimo13ParcelaClt | null };
-export type Decimo13Previa = { ano: number; linhas: Decimo13Linha[]; novembroFechado: boolean; avisos: string[]; clt: Decimo13LinhaClt[] };
+export type Decimo13Previa = { ano: number; linhas: Decimo13Linha[]; novembroFechado: boolean; avisos: string[]; clt: Decimo13LinhaClt[]; somasOrfas?: number };
 export function getDecimoTerceiro(year: number) {
   return request<Decimo13Previa>(`/payroll/decimo-terceiro?year=${year}`);
 }
+/** Lista de pagamento do 13º (como a do adiantamento): para conferir e levar ao banco. */
+export type ListaDecimo13 = {
+  parcela: 1 | 2; ano: number; linhas: LinhaPagamentoMeio[]; total: number; avisos: string[];
+  /** Nomes de quem tem salário combinado e aguarda o extrato do 13º: a lista ainda não está completa. */
+  aguardandoExtrato?: string[];
+  aLancar: { pessoas: number; total: number }; lancado: { pessoas: number; total: number }; pago: { pessoas: number; total: number };
+};
+export function getListaDecimo13(year: number, parcela: 1 | 2) {
+  return request<ListaDecimo13>(`/payroll/decimo-terceiro/lista?year=${year}&parcela=${parcela}`);
+}
 export function gerarDecimoTerceiro(year: number, parcela: 1 | 2) {
-  return request<{ ano: number; parcela: 1 | 2; criadas: number; atualizadas: number; restauradas: number; semCalculo: number; avisos: string[] }>("/payroll/decimo-terceiro/generate", {
+  return request<{ ano: number; parcela: 1 | 2; criadas: number; atualizadas: number; restauradas: number; semCalculo: number; somadas?: number; avisos: string[] }>("/payroll/decimo-terceiro/generate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ year, parcela })

@@ -13,7 +13,8 @@ import { prisma } from "../../config/database.js";
 import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
 import { computeTipCommission } from "./tip-commission.service.js";
 import { cadastrosVigentes, carregarHistorico } from "./cadastro-historico.service.js";
-import { diferencaDoCombinado, inicioDoCombinado } from "./decimo-terceiro-combinado.js";
+import { complementoSomado, diferencaDoCombinado, foiSomado, inicioDoCombinado, liquidoDoExtrato } from "./decimo-terceiro-combinado.js";
+import { type ResultadoSoma, somarCombinadoAoExtrato } from "./decimo-terceiro-combinado.service.js";
 import { type LinhaDecimo13Clt, montarLinhasClt } from "./decimo-terceiro-clt.js";
 import {
   calcularDecimoTerceiroSR, decidirParcela, fimSemRegistro, primeiraParaAcerto, ROTULO_13_COMBINADO_PARCELA_1, ROTULO_13_COMBINADO_PARCELA_2,
@@ -29,6 +30,12 @@ export type ParcelaLinha = {
   lancado: number | null;   // valor do lançamento ativo
   devido: number | null;    // quanto deve ser, pelo cálculo de hoje
   gerar: boolean;           // criar, restaurar ou atualizar agora
+  // Só a diferença do combinado: ainda não há título do extrato para somar (a diferença entra quando o extrato é importado).
+  aguardaExtrato?: boolean;
+  // Só a diferença do combinado: esta parcela já faz parte do título do extrato (o valor do título a inclui; não somar de novo no total).
+  somadaAoExtrato?: boolean;
+  // Título do extrato pago com valor diferente do líquido: conferir antes de lançar a diferença à parte.
+  conferir?: boolean;
 };
 
 export type LinhaDecimo13 = {
@@ -46,6 +53,10 @@ export type LinhaDecimo13 = {
   // combinado e o registrado de quem é CLT (o registrado vem do extrato da contabilidade).
   origem: "SEM_REGISTRO" | "COMBINADO";
   rotulos: { p1: string; p2: string };
+  // Só a diferença do combinado: a 1ª parcela é SOMADA ao título do extrato (um título só), não vira lançamento próprio.
+  viaExtrato: boolean;
+  // Só a diferença do combinado com a 1ª somada ao título do extrato: o que essa 1ª carrega/pagou de fato, base do acerto da 2ª.
+  primeiraSomada: number | null;
 };
 
 export type PreviaDecimo13 = {
@@ -53,6 +64,9 @@ export type PreviaDecimo13 = {
   // A 2ª parcela só pode ser gerada com a gorjeta de novembro fechada (a média precisa dela).
   novembroFechado: boolean;
   avisos: string[];
+  // Títulos do extrato em aberto que ainda carregam uma diferença do combinado que não vale mais (o combinado acabou ou a
+  // pessoa saiu da prévia): "Lançar" desfaz a soma. O botão precisa estar habilitado para isso.
+  somasOrfas: number;
 };
 
 const nomeDe = (e: { firstName: string; lastName: string }) => `${e.firstName} ${e.lastName}`.trim();
@@ -123,7 +137,7 @@ function avisosDaBase(ano: number, status: Map<number, string>, apurados: Set<nu
   return avisos;
 }
 
-type Item = { amount: unknown; paidAmount: unknown; paymentDate: Date | null; deletedAt: Date | null; deletedById: string | null; periodLabel: string; employeeId: string; details?: unknown };
+type Item = { status?: unknown; amount: unknown; paidAmount: unknown; paymentDate: Date | null; deletedAt: Date | null; deletedById: string | null; periodLabel: string; employeeId: string; details?: unknown };
 
 const valorDe = (i: Item | undefined) => (i ? round2(Number(i.amount)) : null);
 const resolvida = (i: Item | undefined) => Boolean(i && !["criar", "restaurar"].includes(decidirParcela(i)));
@@ -138,16 +152,62 @@ function parcelaLinha(item: Item | undefined, devido: number | null): ParcelaLin
 // As duas parcelas de uma linha: a 2ª é o acerto do que a 1ª pagou de fato (paga: o valor pago; senão, o calculado).
 function parcelasDaLinha(
   itemDe: (id: string, rotulo: string) => Item | undefined, id: string, rotulos: { p1: string; p2: string }, calculo: Decimo13SR | null,
+  primeiraSomada: number | null = null,
 ): Pick<LinhaDecimo13, "p1" | "p2" | "acerto"> {
   const i1 = itemDe(id, rotulos.p1);
   const i2 = itemDe(id, rotulos.p2);
-  const p2 = calculo ? segundaParcela(calculo.total, primeiraParaAcerto(i1 ?? null, calculo.parcela1)) : null;
+  // 1ª somada ao título do extrato: vale o que ela carrega/pagou de fato, não o cálculo de hoje.
+  const p2 = calculo ? segundaParcela(calculo.total, primeiraSomada ?? primeiraParaAcerto(i1 ?? null, calculo.parcela1)) : null;
   const pagoNa2 = i2 && !i2.deletedAt && i2.paymentDate ? round2(Number(i2.paidAmount ?? i2.amount)) : null;
   return {
     p1: parcelaLinha(i1, calculo?.parcela1 ?? null),
     p2: { ...parcelaLinha(i2, p2?.valor ?? null), excesso: p2?.excesso ?? 0 },
     acerto: calculo && p2 && pagoNa2 != null ? round2(p2.valor - pagoNa2 - p2.excesso) : null,
   };
+}
+
+// 1ª parcela da diferença do combinado: vai SOMADA ao título do 13º que veio do extrato (um título só, como no
+// salário). Sem o título do extrato ela aguarda; com o título já pago sem a soma, vira lançamento próprio.
+// O que a 1ª parcela da diferença carrega no título do extrato (em aberto: o somado; pago: a parte do combinado que saiu).
+// null = não está somada (aguarda o extrato, ou a diferença foi lançada à parte).
+export function primeiraSomadaDoExtrato(extrato: Item | undefined): number | null {
+  const ativo = extrato && !extrato.deletedAt ? extrato : undefined;
+  const complemento = ativo ? complementoSomado(ativo.details) : null;
+  if (!ativo || complemento == null) return null;
+  if (!ativo.paymentDate) return round2(complemento);
+  const liquido = liquidoDoExtrato(ativo.details);
+  const pagoAMais = liquido != null && ativo.paidAmount != null ? round2(Number(ativo.paidAmount) - liquido) : null;
+  return pagoAMais != null ? Math.max(0, pagoAMais) : round2(complemento);
+}
+
+export function p1DoCombinado(extrato: Item | undefined, propria: ParcelaLinha, devido: number): { p1: ParcelaLinha; viaExtrato: boolean } {
+  if (propria.existe || propria.lancado != null) return { p1: propria, viaExtrato: false }; // já lançada à parte
+  const ativo = extrato && !extrato.deletedAt ? extrato : undefined;
+  if (!ativo) return { p1: { ...propria, gerar: false, aguardaExtrato: true }, viaExtrato: false };
+  const somado = foiSomado(ativo.details);
+  if (ativo.paymentDate) {
+    return somado
+      ? { p1: { existe: true, paga: true, lancado: complementoSomado(ativo.details), devido, gerar: false, somadaAoExtrato: true }, viaExtrato: false }
+      : { p1: propria, viaExtrato: false };
+  }
+  const somadoAntes = somado ? complementoSomado(ativo.details) ?? 0 : null;
+  const igual = somadoAntes != null && Math.abs(somadoAntes - devido) < 0.01;
+  // Somado com outro valor (o cálculo mudou): o título já carrega o valor antigo; gerar atualiza para o de hoje.
+  return {
+    p1: somadoAntes != null
+      ? { existe: true, paga: false, lancado: somadoAntes, devido, gerar: !igual, somadaAoExtrato: true }
+      : { existe: false, paga: false, lancado: null, devido, gerar: devido > 0 },
+    viaExtrato: true,
+  };
+}
+
+// Soma (ou desfaz a soma) da diferença do combinado nos títulos do extrato em aberto. Chamado ao gerar a
+// 1ª parcela e ao importar o extrato do 13º.
+export async function sincronizarCombinadoDoDecimo(ano: number, userId: string, previaPronta?: PreviaDecimo13): Promise<ResultadoSoma> {
+  const previa = previaPronta ?? await listarDecimoTerceiroSR(ano);
+  const complementos = new Map<string, number>();
+  for (const l of previa.linhas) if (l.origem === "COMBINADO" && l.viaExtrato && l.calculo) complementos.set(l.employeeId, l.calculo.parcela1);
+  return somarCombinadoAoExtrato(ano, complementos, userId);
 }
 
 export async function listarDecimoTerceiroSR(ano: number): Promise<PreviaDecimo13> {
@@ -173,7 +233,7 @@ export async function listarDecimoTerceiroSR(ano: number): Promise<PreviaDecimo1
       type: "DECIMO_TERCEIRO", competenceYear: ano, employeeId: { in: emps.map((e) => e.id) },
       periodLabel: { in: TODOS_OS_ROTULOS },
     },
-    select: { employeeId: true, periodLabel: true, amount: true, paidAmount: true, paymentDate: true, deletedAt: true, deletedById: true, details: true },
+    select: { employeeId: true, periodLabel: true, status: true, amount: true, paidAmount: true, paymentDate: true, deletedAt: true, deletedById: true, details: true },
   });
   const itemDe = (id: string, rotulo: string) => existentes.find((x) => x.employeeId === id && x.periodLabel === rotulo);
   // Quem já tem o 13º do extrato da contabilidade (CLT) e não é pré-registro não é gerado aqui:
@@ -219,10 +279,11 @@ export async function listarDecimoTerceiroSR(ano: number): Promise<PreviaDecimo1
       employeeId: e.id, nome: nomeDe(e), setor: e.sector, calculo, motivoSemCalculo,
       ...parcelasDaLinha(itemDe, e.id, ROTULOS_SR, calculo),
       preRegistro, semRegistroAte: fim ? iso(fim) : null, registroEm: preRegistro && e.admissaoCarteira ? iso(e.admissaoCarteira) : null,
-      informadas: variaveis.informadas.get(e.id) ?? [], origem: "SEM_REGISTRO", rotulos: ROTULOS_SR,
+      informadas: variaveis.informadas.get(e.id) ?? [], origem: "SEM_REGISTRO", rotulos: ROTULOS_SR, viaExtrato: false, primeiraSomada: null,
     });
   }
   // CLT com salário combinado: a diferença acima do registrado (o registrado vem do extrato).
+  const avisosCombinado: string[] = [];
   const comCombinado = emps.filter((e) => vigentes.get(e.id)?.modality === "CLT" && vigentes.get(e.id)?.salarioCombinado != null);
   const historicoCombinado = comCombinado.length > 0 ? await carregarHistorico(comCombinado.map((e) => e.id)) : new Map();
   for (const e of comCombinado) {
@@ -235,14 +296,33 @@ export async function listarDecimoTerceiroSR(ano: number): Promise<PreviaDecimo1
     });
     // Sem avos neste ano (combinado muito recente): nada a mostrar.
     if (!calculo) continue;
+    const extratoLido = itemDe(e.id, ROTULO_13_EXTRATO_PARCELA_1);
+    const extrato = extratoLido && String(extratoLido.status ?? "") === "CANCELED" ? undefined : extratoLido;
+    const primeiraSomada = primeiraSomadaDoExtrato(extrato);
+    const proprias = parcelasDaLinha(itemDe, e.id, ROTULOS_COMBINADO, calculo, primeiraSomada);
+    let p1 = p1DoCombinado(extrato, proprias.p1, calculo.parcela1);
+    // Título do extrato JÁ PAGO, sem a soma, com valor diferente do líquido: pode ter sido pago já com a diferença
+    // (ajuste à mão). Não gera a diferença à parte sem conferir: pagaria duas vezes.
+    const liquidoPago = extrato && !extrato.deletedAt && extrato.paymentDate && !foiSomado(extrato.details) ? liquidoDoExtrato(extrato.details) : null;
+    const valorPago = extrato ? round2(Number(extrato.paidAmount ?? extrato.amount)) : null;
+    if (liquidoPago != null && valorPago != null && Math.abs(valorPago - liquidoPago) >= 1 && !proprias.p1.existe && proprias.p1.lancado == null) {
+      p1 = { p1: { existe: true, paga: true, lancado: null, devido: calculo.parcela1, gerar: false, conferir: true }, viaExtrato: false };
+      avisosCombinado.push(`${nomeDe(e)}: o título do 13º do extrato foi pago com ${valorPago.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} e o líquido do extrato era ${liquidoPago.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}: confira se a diferença do salário combinado já foi paga antes de lançá-la à parte (pode ter ido junto).`);
+    }
     linhas.push({
       employeeId: e.id, nome: nomeDe(e), setor: e.sector, calculo, motivoSemCalculo: null,
-      ...parcelasDaLinha(itemDe, e.id, ROTULOS_COMBINADO, calculo),
-      preRegistro: false, semRegistroAte: null, registroEm: null, informadas: [], origem: "COMBINADO", rotulos: ROTULOS_COMBINADO,
+      ...proprias, p1: p1.p1,
+      preRegistro: false, semRegistroAte: null, registroEm: null, informadas: [], origem: "COMBINADO", rotulos: ROTULOS_COMBINADO, viaExtrato: p1.viaExtrato, primeiraSomada,
     });
   }
-  const avisos = avisosDaBase(ano, variaveis.status, variaveis.apurados);
-  return { ano, linhas, novembroFechado: variaveis.status.get(11) === "CLOSED", avisos };
+  const comSomaViva = new Set(linhas.filter((l) => l.origem === "COMBINADO" && l.viaExtrato).map((l) => l.employeeId));
+  const orfas = existentes.filter((x) => x.periodLabel === ROTULO_13_EXTRATO_PARCELA_1 && !x.deletedAt && !x.paymentDate
+    && String(x.status ?? "") !== "CANCELED" && foiSomado(x.details) && !comSomaViva.has(x.employeeId));
+  if (orfas.length > 0) {
+    avisosCombinado.push(`${orfas.length} título(s) do 13º do extrato ainda carregam uma diferença de salário combinado que não vale mais: lance a 1ª parcela para desfazer a soma antes de pagar.`);
+  }
+  const avisos = [...avisosDaBase(ano, variaveis.status, variaveis.apurados), ...avisosCombinado];
+  return { ano, linhas, novembroFechado: variaveis.status.get(11) === "CLOSED", avisos, somasOrfas: orfas.length };
 }
 
 export type EntradaVariavel = { employeeId: string; ano: number; mes: number; valor: number; motivo: string };
@@ -281,6 +361,8 @@ export async function removerVariavelDecimo13(employeeId: string, ano: number, m
 
 export type ResultadoGeracao = {
   ano: number; parcela: 1 | 2; criadas: number; atualizadas: number; restauradas: number; semCalculo: number; avisos: string[];
+  // Diferenças do combinado somadas ao título do extrato (1ª parcela).
+  somadas: number;
 };
 
 // Gera a parcela pedida. Parcela já lançada é atualizada se ainda não foi paga, o cálculo mudou e
@@ -289,12 +371,24 @@ export async function gerarDecimoTerceiroSR(ano: number, userId: string, parcela
   // As parcelas caem em novembro e dezembro: mês de folha fechado não recebe lançamento novo.
   await assertPeriodWritableForDate(new Date(Date.UTC(ano, 10, 1)), "Geração do 13º");
   await assertPeriodWritableForDate(new Date(Date.UTC(ano, 11, 1)), "Geração do 13º");
-  const previa = await listarDecimoTerceiroSR(ano);
+  let previa = await listarDecimoTerceiroSR(ano);
   if (parcela === 2 && !previa.novembroFechado) {
     throw new Error(`A gorjeta de ${mmaaaa(11, ano)} ainda não está fechada: a 2ª parcela depende da média até novembro. Feche a apuração e gere de novo.`);
   }
+  // A soma da diferença do combinado vem ANTES: a 2ª parcela é o acerto do que a 1ª carrega no título, e a soma pode mudar a 1ª.
+  let somadas = 0;
+  const avisosDaSoma: string[] = [];
+  try {
+    const soma = await sincronizarCombinadoDoDecimo(ano, userId, previa);
+    somadas = soma.alterados.length;
+    avisosDaSoma.push(...soma.avisos);
+    if (somadas > 0) previa = await listarDecimoTerceiroSR(ano);
+  } catch (err) {
+    // Nada foi gravado pela soma: refazer é seguro (a soma é absoluta), mas o erro não pode passar calado.
+    avisosDaSoma.push(`Não foi possível somar a diferença do salário combinado ao título do extrato: ${(err as Error).message}. Gere de novo para somar.`);
+  }
   const dre = await prisma.dRECategory.findFirst({ where: { name: FOLHA_CATEGORY }, select: { id: true } });
-  const avisos: string[] = [];
+  const avisos: string[] = [...avisosDaSoma];
   let criadas = 0;
   let atualizadas = 0;
   let restauradas = 0;
@@ -302,6 +396,13 @@ export async function gerarDecimoTerceiroSR(ano: number, userId: string, parcela
     for (const l of previa.linhas) {
       const c = l.calculo;
       if (!c) continue;
+      // A diferença do combinado da 1ª parcela entra no título do extrato (ou aguarda o extrato): não vira lançamento próprio.
+      if (l.origem === "COMBINADO" && parcela === 1 && (l.viaExtrato || l.p1.aguardaExtrato || l.p1.conferir)) continue;
+      // 2ª da diferença com a 1ª ainda sem título (aguarda o extrato): gerar agora pagaria só o restante e a 1ª ficaria sem pagar.
+      if (l.origem === "COMBINADO" && parcela === 2 && (l.p1.aguardaExtrato || l.p1.conferir || (l.viaExtrato && l.p1.gerar))) {
+        avisos.push(`${l.nome}: a 1ª parcela da diferença do salário combinado ainda não está resolvida no título do extrato do 13º (aguarda o extrato ou o título foi ajustado à mão); a 2ª só é gerada depois.`);
+        continue;
+      }
       const rotulo = parcela === 1 ? l.rotulos.p1 : l.rotulos.p2;
       // Trava a pessoa e relê dentro da transação: dois "Gerar" juntos não se atropelam.
       await travarFolhaDaPessoa(tx, l.employeeId);
@@ -312,7 +413,7 @@ export async function gerarDecimoTerceiroSR(ano: number, userId: string, parcela
       const doRotulo = (r: string) => atuais.find((x) => x.periodLabel === r) ?? null;
       const atual = doRotulo(rotulo);
       // O valor da parcela: a 1ª é o calculado; a 2ª fecha o total com o que a 1ª PAGOU de fato.
-      const valor = parcela === 1 ? c.parcela1 : segundaParcela(c.total, primeiraParaAcerto(doRotulo(l.rotulos.p1), c.parcela1)).valor;
+      const valor = parcela === 1 ? c.parcela1 : segundaParcela(c.total, l.primeiraSomada ?? primeiraParaAcerto(doRotulo(l.rotulos.p1), c.parcela1)).valor;
       if (valor <= 0) continue;
       const decisao = decidirParcela(atual);
       if (decisao === "excluida-a-mao") {
@@ -364,7 +465,7 @@ export async function gerarDecimoTerceiroSR(ano: number, userId: string, parcela
     }
   }, { timeout: 30_000, maxWait: 10_000 });
   const semCalculo = previa.linhas.filter((l) => !l.calculo).length;
-  return { ano, parcela, criadas, atualizadas, restauradas, semCalculo, avisos: [...previa.avisos, ...avisos] };
+  return { ano, parcela, criadas, atualizadas, restauradas, semCalculo, somadas, avisos: [...previa.avisos, ...avisos] };
 }
 
 // Quem tem registro: só mostra o que o extrato da contabilidade já trouxe (o cálculo é dela).
@@ -380,7 +481,7 @@ export async function listarDecimoTerceiroClt(ano: number): Promise<LinhaDecimo1
   );
   const clt = emps.filter((e) => vigentes.get(e.id)?.modality === "CLT");
   const itens = await prisma.payrollItem.findMany({
-    where: { type: "DECIMO_TERCEIRO", competenceYear: ano, deletedAt: null, employeeId: { in: clt.map((e) => e.id) } },
+    where: { type: "DECIMO_TERCEIRO", competenceYear: ano, deletedAt: null, status: { not: "CANCELED" }, employeeId: { in: clt.map((e) => e.id) } },
     select: { employeeId: true, periodLabel: true, amount: true, status: true },
   });
   return montarLinhasClt(

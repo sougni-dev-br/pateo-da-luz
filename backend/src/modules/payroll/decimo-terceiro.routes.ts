@@ -1,6 +1,11 @@
 // 13º dos sem registro, em /payroll/decimo-terceiro. A prévia mostra salário: exige ver Funcionários.
 import { Router } from "express";
+import { prisma } from "../../config/database.js";
 import { auditLog, getSessionUser, requestIp } from "../security/security-utils.js";
+import { montarListaDecimo13 } from "./decimo-terceiro-lista.js";
+import { nomeCompleto } from "./nomes.js";
+import type { PessoaMeio } from "./pagamento-meio.js";
+import { textoContaBancaria } from "./tip-conferencia.js";
 import { podeVerDadosPessoais } from "./dados-pessoais.js";
 import {
   gerarDecimoTerceiroSR, informarVariavelDecimo13, listarDecimoTerceiroClt, listarDecimoTerceiroSR, removerVariavelDecimo13,
@@ -32,6 +37,49 @@ decimoTerceiroRouter.get("/", async (request, response) => {
   if (ano == null) return response.status(400).json({ message: MSG_ANO });
   // CLT: lista só de leitura (o valor vem do extrato da contabilidade).
   response.json({ ...(await listarDecimoTerceiroSR(ano)), clt: await listarDecimoTerceiroClt(ano) });
+});
+
+// Lista de pagamento do 13º (1ª ou 2ª parcela) para conferir e levar ao banco, como a do adiantamento.
+// Tem valores e PIX: mesma permissão da prévia. Só leitura.
+decimoTerceiroRouter.get("/lista", async (request, response) => {
+  if (!(await getSessionUser(request))) return response.status(401).json({ message: "Sessão obrigatória." });
+  if (!(await podeVerDadosPessoais(request))) return response.status(403).json({ message: MSG_SEM_PERMISSAO });
+  const ano = lerAno(request.query.year);
+  if (ano == null) return response.status(400).json({ message: MSG_ANO });
+  const parcela = lerParcela(request.query.parcela);
+  if (parcela == null) return response.status(400).json({ message: "Parcela inválida (use 1 ou 2)." });
+  const [itens, previa] = await Promise.all([
+    prisma.payrollItem.findMany({
+      where: { type: "DECIMO_TERCEIRO", competenceYear: ano, deletedAt: null, status: { not: "CANCELED" } },
+      select: { id: true, employeeId: true, periodLabel: true, amount: true, dueDate: true, paymentDate: true, paidAmount: true, details: true },
+    }),
+    listarDecimoTerceiroSR(ano),
+  ]);
+  const ids = [...new Set([...itens.map((i) => i.employeeId), ...previa.linhas.map((l) => l.employeeId)])];
+  const cadastro = await prisma.employee.findMany({
+    where: { id: { in: ids } },
+    select: {
+      id: true, firstName: true, lastName: true, modality: true, company: { select: { legalName: true } },
+      pixKey: true, pixKeyType: true, bankName: true, bankAgency: true, bankAccount: true, bankAccountDigit: true, bankAccountType: true,
+    },
+  });
+  const pessoas = new Map(cadastro.map((e): [string, PessoaMeio] => [e.id, {
+    id: e.id, nome: nomeCompleto(e), semRegistro: e.modality === "NAO_CLT", empresa: e.company?.legalName ?? null,
+    pix: e.pixKey?.trim() || null, pixTipo: e.pixKeyType?.trim() || null,
+    contaBancaria: textoContaBancaria({
+      bankName: e.bankName ?? null, bankAgency: e.bankAgency ?? null, bankAccount: e.bankAccount ?? null,
+      bankAccountDigit: e.bankAccountDigit ?? null, bankAccountType: String(e.bankAccountType ?? "CONTA_CORRENTE"),
+    }),
+  }]));
+  const lista = montarListaDecimo13(
+    ano, parcela,
+    itens.map((i) => ({ ...i, amount: Number(i.amount), paidAmount: i.paidAmount == null ? null : Number(i.paidAmount) })),
+    previa.linhas.map((l) => ({
+      employeeId: l.employeeId, origem: l.origem, viaExtrato: l.viaExtrato, calculo: l.calculo, p1: l.p1, p: parcela === 1 ? l.p1 : l.p2,
+    })),
+    pessoas,
+  );
+  response.json({ ...lista, avisos: [...previa.avisos, ...lista.avisos] });
 });
 
 // Variável do mês informada à mão (substitui a apuração só no cálculo do 13º). Exige a mesma permissão da prévia.
