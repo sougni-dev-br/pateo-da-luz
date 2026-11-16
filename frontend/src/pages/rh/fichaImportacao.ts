@@ -64,6 +64,18 @@ export function itensPorTipo(itens: readonly FichaItemImportacao[]): Array<{ tip
     .filter((g) => g.itens.length > 0);
 }
 
+/** Linha de resumo do topo: quantas fichas, quantas têm o que revisar e quantas não casaram com um cadastro. */
+export function resumoDaPrevia(pessoas: readonly FichaPessoaPrevista[]): string {
+  const conta = (...s: FichaPessoaPrevista["situacao"][]) => pessoas.filter((p) => s.includes(p.situacao)).length;
+  const partes = [
+    `${pessoas.length} ficha(s)`,
+    `${conta("COM_ITENS")} com o que revisar`,
+    `${conta("EM_DIA")} em dia`,
+    `${conta("SEM_CADASTRO", "CPF_DUPLICADO", "NOME_DIFERENTE")} sem como importar`,
+  ];
+  return partes.join(" · ");
+}
+
 export const ROTULO_SITUACAO = {
   COM_ITENS: "Tem o que revisar",
   EM_DIA: "Em dia",

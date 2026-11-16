@@ -60,6 +60,15 @@ describe("montarPrevisao", () => {
     expect(p.aplicacoes.get("diverge:racaCor")).toEqual({ tipo: "DADOS", dados: { racaCor: "Parda" } });
   });
 
+  test("o que o usuário lê: data em dia/mês/ano, sim/não e sexo por extenso", () => {
+    const p = montarPrevisao(ficha(), contexto());
+    const por = (id: string) => p.itens.find((i) => i.id === id);
+    expect(por("preenche:fgtsDataOpcao")?.ficha).toBe("01/03/2025");
+    expect(por("preenche:possuiDeficiencia")?.ficha).toBe("Não");
+    expect(por("preenche:gender")).toMatchObject({ atual: "Não informado", ficha: "Feminino" });
+    expect(por("preenche:birthDate")?.ficha).toBe("10/03/1990");
+  });
+
   test("erro evidente da ficha (filiação com nome de dependente) fica só como suspeito: não vira item", () => {
     const p = montarPrevisao(ficha({ pai: "CICLANO DE TAL" }), contexto());
     expect(ids(p)).not.toContain("preenche:nomePai");

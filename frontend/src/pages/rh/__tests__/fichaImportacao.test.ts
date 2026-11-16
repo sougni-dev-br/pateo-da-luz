@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { FichaItemImportacao, FichaPessoaPrevista } from "../../../api/client";
-import { alternar, itensPorTipo, marcarTodos, selecaoInicial, selecoesParaEnvio, temSalario, totais } from "../fichaImportacao";
+import { alternar, itensPorTipo, marcarTodos, resumoDaPrevia, selecaoInicial, selecoesParaEnvio, temSalario, totais } from "../fichaImportacao";
 
 const item = (o: Partial<FichaItemImportacao> & Pick<FichaItemImportacao, "id" | "tipo">): FichaItemImportacao => ({
   rotulo: o.id, atual: null, ficha: null, detalhes: [], padrao: false, bloqueio: null, ...o,
@@ -64,5 +64,12 @@ describe("itensPorTipo", () => {
   test("agrupa na ordem de apresentação e omite grupo vazio", () => {
     const grupos = itensPorTipo([item({ id: "s", tipo: "SALARIO" }), item({ id: "p", tipo: "PREENCHE" }), item({ id: "d", tipo: "DIVERGE" })]);
     expect(grupos.map((g) => g.tipo)).toEqual(["PREENCHE", "SALARIO", "DIVERGE"]);
+  });
+});
+
+describe("resumoDaPrevia", () => {
+  test("conta fichas, as com itens, as em dia e as que não dá para importar", () => {
+    const pessoas = [pessoa(), pessoa({ situacao: "EM_DIA" }), pessoa({ situacao: "SEM_CADASTRO" }), pessoa({ situacao: "CPF_DUPLICADO" }), pessoa({ situacao: "NOME_DIFERENTE" })];
+    expect(resumoDaPrevia(pessoas)).toBe("5 ficha(s) · 1 com o que revisar · 1 em dia · 3 sem como importar");
   });
 });

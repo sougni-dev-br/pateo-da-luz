@@ -70,7 +70,7 @@ describe("ImportarFicha", () => {
     expect(arquivo).toBe(pdf);
     expect(selecoes).toEqual({ e1: ["preenche:cbo", "salario"] });
     expect(desde).toBeNull();
-    expect(motivo).toMatch(/Dissídio 2026/);
+    expect(motivo).toMatch(/Reajuste conforme ficha/);
     // Depois de gravar, a prévia é lida de novo.
     await waitFor(() => expect(previaFichaRegistro).toHaveBeenCalledTimes(2));
   });

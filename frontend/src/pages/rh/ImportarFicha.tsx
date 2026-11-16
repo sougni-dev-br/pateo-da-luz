@@ -15,12 +15,12 @@ import { Alert, Button, Card, EmptyState, FormField, PanelEyebrow, StatusBadge, 
 import { hasPermission } from "../../lib/permissions";
 import {
   ROTULO_SITUACAO, ROTULO_TIPO, type Selecao, alternar, itensPorTipo, marcarTodos, podeMarcar,
-  selecaoInicial, selecoesParaEnvio, temSalario, totais,
+  resumoDaPrevia, selecaoInicial, selecoesParaEnvio, temSalario, totais,
 } from "./fichaImportacao";
 import { ROTAS_RH } from "./rotasRh";
 
 const MUTED = "var(--muted)";
-const MOTIVO_SALARIO = "Dissídio 2026, conforme ficha de registro da contabilidade";
+const MOTIVO_SALARIO = "Reajuste conforme ficha de registro da contabilidade";
 const TOM_SITUACAO = { COM_ITENS: "info", EM_DIA: "success", SEM_CADASTRO: "neutral", CPF_DUPLICADO: "danger", NOME_DIFERENTE: "danger" } as const;
 
 function ItemLinha({ item, marcado, onAlternar }: { item: FichaItemImportacao; marcado: boolean; onAlternar: () => void }) {
@@ -157,6 +157,7 @@ export function ImportarFicha() {
 
   const marcados = totais(selecao);
   const pessoas = previa?.pessoas ?? [];
+  const resumo = resumoDaPrevia(pessoas);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -202,6 +203,7 @@ export function ImportarFicha() {
           </Alert>
         )}
 
+        {!ocupado && previa && pessoas.length > 0 && <div style={{ margin: "8px 0", fontWeight: 600 }}>{resumo}</div>}
         {!ocupado && previa && pessoas.length === 0 && <EmptyState title="Nenhuma ficha encontrada neste PDF." />}
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {pessoas.map((p) => (

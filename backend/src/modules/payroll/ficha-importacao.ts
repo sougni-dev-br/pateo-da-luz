@@ -68,8 +68,20 @@ const iso = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 10) : 
 const texto = (v: unknown): string | null => (v == null ? null : v instanceof Date ? iso(v) : String(v));
 const reais = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
+const SEXO_NA_TELA: Record<string, string> = { MASCULINO: "Masculino", FEMININO: "Feminino", NAO_INFORMADO: "Não informado" };
+
+// O que o usuário lê: data em dia/mês/ano, sim/não e o sexo por extenso (o banco guarda ISO, boolean e enum).
+function paraTela(v: string | null): string | null {
+  if (v === null) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return ddmmaaaa(v);
+  if (v === "true") return "Sim";
+  if (v === "false") return "Não";
+  return SEXO_NA_TELA[v] ?? v;
+}
+
 function item(parcial: Pick<ItemImportacao, "id" | "tipo" | "rotulo"> & Partial<ItemImportacao>): ItemImportacao {
-  return { atual: null, ficha: null, detalhes: [], padrao: false, bloqueio: null, ...parcial };
+  const completo = { atual: null, ficha: null, detalhes: [], padrao: false, bloqueio: null, ...parcial };
+  return { ...completo, atual: paraTela(completo.atual), ficha: paraTela(completo.ficha) };
 }
 
 // Preenche campo vazio (um item por campo; o endereço entra inteiro, num item só).
