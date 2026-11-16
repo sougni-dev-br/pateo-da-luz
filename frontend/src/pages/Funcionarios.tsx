@@ -1,4 +1,4 @@
-import { Cake, FileText, Pencil, Plus, PowerOff, Printer, RefreshCw, UserCheck, UserMinus, Users, Trash2 } from "lucide-react";
+import { Cake, FileText, FileUp, Pencil, Plus, PowerOff, Printer, RefreshCw, UserCheck, UserMinus, Users, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
@@ -15,7 +15,7 @@ import { FichaRegistro } from "../components/pessoal/FichaRegistro";
 import { FichasDoFuncionario } from "../components/pessoal/FichasDoFuncionario";
 import { fichaFormDe, fichaFormVazio, fichaParaSalvar } from "../components/pessoal/fichaRegistroForm";
 import { TIPOS_DESLIGAMENTO, motivoDoDesligamento } from "../components/pessoal/desligamento";
-import { linkRescisao } from "./rh/rotasRh";
+import { ROTAS_RH, linkRescisao } from "./rh/rotasRh";
 import { motivoObrigatorio, mudouCampoComHistorico, type CamposComHistorico } from "../components/pessoal/historicoCadastroFormato";
 import { type FormaPagamento, OPCOES_FORMA_PAGAMENTO, camposDaForma, camposDaModalidade, dicaFormaPagamento, formaPagamentoDe } from "../components/pessoal/formaPagamento";
 import { useSession } from "../context/SessionContext";
@@ -934,6 +934,7 @@ export function Funcionarios() {
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <IconButton icon={<RefreshCw size={16} />} label="Atualizar" onClick={loadEmployees} />
+            {canEdit && <Button variant="secondary" leadingIcon={<FileUp size={14} />} onClick={() => navigate(ROTAS_RH.importarFicha)}>Importar ficha</Button>}
             {canEdit && <Button leadingIcon={<Plus size={14} />} onClick={openNew}>Novo funcionário</Button>}
           </div>
         </div>

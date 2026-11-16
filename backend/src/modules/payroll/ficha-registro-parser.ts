@@ -100,11 +100,15 @@ function lerFiliacao(ls: string[]): { pai: string | null; mae: string | null } {
 function lerDocumentos(linha: string) {
   const r = { rg: null as string | null, rgEmissao: null as string | null, rgOrgao: null as string | null,
     tituloEleitor: null as string | null, tituloZona: null as string | null, tituloSecao: null as string | null };
-  for (const c of colunas(linha)) {
+  const cs = colunas(linha);
+  for (let i = 0; i < cs.length; i++) {
+    const c = cs[i];
     if (/^\d{2}\/\d{2}\/\d{4}$/.test(c)) r.rgEmissao = isoDeBr(c);
     else if (/^SSP/.test(c)) r.rgOrgao = c;
     else if (/^\d{12}$/.test(c)) r.tituloEleitor = c;
     else if (/^\d{3}\s+\d{3,4}$/.test(c)) [r.tituloZona, r.tituloSecao] = c.split(/\s+/);
+    // Zona e seção em colunas separadas (texto remontado do PDF, com vão largo entre elas).
+    else if (/^\d{3}$/.test(c) && /^\d{3,4}$/.test(cs[i + 1] ?? "")) { r.tituloZona = c; r.tituloSecao = cs[++i]; }
     else if (!r.rg) r.rg = c;
   }
   return r;
@@ -202,7 +206,7 @@ const empurrar = (out: FichaFerias[], f: FichaFerias | null) => { if (f) out.pus
 function lerFerias(ls: string[]): FichaFerias[] {
   const out: FichaFerias[] = [];
   for (const l of ls) {
-    for (const m of l.matchAll(/De (\S+) a (\S+) De (\S+) a (\S+)(?: De (\S+) a (\S+))?/g)) {
+    for (const m of l.matchAll(/De (\S+) a (\S+)\s+De (\S+) a (\S+)(?:\s+De (\S+) a (\S+))?/g)) {
       empurrar(out, feriasDe(m.slice(1).filter((x): x is string => Boolean(x))));
     }
   }

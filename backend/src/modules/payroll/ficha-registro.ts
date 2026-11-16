@@ -49,8 +49,15 @@ export type FeriasRow = {
   gozoInicio: Date | null; gozoFim: Date | null; abonoInicio: Date | null; abonoFim: Date | null;
 };
 
+export type DadosFicha = Partial<CamposFicha & Omit<CamposExistentes, "gender">> & { gender?: SexoCadastro };
+
+// Campo do cadastro que já tem valor e a ficha traz outro: o plano só avisa; a tela de
+// importação deixa o usuário escolher trocar. `valor` é o que entraria no cadastro.
+export type Divergencia = { campo: string; rotulo: string; atual: string; ficha: string; valor: DadosFicha };
+
 export type PlanoFicha = {
-  dados: Partial<CamposFicha & Omit<CamposExistentes, "gender">> & { gender?: SexoCadastro };
+  dados: DadosFicha;
+  divergencias: Divergencia[];
   avisos: string[];
   dependentes: string[];
   ferias: FeriasRow[];
@@ -60,7 +67,7 @@ export type PlanoFicha = {
 const dia = (iso: string | null): Date | null => (iso ? new Date(`${iso}T00:00:00.000Z`) : null);
 const iso = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 10) : null);
 const soDigitos = (s: string | null | undefined) => (s ?? "").replace(/[^\dXx]/g, "").toUpperCase();
-const semAcento = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase().replace(/\s+/g, " ").trim();
+export const semAcento = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase().replace(/\s+/g, " ").trim();
 type SexoCadastro = "MASCULINO" | "FEMININO";
 const SEXO: Record<string, SexoCadastro> = { Masculino: "MASCULINO", Feminino: "FEMININO" };
 
@@ -84,7 +91,7 @@ export function quebrarEndereco(endereco: string): EnderecoQuebrado {
   return { address: nomeProprio(endereco)!, addressNumber: null, addressComplement: null, neighborhood: null, city: null, state: null };
 }
 
-function cargoAtual(f: FichaRegistro): { cargo: string; cbo: string } {
+export function cargoAtual(f: FichaRegistro): { cargo: string; cbo: string } {
   const ultimo = f.cargos.at(-1);
   return ultimo?.paraCargo && ultimo.paraCbo ? { cargo: ultimo.paraCargo, cbo: ultimo.paraCbo } : { cargo: f.cargoAdmissao, cbo: f.cboAdmissao };
 }
@@ -105,12 +112,43 @@ function camposDaFicha(f: FichaRegistro): CamposFicha {
   };
 }
 
-const mostrar = (v: unknown) => (v instanceof Date ? iso(v) : String(v));
+export const ROTULO_CAMPO_FICHA: Record<string, string> = {
+  nomeCompleto: "Nome completo", registroNumero: "Nº do registro", matriculaEsocial: "Matrícula eSocial",
+  nomeMae: "Nome da mãe", nomePai: "Nome do pai", estadoCivil: "Estado civil", nacionalidade: "Nacionalidade",
+  naturalidade: "Naturalidade", racaCor: "Raça/cor", escolaridade: "Escolaridade", possuiDeficiencia: "Deficiência",
+  rgDataEmissao: "Data de emissão do RG", rgOrgaoEmissor: "Órgão emissor do RG", tituloEleitor: "Título de eleitor",
+  tituloZona: "Zona eleitoral", tituloSecao: "Seção eleitoral", ctpsNumero: "CTPS (número)", ctpsSerie: "CTPS (série)",
+  ctpsUf: "CTPS (UF)", ctpsDataEmissao: "Data de expedição da CTPS", cbo: "CBO",
+  jornadaInicio: "Início da jornada", jornadaFim: "Fim da jornada", intervaloInicio: "Início do intervalo",
+  intervaloFim: "Fim do intervalo", fgtsDataOpcao: "Opção pelo FGTS", rg: "RG", pis: "PIS", birthDate: "Nascimento",
+  gender: "Sexo", endereco: "Endereço",
+};
+
+const mostrar = (v: unknown): string => (v instanceof Date ? iso(v) ?? "" : String(v));
+// Texto igual sem contar acento, caixa e espaços repetidos: "José" e "JOSE" são o mesmo nome.
 const igual = (a: unknown, b: unknown) =>
-  a instanceof Date || b instanceof Date ? iso(a as Date) === iso(b as Date) : String(a ?? "") === String(b ?? "");
+  a instanceof Date || b instanceof Date ? iso(a as Date) === iso(b as Date) : semAcento(String(a ?? "")) === semAcento(String(b ?? ""));
+
+// Mesma informação escrita de outro jeito pela contabilidade: não é divergência.
+const MESMO_SENTIDO: Record<string, (valor: string) => string> = {
+  estadoCivil: (v) => semAcento(v).replace(/\(A\)/g, "").trim(),
+  nacionalidade: (v) => semAcento(v).replace(/^BRASILEIR[AO]$/, "BRASIL"),
+  escolaridade: (v) => semAcento(v).replace(/^ENSINO /, ""),
+};
+// "SSP" e "SSP/SP" são o mesmo órgão (a ficha só acrescenta a UF); "SSP/SP" e "SSP/RJ" não.
+function mesmoOrgaoEmissor(a: string, b: string): boolean {
+  const [orgaoA, ufA] = semAcento(a).split(/[/-]/).map((x) => x.trim());
+  const [orgaoB, ufB] = semAcento(b).split(/[/-]/).map((x) => x.trim());
+  return orgaoA === orgaoB && (!ufA || !ufB || ufA === ufB);
+}
+const mesmoSentido = (campo: string, a: unknown, b: unknown) => {
+  if (campo === "rgOrgaoEmissor") return typeof a === "string" && typeof b === "string" && mesmoOrgaoEmissor(a, b);
+  const f = MESMO_SENTIDO[campo];
+  return !!f && typeof a === "string" && typeof b === "string" && f(a) === f(b);
+};
 
 // Erros conhecidos de digitação da contabilidade: a ficha não é corrigida, o campo só não entra.
-function errosDaFicha(f: FichaRegistro): { campos: Set<keyof CamposFicha>; avisos: string[] } {
+export function errosDaFicha(f: FichaRegistro): { campos: Set<keyof CamposFicha>; avisos: string[] } {
   const campos = new Set<keyof CamposFicha>();
   const avisos: string[] = [];
   const filhos = new Set(f.beneficiarios.map(semAcento));
@@ -147,7 +185,12 @@ const linhaDeFerias = (x: FichaFerias): FeriasRow => ({
 // O que gravar no cadastro a partir de uma ficha: só o que está vazio; o resto vira aviso.
 export function planoDaFicha(atual: CadastroAtual, f: FichaRegistro): PlanoFicha {
   const dados: PlanoFicha["dados"] = {};
+  const divergencias: Divergencia[] = [];
   const { campos: comErro, avisos } = errosDaFicha(f);
+  const diverge = (campo: string, atualTxt: unknown, fichaTxt: unknown, valor: DadosFicha) => {
+    avisos.push(`${campo}: cadastro "${mostrar(atualTxt)}" × ficha "${mostrar(fichaTxt)}" (mantido o do cadastro)`);
+    divergencias.push({ campo, rotulo: ROTULO_CAMPO_FICHA[campo] ?? campo, atual: mostrar(atualTxt), ficha: mostrar(fichaTxt), valor });
+  };
 
   const novos = camposDaFicha(f);
   for (const campo of Object.keys(novos) as (keyof CamposFicha)[]) {
@@ -159,27 +202,39 @@ export function planoDaFicha(atual: CadastroAtual, f: FichaRegistro): PlanoFicha
     else if (campo === "nomeCompleto" && typeof valor === "string" && typeof atual.nomeCompleto === "string"
       && semAcento(valor) === semAcento(atual.nomeCompleto) && valor !== atual.nomeCompleto
       && /[̀-ͯ]/.test(valor.normalize("NFD"))) Object.assign(dados, { nomeCompleto: valor });
-    else if (!igual(atual[campo], valor)) avisos.push(`${campo}: cadastro "${mostrar(atual[campo])}" × ficha "${mostrar(valor)}" (mantido o do cadastro)`);
+    else if (!igual(atual[campo], valor) && !mesmoSentido(campo, atual[campo], valor)) diverge(campo, atual[campo], valor, { [campo]: valor });
   }
 
   if (f.rg) {
     if (!atual.rg) dados.rg = f.rg.replace(/;/g, "");
-    else if (soDigitos(atual.rg) !== soDigitos(f.rg)) avisos.push(`RG: cadastro "${atual.rg}" × ficha "${f.rg}" (mantido o do cadastro)`);
+    else if (soDigitos(atual.rg) !== soDigitos(f.rg)) {
+      avisos.push(`RG: cadastro "${atual.rg}" × ficha "${f.rg}" (mantido o do cadastro)`);
+      divergencias.push({ campo: "rg", rotulo: ROTULO_CAMPO_FICHA.rg, atual: atual.rg, ficha: f.rg, valor: { rg: f.rg.replace(/;/g, "") } });
+    }
   }
   const pis = f.pis?.replace(/\D/g, "") ?? null;
   if (pis) {
     if (!atual.pis) dados.pis = pis;
-    else if (atual.pis !== pis) avisos.push(`PIS: cadastro "${atual.pis}" × ficha "${pis}" (mantido o do cadastro)`);
+    else if (atual.pis !== pis) {
+      avisos.push(`PIS: cadastro "${atual.pis}" × ficha "${pis}" (mantido o do cadastro)`);
+      divergencias.push({ campo: "pis", rotulo: ROTULO_CAMPO_FICHA.pis, atual: atual.pis, ficha: pis, valor: { pis } });
+    }
   }
   const nascimento = dia(f.dataNascimento);
   if (nascimento) {
     if (!atual.birthDate) dados.birthDate = nascimento;
-    else if (!igual(atual.birthDate, nascimento)) avisos.push(`nascimento: cadastro ${iso(atual.birthDate)} × ficha ${f.dataNascimento} (mantido o do cadastro)`);
+    else if (!igual(atual.birthDate, nascimento)) {
+      avisos.push(`nascimento: cadastro ${iso(atual.birthDate)} × ficha ${f.dataNascimento} (mantido o do cadastro)`);
+      divergencias.push({ campo: "birthDate", rotulo: ROTULO_CAMPO_FICHA.birthDate, atual: iso(atual.birthDate)!, ficha: f.dataNascimento!, valor: { birthDate: nascimento } });
+    }
   }
   const sexo = f.sexo ? SEXO[f.sexo] : undefined;
   if (sexo) {
     if (atual.gender === "NAO_INFORMADO") dados.gender = sexo;
-    else if (atual.gender !== sexo) avisos.push(`sexo: cadastro ${atual.gender} × ficha ${sexo} (mantido o do cadastro)`);
+    else if (atual.gender !== sexo) {
+      avisos.push(`sexo: cadastro ${atual.gender} × ficha ${sexo} (mantido o do cadastro)`);
+      divergencias.push({ campo: "gender", rotulo: ROTULO_CAMPO_FICHA.gender, atual: atual.gender, ficha: sexo, valor: { gender: sexo } });
+    }
   }
   // Endereço só entra inteiro, e só se o cadastro não tiver nenhuma parte dele.
   const temEndereco = [atual.zipCode, atual.address, atual.addressNumber, atual.neighborhood, atual.city, atual.state].some(Boolean);
@@ -187,6 +242,12 @@ export function planoDaFicha(atual: CadastroAtual, f: FichaRegistro): PlanoFicha
   if (daFicha && !temEndereco) Object.assign(dados, daFicha);
   else if (daFicha && (Object.keys(daFicha) as (keyof typeof daFicha)[]).some((c) => (c === "zipCode" ? soDigitos(atual[c]) !== soDigitos(daFicha[c]) : !igual(atual[c], daFicha[c])))) {
     avisos.push("endereço do cadastro diferente do da ficha: mantido o do cadastro");
+    divergencias.push({
+      campo: "endereco", rotulo: ROTULO_CAMPO_FICHA.endereco,
+      atual: [atual.address, atual.addressNumber, atual.neighborhood, atual.city].filter(Boolean).join(", "),
+      ficha: [daFicha.address, daFicha.addressNumber, daFicha.neighborhood, daFicha.city].filter(Boolean).join(", "),
+      valor: daFicha,
+    });
   }
 
   // Conferências do que NÃO é tocado.
@@ -197,7 +258,7 @@ export function planoDaFicha(atual: CadastroAtual, f: FichaRegistro): PlanoFicha
   if (!igual(atual.admissaoCarteira, dia(f.dataAdmissao))) avisos.push(`admissão em carteira: cadastro ${iso(atual.admissaoCarteira) ?? "vazio"} × ficha ${f.dataAdmissao} (não alterado)`);
   if (f.empregador.cnpj && atual.company?.cnpj !== f.empregador.cnpj) avisos.push(`empresa: cadastro ${atual.company?.cnpj ?? "sem empresa"} × ficha ${f.empregador.cnpj} (não alterado)`);
 
-  return { dados, avisos, dependentes: f.beneficiarios.map((n) => nomeProprio(n)!), ferias: f.ferias.map(linhaDeFerias), anotacoes: linhasDeCarteira(f) };
+  return { dados, divergencias, avisos, dependentes: f.beneficiarios.map((n) => nomeProprio(n)!), ferias: f.ferias.map(linhaDeFerias), anotacoes: linhasDeCarteira(f) };
 }
 
 // ─── Resumo de férias por período aquisitivo ─────────────────────────────────────

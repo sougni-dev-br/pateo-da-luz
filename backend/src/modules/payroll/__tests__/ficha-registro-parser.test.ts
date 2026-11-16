@@ -184,3 +184,19 @@ describe("lerFichasRegistro", () => {
     expect(() => lerFichasRegistro(soContinuacao)).toThrow(/sem a ficha principal/);
   });
 });
+
+describe("lerFichasRegistro: texto remontado do PDF (vãos largos entre colunas)", () => {
+  test("zona e seção em colunas separadas não viram RG", () => {
+    const texto = FICHA_CURTA.replace("001 0002", "001                 0002");
+    const [f] = lerFichasRegistro(texto);
+    expect(f.tituloZona).toBe("001");
+    expect(f.tituloSecao).toBe("0002");
+    expect(f.rg).toBe("12.345.678-9");
+  });
+
+  test("férias com gozo e abono separados por vão largo", () => {
+    const texto = FICHA_CURTA.trimEnd() + "\nDe 01/02/2020 a 31/01/2021 De 07/01/2022 a 26/01/2022       De 27/01/2022 a 05/02/2022\n";
+    const [f] = lerFichasRegistro(texto);
+    expect(f.ferias.at(-1)).toMatchObject({ gozoInicio: "2022-01-07", gozoFim: "2022-01-26", abonoInicio: "2022-01-27", abonoFim: "2022-02-05" });
+  });
+});
