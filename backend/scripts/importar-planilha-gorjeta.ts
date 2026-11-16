@@ -25,6 +25,7 @@ import ExcelJS from "exceljs";
 import { PrismaClient } from "@prisma/client";
 import { registrarHistorico } from "../src/modules/payroll/tip-historico.service.js";
 import { registrarAlteracoes } from "../src/modules/payroll/cadastro-historico.service.js";
+import { comCombinadoAcompanhando } from "../src/modules/payroll/cadastro-historico.js";
 import { auditLog } from "../src/modules/security/security-utils.js";
 import { conferirDestino } from "../src/lib/destino-banco.js";
 
@@ -147,6 +148,7 @@ async function main() {
       where: { deletedAt: null },
       select: {
         id: true, firstName: true, lastName: true, displayName: true, modality: true, baseSalary: true, companyId: true,
+        salarioCombinado: true, salarioCombinadoMotivo: true,
         participaGorjeta: true, tipoGorjeta: true, tipFunctionId: true, pontosExtra: true, pontosExtraMotivo: true,
         admissionDate: true, terminationDate: true,
       },
@@ -234,7 +236,7 @@ async function main() {
 
     const extraBruto = l.pontosPers == null ? null : l.pontosPers - Number(funcao?.points ?? 0);
     const extra = extraBruto == null || Math.abs(extraBruto) < 0.005 ? null : Math.round(extraBruto * 100) / 100;
-    const dados = {
+    const dadosPlanilha = {
       participaGorjeta: true,
       tipoGorjeta: "PONTOS" as const,
       tipFunctionId: funcao?.id ?? null,
@@ -244,6 +246,10 @@ async function main() {
       ...(!semRegistro && empresa ? { companyId: empresa.id } : {}),
       ...(mudaSalario ? { baseSalary: salarioNovo } : {}),
     };
+    // Quem tem salário combinado: o combinado acompanha o reajuste do base (a diferença do acordo se mantém).
+    const acompanhado = comCombinadoAcompanhando(emp, dadosPlanilha);
+    if ("erro" in acompanhado) { avisos.push(`${prefixo}: ${acompanhado.erro}`); continue; }
+    const dados = acompanhado.dados;
     // Rodar de novo não duplica histórico nem auditoria: quem já está igual é pulado.
     const atual: Record<string, unknown> = emp;
     const igual = Object.entries(dados).every(([k, v]) =>

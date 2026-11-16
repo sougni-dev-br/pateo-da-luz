@@ -200,3 +200,42 @@ export function faltaMotivoEntradaGorjeta(
   if (mes >= hojeIso.slice(0, 7) || temMotivo(motivo)) return null;
   return `Entrada na gorjeta em ${mes.slice(5, 7)}/${mes.slice(0, 4)} muda a gorjeta de meses passados: informe o motivo.`;
 }
+
+// Reajuste do salário base de quem tem salário combinado (decisão do Eli, 16/11/2026): a diferença
+// entre o combinado e o registrado é do acordo e se mantém. O valor do reajuste é somado ao
+// combinado, então base e combinado sobem juntos. Vale para toda gravação de salário base
+// (tela, scripts de dissídio e de importação). Contas em centavos, sem ruído de ponto flutuante.
+export const COMBINADO_MAXIMO = 100_000;
+
+const centavos = (v: unknown): number | null => {
+  if (v == null || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.round(n * 100) : null;
+};
+
+// null = nada a ajustar (sem combinado, sem base antes/depois ou base igual).
+export function combinadoAposReajuste(baseAntes: unknown, baseDepois: unknown, combinado: unknown): number | null {
+  const antes = centavos(baseAntes), depois = centavos(baseDepois), atual = centavos(combinado);
+  if (antes == null || depois == null || atual == null || depois === antes) return null;
+  return (atual + (depois - antes)) / 100;
+}
+
+export type ComCombinado<T> = { dados: T } | { erro: string };
+
+// Devolve os dados a gravar já com o combinado acompanhando o reajuste do base. Se o combinado
+// foi alterado à mão na mesma edição (valor diferente do cadastro), vale o que a pessoa digitou.
+export function comCombinadoAcompanhando<T extends Record<string, unknown>>(
+  antes: { baseSalary?: unknown; salarioCombinado?: unknown; salarioCombinadoMotivo?: unknown }, dados: T,
+): ComCombinado<T | (T & { salarioCombinado: number; salarioCombinadoMotivo: string })> {
+  if ("salarioCombinado" in dados && centavos(dados.salarioCombinado) !== centavos(antes.salarioCombinado)) return { dados };
+  const novo = combinadoAposReajuste(antes.baseSalary, dados.baseSalary, antes.salarioCombinado);
+  if (novo == null) return { dados };
+  if (!(novo > 0 && novo <= COMBINADO_MAXIMO)) {
+    return { erro: `O reajuste deixaria o salário combinado em ${novo.toFixed(2)}, fora do limite (acima de zero e até ${COMBINADO_MAXIMO}): ajuste o combinado à mão.` };
+  }
+  const reajuste = ((centavos(dados.baseSalary) ?? 0) - (centavos(antes.baseSalary) ?? 0)) / 100;
+  const nota = `Acompanhou o reajuste do salário base (${reajuste >= 0 ? "+" : "−"}R$ ${Math.abs(reajuste).toFixed(2).replace(".", ",")})`;
+  const anterior = typeof antes.salarioCombinadoMotivo === "string" ? antes.salarioCombinadoMotivo.trim() : "";
+  const motivo = anterior ? `${anterior.slice(0, Math.max(0, 297 - nota.length))} · ${nota}` : nota;
+  return { dados: { ...dados, salarioCombinado: novo, salarioCombinadoMotivo: motivo.slice(0, 300) } };
+}
