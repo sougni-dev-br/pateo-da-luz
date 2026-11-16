@@ -1,10 +1,12 @@
-import { Banknote, ChevronLeft, ChevronRight } from "lucide-react";
+import { Banknote, ChevronLeft, ChevronRight, FileText } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Decimo13Linha, Decimo13LinhaClt, gerarDecimoTerceiro, getDecimoTerceiro } from "../api/client";
+import { Decimo13Linha, Decimo13LinhaClt, gerarDecimoTerceiro, getDecimoTerceiro, getListaDecimo13 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
 import { useSession } from "../context/SessionContext";
 import { Alert, Button, EmptyState, IconButton, Money, StatusBadge, SummaryCard, Table, Tabs, TextField } from "../design-system";
 import { hasPermission } from "../lib/permissions";
+import { codigoDaListaDecimo, listaDecimoParaPdf, regrasDaListaDecimo, seloDaListaDecimo } from "./decimo13/listaPdf";
+import { competenciaPdf, gerarPdfListaPagamento } from "./gorjeta/pdfFolhaLiquidos";
 import { descreverParcela, parcelaClt, parcelaDaLinha, resumirClt, resumirParcela, type Parcela13 } from "./decimo13/parcelas";
 import { VariavelInformada } from "./decimo13/VariavelInformada";
 import { nomeProprio } from "./gorjeta/NomePessoa";
@@ -30,11 +32,13 @@ export function Decimo13() {
   // A 2ª parcela depende da média: só se gera com a gorjeta de novembro fechada.
   const [novembroFechado, setNovembroFechado] = useState(false);
   const [avisosDaBase, setAvisosDaBase] = useState<string[]>([]);
+  const [somasOrfas, setSomasOrfas] = useState(0);
   const [erro, setErro] = useState<string | null>(null);
   const [confirmando, setConfirmando] = useState(false);
   const [busy, setBusy] = useState(false);
   const [busca, setBusca] = useState("");
   const [avisosDaGeracao, setAvisosDaGeracao] = useState<string[]>([]);
+  const [imprimindo, setImprimindo] = useState(false);
 
   // Só a resposta da última consulta vale: trocar de ano rápido não deixa linhas do ano anterior na tela.
   const pedido = useRef(0);
@@ -48,11 +52,13 @@ export function Decimo13() {
       setClt(r.clt ?? []);
       setNovembroFechado(r.novembroFechado);
       setAvisosDaBase(r.avisos);
+      setSomasOrfas(r.somasOrfas ?? 0);
     } catch (e) {
       if (meu !== pedido.current) return;
       setLinhas(null);
       setClt([]);
       setAvisosDaBase([]);
+      setSomasOrfas(0);
       setErro(e instanceof Error ? e.message : "Não foi possível calcular o 13º.");
     }
   }, [year]);
@@ -71,6 +77,7 @@ export function Decimo13() {
       const partes = [
         r.criadas + r.restauradas > 0 ? `${r.criadas + r.restauradas} lançada(s)` : null,
         r.atualizadas > 0 ? `${r.atualizadas} atualizada(s)` : null,
+        (r.somadas ?? 0) > 0 ? `${r.somadas} com a diferença do salário combinado somada ao título do extrato` : null,
       ].filter(Boolean);
       setNotice(partes.length > 0
         ? { tone: "success", message: `${parcela}ª parcela do 13º: ${partes.join(" e ")} no Contas a Pagar. A baixa é feita lá.` }
@@ -85,6 +92,33 @@ export function Decimo13() {
     }
   }
 
+  // A lista que se leva ao banco: o mesmo PDF do adiantamento e da 1ª quinzena, com os dados do 13º.
+  async function imprimirLista() {
+    if (imprimindo) return;
+    setImprimindo(true);
+    try {
+      const lista = await getListaDecimo13(year, parcela);
+      const competencia = competenciaPdf(year, parcela === 1 ? 11 : 12);
+      const codigo = codigoDaListaDecimo(year, parcela);
+      // Só mostra o vencimento se for um só: cada empresa pode ter o seu e a primeira da lista não vale para todas.
+      const vencimentos = new Set(lista.linhas.filter((l) => l.situacao !== "PAGO").map((l) => l.vencimento));
+      const venc = vencimentos.size === 1 ? [...vencimentos][0] : null;
+      await gerarPdfListaPagamento(listaDecimoParaPdf(lista), {
+        titulo: `13º salário - ${parcela}ª parcela - lista de pagamento`,
+        apoio: `Competência ${competencia}${venc ? `   |   vencimento ${fmtData(venc)}` : ""}`,
+        codigo, selo: seloDaListaDecimo(lista), regras: regrasDaListaDecimo(parcela, lista.aguardandoExtrato ?? []),
+        rotuloValor: "Valor", rotuloTotal: "Total a pagar",
+        subtituloGrupo: (g) => (g === "Sem registro" ? "valor calculado pelo sistema" : "valor pelo extrato da contabilidade"),
+        rodape: `13º salário ${parcela}ª parcela ${year} - ${codigo}`, arquivo: `${codigo}.pdf`, modo: "empresa",
+      });
+      setAvisosDaGeracao(lista.avisos);
+    } catch (e) {
+      setNotice({ tone: "error", message: `Erro ao gerar o PDF: ${e instanceof Error ? e.message : "tente de novo"}` });
+    } finally {
+      setImprimindo(false);
+    }
+  }
+
   if (!podeVer) {
     return <Alert tone="warning">O 13º é calculado sobre o salário: é preciso permissão de ver Funcionários.</Alert>;
   }
@@ -95,7 +129,9 @@ export function Decimo13() {
   const rc = resumirClt(itensClt.map((i) => i.p));
   const vencimento = itens.find((i) => i.p.vencimento)?.p.vencimento ?? null;
   const lancadasClt = rc.pessoas - rc.aguardando;
-  const aGerar = r.novas + r.atualizar;
+  // Somas órfãs (título carrega uma diferença do combinado que não vale mais): lançar a 1ª desfaz.
+  const orfas = parcela === 1 ? somasOrfas : 0;
+  const aGerar = r.novas + r.atualizar + orfas;
   const totalGeral = r.totalNovas + r.totalLancado + rc.total;
   const podeGerar = canEdit && aGerar > 0 && !confirmando && (parcela === 1 || novembroFechado);
 
@@ -117,7 +153,14 @@ export function Decimo13() {
         : r.pessoas > 0 ? "Tudo lançado" : "Nada a lançar" },
     { titulo: "Dar a baixa", estado: aGerar > 0 ? "pendente" : "atual",
       detalhe: r.lancadas > 0 ? "Pague e dê a baixa no Contas a Pagar" : "Depois de lançar, a baixa é no Contas a Pagar",
-      acao: r.lancadas > 0 && vencimento ? <LinkInterno para={linkContasAPagar(vencimento)} className="ds-button ds-button-md ds-button-secondary">Abrir no Contas a Pagar</LinkInterno> : undefined },
+      acao: r.lancadas > 0 || lancadasClt > 0 ? (
+        <>
+          <Button variant="secondary" size="sm" leadingIcon={<FileText size={14} />} disabled={imprimindo} onClick={() => void imprimirLista()}>
+            {imprimindo ? "Gerando…" : "PDF para pagamento"}
+          </Button>
+          {vencimento ? <LinkInterno para={linkContasAPagar(vencimento)} className="ds-button ds-button-md ds-button-secondary">Abrir no Contas a Pagar</LinkInterno> : null}
+        </>
+      ) : undefined },
   ];
 
   return (
@@ -155,7 +198,7 @@ export function Decimo13() {
             {confirmando && (
               <Alert tone="warning">
                 <div>
-                  Vai lançar {r.novas} título(s) novo(s) da {parcela}ª parcela ({brl(r.totalNovas)}), com vencimento em {vencimento ? fmtData(vencimento) : "—"}
+                  Vai lançar {r.novas} título(s) novo(s) da {parcela}ª parcela e atualizar {r.atualizar + orfas} ({brl(r.totalNovas)} a mais no total), com vencimento em {vencimento ? fmtData(vencimento) : "—"}
                   {r.atualizar > 0 ? ` e atualizar ${r.atualizar} em aberto para o cálculo de hoje` : ""}. Parcela já paga não muda.
                 </div>
                 <div className="form-actions">
@@ -204,7 +247,9 @@ export function Decimo13() {
                             <strong>{nomeProprio(l.nome)}</strong>
                             {l.setor ? <span className="folha-nota">{l.setor}</span> : null}
                             {l.origem === "COMBINADO" ? (
-                              <span className="folha-nota">só a diferença do salário combinado sobre o registrado; o 13º do registrado vem do extrato da contabilidade (CLT)</span>
+                              <span className="folha-nota">{l.p1.somadaAoExtrato && parcela === 1
+                                ? "só a diferença do salário combinado: já está SOMADA ao título do extrato (o valor da linha CLT abaixo já a inclui; não pague de novo)"
+                                : "só a diferença do salário combinado sobre o registrado; o 13º do registrado vem do extrato da contabilidade (CLT)"}</span>
                             ) : null}
                             {l.preRegistro && l.semRegistroAte && l.registroEm ? (
                               <span className="folha-nota">só o período sem registro (até {fmtData(l.semRegistroAte)}); registrado em {fmtData(l.registroEm)}, o resto vem da contabilidade</span>
@@ -226,8 +271,8 @@ export function Decimo13() {
                                 )}
                               </Table.Td>
                               <Table.Td>
-                                <StatusBadge tone={p.situacao === "PAGA" ? "success" : p.situacao === "LANCADA" ? "info" : p.situacao === "EXCLUIDA" ? "neutral" : "warning"}>
-                                  {p.situacao === "PAGA" ? "Paga" : p.situacao === "LANCADA" ? "Lançada" : p.situacao === "EXCLUIDA" ? "Excluída à mão" : "Falta lançar"}
+                                <StatusBadge tone={p.situacao === "PAGA" ? "success" : p.situacao === "LANCADA" ? "info" : p.situacao === "EXCLUIDA" || p.situacao === "AGUARDANDO_EXTRATO" ? "neutral" : p.situacao === "SOMADA" ? (p.gerar ? "warning" : "success") : p.situacao === "CONFERIR" ? "warning" : "warning"}>
+                                  {p.situacao === "PAGA" ? "Paga" : p.situacao === "LANCADA" ? "Lançada" : p.situacao === "SOMADA" ? (p.gerar ? "Somada (atualizar)" : "Somada ao título") : p.situacao === "CONFERIR" ? "Conferir título pago" : p.situacao === "EXCLUIDA" ? "Excluída à mão" : p.situacao === "AGUARDANDO_EXTRATO" ? "Aguardando extrato" : "Falta lançar"}
                                 </StatusBadge>
                               </Table.Td>
                             </>

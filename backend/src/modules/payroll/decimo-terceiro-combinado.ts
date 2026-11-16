@@ -24,3 +24,46 @@ export function inicioDoCombinado(linhas: ReadonlyArray<LinhaHistorico>): Date |
     .sort((a, b) => a.vigenteDesde.getTime() - b.vigenteDesde.getTime() || a.createdAt.getTime() - b.createdAt.getTime());
   return nasceu.length > 0 ? nasceu[nasceu.length - 1].vigenteDesde : null;
 }
+
+// ── Soma ao título do extrato (1ª parcela) ──────────────────────────────────────────────
+// Como no salário combinado: o Contas a Pagar tem UM título da pessoa, com o valor integral
+// (líquido do extrato + diferença do combinado). O líquido do extrato fica nos detalhes.
+const round2 = (v: number) => Math.round(v * 100) / 100;
+const reais = (v: number) => `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+export const ORIGEM_DECIMO_COMBINADO = "DECIMO_COMBINADO";
+const CHAVES_DO_DECIMO_COMBINADO = ["liquidoExtrato", "complemento", "composicao", "origemValor"];
+
+export type DetalhesDecimoCombinado = { liquidoExtrato: number; complemento: number; composicao: string; origemValor: typeof ORIGEM_DECIMO_COMBINADO };
+
+const objeto = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
+const numero = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+
+// O líquido que o extrato trouxe, mesmo depois de a soma ter mudado o valor do título.
+export function liquidoDoExtrato(details: unknown): number | null {
+  const d = objeto(details);
+  return numero(d.liquidoExtrato) ?? numero(d.liquido);
+}
+
+export function foiSomado(details: unknown): boolean {
+  return objeto(details).origemValor === ORIGEM_DECIMO_COMBINADO;
+}
+
+export function complementoSomado(details: unknown): number | null {
+  return foiSomado(details) ? numero(objeto(details).complemento) : null;
+}
+
+export function valorComCombinado(liquidoExtrato: number, complemento: number): { valor: number; detalhes: DetalhesDecimoCombinado } {
+  const liquido = round2(liquidoExtrato), extra = round2(complemento), valor = round2(liquido + extra);
+  return {
+    valor,
+    detalhes: {
+      liquidoExtrato: liquido, complemento: extra, origemValor: ORIGEM_DECIMO_COMBINADO,
+      composicao: `${reais(valor)} = líquido do extrato ${reais(liquido)} + diferença do salário combinado ${reais(extra)}`,
+    },
+  };
+}
+
+// Detalhes do título sem as marcas da soma (o combinado pode ter sido tirado ou o valor mudado).
+export function semMarcasDoCombinado(details: unknown): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(objeto(details)).filter(([k]) => !CHAVES_DO_DECIMO_COMBINADO.includes(k)));
+}

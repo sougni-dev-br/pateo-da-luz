@@ -7,6 +7,7 @@ import { PDFParse } from "pdf-parse";
 import { prisma } from "../../config/database.js";
 import { FOLHA_CATEGORY } from "./payroll.service.js";
 import { ROTULO_13_EXTRATO_PARCELA_1 } from "./decimo-terceiro-sr.js";
+import { sincronizarCombinadoDoDecimo } from "./decimo-terceiro.service.js";
 import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
 import { lerDetalhesExtrato } from "./rh-extract-detalhes.js";
 import { avisosDoExtrato, guardarExtrato, preencherAdmissaoCarteira } from "./rh-extract-store.service.js";
@@ -569,6 +570,18 @@ export async function importExtrato(opts: {
     );
   }
   const titulosGerados = titulosAtualizados + titulosNovos;
+  // 13º: quem tem salário combinado recebe a diferença SOMADA ao título do extrato (um título só).
+  if (decimo) {
+    try {
+      const soma = await sincronizarCombinadoDoDecimo(competenceYear, opts.userId);
+      for (const a of soma.alterados) {
+        avisosDaImportacao.push(`${a.nome}: diferença do salário combinado somada ao 13º (de ${brl(a.antes)} para ${brl(a.depois)}).`);
+      }
+      avisosDaImportacao.push(...soma.avisos);
+    } catch (err) {
+      avisosDaImportacao.push(`Não foi possível somar a diferença do salário combinado ao 13º: ${(err as Error).message}. Gere a 1ª parcela na tela do 13º para somar.`);
+    }
+  }
 
   const totalLiquido = Math.round(parsed.funcionarios.reduce((a, f) => a + f.liquido, 0) * 100) / 100;
   // O PDF, o texto e o holerite de cada pessoa vão para o banco (o disco do servidor é efêmero).
