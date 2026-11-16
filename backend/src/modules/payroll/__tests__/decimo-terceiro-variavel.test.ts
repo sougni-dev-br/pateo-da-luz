@@ -46,3 +46,25 @@ describe("mês informado sem apuração (gorjeta paga por fora)", () => {
     expect(validarVariavelInformada({ employeeId: "e1", ano: 2026, mes: 8, valor: 1, motivo: "x".repeat(301) })).not.toBeNull();
   });
 });
+
+describe("afastamento sem remuneração reduz avos", () => {
+  // Pessoa fictícia: sem registro até 30/09, afastada de 20/08 a 20/09.
+  const dias = (de: string, ate: string) => {
+    const s = new Set<string>();
+    for (let t = d(de).getTime(); t <= d(ate).getTime(); t += 86_400_000) s.add(new Date(t).toISOString().slice(0, 10));
+    return s;
+  };
+  const pessoa = { ...base, ate: d("2026-09-30") };
+  test("sem afastamento: 9 avos (jan a set)", () => {
+    expect(calcularDecimoTerceiroSR(pessoa)!.avos).toBe(9);
+  });
+  test("agosto fica com 19 dias (conta) e setembro com 10 (perde o avo): 8 avos", () => {
+    expect(calcularDecimoTerceiroSR({ ...pessoa, diasAfastados: dias("2026-08-20", "2026-09-20") })!.avos).toBe(8);
+  });
+  test("afastamento de poucos dias não tira avo", () => {
+    expect(calcularDecimoTerceiroSR({ ...pessoa, diasAfastados: dias("2026-09-01", "2026-09-10") })!.avos).toBe(9);
+  });
+  test("afastamento depois do fim do período sem registro não conta", () => {
+    expect(calcularDecimoTerceiroSR({ ...pessoa, diasAfastados: dias("2026-10-01", "2026-10-31") })!.avos).toBe(9);
+  });
+});

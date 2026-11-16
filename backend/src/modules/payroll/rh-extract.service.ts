@@ -535,7 +535,9 @@ export async function importExtrato(opts: {
         where: { employeeId: empId, type: "DECIMO_TERCEIRO", competenceYear, deletedAt: null, NOT: { periodLabel: chaveUnica.periodLabel } },
         select: { details: true },
       });
-      if (semRegistro.some((i) => (i.details as { preRegistro?: unknown } | null)?.preRegistro !== true)) {
+      // A diferença do salário combinado é 13º de outra parte do salário (o extrato cobre só o registrado): não é duplicidade.
+      if (semRegistro.some((i) => (i.details as { preRegistro?: unknown; combinado?: unknown } | null)?.preRegistro !== true
+        && (i.details as { combinado?: unknown } | null)?.combinado !== true)) {
         avisosDaImportacao.push(`${f.nome}: já tem 13º lançado como sem registro (ano inteiro) e também está neste extrato da contabilidade. Confira para não pagar duas vezes.`);
       }
     }

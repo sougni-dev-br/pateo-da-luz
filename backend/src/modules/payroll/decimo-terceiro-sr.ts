@@ -39,11 +39,17 @@ export function decidirParcela(e: ParcelaExistente): DecisaoParcela {
   return e.paymentDate ? "ja-pago" : "ja-existe";
 }
 
+// 13º da DIFERENÇA do salário combinado (CLT que recebe acima do registrado): o extrato da
+// contabilidade cobre só o registrado; esta parte é calculada aqui, em lançamentos próprios.
+export const ROTULO_13_COMBINADO_PARCELA_1 = "13º Salário - 1ª parcela (combinado)";
+export const ROTULO_13_COMBINADO_PARCELA_2 = "13º Salário - 2ª parcela (combinado)";
+
 // De onde vem um lançamento de 13º: o extrato da contabilidade (CLT) ou o cálculo sem registro.
 // Os dois convivem para quem foi registrado depois; dois do MESMO lado e da mesma parcela, não.
-export function familia13(rotulo: string): { parcela: 1 | 2 | null; origem: "EXTRATO" | "SEM_REGISTRO" } {
+export function familia13(rotulo: string): { parcela: 1 | 2 | null; origem: "EXTRATO" | "SEM_REGISTRO" | "COMBINADO" } {
   const parcela = /1ª\s*parcela/i.test(rotulo) ? 1 : /2ª\s*parcela/i.test(rotulo) ? 2 : null;
-  return { parcela, origem: /\(extrato\)/i.test(rotulo) ? "EXTRATO" : "SEM_REGISTRO" };
+  const origem = /\(extrato\)/i.test(rotulo) ? "EXTRATO" : /\(combinado\)/i.test(rotulo) ? "COMBINADO" : "SEM_REGISTRO";
+  return { parcela, origem };
 }
 
 const br = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -79,6 +85,9 @@ export function calcularDecimoTerceiroSR(e: {
   // Fim do período a contar (quem foi registrado depois: o último dia sem registro; o mês da
   // carteira é da contabilidade). Antes do ano = nada a pagar neste ano.
   ate?: Date | null;
+  // Dias (AAAA-MM-DD) de afastamento sem remuneração: não contam como trabalhados; mês que fica com
+  // menos de 15 dias trabalhados perde o avo.
+  diasAfastados?: ReadonlySet<string>;
 }): Decimo13SR | null {
   if (!e.inicio || e.salarioBase == null || !(e.salarioBase > 0)) return null;
   const fimDoAno = new Date(Date.UTC(e.ano, 11, 31));
@@ -89,7 +98,7 @@ export function calcularDecimoTerceiroSR(e: {
   const limite = limites.reduce((menor, x) => (x.getTime() < menor.getTime() ? x : menor), fimDoAno);
   const fimDoMes = (mes: number) => new Date(Date.UTC(e.ano, mes, 0));
   const ateMes = (mes: number) => (fimDoMes(mes).getTime() < limite.getTime() ? fimDoMes(mes) : limite);
-  const avosAte = (mes: number) => avos13(e.inicio!, ateMes(mes)).avos;
+  const avosAte = (mes: number) => avos13(e.inicio!, ateMes(mes), e.diasAfastados).avos;
 
   const avos = avosAte(12);
   if (avos <= 0) return null;
@@ -99,7 +108,7 @@ export function calcularDecimoTerceiroSR(e: {
   const avosPrimeira = Math.min(avosNov >= 11 ? 12 : avosNov, avos);
   // Média até o mês: só os meses em que a pessoa tinha avo E que têm apuração, ÷ quantos são.
   const mediaAte = (mes: number) => {
-    const doAvo = mesesDe13(e.inicio!, ateMes(mes)).meses;
+    const doAvo = mesesDe13(e.inicio!, ateMes(mes), e.diasAfastados).meses;
     const contam = e.mesesApurados ? doAvo.filter((m) => e.mesesApurados!.has(m)) : doAvo;
     if (contam.length === 0) return 0;
     let soma = 0;
@@ -115,7 +124,7 @@ export function calcularDecimoTerceiroSR(e: {
   const parcela1 = round2(((salario + media1) / 12 * avosPrimeira) / 2);
   const total = round2((salario + mediaFinal) / 12 * avos);
   const parcela2 = round2(total - parcela1);
-  const desde = avos13(e.inicio, ateMes(12)).desde;
+  const desde = avos13(e.inicio, ateMes(12), e.diasAfastados).desde;
   const plural = (n: number) => `${n} ${n === 1 ? "avo" : "avos"}`;
   return {
     ano: e.ano, avos, avosParcela1: avosPrimeira, desde, salario, mediaParcela1: round2(media1), mediaFinal: round2(mediaFinal), parcela1, total, parcela2,

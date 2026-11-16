@@ -10637,6 +10637,8 @@ export type Decimo13Linha = {
   preRegistro: boolean; semRegistroAte: string | null; registroEm: string | null;
   // Variáveis do mês informadas à mão (substituem a apuração só no cálculo do 13º).
   informadas?: Decimo13VariavelInformada[];
+  // COMBINADO: só a diferença entre o salário combinado e o registrado de quem é CLT (o registrado vem do extrato).
+  origem?: "SEM_REGISTRO" | "COMBINADO";
 };
 export type Decimo13VariavelInformada = { mes: number; valor: number; motivo: string };
 export function informarVariavelDecimo13(body: { year: number; employeeId: string; mes: number; valor: number; motivo: string }) {
