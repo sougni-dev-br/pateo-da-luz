@@ -9738,6 +9738,62 @@ export function pedirAtualizacaoEmLote() {
   return request<FichaLoteResultado>("/employee-forms/lote", { method: "POST" });
 }
 
+// ── Importar ficha de registro (PDF da contabilidade) ──
+
+export type FichaTipoItem = "PREENCHE" | "DIVERGE" | "SALARIO" | "CARGO" | "EMPRESA" | "LISTAS";
+export type FichaItemImportacao = {
+  id: string;
+  tipo: FichaTipoItem;
+  rotulo: string;
+  atual: string | null;
+  ficha: string | null;
+  detalhes: string[];
+  /** Já vem marcado: preencher campo vazio (e as listas, na primeira importação). */
+  padrao: boolean;
+  /** Por que o item não pode ser gravado; vazio = pode. */
+  bloqueio: string | null;
+};
+export type FichaSituacaoPessoa = "COM_ITENS" | "EM_DIA" | "SEM_CADASTRO" | "CPF_DUPLICADO" | "NOME_DIFERENTE";
+export type FichaPessoaPrevista = {
+  chave: string;
+  employeeId: string | null;
+  nome: string;
+  registro: string;
+  situacao: FichaSituacaoPessoa;
+  cadastro: { nome: string; cargo: string | null; empresa: string | null } | null;
+  itens: FichaItemImportacao[];
+  /** Erros evidentes da ficha (a corrigir com a contabilidade): nunca viram item. */
+  suspeitos: string[];
+  observacoes: string[];
+};
+export type FichaPrevia = { desde: string | null; pessoas: FichaPessoaPrevista[] };
+export type FichaResultadoPessoa = {
+  employeeId: string;
+  nome: string;
+  aplicados: string[];
+  ignorados: Array<{ id: string; motivo: string }>;
+};
+
+function fichaFormData(file: File, desde: string | null) {
+  const formData = new FormData();
+  formData.append("file", file);
+  if (desde) formData.append("desde", desde);
+  return formData;
+}
+
+/** Lê o PDF e mostra o que cada ficha propõe para o cadastro. Não grava nada. */
+export function previaFichaRegistro(file: File, desde: string | null) {
+  return request<FichaPrevia>("/employees/ficha-registro/previa", { method: "POST", body: fichaFormData(file, desde) }, IMPORT_REQUEST_TIMEOUT_MS);
+}
+
+/** Grava só os itens marcados (ids por funcionário); o servidor refaz a conta na hora de gravar. */
+export function aplicarFichaRegistro(file: File, selecoes: Record<string, string[]>, desde: string | null, motivo: string | null) {
+  const formData = fichaFormData(file, desde);
+  formData.append("selecoes", JSON.stringify(selecoes));
+  if (motivo) formData.append("motivo", motivo);
+  return request<{ resultados: FichaResultadoPessoa[] }>("/employees/ficha-registro/aplicar", { method: "POST", body: formData }, IMPORT_REQUEST_TIMEOUT_MS);
+}
+
 // ── Painel de eventos ──
 
 export type EventOrigin = "CENTRO_CONVENCOES" | "TEATRO" | "GRUPO";

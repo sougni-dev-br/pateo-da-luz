@@ -109,6 +109,7 @@ const Decimo13 = lazy(() => import("./pages/Decimo13").then((module) => ({ defau
 const FolhaGorjeta = lazy(() => import("./pages/FolhaGorjeta").then((module) => ({ default: module.FolhaGorjeta })));
 const ExtratoRh = lazy(() => import("./pages/ExtratoRh").then((module) => ({ default: module.ExtratoRh })));
 const Ponto = lazy(() => import("./pages/rh/Ponto").then((module) => ({ default: module.Ponto })));
+const ImportarFicha = lazy(() => import("./pages/rh/ImportarFicha").then((module) => ({ default: module.ImportarFicha })));
 const Ferias = lazy(() => import("./pages/rh/Ferias").then((module) => ({ default: module.Ferias })));
 const Rescisoes = lazy(() => import("./pages/rh/Rescisoes").then((module) => ({ default: module.Rescisoes })));
 const Extras = lazy(() => import("./pages/Extras").then((module) => ({ default: module.Extras })));
@@ -212,7 +213,7 @@ const sections = [
   // pessoal separadas no menu, cada uma com a permissão que já tinha. Os endereços antigos
   // (/pessoal/...) ficam nos matchers só até o <Navigate> levar para o novo — sem isso o
   // guard não acharia a seção e mandaria para a primeira tela permitida antes do redirecionamento.
-  { id: "employees", label: "Funcionários", icon: UsersIcon, showInSidebar: true, group: "Pessoas", path: ROTAS_RH.funcionarios, matchers: [ROTAS_RH.funcionarios, "/pessoal", "/pessoal/funcionarios"], description: "Cadastro de funcionários — base para escala, VT e folha de pagamento" },
+  { id: "employees", label: "Funcionários", icon: UsersIcon, showInSidebar: true, group: "Pessoas", path: ROTAS_RH.funcionarios, matchers: [ROTAS_RH.funcionarios, ROTAS_RH.importarFicha, "/pessoal", "/pessoal/funcionarios"], description: "Cadastro de funcionários — base para escala, VT e folha de pagamento" },
   { id: "employee-forms", label: "Fichas cadastrais", icon: FileUser, showInSidebar: true, group: "Pessoas", path: ROTAS_RH.fichas, matchers: [ROTAS_RH.fichas, `${ROTAS_RH.fichas}/:id`], description: "Link para a pessoa preencher a ficha e mandar os documentos pelo celular; conferência, impressão e admissão" },
   { id: "schedule", label: "Escala", icon: CalendarDays, showInSidebar: true, group: "Pessoas", path: ROTAS_RH.escala, matchers: [ROTAS_RH.escala, "/pessoal/escala"], description: "Escala mensal de folgas (6×1 / 5×2) — domingos e feriados destacados; base para o cálculo do VT" },
   // Férias: período e prazo calculados da data de registro; usa a permissão da Folha ("payroll"),
@@ -798,6 +799,7 @@ export function App() {
               <Route path="/cadastros/fornecedores" element={<Suppliers onOpenPurchases={() => handleNavigate("purchases")} />} />
               <Route path="/cadastros/empresas" element={<Companies />} />
               <Route path={ROTAS_RH.funcionarios} element={<Funcionarios />} />
+              <Route path={ROTAS_RH.importarFicha} element={<ImportarFicha />} />
               <Route path={ROTAS_RH.escala} element={<Escala />} />
               <Route path={ROTAS_RH.gorjeta} element={<FolhaGorjeta />} />
               <Route path={ROTAS_RH.ferias} element={<Ferias />} />

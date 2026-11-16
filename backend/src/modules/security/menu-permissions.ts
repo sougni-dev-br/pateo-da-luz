@@ -574,6 +574,10 @@ function actionFromRequest(request: Request, menuId: MenuId): PermissionAction {
   // Sem isto o POST caia em "criar" e quem so podia cadastrar produto novo mexia no catalogo inteiro.
   if (menuId === "products" && path.startsWith("/products/bulk-update") && method === "POST") return "edit";
 
+  // Importar a ficha de registro: a prévia só lê (POST por causa do PDF); aplicar altera cadastros existentes.
+  if (menuId === "employees" && path === "/employees/ficha-registro/previa") return "view";
+  if (menuId === "employees" && path === "/employees/ficha-registro/aplicar") return "edit";
+
   // Restaurar um registro cancelado desfaz uma exclusao: pede a acao de excluir.
   if (path.endsWith("/restore")) return "delete";
 

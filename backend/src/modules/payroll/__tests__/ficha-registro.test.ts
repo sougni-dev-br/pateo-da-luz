@@ -195,3 +195,46 @@ describe("resumoFerias", () => {
     expect(r.map((p) => p.status)).toEqual(["QUITADO", "CONTRATO_ENCERRADO"]);
   });
 });
+
+describe("planoDaFicha: diferença de grafia não é divergência", () => {
+  test("só acento, caixa ou espaço repetido no texto: nem aviso nem divergência", () => {
+    const p = planoDaFicha(cadastro({ nomeMae: "María  de Tal", address: "Rua das Flores", addressNumber: "10", addressComplement: "Apto 5", neighborhood: "Jardim Teste", city: "São Paulo", state: "SP", zipCode: "01000-000" }), ficha({ mae: "MARIA DE TAL" }));
+    expect(p.avisos).toEqual([]);
+    expect(p.divergencias).toEqual([]);
+  });
+
+  test("mesma informação com outro vocabulário (estado civil, nacionalidade, escolaridade, órgão do RG): sem divergência", () => {
+    const p = planoDaFicha(
+      cadastro({ estadoCivil: "Solteiro(a)", nacionalidade: "Brasileira", escolaridade: "Médio completo", rgOrgaoEmissor: "SSP" }),
+      ficha({ estadoCivil: "Solteiro", nacionalidade: "BRASIL", escolaridade: "Ensino Médio Completo", rgOrgao: "SSP/SP" }),
+    );
+    expect(p.divergencias).toEqual([]);
+  });
+
+  test("valor realmente diferente continua sendo divergência, com o valor da ficha para gravar", () => {
+    const p = planoDaFicha(cadastro({ escolaridade: "Superior completo", racaCor: "Branca" }), ficha());
+    expect(p.divergencias.map((d) => d.campo).sort()).toEqual(["escolaridade", "racaCor"]);
+    expect(p.divergencias.find((d) => d.campo === "racaCor")).toMatchObject({ atual: "Branca", ficha: "Parda", valor: { racaCor: "Parda" }, rotulo: "Raça/cor" });
+  });
+
+  test("RG, PIS, nascimento, sexo e endereço diferentes viram divergência com o valor pronto", () => {
+    const p = planoDaFicha(
+      cadastro({ rg: "99.999.999-9", pis: "00000000000", birthDate: d("1990-03-11"), gender: "MASCULINO", zipCode: "99999-999", address: "Rua Outra", addressNumber: "1", neighborhood: "Centro", city: "Santos", state: "SP" }),
+      ficha(),
+    );
+    const por = Object.fromEntries(p.divergencias.map((x) => [x.campo, x.valor]));
+    expect(por.rg).toEqual({ rg: "12.345.678-9" });
+    expect(por.pis).toEqual({ pis: "12345678901" });
+    expect(por.birthDate).toEqual({ birthDate: d("1990-03-10") });
+    expect(por.gender).toEqual({ gender: "FEMININO" });
+    expect(por.endereco).toMatchObject({ address: "Rua das Flores", city: "São Paulo", zipCode: "01000-000" });
+  });
+});
+
+describe("planoDaFicha: órgão emissor do RG", () => {
+  test("SSP e SSP/SP são o mesmo órgão; SSP/RJ e SSP/SP não", () => {
+    expect(planoDaFicha(cadastro({ rgOrgaoEmissor: "SSP" }), ficha()).divergencias).toEqual([]);
+    expect(planoDaFicha(cadastro({ rgOrgaoEmissor: "SSP-SP" }), ficha()).divergencias).toEqual([]);
+    expect(planoDaFicha(cadastro({ rgOrgaoEmissor: "SSP/RJ" }), ficha()).divergencias.map((x) => x.campo)).toEqual(["rgOrgaoEmissor"]);
+  });
+});

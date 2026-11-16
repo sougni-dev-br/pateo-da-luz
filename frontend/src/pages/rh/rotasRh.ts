@@ -3,6 +3,7 @@
 
 export const ROTAS_RH = {
   funcionarios: "/rh/funcionarios",
+  importarFicha: "/rh/funcionarios/importar-ficha",
   escala: "/rh/escala",
   ferias: "/rh/ferias",
   gorjeta: "/rh/gorjeta",
