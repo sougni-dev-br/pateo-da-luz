@@ -21,7 +21,7 @@
 import crypto from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { PrismaClient } from "@prisma/client";
-import { serializar } from "../src/modules/payroll/cadastro-historico.js";
+import { comCombinadoAcompanhando, serializar } from "../src/modules/payroll/cadastro-historico.js";
 import { lerFichasRegistro } from "../src/modules/payroll/ficha-registro-parser.js";
 import { ORIGEM_FICHA } from "../src/modules/payroll/ficha-registro.js";
 import { travarFolhaDaPessoa } from "../src/modules/payroll/folha-trava.js";
@@ -70,7 +70,7 @@ type Cliente = Pick<PrismaClient, "employee" | "employeeHistorico">;
 async function planoDe(db: Cliente, employeeId: string, f: Ficha) {
   const emp = await db.employee.findUniqueOrThrow({
     where: { id: employeeId },
-    select: { id: true, firstName: true, lastName: true, isActive: true, baseSalary: true, admissionDate: true, terminationDate: true },
+    select: { id: true, firstName: true, lastName: true, isActive: true, baseSalary: true, salarioCombinado: true, salarioCombinadoMotivo: true, admissionDate: true, terminationDate: true },
   });
   const atual = emp.baseSalary == null ? null : Number(emp.baseSalary);
   const linhas = await db.employeeHistorico.findMany({
@@ -143,7 +143,38 @@ async function conferirUma(f: Ficha): Promise<Resultado> {
         criadoPorId: null, criadoPorNome: "Script: salários da ficha de registro", createdAt: new Date(base + i),
       })),
     });
-    await tx.employee.update({ where: { id: emp.id }, data: { baseSalary: agora.plano.passos[agora.plano.passos.length - 1].valor } });
+    // Quem tem salário combinado: o combinado acompanha cada degrau (mesma vigência), então a
+    // diferença do acordo se mantém. Sem combinado, nada muda.
+    let combinado = agora.emp.salarioCombinado == null ? null : Number(agora.emp.salarioCombinado);
+    let motivoCombinado = agora.emp.salarioCombinadoMotivo;
+    const linhasCombinado: { valorAnterior: number; valorNovo: number; vigencia: string }[] = [];
+    for (const p of agora.plano.passos) {
+      if (combinado == null) break;
+      const r = comCombinadoAcompanhando({ baseSalary: p.antes, salarioCombinado: combinado, salarioCombinadoMotivo: motivoCombinado }, { baseSalary: p.valor });
+      if ("erro" in r) throw new Error(r.erro);
+      const ajustado = r.dados as { salarioCombinado?: number; salarioCombinadoMotivo?: string };
+      if (ajustado.salarioCombinado == null) continue;
+      linhasCombinado.push({ valorAnterior: combinado, valorNovo: ajustado.salarioCombinado, vigencia: p.vigencia });
+      motivoCombinado = ajustado.salarioCombinadoMotivo ?? motivoCombinado;
+      combinado = ajustado.salarioCombinado;
+    }
+    if (linhasCombinado.length > 0) {
+      await tx.employeeHistorico.createMany({
+        data: linhasCombinado.map((c, i) => ({
+          id: crypto.randomUUID(), employeeId: emp.id, campo: "salarioCombinado",
+          valorAnterior: serializar("salarioCombinado", c.valorAnterior), valorNovo: serializar("salarioCombinado", c.valorNovo),
+          vigenteDesde: new Date(`${c.vigencia}T00:00:00.000Z`), motivo, origem: ORIGEM_SALARIO_FICHA,
+          criadoPorId: null, criadoPorNome: "Script: salários da ficha de registro", createdAt: new Date(base + agora.plano.passos.length + i),
+        })),
+      });
+    }
+    await tx.employee.update({
+      where: { id: emp.id },
+      data: {
+        baseSalary: agora.plano.passos[agora.plano.passos.length - 1].valor,
+        ...(linhasCombinado.length > 0 ? { salarioCombinado: combinado, salarioCombinadoMotivo: motivoCombinado } : {}),
+      },
+    });
     return agora.plano.passos;
   }, { timeout: 30_000 });
   if (gravado === null) {

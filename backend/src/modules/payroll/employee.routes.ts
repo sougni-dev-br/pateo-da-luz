@@ -5,7 +5,7 @@ import { prisma } from "../../config/database.js";
 import { auditLog, getSessionUser, requestIp } from "../security/security-utils.js";
 import { podeVerDadosPessoais } from "./dados-pessoais.js";
 import { hojeEmSaoPaulo } from "./extras-comum.js";
-import { CAMPOS_SALARIO, ROTULO_CAMPO, alteracoes, faltaMotivoEntradaGorjeta, faltaMotivoRetroativo, lerVigenteDesde, type CampoHistorico } from "./cadastro-historico.js";
+import { CAMPOS_SALARIO, ROTULO_CAMPO, alteracoes, comCombinadoAcompanhando, faltaMotivoEntradaGorjeta, faltaMotivoRetroativo, lerVigenteDesde, type CampoHistorico } from "./cadastro-historico.js";
 import { registrarAlteracoes } from "./cadastro-historico.service.js";
 import { lerFichaDoFuncionario } from "./ficha-registro.service.js";
 import { cidadeProprio, nomeProprio } from "../../shared/utils/nome-proprio.js";
@@ -540,7 +540,11 @@ employeeRouter.put("/:id", async (request, response) => {
   if ("erro" in teto) return response.status(400).json({ message: teto.erro });
   // O teto com o salário dá a gorjeta informada: mexer nele exige ver salários.
   if ("tetoIrGorjeta" in teto.dados && !(await podeVerDadosPessoais(request))) return response.status(403).json({ message: "Exige permissão de ver Funcionários." });
-  const dados = { cpf, ...base, ...combinado.dados, ...adiantamento.dados, ...teto.dados };
+  // Base reajustada de quem tem combinado: o combinado sobe o mesmo valor, a menos que o
+  // combinado tenha sido alterado à mão nesta mesma edição.
+  const acompanhado = comCombinadoAcompanhando(existing, { cpf, ...base, ...combinado.dados, ...adiantamento.dados, ...teto.dados });
+  if ("erro" in acompanhado) return response.status(400).json({ message: acompanhado.erro });
+  const dados = acompanhado.dados;
   const erroEntrada = entradaAntesDaAdmissao(dados.inicioGorjeta, dados.admissionDate ?? existing.admissionDate);
   if (erroEntrada) return response.status(400).json({ message: erroEntrada });
   const vigencia = lerVigencia(b, existing, dados, dados.admissionDate ?? existing.admissionDate);
