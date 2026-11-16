@@ -199,14 +199,19 @@ export function Decimo13() {
                         </Table.Row>
                       )}
                       {vistosSr.map(({ l, p }) => (
-                        <Table.Row key={l.employeeId}>
+                        <Table.Row key={`${l.employeeId}-${l.origem ?? "SEM_REGISTRO"}`}>
                           <Table.Td>
                             <strong>{nomeProprio(l.nome)}</strong>
                             {l.setor ? <span className="folha-nota">{l.setor}</span> : null}
+                            {l.origem === "COMBINADO" ? (
+                              <span className="folha-nota">só a diferença do salário combinado sobre o registrado; o 13º do registrado vem do extrato da contabilidade (CLT)</span>
+                            ) : null}
                             {l.preRegistro && l.semRegistroAte && l.registroEm ? (
                               <span className="folha-nota">só o período sem registro (até {fmtData(l.semRegistroAte)}); registrado em {fmtData(l.registroEm)}, o resto vem da contabilidade</span>
                             ) : null}
-                            <VariavelInformada linha={l} ano={year} podeEditar={canEdit} aoMudar={carregar} aoErro={(message) => setNotice({ tone: "error", message })} />
+                            {l.origem === "COMBINADO" ? null : (
+                              <VariavelInformada linha={l} ano={year} podeEditar={canEdit} aoMudar={carregar} aoErro={(message) => setNotice({ tone: "error", message })} />
+                            )}
                           </Table.Td>
                           {l.calculo ? (
                             <>

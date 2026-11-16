@@ -78,7 +78,7 @@ const DETALHES_NA_LISTA: Record<string, readonly string[]> = {
   ADIANTAMENTO: ["calculo", "empresa", "origem", "origemValor", "pendenteGorjeta", "observacao", "lancamentoManual", "duplicaDe", "aposSaida", "semRegistro", "primeiraQuinzena"],
   // 13º: só as marcas. A base (salário + média das variáveis), o total, os avos e a memória do
   // cálculo revelam o salário e saem; o líquido do extrato é o próprio valor do lançamento.
-  DECIMO_TERCEIRO: ["calculo", "empresa", "decimoTerceiro", "parcela", "semRegistro", "preRegistro", "semRegistroAte", "registroEm", "lancamentoManual", "duplicaDe"],
+  DECIMO_TERCEIRO: ["calculo", "empresa", "decimoTerceiro", "parcela", "semRegistro", "combinado", "preRegistro", "semRegistroAte", "registroEm", "lancamentoManual", "duplicaDe"],
 };
 export function detalhesNaLista(type: string, details: unknown, podeVer: boolean): unknown {
   const permitidos = DETALHES_NA_LISTA[type];

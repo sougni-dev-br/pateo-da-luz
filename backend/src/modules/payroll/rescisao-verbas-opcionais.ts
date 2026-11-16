@@ -58,7 +58,9 @@ export function avosFerias(inicio: Date, saida: Date): AvosFerias {
 
 // 13º: ano civil da saída, de max(01/01, início) até a saída; cada mês com 15 dias ou mais
 // trabalhados conta 1 avo.
-export function mesesDe13(inicio: Date, saida: Date): { meses: number[]; desde: string } {
+// `diasAfastados` (AAAA-MM-DD): afastamento sem remuneração; esses dias não são trabalhados e saem
+// da conta dos 15 dias do mês.
+export function mesesDe13(inicio: Date, saida: Date, diasAfastados?: ReadonlySet<string>): { meses: number[]; desde: string } {
   const ano = saida.getUTCFullYear();
   const primeiro = new Date(Date.UTC(ano, 0, 1));
   const desde = utc(inicio) > utc(primeiro) ? inicio : primeiro;
@@ -67,13 +69,17 @@ export function mesesDe13(inicio: Date, saida: Date): { meses: number[]; desde: 
   for (let mes0 = desde.getUTCMonth(); mes0 <= saida.getUTCMonth(); mes0 += 1) {
     const ini = new Date(Math.max(utc(desde), Date.UTC(ano, mes0, 1)));
     const fim = new Date(Math.min(utc(saida), Date.UTC(ano, mes0, ultimoDia(ano, mes0))));
-    if (diasEntre(ini, fim) >= DIAS_FRACAO_AVO) meses.push(mes0 + 1);
+    let afastados = 0;
+    if (diasAfastados && diasAfastados.size > 0) {
+      for (let t = utc(ini); t <= utc(fim); t += 86_400_000) if (diasAfastados.has(isoDia(new Date(t)))) afastados += 1;
+    }
+    if (diasEntre(ini, fim) - afastados >= DIAS_FRACAO_AVO) meses.push(mes0 + 1);
   }
   return { meses, desde: isoDia(desde) };
 }
 
-export function avos13(inicio: Date, saida: Date): { avos: number; desde: string } {
-  const { meses, desde } = mesesDe13(inicio, saida);
+export function avos13(inicio: Date, saida: Date, diasAfastados?: ReadonlySet<string>): { avos: number; desde: string } {
+  const { meses, desde } = mesesDe13(inicio, saida, diasAfastados);
   return { avos: meses.length, desde };
 }
 

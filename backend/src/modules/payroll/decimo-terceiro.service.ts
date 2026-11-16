@@ -12,11 +12,12 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
 import { computeTipCommission } from "./tip-commission.service.js";
-import { cadastrosVigentes } from "./cadastro-historico.service.js";
+import { cadastrosVigentes, carregarHistorico } from "./cadastro-historico.service.js";
+import { diferencaDoCombinado, inicioDoCombinado } from "./decimo-terceiro-combinado.js";
 import { type LinhaDecimo13Clt, montarLinhasClt } from "./decimo-terceiro-clt.js";
 import {
-  calcularDecimoTerceiroSR, decidirParcela, fimSemRegistro, primeiraParaAcerto, ROTULO_13_EXTRATO_PARCELA_1, ROTULO_13_PARCELA_1,
-  ROTULO_13_PARCELA_2, segundaParcela, type Decimo13SR,
+  calcularDecimoTerceiroSR, decidirParcela, fimSemRegistro, primeiraParaAcerto, ROTULO_13_COMBINADO_PARCELA_1, ROTULO_13_COMBINADO_PARCELA_2,
+  ROTULO_13_EXTRATO_PARCELA_1, ROTULO_13_PARCELA_1, ROTULO_13_PARCELA_2, segundaParcela, type Decimo13SR,
 } from "./decimo-terceiro-sr.js";
 import { round2 } from "./vt-calc.js";
 import { travarFolhaDaPessoa } from "./folha-trava.js";
@@ -41,6 +42,10 @@ export type LinhaDecimo13 = {
   preRegistro: boolean; semRegistroAte: string | null; registroEm: string | null;
   // Variáveis de mês informadas à mão (substituem a apuração no cálculo).
   informadas: VariavelInformada[];
+  // SEM_REGISTRO: o 13º inteiro (ou o período sem registro). COMBINADO: só a diferença entre o salário
+  // combinado e o registrado de quem é CLT (o registrado vem do extrato da contabilidade).
+  origem: "SEM_REGISTRO" | "COMBINADO";
+  rotulos: { p1: string; p2: string };
 };
 
 export type PreviaDecimo13 = {
@@ -54,7 +59,9 @@ const nomeDe = (e: { firstName: string; lastName: string }) => `${e.firstName} $
 const diaRef = (ano: number) => new Date(Date.UTC(ano, 11, 20)); // salário e vínculo vigentes em 20/12
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 const mmaaaa = (mes: number, ano: number) => `${String(mes).padStart(2, "0")}/${ano}`;
-const ROTULOS_SR = [ROTULO_13_PARCELA_1, ROTULO_13_PARCELA_2];
+const ROTULOS_SR = { p1: ROTULO_13_PARCELA_1, p2: ROTULO_13_PARCELA_2 };
+const ROTULOS_COMBINADO = { p1: ROTULO_13_COMBINADO_PARCELA_1, p2: ROTULO_13_COMBINADO_PARCELA_2 };
+const TODOS_OS_ROTULOS = [ROTULOS_SR.p1, ROTULOS_SR.p2, ROTULOS_COMBINADO.p1, ROTULOS_COMBINADO.p2, ROTULO_13_EXTRATO_PARCELA_1];
 
 // `apurados`: os meses que entram na média — fechados, ou abertos mas já encerrados (dados provisórios).
 // Mês em andamento (período que ainda não terminou) fica de fora até fechar: valor parcial puxaria a média para baixo.
@@ -128,13 +135,28 @@ function parcelaLinha(item: Item | undefined, devido: number | null): ParcelaLin
   return { existe: resolvida(item), paga: Boolean(ativa?.paymentDate), lancado: valorDe(ativa), devido, gerar };
 }
 
+// As duas parcelas de uma linha: a 2ª é o acerto do que a 1ª pagou de fato (paga: o valor pago; senão, o calculado).
+function parcelasDaLinha(
+  itemDe: (id: string, rotulo: string) => Item | undefined, id: string, rotulos: { p1: string; p2: string }, calculo: Decimo13SR | null,
+): Pick<LinhaDecimo13, "p1" | "p2" | "acerto"> {
+  const i1 = itemDe(id, rotulos.p1);
+  const i2 = itemDe(id, rotulos.p2);
+  const p2 = calculo ? segundaParcela(calculo.total, primeiraParaAcerto(i1 ?? null, calculo.parcela1)) : null;
+  const pagoNa2 = i2 && !i2.deletedAt && i2.paymentDate ? round2(Number(i2.paidAmount ?? i2.amount)) : null;
+  return {
+    p1: parcelaLinha(i1, calculo?.parcela1 ?? null),
+    p2: { ...parcelaLinha(i2, p2?.valor ?? null), excesso: p2?.excesso ?? 0 },
+    acerto: calculo && p2 && pagoNa2 != null ? round2(p2.valor - pagoNa2 - p2.excesso) : null,
+  };
+}
+
 export async function listarDecimoTerceiroSR(ano: number): Promise<PreviaDecimo13> {
   // Desligado fica de fora: o 13º proporcional dele é verba da rescisão (opcional, sem registro);
   // gerar aqui pagaria duas vezes. Quem não recebe 13º (chave do cadastro) e cadastro excluído também.
   const emps = await prisma.employee.findMany({
     where: { deletedAt: null, terminationDate: null, recebeDecimoTerceiro: true },
     select: {
-      id: true, firstName: true, lastName: true, sector: true, modality: true, baseSalary: true,
+      id: true, firstName: true, lastName: true, sector: true, modality: true, baseSalary: true, salarioCombinado: true,
       admissionDate: true, admissaoCarteira: true, terminationDate: true,
     },
     orderBy: [{ firstName: "asc" }],
@@ -142,14 +164,14 @@ export async function listarDecimoTerceiroSR(ano: number): Promise<PreviaDecimo1
   const fimDe = new Map(emps.map((e) => [e.id, fimSemRegistro(e.admissionDate, e.admissaoCarteira)]));
   // Vigente em 20/12, ou no último dia sem registro de quem foi registrado: o histórico decide salário e vínculo.
   const vigentes = await cadastrosVigentes(
-    emps.map((e) => ({ ...e, baseSalary: e.baseSalary == null ? null : Number(e.baseSalary) })),
+    emps.map((e) => ({ ...e, baseSalary: e.baseSalary == null ? null : Number(e.baseSalary), salarioCombinado: e.salarioCombinado == null ? null : Number(e.salarioCombinado) })),
     (e) => fimDe.get(e.id) ?? diaRef(ano),
   );
   // Inclui os excluídos: o excluído à mão conta como "já existe" (o botão zera e ninguém o recria).
   const existentes: Item[] = await prisma.payrollItem.findMany({
     where: {
       type: "DECIMO_TERCEIRO", competenceYear: ano, employeeId: { in: emps.map((e) => e.id) },
-      periodLabel: { in: [...ROTULOS_SR, ROTULO_13_EXTRATO_PARCELA_1] },
+      periodLabel: { in: TODOS_OS_ROTULOS },
     },
     select: { employeeId: true, periodLabel: true, amount: true, paidAmount: true, paymentDate: true, deletedAt: true, deletedById: true, details: true },
   });
@@ -158,6 +180,16 @@ export async function listarDecimoTerceiroSR(ano: number): Promise<PreviaDecimo1
   // o extrato já o inclui por inteiro e gerar de novo pagaria duas vezes.
   const comExtrato = new Set(existentes.filter((x) => x.periodLabel === ROTULO_13_EXTRATO_PARCELA_1 && !x.deletedAt).map((x) => x.employeeId));
   const variaveis = await variaveisDoAno(ano);
+  // Afastamento sem remuneração (pedido da pessoa) da escala: dia não trabalhado, entra na regra dos 15 dias.
+  const afastados = new Map<string, Set<string>>();
+  for (const d of await prisma.employeeScheduleDay.findMany({
+    where: { type: "AFASTAMENTO", employeeId: { in: emps.map((e) => e.id) }, date: { gte: new Date(Date.UTC(ano, 0, 1)), lte: new Date(Date.UTC(ano, 11, 31)) } },
+    select: { employeeId: true, date: true },
+  })) {
+    const dias = afastados.get(d.employeeId) ?? new Set<string>();
+    dias.add(iso(d.date));
+    afastados.set(d.employeeId, dias);
+  }
   const linhas: LinhaDecimo13[] = [];
   for (const e of emps) {
     const v = vigentes.get(e.id);
@@ -167,6 +199,7 @@ export async function listarDecimoTerceiroSR(ano: number): Promise<PreviaDecimo1
     const salario = v.baseSalary == null ? null : Number(v.baseSalary);
     let calculo = calcularDecimoTerceiroSR({
       ano, salarioBase: salario, inicio: e.admissionDate, desligamento: e.terminationDate, ate: fim,
+      diasAfastados: afastados.get(e.id),
       // Mês informado à mão conta para esta pessoa mesmo sem apuração (a gorjeta paga por fora é o caso típico).
       variaveis: variaveis.porPessoa.get(e.id),
       mesesApurados: new Set([...variaveis.apurados, ...(variaveis.informadas.get(e.id) ?? []).map((i) => i.mes)]),
@@ -182,19 +215,30 @@ export async function listarDecimoTerceiroSR(ano: number): Promise<PreviaDecimo1
       calculo = null;
       motivoSemCalculo = "Já tem o 13º do extrato da contabilidade: não é gerado aqui (pagaria duas vezes).";
     }
-    const i1 = itemDe(e.id, ROTULO_13_PARCELA_1);
-    const i2 = itemDe(e.id, ROTULO_13_PARCELA_2);
-    // A 2ª é o acerto do que a 1ª pagou de fato (paga: o valor pago; senão, o calculado).
-    const p2 = calculo ? segundaParcela(calculo.total, primeiraParaAcerto(i1 ?? null, calculo.parcela1)) : null;
-    const p2Linha = parcelaLinha(i2, p2?.valor ?? null);
-    const pagoNa2 = i2 && !i2.deletedAt && i2.paymentDate ? round2(Number(i2.paidAmount ?? i2.amount)) : null;
     linhas.push({
       employeeId: e.id, nome: nomeDe(e), setor: e.sector, calculo, motivoSemCalculo,
-      p1: parcelaLinha(i1, calculo?.parcela1 ?? null),
-      p2: { ...p2Linha, excesso: p2?.excesso ?? 0 },
-      acerto: calculo && p2 && pagoNa2 != null ? round2(p2.valor - pagoNa2 - p2.excesso) : null,
+      ...parcelasDaLinha(itemDe, e.id, ROTULOS_SR, calculo),
       preRegistro, semRegistroAte: fim ? iso(fim) : null, registroEm: preRegistro && e.admissaoCarteira ? iso(e.admissaoCarteira) : null,
-      informadas: variaveis.informadas.get(e.id) ?? [],
+      informadas: variaveis.informadas.get(e.id) ?? [], origem: "SEM_REGISTRO", rotulos: ROTULOS_SR,
+    });
+  }
+  // CLT com salário combinado: a diferença acima do registrado (o registrado vem do extrato).
+  const comCombinado = emps.filter((e) => vigentes.get(e.id)?.modality === "CLT" && vigentes.get(e.id)?.salarioCombinado != null);
+  const historicoCombinado = comCombinado.length > 0 ? await carregarHistorico(comCombinado.map((e) => e.id)) : new Map();
+  for (const e of comCombinado) {
+    const v = vigentes.get(e.id)!;
+    const diferenca = diferencaDoCombinado(v.baseSalary, v.salarioCombinado);
+    if (diferenca == null) continue;
+    const calculo = calcularDecimoTerceiroSR({
+      ano, salarioBase: diferenca, inicio: inicioDoCombinado(historicoCombinado.get(e.id) ?? []) ?? e.admissionDate,
+      desligamento: null, diasAfastados: afastados.get(e.id),
+    });
+    // Sem avos neste ano (combinado muito recente): nada a mostrar.
+    if (!calculo) continue;
+    linhas.push({
+      employeeId: e.id, nome: nomeDe(e), setor: e.sector, calculo, motivoSemCalculo: null,
+      ...parcelasDaLinha(itemDe, e.id, ROTULOS_COMBINADO, calculo),
+      preRegistro: false, semRegistroAte: null, registroEm: null, informadas: [], origem: "COMBINADO", rotulos: ROTULOS_COMBINADO,
     });
   }
   const avisos = avisosDaBase(ano, variaveis.status, variaveis.apurados);
@@ -254,21 +298,21 @@ export async function gerarDecimoTerceiroSR(ano: number, userId: string, parcela
   let criadas = 0;
   let atualizadas = 0;
   let restauradas = 0;
-  const rotulo = parcela === 1 ? ROTULO_13_PARCELA_1 : ROTULO_13_PARCELA_2;
   await prisma.$transaction(async (tx) => {
     for (const l of previa.linhas) {
       const c = l.calculo;
       if (!c) continue;
+      const rotulo = parcela === 1 ? l.rotulos.p1 : l.rotulos.p2;
       // Trava a pessoa e relê dentro da transação: dois "Gerar" juntos não se atropelam.
       await travarFolhaDaPessoa(tx, l.employeeId);
       const atuais = await tx.payrollItem.findMany({
-        where: { employeeId: l.employeeId, type: "DECIMO_TERCEIRO", competenceYear: ano, periodLabel: { in: ROTULOS_SR } },
+        where: { employeeId: l.employeeId, type: "DECIMO_TERCEIRO", competenceYear: ano, periodLabel: { in: [l.rotulos.p1, l.rotulos.p2] } },
         select: { id: true, periodLabel: true, amount: true, paidAmount: true, paymentDate: true, deletedAt: true, deletedById: true, details: true },
       });
       const doRotulo = (r: string) => atuais.find((x) => x.periodLabel === r) ?? null;
       const atual = doRotulo(rotulo);
       // O valor da parcela: a 1ª é o calculado; a 2ª fecha o total com o que a 1ª PAGOU de fato.
-      const valor = parcela === 1 ? c.parcela1 : segundaParcela(c.total, primeiraParaAcerto(doRotulo(ROTULO_13_PARCELA_1), c.parcela1)).valor;
+      const valor = parcela === 1 ? c.parcela1 : segundaParcela(c.total, primeiraParaAcerto(doRotulo(l.rotulos.p1), c.parcela1)).valor;
       if (valor <= 0) continue;
       const decisao = decidirParcela(atual);
       if (decisao === "excluida-a-mao") {
@@ -279,7 +323,7 @@ export async function gerarDecimoTerceiroSR(ano: number, userId: string, parcela
       const venc = parcela === 1 ? c.vencimento1 : c.vencimento2;
       const due = new Date(`${venc}T00:00:00.000Z`);
       const details = {
-        semRegistro: true, decimoTerceiro: true, parcela, avos: c.avos, avosParcela1: c.avosParcela1, desde: c.desde,
+        ...(l.origem === "COMBINADO" ? { combinado: true } : { semRegistro: true }), decimoTerceiro: true, parcela, avos: c.avos, avosParcela1: c.avosParcela1, desde: c.desde,
         mediaParcela1: c.mediaParcela1, mediaFinal: c.mediaFinal, totalDecimo: c.total, valorCalculado: valor, memoria: c.memoria,
         ...(l.preRegistro ? { preRegistro: true, semRegistroAte: l.semRegistroAte, registroEm: l.registroEm } : {}),
       } as Prisma.InputJsonValue;
