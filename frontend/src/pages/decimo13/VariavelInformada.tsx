@@ -5,12 +5,13 @@ import { agruparMesesFaltando, lerValorBr, NOMES_MESES } from "./variavel";
 
 const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const nomeDoMes = (mes: number) => NOMES_MESES[mes - 1];
+const abreviado = (mes: number) => nomeDoMes(mes).slice(0, 3);
 
 type Props = { linha: Decimo13Linha; ano: number; podeEditar: boolean; aoMudar: () => Promise<void>; aoErro: (m: string) => void };
 
 /**
- * Variáveis do mês (gorjeta + extras) da pessoa: mostra quais meses do período dela estão sem valor e deixa informar o valor
- * de cada um. O valor informado substitui a apuração só no cálculo do 13º.
+ * Variáveis do mês (gorjeta + extras) da pessoa no 13º. Uma linha por situação: o que falta (botões pequenos, um por mês),
+ * o que já foi informado à mão (recolhido) e o que ainda está em andamento. O valor informado substitui a apuração só no 13º.
  */
 export function VariavelInformada({ linha, ano, podeEditar, aoMudar, aoErro }: Props) {
   const [mes, setMes] = useState<number | null>(null);
@@ -19,6 +20,7 @@ export function VariavelInformada({ linha, ano, podeEditar, aoMudar, aoErro }: P
   const [busy, setBusy] = useState(false);
   const informadas = linha.informadas ?? [];
   const grupos = agruparMesesFaltando(linha.mesesFaltando ?? []);
+  const totalInformado = informadas.reduce((s, i) => s + i.valor, 0);
 
   // Devolve true só se deu certo: o formulário não fecha nem perde o digitado quando falha.
   async function executar(acao: () => Promise<unknown>): Promise<boolean> {
@@ -53,41 +55,43 @@ export function VariavelInformada({ linha, ano, podeEditar, aoMudar, aoErro }: P
     setMes(null);
   }
 
-  function chips(meses: number[]) {
-    return meses.map((m) => (
-      <Button key={m} size="sm" variant={mes === m ? "primary" : "secondary"} disabled={busy} onClick={() => abrir(m)} aria-label={`Informar valor de ${nomeDoMes(m)}`}>
-        {nomeDoMes(m).slice(0, 3)}
-      </Button>
-    ));
+  function faltando(rotulo: string, dica: string, meses: number[]) {
+    if (meses.length === 0) return null;
+    return (
+      <div className="var13-linha" title={dica}>
+        <span className="var13-rotulo">{rotulo}</span>
+        {meses.map((m) => podeEditar ? (
+          <button key={m} type="button" className="var13-mes" aria-pressed={mes === m} disabled={busy} onClick={() => abrir(m)} aria-label={`Informar valor de ${nomeDoMes(m)}`}>
+            {abreviado(m)}
+          </button>
+        ) : <span key={m}>{abreviado(m)}</span>)}
+      </div>
+    );
   }
 
+  const nada = informadas.length === 0 && grupos.semApuracao.length === 0 && grupos.semLancamento.length === 0 && grupos.emAndamento.length === 0;
+
   return (
-    <div className="folha-nota">
-      {informadas.map((i) => (
-        <div key={i.mes} title={i.motivo}>
-          {nomeDoMes(i.mes)}: {brl(i.valor)} informado à mão
-          {podeEditar && (
-            <> <Button size="sm" variant="secondary" disabled={busy} onClick={() => void executar(() => removerVariavelDecimo13(ano, linha.employeeId, i.mes))}>Remover</Button></>
-          )}
-        </div>
-      ))}
-      {grupos.semApuracao.length > 0 && (
-        <div style={{ marginTop: 4 }}>
-          <strong>Sem apuração de gorjeta no sistema</strong> — ficam fora da média; se a pessoa recebeu variável nesses meses, informe o valor:
-          {podeEditar ? <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 2 }}>{chips(grupos.semApuracao)}</div> : <> {grupos.semApuracao.map(nomeDoMes).join(", ")}</>}
-        </div>
+    <div className="var13">
+      {faltando("Sem apuração:", "Meses sem apuração de gorjeta no sistema: ficam fora da média. Se a pessoa recebeu variável neles, clique no mês e informe o valor.", grupos.semApuracao)}
+      {faltando("Sem valor:", "Meses apurados em que a pessoa não aparece: contam como R$ 0,00 na média. Se ela recebeu por fora, clique no mês e informe o valor.", grupos.semLancamento)}
+      {informadas.length > 0 && (
+        <details>
+          <summary>{informadas.length === 1 ? "1 mês informado à mão" : `${informadas.length} meses informados à mão`} · {brl(totalInformado)}</summary>
+          <ul className="var13-lista">
+            {informadas.map((i) => (
+              <li key={i.mes} title={i.motivo}>
+                <span>{nomeDoMes(i.mes)}</span>
+                <span className="num">{brl(i.valor)}</span>
+                <span>{podeEditar && <button type="button" className="var13-remover" disabled={busy} aria-label={`Remover ${nomeDoMes(i.mes)}`} onClick={() => void executar(() => removerVariavelDecimo13(ano, linha.employeeId, i.mes))}>remover</button>}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
-      {grupos.semLancamento.length > 0 && (
-        <div style={{ marginTop: 4 }}>
-          <strong>Apurado, mas a pessoa não aparece</strong> — contam como R$ 0,00 na média; se recebeu por fora, informe o valor:
-          {podeEditar ? <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 2 }}>{chips(grupos.semLancamento)}</div> : <> {grupos.semLancamento.map(nomeDoMes).join(", ")}</>}
-        </div>
-      )}
-      {grupos.emAndamento.length > 0 && (
-        <div style={{ marginTop: 4 }}>Em andamento ({grupos.emAndamento.map(nomeDoMes).join(", ")}): entra na média quando a gorjeta do mês for fechada.</div>
-      )}
+      {grupos.emAndamento.length > 0 && <div>Em andamento: {grupos.emAndamento.map(nomeDoMes).join(", ")} (entra na média quando a gorjeta fechar)</div>}
       {podeEditar && mes != null && (
-        <div style={{ display: "grid", gap: 6, marginTop: 6, maxWidth: 320 }}>
+        <div className="var13-form">
           <strong>Variável de {nomeDoMes(mes)}</strong>
           <TextField value={valor} onChange={(e) => setValor(e.target.value)} placeholder="Total do mês (gorjeta + extras), ex.: 638,16" aria-label={`Valor da variável de ${nomeDoMes(mes)}`} />
           <TextField value={motivo} maxLength={300} onChange={(e) => setMotivo(e.target.value)} placeholder="Motivo (ex.: gorjeta paga por fora)" aria-label="Motivo" />
@@ -98,9 +102,7 @@ export function VariavelInformada({ linha, ano, podeEditar, aoMudar, aoErro }: P
           </div>
         </div>
       )}
-      {podeEditar && mes == null && informadas.length + grupos.semApuracao.length + grupos.semLancamento.length === 0 && grupos.emAndamento.length === 0 && (
-        <span>Variáveis de todos os meses do período já estão na apuração.</span>
-      )}
+      {nada && <div>Variáveis de todos os meses do período já estão na apuração.</div>}
     </div>
   );
 }

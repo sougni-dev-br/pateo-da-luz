@@ -59,3 +59,18 @@
 .folha-variacao { display: block; font-size: 11px; font-weight: 600; white-space: nowrap; }
 .folha-variacao[data-sobe="true"] { color: var(--warning); }
 .folha-variacao[data-sobe="false"] { color: var(--info); }
+
+/* Variáveis do mês no 13º: resumo de uma linha, meses que faltam como botões pequenos, informados recolhidos. */
+.var13 { display: grid; gap: 4px; margin-top: 6px; font-size: 12px; color: var(--muted); }
+.var13-linha { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; }
+.var13-rotulo { font-weight: 600; color: var(--ink, inherit); }
+.var13-mes { appearance: none; border: 1px solid var(--line); background: transparent; color: inherit; border-radius: 999px; padding: 1px 9px; font: inherit; line-height: 1.5; cursor: pointer; }
+.var13-mes:hover:not(:disabled) { background: var(--paper-soft, #f6f7f9); }
+.var13-mes[aria-pressed="true"] { border-color: currentColor; font-weight: 600; }
+.var13-mes:disabled { opacity: .5; cursor: default; }
+.var13 details > summary { cursor: pointer; }
+.var13-lista { display: grid; grid-template-columns: auto auto auto; justify-content: start; gap: 2px 12px; margin: 4px 0 0; padding: 0; list-style: none; }
+.var13-lista li { display: contents; }
+.var13-lista .num { text-align: right; font-variant-numeric: tabular-nums; }
+.var13-remover { appearance: none; border: 0; background: transparent; color: inherit; font: inherit; text-decoration: underline; cursor: pointer; padding: 0; }
+.var13-form { display: grid; gap: 6px; max-width: 320px; margin-top: 4px; }
