@@ -63,3 +63,37 @@ describe("CLT (extrato da contabilidade)", () => {
     expect(resumirClt([{ valor: 900, situacao: "PAGA" }, { valor: 0, situacao: "AGUARDANDO_EXTRATO" }])).toEqual({ pessoas: 2, aguardando: 1, total: 900 });
   });
 });
+
+describe("quem entrou antes do registro (soma no título do extrato)", () => {
+  const calculo = { ano: 2026, avos: 6, avosParcela1: 6, desde: "2026-01-01", salario: 2400, mediaParcela1: 0, mediaFinal: 0, parcela1: 600, total: 1200, parcela2: 600, vencimento1: "2026-11-30", vencimento2: "2026-12-20", memoria: "" };
+  const parcela = (over: Record<string, unknown>) => ({ existe: false, paga: false, lancado: null, devido: 600, gerar: true, ...over });
+  const linha = (p1: Record<string, unknown>, viaExtrato = false) => ({
+    employeeId: "e1", nome: "Bia", setor: null, calculo, motivoSemCalculo: null, p1: parcela(p1), p2: { ...parcela({ devido: 600 }), excesso: 0 }, acerto: null,
+    preRegistro: true, semRegistroAte: "2026-06-30", registroEm: "2026-07-01", origem: "SEM_REGISTRO", somaNoExtrato: true, viaExtrato,
+  }) as never;
+
+  it("a 2ª aguarda enquanto a 1ª ainda vai ser somada ao título do extrato", () => {
+    expect(parcelaDaLinha(linha({ gerar: true }, true), 2).situacao).toBe("AGUARDANDO_EXTRATO");
+    expect(parcelaDaLinha(linha({ aguardaExtrato: true, gerar: false }), 2).situacao).toBe("AGUARDANDO_EXTRATO");
+  });
+  it("com a 1ª somada ao título e em dia, a 2ª já pode ser gerada", () => {
+    expect(parcelaDaLinha(linha({ existe: true, lancado: 600, gerar: false, somadaAoExtrato: true }), 2).situacao).not.toBe("AGUARDANDO_EXTRATO");
+  });
+  it("a 1ª já somada ao título não entra de novo no total", () => {
+    const r = parcelaDaLinha(linha({ existe: true, lancado: 600, gerar: false, somadaAoExtrato: true }), 1);
+    expect(r.situacao).toBe("SOMADA");
+    expect(resumirParcela([r]).novas).toBe(0);
+  });
+});
+
+describe("2ª parcela com a 1ª lançada à parte (não vai pelo título do extrato)", () => {
+  const calculo = { ano: 2026, avos: 6, avosParcela1: 6, desde: "2026-01-01", salario: 2400, mediaParcela1: 0, mediaFinal: 0, parcela1: 600, total: 1200, parcela2: 600, vencimento1: "2026-11-30", vencimento2: "2026-12-20", memoria: "" };
+  it("não bloqueia a 2ª só porque a 1ª tem o cálculo mudado (o backend a gera)", () => {
+    const l = {
+      employeeId: "e1", nome: "Bia", setor: null, calculo, motivoSemCalculo: null,
+      p1: { existe: true, paga: false, lancado: 580, devido: 600, gerar: true }, p2: { existe: false, paga: false, lancado: null, devido: 620, gerar: true, excesso: 0 }, acerto: null,
+      preRegistro: true, semRegistroAte: "2026-06-30", registroEm: "2026-07-01", origem: "SEM_REGISTRO", somaNoExtrato: true, viaExtrato: false,
+    } as never;
+    expect(parcelaDaLinha(l, 2).situacao).not.toBe("AGUARDANDO_EXTRATO");
+  });
+});

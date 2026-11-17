@@ -16,6 +16,8 @@ export type ItemDaLista13 = {
 /** O que a prévia do 13º diz de uma linha (só o que a lista usa). */
 export type LinhaPreviaLista13 = {
   employeeId: string; origem: "SEM_REGISTRO" | "COMBINADO"; viaExtrato: boolean;
+  // A 1ª parcela da linha vai somada ao título do extrato (combinado, ou período sem registro de quem foi registrado depois).
+  somaNoExtrato?: boolean;
   calculo: { vencimento1: string; vencimento2: string } | null;
   // 1ª parcela da linha (a 2ª da diferença só entra na lista com a 1ª resolvida no título do extrato).
   p1?: { gerar: boolean; aguardaExtrato?: boolean; conferir?: boolean };
@@ -54,10 +56,11 @@ export function montarListaDecimo13(
   ano: number, parcela: 1 | 2, itens: ItemDaLista13[], previa: LinhaPreviaLista13[], pessoas: Map<string, PessoaMeio>,
 ): ListaDecimo13 {
   // Quem tem a diferença do combinado por somar ao título do extrato (gerar a parcela atualiza o título).
-  const faltaSomar = new Map<string, number>(parcela === 1 ? previa.filter((l) => l.origem === "COMBINADO" && l.viaExtrato && l.p.gerar).map((l): [string, number] => [l.employeeId, l.p.devido ?? 0]) : []);
+  const somaExtrato = (l: LinhaPreviaLista13) => l.origem === "COMBINADO" || l.somaNoExtrato === true;
+  const faltaSomar = new Map<string, number>(parcela === 1 ? previa.filter((l) => somaExtrato(l) && l.viaExtrato && l.p.gerar).map((l): [string, number] => [l.employeeId, l.p.devido ?? 0]) : []);
   // (a soma de devido 0 também conta: o título volta ao líquido do extrato)
   // Quem tem o cálculo de hoje diferente do título em aberto (sem registro).
-  const desatualizado = new Map(previa.filter((l) => l.origem === "SEM_REGISTRO" && l.p.existe && l.p.gerar).map((l) => [l.employeeId, l.p.devido ?? 0]));
+  const desatualizado = new Map(previa.filter((l) => l.origem === "SEM_REGISTRO" && !(parcela === 1 && l.viaExtrato) && l.p.existe && l.p.gerar).map((l) => [l.employeeId, l.p.devido ?? 0]));
 
   const dosItens = itens
     .filter((i) => familia13(i.periodLabel).parcela === parcela)
@@ -70,7 +73,14 @@ export function montarListaDecimo13(
       const valorPago = pago ? round2(i.paidAmount ?? i.amount) : null;
       const avisos: string[] = [];
       let somar: number | null = null;
-      if (!pago && origemDoRotulo === "EXTRATO" && faltaSomar.has(i.employeeId)) {
+      // Título do extrato que alguém ajustou à mão (difere do líquido do extrato + o já somado): a soma não é aplicada nele.
+      // A linha sai com o valor real do título (é o que vai ao Contas a Pagar) e o aviso manda conferir.
+      const liquidoLido = liquidoDoExtrato(i.details);
+      const esperadoNoTitulo = foiSomado(i.details) ? (liquidoLido != null ? round2(liquidoLido + (complementoSomado(i.details) ?? 0)) : valor) : (liquidoLido ?? valor);
+      const ajustadoAMao = origemDoRotulo === "EXTRATO" && Math.abs(valor - esperadoNoTitulo) >= 0.01;
+      if (!pago && ajustadoAMao && faltaSomar.has(i.employeeId)) {
+        avisos.push(`Título ajustado à mão (${reais(valor)}) difere do esperado (${reais(esperadoNoTitulo)}): confira o valor antes de pagar; a soma não foi aplicada.`);
+      } else if (!pago && origemDoRotulo === "EXTRATO" && faltaSomar.has(i.employeeId)) {
         // Falta somar, ou somar de novo: o cálculo de hoje deu outra diferença. O título vale o líquido do extrato + a diferença de hoje.
         const diferenca = faltaSomar.get(i.employeeId)!;
         const liquido = foiSomado(i.details) ? liquidoDoExtrato(i.details) ?? round2(valor - (complementoSomado(i.details) ?? 0)) : valor;
@@ -97,9 +107,10 @@ export function montarListaDecimo13(
   // Sem registro (e diferença do combinado lançada à parte) que o cálculo deu e ainda não tem título.
   const aLancar = previa
     .filter((l) => l.p.gerar && !l.p.existe && l.p.lancado == null && (l.p.devido ?? 0) > 0 && l.calculo
-      && (l.origem === "SEM_REGISTRO"
-        || (parcela === 1 && !l.viaExtrato && !l.p.aguardaExtrato)
-        || (parcela === 2 && !(l.p1?.aguardaExtrato || l.p1?.conferir || (l.viaExtrato && l.p1?.gerar)))))
+      && (somaExtrato(l)
+        // Soma no título do extrato: só vira linha própria se o extrato já foi pago sem a soma; a 2ª só com a 1ª resolvida.
+        ? (parcela === 1 ? (!l.viaExtrato && !l.p.aguardaExtrato) : !(l.p1?.aguardaExtrato || l.p1?.conferir || (l.viaExtrato && l.p1?.gerar)))
+        : l.origem === "SEM_REGISTRO"))
     .map((l): LinhaPagamentoMeio => {
       const pessoa = pessoas.get(l.employeeId);
       const venc = parcela === 1 ? l.calculo!.vencimento1 : l.calculo!.vencimento2;
@@ -119,10 +130,10 @@ export function montarListaDecimo13(
   };
   const avisos: string[] = [];
   const aguardandoExtrato = parcela === 1
-    ? previa.filter((l) => l.origem === "COMBINADO" && l.p.aguardaExtrato).map((l) => pessoas.get(l.employeeId)?.nome ?? "—")
+    ? previa.filter((l) => somaExtrato(l) && l.p.aguardaExtrato).map((l) => pessoas.get(l.employeeId)?.nome ?? "—")
     : [];
   if (aguardandoExtrato.length > 0) {
-    avisos.push(`${aguardandoExtrato.length} pessoa(s) com salário combinado aguardam o extrato do 13º (Retorno do RH): a diferença entra no título quando o extrato é importado.`);
+    avisos.push(`${aguardandoExtrato.length} pessoa(s) com valor a somar ao título do extrato (salário combinado ou período sem registro) aguardam o extrato do 13º (Retorno do RH): o valor entra no título quando o extrato é importado.`);
   }
   return {
     parcela, ano, linhas, total: round2(linhas.reduce((a, l) => a + l.valor, 0)), avisos, aguardandoExtrato,

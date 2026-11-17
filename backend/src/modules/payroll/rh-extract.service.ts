@@ -575,11 +575,11 @@ export async function importExtrato(opts: {
     try {
       const soma = await sincronizarCombinadoDoDecimo(competenceYear, opts.userId);
       for (const a of soma.alterados) {
-        avisosDaImportacao.push(`${a.nome}: diferença do salário combinado somada ao 13º (de ${brl(a.antes)} para ${brl(a.depois)}).`);
+        avisosDaImportacao.push(`${a.nome}: valor a mais (salário combinado ou período sem registro) somado ao 13º (de ${brl(a.antes)} para ${brl(a.depois)}).`);
       }
       avisosDaImportacao.push(...soma.avisos);
     } catch (err) {
-      avisosDaImportacao.push(`Não foi possível somar a diferença do salário combinado ao 13º: ${(err as Error).message}. Gere a 1ª parcela na tela do 13º para somar.`);
+      avisosDaImportacao.push(`Não foi possível somar o valor a mais (salário combinado ou período sem registro) ao 13º: ${(err as Error).message}. Gere a 1ª parcela na tela do 13º para somar.`);
     }
   }
 

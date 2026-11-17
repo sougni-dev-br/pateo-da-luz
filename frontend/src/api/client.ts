@@ -1400,7 +1400,9 @@ export type MembroFolhaLote = {
 };
 
 export type SalarioComposicao = {
-  tipo: "SALARIO_COMBINADO" | "PENDENTE_GORJETA";
+  tipo: "SALARIO_COMBINADO" | "PENDENTE_GORJETA" | "DECIMO_SOMADO";
+  /** 13º somado ao título do extrato: o que foi somado ao líquido (diferença do combinado ou 13º do período sem registro). */
+  descricao?: string | null;
   liquidoExtrato: number;
   complemento: number;
   total: number;
@@ -10651,6 +10653,11 @@ export type Decimo13Linha = {
   mesesFaltando?: Decimo13MesFaltando[];
   // COMBINADO: só a diferença entre o salário combinado e o registrado de quem é CLT (o registrado vem do extrato).
   origem?: "SEM_REGISTRO" | "COMBINADO";
+  /** A 1ª parcela vai SOMADA ao título do extrato (combinado, ou período sem registro de quem foi registrado depois). */
+  somaNoExtrato?: boolean;
+  complementoDescricao?: string | null;
+  /** Com soma no extrato: a 1ª parcela ainda vai ser somada a um título em aberto (ao lançar). */
+  viaExtrato?: boolean;
 };
 export type Decimo13MesFaltando = { mes: number; motivo: "SEM_APURACAO" | "SEM_LANCAMENTO" | "EM_ANDAMENTO" };
 export type Decimo13VariavelInformada = { mes: number; valor: number; motivo: string };
@@ -10670,7 +10677,7 @@ export function getDecimoTerceiro(year: number) {
 /** Lista de pagamento do 13º (como a do adiantamento): para conferir e levar ao banco. */
 export type ListaDecimo13 = {
   parcela: 1 | 2; ano: number; linhas: LinhaPagamentoMeio[]; total: number; avisos: string[];
-  /** Nomes de quem tem salário combinado e aguarda o extrato do 13º: a lista ainda não está completa. */
+  /** Nomes de quem tem valor a somar ao título do extrato (salário combinado ou período sem registro) e aguarda o extrato do 13º: a lista ainda não está completa. */
   aguardandoExtrato?: string[];
   aLancar: { pessoas: number; total: number }; lancado: { pessoas: number; total: number }; pago: { pessoas: number; total: number };
 };

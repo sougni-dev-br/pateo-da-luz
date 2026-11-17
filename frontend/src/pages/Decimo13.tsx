@@ -77,7 +77,7 @@ export function Decimo13() {
       const partes = [
         r.criadas + r.restauradas > 0 ? `${r.criadas + r.restauradas} lançada(s)` : null,
         r.atualizadas > 0 ? `${r.atualizadas} atualizada(s)` : null,
-        (r.somadas ?? 0) > 0 ? `${r.somadas} com a diferença do salário combinado somada ao título do extrato` : null,
+        (r.somadas ?? 0) > 0 ? `${r.somadas} com valor a mais (salário combinado ou período sem registro) somado ao título do extrato` : null,
       ].filter(Boolean);
       setNotice(partes.length > 0
         ? { tone: "success", message: `${parcela}ª parcela do 13º: ${partes.join(" e ")} no Contas a Pagar. A baixa é feita lá.` }
@@ -253,6 +253,12 @@ export function Decimo13() {
                             ) : null}
                             {l.preRegistro && l.semRegistroAte && l.registroEm ? (
                               <span className="folha-nota">só o período sem registro (até {fmtData(l.semRegistroAte)}); registrado em {fmtData(l.registroEm)}, o resto vem da contabilidade</span>
+                            ) : null}
+                            {l.somaNoExtrato && l.origem !== "COMBINADO" && parcela === 1 ? (
+                              <span className="folha-nota">{l.p1.somadaAoExtrato
+                                ? "1ª parcela já SOMADA ao título do extrato (um título só no Contas a Pagar, com a explicação; o valor da linha CLT abaixo já a inclui; não pague de novo)"
+                                : l.p1.aguardaExtrato ? "1ª parcela aguarda o extrato do 13º: depois será somada ao título dele"
+                                : l.viaExtrato ? "1ª parcela será somada ao título do extrato ao lançar (um título só, com a explicação)" : null}</span>
                             ) : null}
                             {l.origem === "COMBINADO" ? null : (
                               <VariavelInformada linha={l} ano={year} podeEditar={canEdit} aoMudar={carregar} aoErro={(message) => setNotice({ tone: "error", message })} />
