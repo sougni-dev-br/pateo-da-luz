@@ -2980,6 +2980,9 @@ model Employee {
   // início real (admissionDate): quem começa sem registro, em teste ou recebendo seguro.
   // Só informativo: gorjeta, VT e escala contam pelo admissionDate.
   admissaoCarteira       DateTime?                  @db.Date
+  // Início do 13º: quando a contagem de avos RECOMEÇA (ex.: rescisão formal e a pessoa seguiu trabalhando sem registro).
+  // Vazio = conta pelo início real (admissionDate). Só vale para o 13º de quem não é CLT; vale o que for mais recente.
+  decimoTerceiroInicio   DateTime?                  @db.Date
   // Vale-transporte. TRANSPORTE_PUBLICO calcula pelas pernas (vtLegs) × escala;
   // BILHETE_MENSAL usa uma tarifa de base MENSAL; AUXILIO_COMBUSTIVEL usa o valor fixo.
   vtType                 VtType                     @default(TRANSPORTE_PUBLICO)

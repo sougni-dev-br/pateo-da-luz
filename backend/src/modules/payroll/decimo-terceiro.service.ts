@@ -18,7 +18,7 @@ import { type MesFaltando, mesesSemVariavel } from "./decimo-terceiro-meses-falt
 import { type ResultadoSoma, somarCombinadoAoExtrato } from "./decimo-terceiro-combinado.service.js";
 import { type LinhaDecimo13Clt, montarLinhasClt } from "./decimo-terceiro-clt.js";
 import {
-  calcularDecimoTerceiroSR, decidirParcela, fimSemRegistro, primeiraParaAcerto, ROTULO_13_COMBINADO_PARCELA_1, ROTULO_13_COMBINADO_PARCELA_2,
+  calcularDecimoTerceiroSR, decidirParcela, fimSemRegistro, inicioDoDecimo, primeiraParaAcerto, ROTULO_13_COMBINADO_PARCELA_1, ROTULO_13_COMBINADO_PARCELA_2,
   ROTULO_13_EXTRATO_PARCELA_1, ROTULO_13_PARCELA_1, ROTULO_13_PARCELA_2, segundaParcela, type Decimo13SR,
 } from "./decimo-terceiro-sr.js";
 import { round2 } from "./vt-calc.js";
@@ -220,7 +220,7 @@ export async function listarDecimoTerceiroSR(ano: number): Promise<PreviaDecimo1
     where: { deletedAt: null, terminationDate: null, recebeDecimoTerceiro: true },
     select: {
       id: true, firstName: true, lastName: true, sector: true, modality: true, baseSalary: true, salarioCombinado: true,
-      admissionDate: true, admissaoCarteira: true, terminationDate: true,
+      admissionDate: true, admissaoCarteira: true, decimoTerceiroInicio: true, terminationDate: true,
     },
     orderBy: [{ firstName: "asc" }],
   });
@@ -261,7 +261,7 @@ export async function listarDecimoTerceiroSR(ano: number): Promise<PreviaDecimo1
     if (!v || (!preRegistro && v.modality !== "NAO_CLT")) continue;
     const salario = v.baseSalary == null ? null : Number(v.baseSalary);
     let calculo = calcularDecimoTerceiroSR({
-      ano, salarioBase: salario, inicio: e.admissionDate, desligamento: e.terminationDate, ate: fim,
+      ano, salarioBase: salario, inicio: inicioDoDecimo(e.admissionDate, e.decimoTerceiroInicio), desligamento: e.terminationDate, ate: fim,
       diasAfastados: afastados.get(e.id),
       // Mês informado à mão conta para esta pessoa mesmo sem apuração (a gorjeta paga por fora é o caso típico).
       variaveis: variaveis.porPessoa.get(e.id),
@@ -273,6 +273,8 @@ export async function listarDecimoTerceiroSR(ano: number): Promise<PreviaDecimo1
     if (!calculo) {
       motivoSemCalculo = !e.admissionDate ? "Sem data de início (admissão) no cadastro."
         : !(salario != null && salario > 0) ? "Sem salário base vigente no cadastro."
+        : e.decimoTerceiroInicio && inicioDoDecimo(e.admissionDate, e.decimoTerceiroInicio) !== e.admissionDate
+          ? `Sem avos no ano contando a partir do início do 13º (${iso(e.decimoTerceiroInicio).split("-").reverse().join("/")}).`
         : "Sem avos no ano (menos de 15 dias em cada mês).";
     } else if (!preRegistro && comExtrato.has(e.id)) {
       calculo = null;
@@ -284,7 +286,7 @@ export async function listarDecimoTerceiroSR(ano: number): Promise<PreviaDecimo1
       preRegistro, semRegistroAte: fim ? iso(fim) : null, registroEm: preRegistro && e.admissaoCarteira ? iso(e.admissaoCarteira) : null,
       informadas: variaveis.informadas.get(e.id) ?? [],
       mesesFaltando: calculo ? mesesSemVariavel({
-        ano, inicio: e.admissionDate, desligamento: e.terminationDate, ate: fim, diasAfastados: afastados.get(e.id),
+        ano, inicio: inicioDoDecimo(e.admissionDate, e.decimoTerceiroInicio), desligamento: e.terminationDate, ate: fim, diasAfastados: afastados.get(e.id),
         variaveis: variaveis.porPessoa.get(e.id), informados: new Set((variaveis.informadas.get(e.id) ?? []).map((i) => i.mes)),
         status: variaveis.status, apurados: variaveis.apurados,
       }) : [],

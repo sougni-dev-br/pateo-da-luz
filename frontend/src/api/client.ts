@@ -7532,6 +7532,8 @@ export type Employee = {
   recebeDecimoTerceiro?: boolean;
   admissionDate: string | null;
   admissaoCarteira?: string | null;
+  /** Recomeço da contagem do 13º (rescisão formal e a pessoa seguiu sem registro). Vazio = conta pelo início do trabalho. */
+  decimoTerceiroInicio?: string | null;
   /** Entra na gorjeta em. Vazio = em teste (ou fora da gorjeta). */
   inicioGorjeta?: string | null;
   vtType: VtType;
@@ -7610,6 +7612,8 @@ export type EmployeePayload = {
   admissionDate?: string;
   /** Registro em carteira (do extrato); null limpa, ausente preserva. */
   admissaoCarteira?: string | null;
+  /** Recomeço da contagem do 13º (AAAA-MM-DD); null limpa, ausente preserva. */
+  decimoTerceiroInicio?: string | null;
   /** Entra na gorjeta em (AAAA-MM-DD); null = em teste/fora; ausente preserva. */
   inicioGorjeta?: string | null;
   vtType?: VtType;

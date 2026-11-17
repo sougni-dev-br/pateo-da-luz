@@ -18,6 +18,13 @@ export const ROTULO_13_PARCELA_2 = "13º Salário - 2ª parcela";
 // tem as duas coisas (o extrato e o período sem registro) e a chave única inclui o rótulo.
 export const ROTULO_13_EXTRATO_PARCELA_1 = "13º Salário - 1ª parcela (extrato)";
 
+// Início da contagem de avos do 13º: o início real, ou o recomeço (decimoTerceiroInicio) quando for mais recente.
+export function inicioDoDecimo(admissionDate: Date | null, decimoTerceiroInicio: Date | null | undefined): Date | null {
+  if (!decimoTerceiroInicio) return admissionDate;
+  if (!admissionDate) return decimoTerceiroInicio;
+  return decimoTerceiroInicio.getTime() > admissionDate.getTime() ? decimoTerceiroInicio : admissionDate;
+}
+
 export type Decimo13SR = {
   ano: number;
   // Avos do ano todo (até dezembro) e os usados na 1ª parcela (até novembro; 12 para o ano inteiro).

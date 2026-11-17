@@ -113,7 +113,7 @@ const emptyEmployee = {
   bankName: "", bankAgency: "", bankAccount: "", bankAccountDigit: "", bankAccountType: "CONTA_CORRENTE" as EmployeeBankAccountType,
   gender: "NAO_INFORMADO" as EmployeeGender,
   pixKeyType: "", pixKey: "", sector: "", subgroup: "", position: "", baseSalary: "", salarioCombinado: "", salarioCombinadoMotivo: "", tetoIrGorjeta: "", recebeAdiantamento: false, pagamentoQuinzenal: false, shiftStart: "", shiftEnd: "",
-  modality: "CLT" as EmployeeModality, scheduleRegime: "SEIS_POR_UM" as WorkScheduleRegime, includeInSchedule: true, registraPonto: true, recebeDecimoTerceiro: true, admissionDate: "", admissaoCarteira: "",
+  modality: "CLT" as EmployeeModality, scheduleRegime: "SEIS_POR_UM" as WorkScheduleRegime, includeInSchedule: true, registraPonto: true, recebeDecimoTerceiro: true, admissionDate: "", admissaoCarteira: "", decimoTerceiroInicio: "",
   // Entra na gorjeta em: cadastro novo nasce vazio (em teste).
   inicioGorjeta: "",
   vtType: "TRANSPORTE_PUBLICO" as VtType, vtPeriodicity: "QUINZENAL" as VtPeriodicity,
@@ -248,7 +248,7 @@ export function Funcionarios() {
       tetoIrGorjeta: moneyToMasked(e.tetoIrGorjeta ?? null),
       recebeAdiantamento: e.recebeAdiantamento ?? false, pagamentoQuinzenal: e.pagamentoQuinzenal ?? false,
       shiftStart: e.shiftStart ?? "", shiftEnd: e.shiftEnd ?? "",
-      modality: e.modality, scheduleRegime: e.scheduleRegime, includeInSchedule: e.includeInSchedule ?? true, registraPonto: e.registraPonto ?? true, recebeDecimoTerceiro: e.recebeDecimoTerceiro ?? true, admissionDate: toDateInput(e.admissionDate), admissaoCarteira: toDateInput(e.admissaoCarteira ?? null),
+      modality: e.modality, scheduleRegime: e.scheduleRegime, includeInSchedule: e.includeInSchedule ?? true, registraPonto: e.registraPonto ?? true, recebeDecimoTerceiro: e.recebeDecimoTerceiro ?? true, admissionDate: toDateInput(e.admissionDate), admissaoCarteira: toDateInput(e.admissaoCarteira ?? null), decimoTerceiroInicio: toDateInput(e.decimoTerceiroInicio ?? null),
       inicioGorjeta: toDateInput(e.inicioGorjeta ?? null),
       vtType: e.vtType, vtPeriodicity: e.vtPeriodicity,
       vtFixedAmount: moneyToMasked(e.vtFixedAmount), vtMonthlyFareId: e.vtMonthlyFareId ?? "", notes: e.notes ?? "",
@@ -332,6 +332,7 @@ export function Funcionarios() {
         recebeDecimoTerceiro: form.recebeDecimoTerceiro,
         admissionDate: form.admissionDate || undefined,
         admissaoCarteira: form.admissaoCarteira || null,
+        decimoTerceiroInicio: form.decimoTerceiroInicio || null,
         inicioGorjeta: form.inicioGorjeta || null,
         vtType: form.vtType,
         vtPeriodicity: form.vtPeriodicity,
@@ -739,6 +740,10 @@ export function Funcionarios() {
                 </FormField>
                 <FormField label="Admissão em carteira" hint="Do extrato da contabilidade; só informativo">
                   <TextField type="date" value={form.admissaoCarteira} onChange={(e) => setForm({ ...form, admissaoCarteira: e.target.value })} />
+                </FormField>
+                <FormField label="Início do 13º" hint="Só quando a contagem recomeça (ex.: rescisão no papel e a pessoa seguiu trabalhando sem registro). Vazio = conta pelo início do trabalho.">
+                  <TextField type="date" value={form.decimoTerceiroInicio} min={form.admissionDate || undefined} aria-label="Início do 13º"
+                    onChange={(e) => setForm({ ...form, decimoTerceiroInicio: e.target.value })} />
                 </FormField>
                 <FormField label="Entra na gorjeta em" hint="Vazio = em teste ou fora da gorjeta. Os dias de teste do sem registro são pagos como salário.">
                   <TextField type="date" value={form.inicioGorjeta} min={form.admissionDate || undefined} aria-label="Entra na gorjeta em"
