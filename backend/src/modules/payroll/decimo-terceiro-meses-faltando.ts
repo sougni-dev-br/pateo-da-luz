@@ -28,7 +28,8 @@ export type EntradaMesesFaltando = {
   apurados: ReadonlySet<number>;
 };
 
-export function mesesSemVariavel(e: EntradaMesesFaltando): MesFaltando[] {
+// Meses (1 a 11) em que a pessoa tem avo no 13º: os que contam para a média.
+export function mesesDoPeriodo13(e: Pick<EntradaMesesFaltando, "ano" | "inicio" | "desligamento" | "ate" | "diasAfastados">): number[] {
   if (!e.inicio) return [];
   const fimDoAno = new Date(Date.UTC(e.ano, 11, 31));
   if (e.inicio.getTime() > fimDoAno.getTime()) return [];
@@ -38,10 +39,13 @@ export function mesesSemVariavel(e: EntradaMesesFaltando): MesFaltando[] {
   const limite = limites.reduce((menor, x) => (x.getTime() < menor.getTime() ? x : menor), fimDoAno);
   const fimDeNovembro = new Date(Date.UTC(e.ano, 11, 0));
   const ateNovembro = fimDeNovembro.getTime() < limite.getTime() ? fimDeNovembro : limite;
-  const { meses } = mesesDe13(e.inicio, ateNovembro, e.diasAfastados);
+  return mesesDe13(e.inicio, ateNovembro, e.diasAfastados).meses.filter((m) => m <= 11);
+}
+
+export function mesesSemVariavel(e: EntradaMesesFaltando): MesFaltando[] {
   const faltando: MesFaltando[] = [];
-  for (const mes of meses) {
-    if (mes > 11 || e.informados.has(mes)) continue;
+  for (const mes of mesesDoPeriodo13(e)) {
+    if (e.informados.has(mes)) continue;
     if (!e.status.has(mes)) faltando.push({ mes, motivo: "SEM_APURACAO" });
     else if (!e.apurados.has(mes)) faltando.push({ mes, motivo: "EM_ANDAMENTO" });
     else if (!e.variaveis?.has(mes)) faltando.push({ mes, motivo: "SEM_LANCAMENTO" });

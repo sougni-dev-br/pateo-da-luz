@@ -132,9 +132,9 @@ describe("terceira auditoria", () => {
   };
   const p2 = { existe: false, paga: false, lancado: null, devido: 700.33, gerar: true, excesso: 0 };
   test("2ª parcela com a 1ª para conferir ou ainda por lançar/atualizar: não é 'falta lançar'", () => {
-    for (const p1 of [{ conferir: true, gerar: false }, { gerar: true }]) {
+    for (const [p1, esperada] of [[{ conferir: true, gerar: false }, "AGUARDANDO_EXTRATO"], [{ gerar: true }, "AGUARDANDO_1A"]] as const) {
       const l: Decimo13Linha = { ...baseL, origem: "COMBINADO", viaExtrato: true, p2, p1: { existe: false, paga: false, lancado: null, devido: 573, ...p1 } };
-      expect(parcelaDaLinha(l, 2).situacao).toBe("AGUARDANDO_EXTRATO");
+      expect(parcelaDaLinha(l, 2).situacao).toBe(esperada);
       expect(resumirParcela([parcelaDaLinha(l, 2)]).novas).toBe(0);
     }
   });

@@ -9,11 +9,13 @@ export type ParcelaDaLinha = {
   /**
    * SEM_CALCULO: sem 13º calculado (o motivo vai na linha). EXCLUIDA: foi excluída à mão e o gerador não a recria.
    */
-  situacao: "PAGA" | "LANCADA" | "A_LANCAR" | "EXCLUIDA" | "SEM_CALCULO" | "AGUARDANDO_EXTRATO" | "SOMADA" | "CONFERIR";
+  situacao: "PAGA" | "LANCADA" | "A_LANCAR" | "EXCLUIDA" | "SEM_CALCULO" | "AGUARDANDO_EXTRATO" | "AGUARDANDO_1A" | "SOMADA" | "CONFERIR";
   /** Lançada e não paga, mas o cálculo de hoje deu outro valor: gerar de novo atualiza para este. */
   atualizarPara: number | null;
   /** O botão de gerar mexe nesta pessoa (cria ou atualiza). */
   gerar: boolean;
+  /** A 1ª parcela ainda vai ser SOMADA a um título do extrato já existente (não é título novo). */
+  somaNoTitulo?: boolean;
 };
 
 export function parcelaDaLinha(l: Decimo13Linha, n: Parcela13): ParcelaDaLinha {
@@ -25,7 +27,12 @@ export function parcelaDaLinha(l: Decimo13Linha, n: Parcela13): ParcelaDaLinha {
   if (p.conferir) return { valor: p.devido ?? 0, vencimento, situacao: "CONFERIR", atualizarPara: null, gerar: false };
   // 2ª da diferença do combinado com a 1ª ainda sem título do extrato: o backend não gera até o extrato chegar.
   // (também com a 1ª para conferir ou por lançar/atualizar: a 2ª é o acerto do que a 1ª carrega no título)
-  if (n === 2 && (l.origem === "COMBINADO" || l.somaNoExtrato) && (l.p1.aguardaExtrato || l.p1.conferir || (l.viaExtrato && l.p1.gerar))) return { valor: p.devido ?? 0, vencimento, situacao: "AGUARDANDO_EXTRATO", atualizarPara: null, gerar: false };
+  if (n === 2 && (l.origem === "COMBINADO" || l.somaNoExtrato)) {
+    // O extrato ainda não chegou (ou o título pago está para conferir): a 2ª espera o extrato.
+    if (l.p1.aguardaExtrato || l.p1.conferir) return { valor: p.devido ?? 0, vencimento, situacao: "AGUARDANDO_EXTRATO", atualizarPara: null, gerar: false };
+    // O extrato já está no Contas a Pagar: falta lançar a 1ª, que se soma a ele, antes da 2ª.
+    if (l.viaExtrato && l.p1.gerar) return { valor: p.devido ?? 0, vencimento, situacao: "AGUARDANDO_1A", atualizarPara: null, gerar: false };
+  }
   // Diferença do combinado já dentro do título do extrato: o valor já está na linha CLT, não entra de novo nos totais.
   // Somada com o cálculo mudado: o título carrega o valor antigo e gerar o atualiza (só a diferença de valor é nova).
   if (p.somadaAoExtrato) {
@@ -35,7 +42,9 @@ export function parcelaDaLinha(l: Decimo13Linha, n: Parcela13): ParcelaDaLinha {
   }
   const lancado = p.lancado != null;
   const mudou = lancado && !p.paga && p.devido != null && Math.abs((p.lancado ?? 0) - p.devido) >= 0.01;
+  const somaNoTitulo = n === 1 && Boolean(l.somaNoExtrato && l.viaExtrato && p.gerar && !p.existe && !lancado);
   return {
+    somaNoTitulo,
     valor: p.lancado ?? p.devido ?? 0,
     vencimento: n === 1 ? c.vencimento1 : c.vencimento2,
     situacao: p.paga ? "PAGA" : lancado ? "LANCADA" : p.existe ? "EXCLUIDA" : p.aguardaExtrato ? "AGUARDANDO_EXTRATO" : "A_LANCAR",
@@ -49,18 +58,20 @@ export type ResumoParcela = {
   pessoas: number; semCalculo: number;
   /** A criar (ainda sem título) e a atualizar (título em aberto com outro valor). */
   novas: number; atualizar: number;
+  /** Quantas vão SOMADAS a um título do extrato já existente (não criam título novo). */
+  somar: number;
   lancadas: number; excluidas: number;
   totalNovas: number; totalLancado: number;
 };
 
 // Parcela de valor zero não vira título (o gerador a ignora): não entra na conta.
 export function resumirParcela(parcelas: ParcelaDaLinha[]): ResumoParcela {
-  const r: ResumoParcela = { pessoas: 0, semCalculo: 0, novas: 0, atualizar: 0, lancadas: 0, excluidas: 0, totalNovas: 0, totalLancado: 0 };
+  const r: ResumoParcela = { pessoas: 0, semCalculo: 0, novas: 0, atualizar: 0, somar: 0, lancadas: 0, excluidas: 0, totalNovas: 0, totalLancado: 0 };
   for (const p of parcelas) {
     if (p.situacao === "SEM_CALCULO") { r.semCalculo += 1; continue; }
     if (p.situacao === "EXCLUIDA") { r.excluidas += 1; continue; }
     if (p.valor <= 0) continue;
-    if (p.situacao === "AGUARDANDO_EXTRATO" || p.situacao === "CONFERIR") continue;
+    if (p.situacao === "AGUARDANDO_EXTRATO" || p.situacao === "AGUARDANDO_1A" || p.situacao === "CONFERIR") continue;
     if (p.situacao === "SOMADA") {
       // Já está dentro do título do extrato (linha CLT): só entra a diferença de valor, se o cálculo mudou.
       if (p.gerar && p.atualizarPara != null) { r.atualizar += 1; r.totalNovas += p.atualizarPara - p.valor; }
@@ -68,7 +79,7 @@ export function resumirParcela(parcelas: ParcelaDaLinha[]): ResumoParcela {
     }
     r.pessoas += 1;
     if (p.situacao === "A_LANCAR") {
-      if (p.gerar) { r.novas += 1; r.totalNovas += p.valor; }
+      if (p.gerar) { if (p.somaNoTitulo) r.somar += 1; else r.novas += 1; r.totalNovas += p.valor; }
       continue;
     }
     r.lancadas += 1;

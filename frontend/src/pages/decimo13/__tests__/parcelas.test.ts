@@ -4,7 +4,7 @@ import { lancada, linhaClt, linhaSr, parcela } from "./fixtures";
 
 describe("parcelaDaLinha", () => {
   it("a lançar: vale o devido e carrega o vencimento da parcela pedida", () => {
-    expect(parcelaDaLinha(linhaSr(), 2)).toEqual({ valor: 1200, vencimento: "2026-12-20", situacao: "A_LANCAR", atualizarPara: null, gerar: true });
+    expect(parcelaDaLinha(linhaSr(), 2)).toEqual({ valor: 1200, vencimento: "2026-12-20", situacao: "A_LANCAR", atualizarPara: null, gerar: true, somaNoTitulo: false });
   });
   it("lançada: vale o que foi lançado e não há o que gerar", () => {
     expect(parcelaDaLinha(linhaSr({ p1: lancada(1000) }), 1)).toMatchObject({ valor: 1000, situacao: "LANCADA", atualizarPara: null, gerar: false });
@@ -35,7 +35,7 @@ describe("resumirParcela", () => {
       linhaSr({ employeeId: "s4", p1: parcela({ existe: true, lancado: null, gerar: false }) }),
       linhaSr({ employeeId: "s5", calculo: null }),
     ].map((l) => parcelaDaLinha(l, 1));
-    expect(resumirParcela(linhas)).toEqual({ pessoas: 3, semCalculo: 1, novas: 1, atualizar: 1, lancadas: 2, excluidas: 1, totalNovas: 1000, totalLancado: 1900 });
+    expect(resumirParcela(linhas)).toEqual({ pessoas: 3, semCalculo: 1, novas: 1, atualizar: 1, somar: 0, lancadas: 2, excluidas: 1, totalNovas: 1000, totalLancado: 1900 });
   });
   it("parcela de valor zero não entra na conta (o gerador a ignora)", () => {
     const l = linhaSr({ p2: { ...parcela({ devido: 0, gerar: false }), excesso: 0 } });
@@ -72,8 +72,8 @@ describe("quem entrou antes do registro (soma no título do extrato)", () => {
     preRegistro: true, semRegistroAte: "2026-06-30", registroEm: "2026-07-01", origem: "SEM_REGISTRO", somaNoExtrato: true, viaExtrato,
   }) as never;
 
-  it("a 2ª aguarda enquanto a 1ª ainda vai ser somada ao título do extrato", () => {
-    expect(parcelaDaLinha(linha({ gerar: true }, true), 2).situacao).toBe("AGUARDANDO_EXTRATO");
+  it("a 2ª espera a 1ª: com o extrato já no Contas a Pagar pede para lançar a 1ª primeiro; sem o extrato, aguarda o extrato", () => {
+    expect(parcelaDaLinha(linha({ gerar: true }, true), 2).situacao).toBe("AGUARDANDO_1A");
     expect(parcelaDaLinha(linha({ aguardaExtrato: true, gerar: false }), 2).situacao).toBe("AGUARDANDO_EXTRATO");
   });
   it("com a 1ª somada ao título e em dia, a 2ª já pode ser gerada", () => {
@@ -83,6 +83,25 @@ describe("quem entrou antes do registro (soma no título do extrato)", () => {
     const r = parcelaDaLinha(linha({ existe: true, lancado: 600, gerar: false, somadaAoExtrato: true }), 1);
     expect(r.situacao).toBe("SOMADA");
     expect(resumirParcela([r]).novas).toBe(0);
+  });
+});
+
+describe("1ª parcela que vai somada ao título do extrato (não é título novo)", () => {
+  const calculo = { ano: 2026, avos: 6, avosParcela1: 6, desde: "2026-01-01", salario: 2400, mediaParcela1: 0, mediaFinal: 0, parcela1: 600, total: 1200, parcela2: 600, vencimento1: "2026-11-30", vencimento2: "2026-12-20", memoria: "" };
+  const base = {
+    employeeId: "e1", nome: "Bia", setor: null, calculo, motivoSemCalculo: null,
+    p2: { existe: false, paga: false, lancado: null, devido: 600, gerar: true, excesso: 0 }, acerto: null,
+    preRegistro: true, semRegistroAte: "2026-06-30", registroEm: "2026-07-01", origem: "SEM_REGISTRO", somaNoExtrato: true, viaExtrato: true,
+  };
+  it("conta como 'a somar' e não como título novo, mas o valor entra no total a lançar", () => {
+    const l = { ...base, p1: { existe: false, paga: false, lancado: null, devido: 600, gerar: true } } as never;
+    const p = parcelaDaLinha(l, 1);
+    expect(p).toMatchObject({ situacao: "A_LANCAR", somaNoTitulo: true, valor: 600 });
+    expect(resumirParcela([p])).toMatchObject({ novas: 0, somar: 1, totalNovas: 600 });
+  });
+  it("já lançada à parte (legado) volta a ser título normal", () => {
+    const l = { ...base, viaExtrato: false, p1: { existe: true, paga: false, lancado: 580, devido: 600, gerar: true } } as never;
+    expect(parcelaDaLinha(l, 1).somaNoTitulo).toBe(false);
   });
 });
 
