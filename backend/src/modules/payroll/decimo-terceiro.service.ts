@@ -14,6 +14,7 @@ import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
 import { computeTipCommission } from "./tip-commission.service.js";
 import { cadastrosVigentes, carregarHistorico } from "./cadastro-historico.service.js";
 import { complementoSomado, diferencaDoCombinado, foiSomado, inicioDoCombinado, liquidoDoExtrato } from "./decimo-terceiro-combinado.js";
+import { type MesFaltando, mesesSemVariavel } from "./decimo-terceiro-meses-faltando.js";
 import { type ResultadoSoma, somarCombinadoAoExtrato } from "./decimo-terceiro-combinado.service.js";
 import { type LinhaDecimo13Clt, montarLinhasClt } from "./decimo-terceiro-clt.js";
 import {
@@ -49,6 +50,8 @@ export type LinhaDecimo13 = {
   preRegistro: boolean; semRegistroAte: string | null; registroEm: string | null;
   // Variáveis de mês informadas à mão (substituem a apuração no cálculo).
   informadas: VariavelInformada[];
+  // Meses (1 a 11) do período da pessoa em que falta a variável para a média: a tela lista e deixa informar o valor.
+  mesesFaltando: MesFaltando[];
   // SEM_REGISTRO: o 13º inteiro (ou o período sem registro). COMBINADO: só a diferença entre o salário
   // combinado e o registrado de quem é CLT (o registrado vem do extrato da contabilidade).
   origem: "SEM_REGISTRO" | "COMBINADO";
@@ -279,7 +282,13 @@ export async function listarDecimoTerceiroSR(ano: number): Promise<PreviaDecimo1
       employeeId: e.id, nome: nomeDe(e), setor: e.sector, calculo, motivoSemCalculo,
       ...parcelasDaLinha(itemDe, e.id, ROTULOS_SR, calculo),
       preRegistro, semRegistroAte: fim ? iso(fim) : null, registroEm: preRegistro && e.admissaoCarteira ? iso(e.admissaoCarteira) : null,
-      informadas: variaveis.informadas.get(e.id) ?? [], origem: "SEM_REGISTRO", rotulos: ROTULOS_SR, viaExtrato: false, primeiraSomada: null,
+      informadas: variaveis.informadas.get(e.id) ?? [],
+      mesesFaltando: calculo ? mesesSemVariavel({
+        ano, inicio: e.admissionDate, desligamento: e.terminationDate, ate: fim, diasAfastados: afastados.get(e.id),
+        variaveis: variaveis.porPessoa.get(e.id), informados: new Set((variaveis.informadas.get(e.id) ?? []).map((i) => i.mes)),
+        status: variaveis.status, apurados: variaveis.apurados,
+      }) : [],
+      origem: "SEM_REGISTRO", rotulos: ROTULOS_SR, viaExtrato: false, primeiraSomada: null,
     });
   }
   // CLT com salário combinado: a diferença acima do registrado (o registrado vem do extrato).
@@ -312,7 +321,7 @@ export async function listarDecimoTerceiroSR(ano: number): Promise<PreviaDecimo1
     linhas.push({
       employeeId: e.id, nome: nomeDe(e), setor: e.sector, calculo, motivoSemCalculo: null,
       ...proprias, p1: p1.p1,
-      preRegistro: false, semRegistroAte: null, registroEm: null, informadas: [], origem: "COMBINADO", rotulos: ROTULOS_COMBINADO, viaExtrato: p1.viaExtrato, primeiraSomada,
+      preRegistro: false, semRegistroAte: null, registroEm: null, informadas: [], mesesFaltando: [], origem: "COMBINADO", rotulos: ROTULOS_COMBINADO, viaExtrato: p1.viaExtrato, primeiraSomada,
     });
   }
   const comSomaViva = new Set(linhas.filter((l) => l.origem === "COMBINADO" && l.viaExtrato).map((l) => l.employeeId));
