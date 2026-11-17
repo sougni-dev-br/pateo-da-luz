@@ -29,20 +29,20 @@ describe("montarListaDecimo13", () => {
     expect(montarListaDecimo13(2026, 2, itens, [], pessoas).linhas.map((x) => x.nome)).toEqual(["Bia Souza"]);
   });
 
-  test("título somado ao combinado mostra a composição no aviso", () => {
+  test("título somado ao combinado sai com o valor do título (extrato + diferença), sem explicação", () => {
     const somado = valorComCombinado(2000, 573);
     const l = montarListaDecimo13(2026, 1, [item({ employeeId: "comb", amount: somado.valor, details: { empresa: "X", ...somado.detalhes } })], [], pessoas);
     expect(l.linhas[0].valor).toBe(2573);
-    expect(l.linhas[0].aviso).toContain("diferença do salário combinado");
-    expect(l.linhas[0].aviso).toContain("573,00");
+    expect(l.linhas[0].aviso).toBeNull();
   });
 
-  test("diferença do combinado por somar: o título do extrato sai com aviso para lançar antes de pagar", () => {
+  test("diferença do combinado por somar: a linha já sai com o valor que o título vai ter, sem explicação", () => {
     const previa: LinhaPreviaLista13[] = [{ employeeId: "comb", origem: "COMBINADO", viaExtrato: true, calculo: venc, p: { existe: false, paga: false, lancado: null, devido: 573, gerar: true } }];
     const l = montarListaDecimo13(2026, 1, [item({ employeeId: "comb", amount: 2000 })], previa, pessoas);
     expect(l.linhas).toHaveLength(1);
-    expect(l.linhas[0].aviso).toContain("lance a parcela");
-    expect(l.linhas[0].aviso).toContain("573,00");
+    expect(l.linhas[0].valor).toBe(2573); // 2.000 do extrato + 573 da diferença
+    expect(l.linhas[0].aviso).toBeNull();
+    expect(l.total).toBe(2573);
   });
 
   test("sem registro ainda sem título: sai como a lançar, com o valor devido e o vencimento", () => {
@@ -78,8 +78,9 @@ describe("montarListaDecimo13 — achados da auditoria", () => {
   test("falta somar: o título sai com o valor que vai valer e a lista vira prévia (atualizarPara)", () => {
     const previa: LinhaPreviaLista13[] = [{ employeeId: "comb", origem: "COMBINADO", viaExtrato: true, calculo: venc, p: { existe: false, paga: false, lancado: null, devido: 573, gerar: true } }];
     const l = montarListaDecimo13(2026, 1, [item({ employeeId: "comb", amount: 2000 })], previa, pessoas);
-    expect(l.linhas[0].atualizarPara).toBe(2573);
-    expect(l.linhas[0].aviso).toContain("2.573,00");
+    expect(l.linhas[0].atualizarPara).toBe(2573); // o selo do PDF continua PRÉVIA: falta lançar a parcela
+    expect(l.linhas[0].valor).toBe(2573);
+    expect(l.linhas[0].aviso).toBeNull();
   });
 
   test("2ª parcela: a diferença a lançar aparece mesmo com a 1ª ainda em aberto no extrato", () => {
@@ -118,5 +119,6 @@ describe("montarListaDecimo13 — 2ª parcela com a 1ª não resolvida (terceira
     const previa: LinhaPreviaLista13[] = [{ employeeId: "comb", origem: "COMBINADO", viaExtrato: true, calculo: venc, p: { existe: true, paga: false, lancado: 500, devido: 562.5, gerar: true } }];
     const l = montarListaDecimo13(2026, 1, [item({ employeeId: "comb", amount: somado.valor, details: { liquido: 2000, ...somado.detalhes } })], previa, pessoas);
     expect(l.linhas[0].atualizarPara).toBe(2562.5);
+    expect(l.linhas[0].valor).toBe(2562.5); // líquido do extrato + a diferença de hoje, não a soma antiga
   });
 });
