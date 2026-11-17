@@ -127,7 +127,7 @@ export function Decimo13() {
         codigo, selo: seloDaListaDecimo(lista), regras: regrasDaListaDecimo(parcela, lista.aguardandoExtrato ?? []),
         rotuloValor: "Valor", rotuloTotal: "Total a pagar",
         subtituloGrupo: (g) => (g === "Sem registro" ? "valor calculado pelo sistema" : "valor do título: extrato da contabilidade, mais o combinado ou o período sem registro quando há"),
-        rodape: `13º salário ${parcela}ª parcela ${year} - ${codigo}`, arquivo: `${codigo}.pdf`, modo: "empresa",
+        rodape: `13º salário ${parcela}ª parcela ${year} - ${codigo}`, arquivo: `${codigo}.pdf`, modo: "empresa", umaFolha: true,
       });
       setAvisosDaGeracao(lista.avisos);
     } catch (e) {

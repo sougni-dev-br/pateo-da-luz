@@ -45,6 +45,17 @@ export type OpcoesListaPagamentoPdf = {
   titulo: string; apoio: string; codigo: string; selo: Selo; regras: string[];
   rotuloValor: string; rotuloTotal: string; subtituloGrupo: (grupo: string) => string;
   rodape: string; arquivo: string; modo: ModoImpressaoFolha; ocultas?: ReadonlySet<string>;
+  /** Tenta caber numa folha só: se passar de uma página, refaz com letra e espaços menores (até o mínimo legível). */
+  umaFolha?: boolean;
+};
+
+/** Quanto de espaço a lista usa: a normal é a de sempre; as outras só entram quando a lista pede uma folha só. */
+type Densidade = { fonte: number; pad: number; fonteApoio: number; gapBloco: number; gapResumo: number; linhaRegra: number; gapAssinatura: number };
+const DENSIDADES: Record<"normal" | "compacta" | "enxuta" | "minima", Densidade> = {
+  normal: { fonte: 9, pad: 1.8, fonteApoio: 8, gapBloco: 9, gapResumo: 10, linhaRegra: 3.8, gapAssinatura: 16 },
+  compacta: { fonte: 8.2, pad: 1, fonteApoio: 7.4, gapBloco: 5, gapResumo: 6, linhaRegra: 3.4, gapAssinatura: 11 },
+  enxuta: { fonte: 7.9, pad: 0.8, fonteApoio: 7.1, gapBloco: 4, gapResumo: 5, linhaRegra: 3.2, gapAssinatura: 9 },
+  minima: { fonte: 7.6, pad: 0.6, fonteApoio: 6.8, gapBloco: 3.5, gapResumo: 4, linhaRegra: 3.1, gapAssinatura: 8 },
 };
 
 /** rotuloSubtotal null: sem linha de subtotal (lista única, o total já vem na faixa logo abaixo). */
@@ -99,6 +110,23 @@ export async function gerarPdfFolhaLiquidos(
 
 /** Lista para pagar no banco: um bloco por empresa (ou todos em ordem alfabética), total, regras, já pagos e assinatura. */
 export async function gerarPdfListaPagamento(folha: ListaPagamentoPdf, opcoes: OpcoesListaPagamentoPdf) {
+  const doc = await montarPdfListaPagamento(folha, opcoes);
+  doc.save(opcoes.arquivo);
+}
+
+/** Monta o PDF sem salvar. Com `umaFolha`, aperta o espaço (normal → compacta → enxuta → mínima) até caber numa página. */
+export async function montarPdfListaPagamento(folha: ListaPagamentoPdf, opcoes: OpcoesListaPagamentoPdf): Promise<Doc> {
+  const ordem = opcoes.umaFolha ? [DENSIDADES.normal, DENSIDADES.compacta, DENSIDADES.enxuta, DENSIDADES.minima] : [DENSIDADES.normal];
+  let doc = await desenharLista(folha, opcoes, ordem[0]);
+  for (const d of ordem.slice(1)) {
+    if (doc.getNumberOfPages() <= 1) break;
+    doc = await desenharLista(folha, opcoes, d);
+  }
+  return doc;
+}
+
+async function desenharLista(folha: ListaPagamentoPdf, opcoes: OpcoesListaPagamentoPdf, d: Densidade): Promise<Doc> {
+  const f = d.fonte / 9; // as alturas fixas do aviso embaixo do nome acompanham o tamanho da letra
   const ocultas = opcoes.ocultas ?? new Set<string>();
   const { jsPDF } = await import("jspdf");
   const autoTable = (await import("jspdf-autotable")).default as unknown as AutoTable;
@@ -126,7 +154,7 @@ export async function gerarPdfListaPagamento(folha: ListaPagamentoPdf, opcoes: O
     doc.text(textoPdf(`${semDados === folha.linhas.length ? "Ninguém tem" : `${plural(semDados, "pessoa", "pessoas")} sem`} PIX ou conta no cadastro: confira antes de pagar.`), M, y + 5);
     y += 4;
   }
-  y += 10;
+  y += d.gapResumo;
 
   // Uma tabela por bloco: por empresa (com subtotal de cada) ou, no modo Pateo, todos juntos em ordem alfabética.
   const desenharBloco = (lista: TipLinhaFolha[], bloco: Bloco) => {
@@ -137,7 +165,7 @@ export async function gerarPdfListaPagamento(folha: ListaPagamentoPdf, opcoes: O
     // A coluna do nome fica com o que sobra; o aviso embaixo dele usa a largura útil dela (menos o respiro).
     const larguraNome = (W - 2 * M) - (comEmpresa ? 34 : 0) - 28 - (C.banco != null ? LARGURA_BANCO : 0) - (C.pago != null ? 12 : 0);
     const larguraUtil = larguraNome - 5;
-    const linhasDoNome = (l: TipLinhaFolha) => { doc.setFontSize(9); return doc.splitTextToSize(celula("nome", l), larguraUtil).length; };
+    const linhasDoNome = (l: TipLinhaFolha) => { doc.setFontSize(d.fonte); return doc.splitTextToSize(celula("nome", l), larguraUtil).length; };
     const linhasDoAviso = (l: TipLinhaFolha) => { doc.setFontSize(7.2); return doc.splitTextToSize(textoPdf(l.aviso ?? ""), larguraUtil); };
     const celula = (c: Coluna, l: TipLinhaFolha) => {
       if (c === "nome") return nomeNoEnvio(l.nome) + (l.origem === "SALARIO_COMBINADO" ? " *" : "");
@@ -149,9 +177,9 @@ export async function gerarPdfListaPagamento(folha: ListaPagamentoPdf, opcoes: O
     const ESTILO: Record<Coluna, Record<string, unknown>> = {
       nome: { cellWidth: "auto" },
       // Largo o bastante para "Pateo Frei Caneca" numa linha só.
-      empresa: { cellWidth: 34, fontSize: 8, textColor: [...CINZA] },
+      empresa: { cellWidth: 34, fontSize: d.fonteApoio, textColor: [...CINZA] },
       valor: { cellWidth: 28, halign: "right", fontStyle: "bold" },
-      banco: { cellWidth: LARGURA_BANCO, fontSize: 8 },
+      banco: { cellWidth: LARGURA_BANCO, fontSize: d.fonteApoio },
       pago: { cellWidth: 12, halign: "center" },
     };
     if (y > H - 60) { doc.addPage(); y = 20; }
@@ -170,7 +198,7 @@ export async function gerarPdfListaPagamento(folha: ListaPagamentoPdf, opcoes: O
       theme: "plain",
       showFoot: "lastPage",
       rowPageBreak: "avoid",
-      styles: { font: "helvetica", fontSize: 9, textColor: [...TINTA], cellPadding: { top: 1.8, bottom: 1.8, left: 2.5, right: 2.5 }, valign: "middle" },
+      styles: { font: "helvetica", fontSize: d.fonte, textColor: [...TINTA], cellPadding: { top: d.pad, bottom: d.pad, left: 2.5, right: 2.5 }, valign: "middle" },
       headStyles: { fillColor: [...MARROM], textColor: 255, fontStyle: "bold", fontSize: 8 },
       footStyles: { fillColor: [...BEGE], textColor: [...TINTA], fontStyle: "bold" },
       alternateRowStyles: { fillColor: [...LISTRA] },
@@ -189,7 +217,7 @@ export async function gerarPdfListaPagamento(folha: ListaPagamentoPdf, opcoes: O
         if (d.column.index === 0 && l.aviso) {
           d.cell.styles.valign = "top";
           // Altura = nome (9 pt, pode quebrar) + aviso (7,2 pt), cada um contado na sua fonte.
-          d.cell.styles.minCellHeight = 3.6 + linhasDoNome(l) * 3.9 + linhasDoAviso(l).length * 3 + 1.2;
+          d.cell.styles.minCellHeight = (3.6 + linhasDoNome(l) * 3.9 + linhasDoAviso(l).length * 3 + 1.2) * f;
         }
       },
       didDrawCell: (d: { section: string; row: { index: number }; column: { index: number }; cell: CelulaDesenho }) => {
@@ -205,7 +233,7 @@ export async function gerarPdfListaPagamento(folha: ListaPagamentoPdf, opcoes: O
         doc.line(d.cell.x, d.cell.y + d.cell.height, d.cell.x + d.cell.width, d.cell.y + d.cell.height);
         const l = lista[d.row.index];
         if (d.column.index === 0 && l.aviso) {
-          const yAviso = d.cell.y + 1.8 + linhasDoNome(l) * 3.9 + 2.6;
+          const yAviso = d.cell.y + 1.8 * f + linhasDoNome(l) * 3.9 * f + 2.6 * f;
           const partes = linhasDoAviso(l);
           doc.setFont("helvetica", "normal");
           doc.setFontSize(7.2);
@@ -220,7 +248,7 @@ export async function gerarPdfListaPagamento(folha: ListaPagamentoPdf, opcoes: O
         }
       },
     });
-    y = doc.lastAutoTable.finalY + 9;
+    y = doc.lastAutoTable.finalY + d.gapBloco;
   };
 
   if (opcoes.modo === "alfabetica") {
@@ -238,7 +266,7 @@ export async function gerarPdfListaPagamento(folha: ListaPagamentoPdf, opcoes: O
 
   // O fechamento (total, regras, já pagos e assinatura) vai inteiro para a página seguinte só se não couber.
   const jaPagosQtd = (folha.jaPagos ?? []).length;
-  const fechamento = 14 + opcoes.regras.length * 3.8 + (jaPagosQtd > 0 ? 7 + jaPagosQtd * 4 : 0) + 24;
+  const fechamento = 14 + opcoes.regras.length * d.linhaRegra + (jaPagosQtd > 0 ? 7 + jaPagosQtd * 4 : 0) + 24;
   if (y + fechamento > H - 16) { doc.addPage(); y = 20; }
   faixaTotal(doc, y, `${opcoes.rotuloTotal}   (${plural(folha.linhas.length, "pessoa", "pessoas")})`, reais(folha.total));
   y += 14;
@@ -249,7 +277,7 @@ export async function gerarPdfListaPagamento(folha: ListaPagamentoPdf, opcoes: O
   for (const regra of opcoes.regras) {
     const partes = doc.splitTextToSize(textoPdf(regra), W - 2 * M);
     doc.text(partes, M, y);
-    y += partes.length * 3.8;
+    y += partes.length * d.linhaRegra;
   }
 
   const jaPagos = folha.jaPagos ?? [];
@@ -270,7 +298,7 @@ export async function gerarPdfListaPagamento(folha: ListaPagamentoPdf, opcoes: O
   }
 
   // Quem pagou assina; a data é a do dia, preenchida pelo sistema.
-  y += 16;
+  y += d.gapAssinatura;
   if (y > H - 24) { doc.addPage(); y = 30; }
   doc.setFont("helvetica", "normal");
   doc.setFontSize(10);
@@ -286,5 +314,5 @@ export async function gerarPdfListaPagamento(folha: ListaPagamentoPdf, opcoes: O
   doc.text("Data", M + 105, y + 4);
 
   rodapePdf(doc, opcoes.rodape, emitido);
-  doc.save(opcoes.arquivo);
+  return doc;
 }
