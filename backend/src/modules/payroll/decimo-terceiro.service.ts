@@ -14,7 +14,7 @@ import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
 import { computeTipCommission } from "./tip-commission.service.js";
 import { cadastrosVigentes, carregarHistorico } from "./cadastro-historico.service.js";
 import { complementoSomado, DESCRICAO_COMBINADO, diferencaDoCombinado, foiSomado, inicioDoCombinado, liquidoDoExtrato } from "./decimo-terceiro-combinado.js";
-import { type MesFaltando, mesesSemVariavel } from "./decimo-terceiro-meses-faltando.js";
+import { type MesFaltando, mesesDoPeriodo13, mesesSemVariavel } from "./decimo-terceiro-meses-faltando.js";
 import { type ResultadoSoma, somarCombinadoAoExtrato } from "./decimo-terceiro-combinado.service.js";
 import { type LinhaDecimo13Clt, montarLinhasClt } from "./decimo-terceiro-clt.js";
 import {
@@ -49,7 +49,8 @@ export type LinhaDecimo13 = {
   // Registrado depois do início real: só o período sem registro entra aqui (até `semRegistroAte`).
   preRegistro: boolean; semRegistroAte: string | null; registroEm: string | null;
   // Variáveis de mês informadas à mão (substituem a apuração no cálculo).
-  informadas: VariavelInformada[];
+  // `conta`: o mês está dentro do período de 13º da pessoa (um mês informado fora dele não entra na média).
+  informadas: Array<VariavelInformada & { conta: boolean }>;
   // Meses (1 a 11) do período da pessoa em que falta a variável para a média: a tela lista e deixa informar o valor.
   mesesFaltando: MesFaltando[];
   // SEM_REGISTRO: o 13º inteiro (ou o período sem registro). COMBINADO: só a diferença entre o salário
@@ -322,11 +323,14 @@ export async function listarDecimoTerceiroSR(ano: number): Promise<PreviaDecimo1
       ? resolverViaExtrato(extratoPre, parcelasSr.p1, calculo.parcela1, nomeDe(e), avisosCombinado, { sujeito: "o 13º do período sem registro", pago: "pago", lancar: "lançá-lo" })
       : null;
     const dataBr = (d: string) => d.split("-").reverse().join("/");
+    const periodoMeses = calculo
+      ? mesesDoPeriodo13({ ano, inicio: inicioDoDecimo(e.admissionDate, e.decimoTerceiroInicio), desligamento: e.terminationDate, ate: fim, diasAfastados: afastados.get(e.id) })
+      : [];
     linhas.push({
       employeeId: e.id, nome: nomeDe(e), setor: e.sector, calculo, motivoSemCalculo,
       ...parcelasSr, ...(viaPre ? { p1: viaPre.p1 } : {}),
       preRegistro, semRegistroAte: fim ? iso(fim) : null, registroEm: preRegistro && e.admissaoCarteira ? iso(e.admissaoCarteira) : null,
-      informadas: variaveis.informadas.get(e.id) ?? [],
+      informadas: (variaveis.informadas.get(e.id) ?? []).map((i) => ({ ...i, conta: periodoMeses.includes(i.mes) })),
       mesesFaltando: calculo ? mesesSemVariavel({
         ano, inicio: inicioDoDecimo(e.admissionDate, e.decimoTerceiroInicio), desligamento: e.terminationDate, ate: fim, diasAfastados: afastados.get(e.id),
         variaveis: variaveis.porPessoa.get(e.id), informados: new Set((variaveis.informadas.get(e.id) ?? []).map((i) => i.mes)),

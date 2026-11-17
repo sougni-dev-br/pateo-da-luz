@@ -10660,7 +10660,7 @@ export type Decimo13Linha = {
   viaExtrato?: boolean;
 };
 export type Decimo13MesFaltando = { mes: number; motivo: "SEM_APURACAO" | "SEM_LANCAMENTO" | "EM_ANDAMENTO" };
-export type Decimo13VariavelInformada = { mes: number; valor: number; motivo: string };
+export type Decimo13VariavelInformada = { mes: number; valor: number; motivo: string; /** Dentro do período de 13º da pessoa (fora dele, não entra na média). Ausente = conta. */ conta?: boolean };
 export function informarVariavelDecimo13(body: { year: number; employeeId: string; mes: number; valor: number; motivo: string }) {
   return request<{ ok: true }>("/payroll/decimo-terceiro/variavel", json("PUT", body));
 }

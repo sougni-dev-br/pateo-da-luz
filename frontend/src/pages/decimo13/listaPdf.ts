@@ -34,11 +34,11 @@ export function regrasDaListaDecimo(parcela: 1 | 2, aguardandoExtrato: readonly 
 function regrasBase(parcela: 1 | 2): string[] {
   return parcela === 1
     ? [
-      "CLT: 1ª parcela do 13º pelo extrato da contabilidade; com salário combinado, soma a diferença sobre o registrado.",
+      "CLT: 1ª parcela do 13º pelo extrato da contabilidade; quando há salário combinado ou período anterior ao registro, o valor do título já inclui essa soma.",
       "Sem registro: metade do 13º proporcional (avos), com a média das variáveis dos meses apurados.",
     ]
     : [
-      "CLT: 2ª parcela do 13º pelo extrato da contabilidade; com salário combinado, soma a diferença sobre o registrado.",
+      "CLT: 2ª parcela do 13º pelo extrato da contabilidade; quando há salário combinado ou período anterior ao registro, soma o que falta sobre o registrado.",
       "Sem registro: o 13º completo menos o que a 1ª parcela pagou (acerto).",
     ];
 }

@@ -1,5 +1,5 @@
 import { Banknote, ChevronLeft, ChevronRight, FileText } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { Decimo13Linha, Decimo13LinhaClt, gerarDecimoTerceiro, getDecimoTerceiro, getListaDecimo13 } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
 import { useSession } from "../context/SessionContext";
@@ -17,6 +17,24 @@ import "./folha/folha-ui.css";
 const fmtData = (iso: string) => iso.split("-").reverse().join("/");
 const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const semAcento = (t: string) => t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+
+type SituacaoLinha = ReturnType<typeof parcelaDaLinha>;
+const toneDaSituacao = (p: SituacaoLinha) =>
+  p.situacao === "PAGA" ? "success"
+    : p.situacao === "LANCADA" ? "info"
+    : p.situacao === "EXCLUIDA" || p.situacao === "AGUARDANDO_EXTRATO" || p.situacao === "AGUARDANDO_1A" ? "neutral"
+    : p.situacao === "SOMADA" ? (p.gerar ? "warning" : "success")
+    : "warning";
+const rotuloDaSituacao = (p: SituacaoLinha) =>
+  p.situacao === "PAGA" ? "Paga"
+    : p.situacao === "LANCADA" ? "Lançada"
+    : p.situacao === "SOMADA" ? (p.gerar ? "Somada (atualizar)" : "Somada ao título")
+    : p.situacao === "CONFERIR" ? "Conferir título pago"
+    : p.situacao === "EXCLUIDA" ? "Excluída à mão"
+    : p.situacao === "AGUARDANDO_EXTRATO" ? "Aguardando extrato"
+    : p.situacao === "AGUARDANDO_1A" ? "Lance a 1ª primeiro"
+    : p.somaNoTitulo ? "Falta somar ao título"
+    : "Falta lançar";
 
 /** 13º salário: uma parcela por vez (cada uma é paga numa data), em três passos — conferir, lançar, pagar. */
 export function Decimo13() {
@@ -108,7 +126,7 @@ export function Decimo13() {
         apoio: `Competência ${competencia}${venc ? `   |   vencimento ${fmtData(venc)}` : ""}`,
         codigo, selo: seloDaListaDecimo(lista), regras: regrasDaListaDecimo(parcela, lista.aguardandoExtrato ?? []),
         rotuloValor: "Valor", rotuloTotal: "Total a pagar",
-        subtituloGrupo: (g) => (g === "Sem registro" ? "valor calculado pelo sistema" : "valor pelo extrato da contabilidade"),
+        subtituloGrupo: (g) => (g === "Sem registro" ? "valor calculado pelo sistema" : "valor do título: extrato da contabilidade, mais o combinado ou o período sem registro quando há"),
         rodape: `13º salário ${parcela}ª parcela ${year} - ${codigo}`, arquivo: `${codigo}.pdf`, modo: "empresa",
       });
       setAvisosDaGeracao(lista.avisos);
@@ -131,7 +149,7 @@ export function Decimo13() {
   const lancadasClt = rc.pessoas - rc.aguardando;
   // Somas órfãs (título carrega uma diferença do combinado que não vale mais): lançar a 1ª desfaz.
   const orfas = parcela === 1 ? somasOrfas : 0;
-  const aGerar = r.novas + r.atualizar + orfas;
+  const aGerar = r.novas + r.somar + r.atualizar + orfas;
   const totalGeral = r.totalNovas + r.totalLancado + rc.total;
   const podeGerar = canEdit && aGerar > 0 && !confirmando && (parcela === 1 || novembroFechado);
 
@@ -139,6 +157,12 @@ export function Decimo13() {
   const bate = (nome: string) => termo === "" || semAcento(nome).includes(termo);
   const vistosSr = itens.filter((i) => bate(i.l.nome));
   const vistosClt = itensClt.filter((i) => bate(i.l.nome));
+  const gruposSr = [
+    { chave: "sr", titulo: "Sem registro", apoio: "calculado aqui; título próprio no Contas a Pagar", itens: vistosSr.filter(({ l }) => !l.preRegistro && l.origem !== "COMBINADO") },
+    { chave: "pre", titulo: "Registrados depois de começar", apoio: "só o período sem registro; soma no título do extrato (um título só)", itens: vistosSr.filter(({ l }) => l.preRegistro && l.origem !== "COMBINADO") },
+    { chave: "comb", titulo: "Salário combinado", apoio: "só a diferença sobre o registrado; soma no título do extrato (um título só)", itens: vistosSr.filter(({ l }) => l.origem === "COMBINADO") },
+  ];
+  const porPessoa = new Map((linhas ?? []).map((l) => [l.employeeId, l] as const));
 
   const botaoLancar = podeGerar ? (
     <Button leadingIcon={<Banknote size={14} />} onClick={() => setConfirmando(true)}>Lançar {parcela}ª parcela ({aGerar})</Button>
@@ -149,7 +173,7 @@ export function Decimo13() {
       detalhe: `${r.pessoas} calculada(s) aqui${r.semCalculo > 0 ? ` · ${r.semCalculo} sem cálculo` : ""}` },
     { titulo: "Lançar no Contas a Pagar", estado: aGerar > 0 ? "atual" : "feito", acao: botaoLancar,
       detalhe: aguardaNovembro ? "Disponível quando a gorjeta de novembro estiver fechada: a média precisa dela"
-        : aGerar > 0 ? [r.novas > 0 ? `Falta lançar ${r.novas} (${brl(r.totalNovas)})` : null, r.atualizar > 0 ? `${r.atualizar} a atualizar` : null].filter(Boolean).join(" · ")
+        : aGerar > 0 ? [`Falta lançar ${brl(r.totalNovas)}`, r.novas > 0 ? `${r.novas} título(s) novo(s)` : null, r.somar > 0 ? `${r.somar} somado(s) ao título do extrato` : null, r.atualizar > 0 ? `${r.atualizar} a atualizar` : null].filter(Boolean).join(" · ")
         : r.pessoas > 0 ? "Tudo lançado" : "Nada a lançar" },
     { titulo: "Dar a baixa", estado: aGerar > 0 ? "pendente" : "atual",
       detalhe: r.lancadas > 0 ? "Pague e dê a baixa no Contas a Pagar" : "Depois de lançar, a baixa é no Contas a Pagar",
@@ -192,14 +216,22 @@ export function Decimo13() {
           <>
             <Passos rotulo={`Passos da ${parcela}ª parcela`} passos={passos} />
 
-            {avisosDaBase.length > 0 && <Alert tone="warning">{avisosDaBase.map((a, i) => <div key={i}>{a}</div>)}</Alert>}
+            {avisosDaBase.length > 0 && (
+              <Alert tone="warning">
+                {avisosDaBase.length === 1 ? <div>{avisosDaBase[0]}</div> : (
+                  <details className="folha-aviso-longo">
+                    <summary>{avisosDaBase.length} avisos sobre a base da média (clique para ver)</summary>
+                    {avisosDaBase.map((a, i) => <p key={i}>{a}</p>)}
+                  </details>
+                )}
+              </Alert>
+            )}
             {avisosDaGeracao.length > 0 && <Alert tone="warning">{avisosDaGeracao.map((a, i) => <div key={i}>{a}</div>)}</Alert>}
 
             {confirmando && (
               <Alert tone="warning">
                 <div>
-                  Vai lançar {r.novas} título(s) novo(s) da {parcela}ª parcela e atualizar {r.atualizar + orfas} ({brl(r.totalNovas)} a mais no total), com vencimento em {vencimento ? fmtData(vencimento) : "—"}
-                  {r.atualizar > 0 ? ` e atualizar ${r.atualizar} em aberto para o cálculo de hoje` : ""}. Parcela já paga não muda.
+                  Vai criar {r.novas} título(s) novo(s) da {parcela}ª parcela, somar {r.somar} ao título do extrato (um título só por pessoa) e atualizar {r.atualizar + orfas} em aberto ({brl(r.totalNovas)} a mais no total), com vencimento em {vencimento ? fmtData(vencimento) : "—"}. Parcela já paga não muda.
                 </div>
                 <div className="form-actions">
                   <Button variant="secondary" disabled={busy} onClick={() => setConfirmando(false)}>Cancelar</Button>
@@ -209,7 +241,7 @@ export function Decimo13() {
             )}
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, margin: "0 0 16px" }}>
-              <SummaryCard compact label="Falta lançar" moneyValue={r.totalNovas} tone={aGerar > 0 ? "warning" : undefined} detail={`${r.novas} pessoa(s)${r.atualizar > 0 ? ` · ${r.atualizar} a atualizar` : ""}`} />
+              <SummaryCard compact label="Falta lançar" moneyValue={r.totalNovas} tone={aGerar > 0 ? "warning" : undefined} detail={`${r.novas + r.somar} pessoa(s)${r.atualizar > 0 ? ` · ${r.atualizar} a atualizar` : ""}`} />
               <SummaryCard compact label="Já no Contas a Pagar" moneyValue={r.totalLancado + rc.total} detail={`${r.lancadas + lancadasClt} pessoa(s)`} />
               <SummaryCard compact label={`Total da ${parcela}ª parcela`} moneyValue={totalGeral} detail={`${r.pessoas + lancadasClt} pessoa(s)`} />
             </div>
@@ -234,31 +266,27 @@ export function Decimo13() {
                       </Table.Row>
                     </Table.Head>
                     <Table.Body>
-                      {itens.length > 0 && (
-                        <Table.Row className="folha-grupo">
-                          <Table.Td colSpan={6}>
-                            <div className="folha-grupo-titulo">Sem registro <small>calculado aqui · {vistosSr.length} de {itens.length}</small></div>
-                          </Table.Td>
-                        </Table.Row>
-                      )}
-                      {vistosSr.map(({ l, p }) => (
+                      {gruposSr.map((g) => g.itens.length > 0 && (
+                        <Fragment key={g.chave}>
+                          <Table.Row className="folha-grupo">
+                            <Table.Td colSpan={6}>
+                              <div className="folha-grupo-titulo">{g.titulo} <small>{g.apoio} · {g.itens.length}</small></div>
+                            </Table.Td>
+                          </Table.Row>
+                          {g.itens.map(({ l, p }) => (
                         <Table.Row key={`${l.employeeId}-${l.origem ?? "SEM_REGISTRO"}`}>
                           <Table.Td>
                             <strong>{nomeProprio(l.nome)}</strong>
                             {l.setor ? <span className="folha-nota">{l.setor}</span> : null}
                             {l.origem === "COMBINADO" ? (
-                              <span className="folha-nota">{l.p1.somadaAoExtrato && parcela === 1
-                                ? "só a diferença do salário combinado: já está SOMADA ao título do extrato (o valor da linha CLT abaixo já a inclui; não pague de novo)"
-                                : "só a diferença do salário combinado sobre o registrado; o 13º do registrado vem do extrato da contabilidade (CLT)"}</span>
+                              <span className="folha-nota">{l.p1.somadaAoExtrato && parcela === 1 ? "já somada ao título do extrato abaixo (não pague de novo)" : "o 13º do registrado vem do extrato da contabilidade"}</span>
                             ) : null}
                             {l.preRegistro && l.semRegistroAte && l.registroEm ? (
-                              <span className="folha-nota">só o período sem registro (até {fmtData(l.semRegistroAte)}); registrado em {fmtData(l.registroEm)}, o resto vem da contabilidade</span>
+                              <span className="folha-nota">sem registro até {fmtData(l.semRegistroAte)} · registrado em {fmtData(l.registroEm)}</span>
                             ) : null}
                             {l.somaNoExtrato && l.origem !== "COMBINADO" && parcela === 1 ? (
-                              <span className="folha-nota">{l.p1.somadaAoExtrato
-                                ? "1ª parcela já SOMADA ao título do extrato (um título só no Contas a Pagar, com a explicação; o valor da linha CLT abaixo já a inclui; não pague de novo)"
-                                : l.p1.aguardaExtrato ? "1ª parcela aguarda o extrato do 13º: depois será somada ao título dele"
-                                : l.viaExtrato ? "1ª parcela será somada ao título do extrato ao lançar (um título só, com a explicação)" : null}</span>
+                              <span className="folha-nota">{l.p1.somadaAoExtrato ? "já somada ao título do extrato abaixo (não pague de novo)"
+                                : l.p1.aguardaExtrato ? "aguarda o extrato do 13º para somar ao título" : null}</span>
                             ) : null}
                             {l.origem === "COMBINADO" ? null : (
                               <VariavelInformada linha={l} ano={year} podeEditar={canEdit} aoMudar={carregar} aoErro={(message) => setNotice({ tone: "error", message })} />
@@ -277,8 +305,8 @@ export function Decimo13() {
                                 )}
                               </Table.Td>
                               <Table.Td>
-                                <StatusBadge tone={p.situacao === "PAGA" ? "success" : p.situacao === "LANCADA" ? "info" : p.situacao === "EXCLUIDA" || p.situacao === "AGUARDANDO_EXTRATO" ? "neutral" : p.situacao === "SOMADA" ? (p.gerar ? "warning" : "success") : p.situacao === "CONFERIR" ? "warning" : "warning"}>
-                                  {p.situacao === "PAGA" ? "Paga" : p.situacao === "LANCADA" ? "Lançada" : p.situacao === "SOMADA" ? (p.gerar ? "Somada (atualizar)" : "Somada ao título") : p.situacao === "CONFERIR" ? "Conferir título pago" : p.situacao === "EXCLUIDA" ? "Excluída à mão" : p.situacao === "AGUARDANDO_EXTRATO" ? "Aguardando extrato" : "Falta lançar"}
+                                <StatusBadge tone={toneDaSituacao(p)}>
+                                  {rotuloDaSituacao(p)}
                                 </StatusBadge>
                               </Table.Td>
                             </>
@@ -286,6 +314,8 @@ export function Decimo13() {
                             <Table.Td colSpan={5} style={{ color: "var(--muted)" }}>{l.motivoSemCalculo}</Table.Td>
                           )}
                         </Table.Row>
+                          ))}
+                        </Fragment>
                       ))}
 
                       {itensClt.length > 0 && (
@@ -303,7 +333,14 @@ export function Decimo13() {
                             <strong>{nomeProprio(l.nome)}</strong>
                             {l.setor ? <span className="folha-nota">{l.setor}</span> : null}
                           </Table.Td>
-                          <Table.Td colSpan={3} style={{ color: "var(--muted)" }}>{p.situacao === "AGUARDANDO_EXTRATO" ? "" : "valor do extrato"}</Table.Td>
+                          <Table.Td colSpan={3} style={{ color: "var(--muted)" }}>
+                            {p.situacao === "AGUARDANDO_EXTRATO" ? "" : "valor do extrato"}
+                            {(() => {
+                              const sr = parcela === 1 ? porPessoa.get(l.employeeId) : undefined;
+                              if (!sr?.somaNoExtrato || !sr.viaExtrato || !sr.p1.gerar || !sr.calculo) return null;
+                              return <span className="folha-nota">ao lançar: + {brl(sr.calculo.parcela1)} {sr.origem === "COMBINADO" ? "da diferença do combinado" : "do período sem registro"} → título de {brl(p.valor + sr.calculo.parcela1)}</span>;
+                            })()}
+                          </Table.Td>
                           <Table.Td align="right" className="num" style={{ fontWeight: 600 }}>{p.situacao === "AGUARDANDO_EXTRATO" ? <span style={{ color: "var(--muted)" }}>—</span> : <Money value={p.valor} />}</Table.Td>
                           <Table.Td>
                             <StatusBadge tone={p.situacao === "PAGA" ? "success" : p.situacao === "LANCADA" ? "info" : "neutral"}>

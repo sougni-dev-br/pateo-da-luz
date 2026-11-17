@@ -54,9 +54,24 @@ describe("VariavelInformada", () => {
     expect(screen.getByText("jan")).toBeTruthy();
   });
 
-  test("sem nada faltando nem informado, diz que está tudo na apuração", () => {
+  test("sem nada faltando nem informado, não mostra nada (sem ruído)", () => {
     const limpa = { ...linha, informadas: [], mesesFaltando: [] } as unknown as Decimo13Linha;
-    render(<VariavelInformada {...props} linha={limpa} podeEditar />);
-    expect(screen.getByText(/já estão na apuração/)).toBeTruthy();
+    const { container } = render(<VariavelInformada {...props} linha={limpa} podeEditar />);
+    expect(container.textContent).toBe("");
+  });
+
+  test("mês informado fora do período de 13º não entra no resumo e aparece à parte", () => {
+    const l = {
+      ...linha, mesesFaltando: [],
+      informadas: [
+        { mes: 1, valor: 100, motivo: "por fora", conta: false }, { mes: 2, valor: 200, motivo: "por fora", conta: false },
+        { mes: 9, valor: 500, motivo: "por fora", conta: true },
+      ],
+    } as unknown as Decimo13Linha;
+    render(<VariavelInformada {...props} linha={l} podeEditar />);
+    const resumo = screen.getByText(/1 mês informado à mão/);
+    expect(resumo.textContent).toMatch(/R\$\s500,00/);
+    expect(resumo.textContent).toContain("2 fora do período (não contam)");
+    expect(resumo.textContent).not.toMatch(/800,00/);
   });
 });

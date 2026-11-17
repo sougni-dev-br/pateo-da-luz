@@ -19,8 +19,11 @@ export function VariavelInformada({ linha, ano, podeEditar, aoMudar, aoErro }: P
   const [motivo, setMotivo] = useState("");
   const [busy, setBusy] = useState(false);
   const informadas = linha.informadas ?? [];
+  // Mês informado fora do período de 13º da pessoa (ex.: antes do recomeço) não entra na média: fica à parte.
+  const contam = informadas.filter((i) => i.conta !== false);
+  const fora = informadas.filter((i) => i.conta === false);
   const grupos = agruparMesesFaltando(linha.mesesFaltando ?? []);
-  const totalInformado = informadas.reduce((s, i) => s + i.valor, 0);
+  const totalInformado = contam.reduce((s, i) => s + i.valor, 0);
 
   // Devolve true só se deu certo: o formulário não fecha nem perde o digitado quando falha.
   async function executar(acao: () => Promise<unknown>): Promise<boolean> {
@@ -69,19 +72,21 @@ export function VariavelInformada({ linha, ano, podeEditar, aoMudar, aoErro }: P
     );
   }
 
-  const nada = informadas.length === 0 && grupos.semApuracao.length === 0 && grupos.semLancamento.length === 0 && grupos.emAndamento.length === 0;
-
   return (
     <div className="var13">
       {faltando("Sem apuração:", "Meses sem apuração de gorjeta no sistema: ficam fora da média. Se a pessoa recebeu variável neles, clique no mês e informe o valor.", grupos.semApuracao)}
       {faltando("Sem valor:", "Meses apurados em que a pessoa não aparece: contam como R$ 0,00 na média. Se ela recebeu por fora, clique no mês e informe o valor.", grupos.semLancamento)}
       {informadas.length > 0 && (
         <details>
-          <summary>{informadas.length === 1 ? "1 mês informado à mão" : `${informadas.length} meses informados à mão`} · {brl(totalInformado)}</summary>
+          <summary>
+            {contam.length === 0 ? "Nenhum mês informado conta no 13º"
+              : `${contam.length === 1 ? "1 mês informado à mão" : `${contam.length} meses informados à mão`} · ${brl(totalInformado)}`}
+            {fora.length > 0 ? ` · ${fora.length} fora do período (não ${fora.length === 1 ? "conta" : "contam"})` : null}
+          </summary>
           <ul className="var13-lista">
             {informadas.map((i) => (
-              <li key={i.mes} title={i.motivo}>
-                <span>{nomeDoMes(i.mes)}</span>
+              <li key={i.mes} title={i.conta === false ? `Fora do período de 13º da pessoa: não entra na média. ${i.motivo}` : i.motivo} style={i.conta === false ? { opacity: 0.55 } : undefined}>
+                <span>{nomeDoMes(i.mes)}{i.conta === false ? " (fora do período)" : ""}</span>
                 <span className="num">{brl(i.valor)}</span>
                 <span>{podeEditar && <button type="button" className="var13-remover" disabled={busy} aria-label={`Remover ${nomeDoMes(i.mes)}`} onClick={() => void executar(() => removerVariavelDecimo13(ano, linha.employeeId, i.mes))}>remover</button>}</span>
               </li>
@@ -102,7 +107,6 @@ export function VariavelInformada({ linha, ano, podeEditar, aoMudar, aoErro }: P
           </div>
         </div>
       )}
-      {nada && <div>Variáveis de todos os meses do período já estão na apuração.</div>}
     </div>
   );
 }
