@@ -31,9 +31,12 @@ export function inicioDoCombinado(linhas: ReadonlyArray<LinhaHistorico>): Date |
 const round2 = (v: number) => Math.round(v * 100) / 100;
 const reais = (v: number) => `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 export const ORIGEM_DECIMO_COMBINADO = "DECIMO_COMBINADO";
-const CHAVES_DO_DECIMO_COMBINADO = ["liquidoExtrato", "complemento", "composicao", "origemValor"];
+const CHAVES_DO_DECIMO_COMBINADO = ["liquidoExtrato", "complemento", "complementoDescricao", "composicao", "origemValor"];
+export const DESCRICAO_COMBINADO = "diferença do salário combinado";
 
-export type DetalhesDecimoCombinado = { liquidoExtrato: number; complemento: number; composicao: string; origemValor: typeof ORIGEM_DECIMO_COMBINADO };
+export type DetalhesDecimoCombinado = {
+  liquidoExtrato: number; complemento: number; complementoDescricao: string; composicao: string; origemValor: typeof ORIGEM_DECIMO_COMBINADO;
+};
 
 const objeto = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
 const numero = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
@@ -52,15 +55,21 @@ export function complementoSomado(details: unknown): number | null {
   return foiSomado(details) ? numero(objeto(details).complemento) : null;
 }
 
-export function valorComCombinado(liquidoExtrato: number, complemento: number): { valor: number; detalhes: DetalhesDecimoCombinado } {
+// `descricao`: o que a soma é (a diferença do combinado, ou o 13º do período sem registro de quem entrou antes da carteira).
+export function valorComCombinado(liquidoExtrato: number, complemento: number, descricao: string = DESCRICAO_COMBINADO): { valor: number; detalhes: DetalhesDecimoCombinado } {
   const liquido = round2(liquidoExtrato), extra = round2(complemento), valor = round2(liquido + extra);
   return {
     valor,
     detalhes: {
-      liquidoExtrato: liquido, complemento: extra, origemValor: ORIGEM_DECIMO_COMBINADO,
-      composicao: `${reais(valor)} = líquido do extrato ${reais(liquido)} + diferença do salário combinado ${reais(extra)}`,
+      liquidoExtrato: liquido, complemento: extra, complementoDescricao: descricao, origemValor: ORIGEM_DECIMO_COMBINADO,
+      composicao: `${reais(valor)} = líquido do extrato ${reais(liquido)} + ${descricao} ${reais(extra)}`,
     },
   };
+}
+
+export function descricaoSomada(details: unknown): string | null {
+  const d = objeto(details).complementoDescricao;
+  return typeof d === "string" ? d : null;
 }
 
 // Detalhes do título sem as marcas da soma (o combinado pode ter sido tirado ou o valor mudado).

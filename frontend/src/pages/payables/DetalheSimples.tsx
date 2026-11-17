@@ -27,6 +27,17 @@ const MIN_MOTIVO = 3;
 
 /** Salário de quem tem salário combinado: de onde vem o valor integral (só chega a quem vê salários). */
 function ComposicaoSalario({ c }: { c: SalarioComposicao }) {
+  if (c.tipo === "DECIMO_SOMADO") {
+    return (
+      <section className="modal-section">
+        <h3 className="modal-section-title">13º salário: de onde vem o valor</h3>
+        <p className="pg-texto">
+          Líquido do extrato da contabilidade <Money value={c.liquidoExtrato} /> + {c.descricao ?? "valor somado"} <Money value={c.complemento} /> = <strong><Money value={c.total} /></strong>
+        </p>
+        <p className="pg-nota">Um título só: pague o valor inteiro deste título.</p>
+      </section>
+    );
+  }
   return (
     <section className="modal-section">
       <h3 className="modal-section-title">Salário combinado</h3>

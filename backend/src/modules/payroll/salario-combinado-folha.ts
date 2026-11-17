@@ -74,7 +74,9 @@ export function mesclarDetalhes(antigos: unknown, novos: DetalhesSalario): Recor
 }
 
 export type ComposicaoSalario = {
-  tipo: "SALARIO_COMBINADO" | "PENDENTE_GORJETA";
+  tipo: "SALARIO_COMBINADO" | "PENDENTE_GORJETA" | "DECIMO_SOMADO";
+  // 13º somado ao título do extrato: o que foi somado ao líquido (diferença do combinado, ou 13º do período sem registro).
+  descricao?: string | null;
   liquidoExtrato: number;
   complemento: number;
   total: number;
@@ -91,6 +93,11 @@ export function composicaoParaTela(details: unknown, valor: number): ComposicaoS
   const d = details as Record<string, unknown>;
   const liquidoExtrato = numOuNull(d.liquidoExtrato);
   if (liquidoExtrato == null) return null;
+  if (d.origemValor === "DECIMO_COMBINADO") {
+    const complemento = numOuNull(d.complemento) ?? round2(valor - liquidoExtrato);
+    const descricao = typeof d.complementoDescricao === "string" ? d.complementoDescricao : "diferença do salário combinado";
+    return { tipo: "DECIMO_SOMADO", liquidoExtrato, complemento, total: valor, combinado: null, adiantamento: null, gorjetaIntegral: null, descricao };
+  }
   const comuns = { liquidoExtrato, combinado: numOuNull(d.combinado), adiantamento: numOuNull(d.adiantamento), gorjetaIntegral: numOuNull(d.gorjetaIntegral) };
   if (d.origemValor === "SALARIO_COMBINADO") {
     return { tipo: "SALARIO_COMBINADO", ...comuns, complemento: numOuNull(d.complemento) ?? round2(valor - liquidoExtrato), total: valor };

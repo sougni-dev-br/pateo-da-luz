@@ -44,6 +44,19 @@ describe("DetalheSimples — salário combinado", () => {
     expect(texto()).toContain("Gorjeta do mês ainda não apurada: lançado só o líquido do extrato. Será atualizado ao fechar a gorjeta.");
   });
 
+  test("13º somado ao título do extrato: mostra o líquido + o que foi somado (período sem registro) = valor inteiro", () => {
+    abrir(titulo({
+      amount: "825.61", taxDocumentType: "Decimo terceiro", taxDescription: "13º Salário - 1ª parcela (extrato)",
+      salarioComposicao: {
+        tipo: "DECIMO_SOMADO", liquidoExtrato: 506.26, complemento: 319.35, total: 825.61, combinado: null, adiantamento: null, gorjetaIntegral: null,
+        descricao: "13º do período sem registro, 1ª parcela (3 avos, de 11/05/2026 a 31/07/2026)",
+      },
+    }));
+    expect(screen.getByRole("heading", { name: "13º salário: de onde vem o valor" })).toBeInTheDocument();
+    expect(texto()).toContain("Líquido do extrato da contabilidade R$506,26 + 13º do período sem registro, 1ª parcela (3 avos, de 11/05/2026 a 31/07/2026) R$319,35 = R$825,61");
+    expect(texto()).toContain("pague o valor inteiro deste título");
+  });
+
   test("sem composição (lançamento comum ou sem permissão de ver salários): nada a mais", () => {
     abrir(titulo({ salarioComposicao: null }));
     expect(screen.queryByRole("heading", { name: "Salário combinado" })).not.toBeInTheDocument();

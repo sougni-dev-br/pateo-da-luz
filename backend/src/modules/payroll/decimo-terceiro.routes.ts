@@ -75,7 +75,7 @@ decimoTerceiroRouter.get("/lista", async (request, response) => {
     ano, parcela,
     itens.map((i) => ({ ...i, amount: Number(i.amount), paidAmount: i.paidAmount == null ? null : Number(i.paidAmount) })),
     previa.linhas.map((l) => ({
-      employeeId: l.employeeId, origem: l.origem, viaExtrato: l.viaExtrato, calculo: l.calculo, p1: l.p1, p: parcela === 1 ? l.p1 : l.p2,
+      employeeId: l.employeeId, origem: l.origem, viaExtrato: l.viaExtrato, somaNoExtrato: l.somaNoExtrato, calculo: l.calculo, p1: l.p1, p: parcela === 1 ? l.p1 : l.p2,
     })),
     pessoas,
   );

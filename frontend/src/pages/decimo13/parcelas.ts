@@ -25,7 +25,7 @@ export function parcelaDaLinha(l: Decimo13Linha, n: Parcela13): ParcelaDaLinha {
   if (p.conferir) return { valor: p.devido ?? 0, vencimento, situacao: "CONFERIR", atualizarPara: null, gerar: false };
   // 2ª da diferença do combinado com a 1ª ainda sem título do extrato: o backend não gera até o extrato chegar.
   // (também com a 1ª para conferir ou por lançar/atualizar: a 2ª é o acerto do que a 1ª carrega no título)
-  if (n === 2 && l.origem === "COMBINADO" && (l.p1.aguardaExtrato || l.p1.conferir || l.p1.gerar)) return { valor: p.devido ?? 0, vencimento, situacao: "AGUARDANDO_EXTRATO", atualizarPara: null, gerar: false };
+  if (n === 2 && (l.origem === "COMBINADO" || l.somaNoExtrato) && (l.p1.aguardaExtrato || l.p1.conferir || (l.viaExtrato && l.p1.gerar))) return { valor: p.devido ?? 0, vencimento, situacao: "AGUARDANDO_EXTRATO", atualizarPara: null, gerar: false };
   // Diferença do combinado já dentro do título do extrato: o valor já está na linha CLT, não entra de novo nos totais.
   // Somada com o cálculo mudado: o título carrega o valor antigo e gerar o atualiza (só a diferença de valor é nova).
   if (p.somadaAoExtrato) {

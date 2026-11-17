@@ -26,7 +26,7 @@ export function seloDaListaDecimo(lista: ListaDecimo13): Selo {
 
 export function regrasDaListaDecimo(parcela: 1 | 2, aguardandoExtrato: readonly string[] = []): string[] {
   const aviso = aguardandoExtrato.length > 0
-    ? [`ATENÇÃO - falta a diferença do salário combinado de ${aguardandoExtrato.join(", ")}: aguardam o extrato do 13º, não estão nesta lista.`]
+    ? [`ATENÇÃO - falta somar o valor a mais (salário combinado ou período sem registro) de ${aguardandoExtrato.join(", ")}: aguardam o extrato do 13º, não estão nesta lista.`]
     : [];
   return [...aviso, ...regrasBase(parcela)];
 }
