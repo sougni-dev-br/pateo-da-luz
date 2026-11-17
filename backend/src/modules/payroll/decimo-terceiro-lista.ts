@@ -75,9 +75,10 @@ export function montarListaDecimo13(
         const diferenca = faltaSomar.get(i.employeeId)!;
         const liquido = foiSomado(i.details) ? liquidoDoExtrato(i.details) ?? round2(valor - (complementoSomado(i.details) ?? 0)) : valor;
         somar = round2(liquido + diferenca);
-        avisos.push(`Título em aberto de ${reais(valor)}; com a diferença do salário combinado (${reais(diferenca)}) fica ${reais(somar)}: lance a parcela na tela do 13º antes de pagar.`);
+        // A linha sai com o valor que o título vai ter (extrato + diferença), sem explicação: a lista é para pagar. O selo PRÉVIA
+        // avisa que ainda falta lançar a parcela na tela do 13º.
       } else if (foiSomado(i.details)) {
-        avisos.push(`Inclui a diferença do salário combinado (${reais(complementoSomado(i.details) ?? 0)}) somada ao líquido do extrato.`);
+        // Título já somado: o valor da linha já é o do título (extrato + diferença); nada a explicar na lista.
       } else if (origemDoRotulo === "COMBINADO") {
         avisos.push("Só a diferença do salário combinado (o 13º do registrado está no título do extrato).");
       }
@@ -86,7 +87,7 @@ export function montarListaDecimo13(
       if (pago && valorPago != null && Math.abs(valorPago - valor) >= 0.005) avisos.push(`Pago ${reais(valorPago)} (título de ${reais(valor)}).`);
       return {
         employeeId: i.employeeId, nome: pessoa?.nome ?? "—", grupo: grupoDe(semRegistro, i.details, pessoa),
-        origem: semRegistro ? "SEM_REGISTRO" : "EXTRATO", valor,
+        origem: semRegistro ? "SEM_REGISTRO" : "EXTRATO", valor: somar ?? valor,
         situacao: pago ? "PAGO" : "LANCADO", vencimento: dia(i.dueDate), pagoEm: pago ? dia(i.paymentDate!) : null, valorPago,
         payrollItemId: i.id, pix: pessoa?.pix ?? null, pixTipo: pessoa?.pixTipo ?? null, contaBancaria: pessoa?.contaBancaria ?? null,
         aviso: avisos.length > 0 ? avisos.join(" ") : null, atualizarPara: hoje ?? somar,
