@@ -116,6 +116,8 @@ function buildEmployeeData(b: Record<string, unknown>) {
     admissionDate: dateOrNull(b.admissionDate),
     // Ausente = não mexe (a importação do extrato também grava este campo).
     ...("admissaoCarteira" in b ? { admissaoCarteira: dateOrNull(b.admissaoCarteira) } : {}),
+    // Recomeço da contagem do 13º (rescisão formal e a pessoa seguiu trabalhando sem registro). Ausente = não mexe.
+    ...("decimoTerceiroInicio" in b ? { decimoTerceiroInicio: dateOrNull(b.decimoTerceiroInicio) } : {}),
     // Entra na gorjeta em: vazio = em teste (ou fora da gorjeta). Ausente = não mexe.
     ...("inicioGorjeta" in b ? { inicioGorjeta: dateOrNull(b.inicioGorjeta) } : {}),
     vtType: oneOf(VT_TYPES, b.vtType, "TRANSPORTE_PUBLICO"),
@@ -159,6 +161,12 @@ function dataDoCalendario(v: unknown): boolean {
 // Valor da ficha que não dá para entender é recusado — antes virava null e APAGAVA o gravado.
 // Vazio ("" ou null) continua valendo como "limpar o campo".
 export function conferirCamposFicha(b: Record<string, unknown>): string | null {
+  // Recomeço do 13º muda dinheiro: data que existe no calendário e num intervalo plausível (o Date aceitaria 31/02 como 03/03).
+  const recomeco = b.decimoTerceiroInicio;
+  if ("decimoTerceiroInicio" in b && recomeco != null && recomeco !== "") {
+    const ano = Number(String(recomeco).slice(0, 4));
+    if (!dataDoCalendario(recomeco) || ano < 2000 || ano > new Date().getUTCFullYear() + 1) return "Início do 13º inválido.";
+  }
   for (const c of FICHA_DATA) {
     if (c in b && b[c] != null && b[c] !== "" && !dataDoCalendario(b[c])) return `${ROTULO_DATA_FICHA[c]} inválida.`;
   }
@@ -252,11 +260,11 @@ export function lerFormaPagamento(
 // padrão hoje em São Paulo) e o motivo vão para o histórico do cadastro. Sem mudança
 // nesses campos a data nem é conferida.
 // A gorjeta não começa antes do trabalho: "Entra na gorjeta em" não pode ser antes da admissão.
-function entradaAntesDaAdmissao(inicio: Date | null | undefined, admissao: Date | null | undefined): string | null {
+export function entradaAntesDaAdmissao(inicio: Date | null | undefined, admissao: Date | null | undefined, rotulo = "Entra na gorjeta em"): string | null {
   if (!inicio || !admissao) return null;
   const dia = (d: Date) => d.toISOString().slice(0, 10);
   if (dia(inicio) >= dia(admissao)) return null;
-  return `"Entra na gorjeta em" não pode ser antes da admissão (${dia(admissao).split("-").reverse().join("/")}).`;
+  return `"${rotulo}" não pode ser antes da admissão (${dia(admissao).split("-").reverse().join("/")}).`;
 }
 
 export function lerVigencia(
@@ -465,7 +473,8 @@ employeeRouter.post("/", async (request, response) => {
   if ("tetoIrGorjeta" in teto.dados && !(await podeVerDadosPessoais(request))) return response.status(403).json({ message: "Exige permissão de ver Funcionários." });
 
   const novo = buildEmployeeData(b);
-  const erroEntrada = entradaAntesDaAdmissao(novo.inicioGorjeta, novo.admissionDate);
+  const erroEntrada = entradaAntesDaAdmissao(novo.inicioGorjeta, novo.admissionDate)
+    ?? entradaAntesDaAdmissao(novo.decimoTerceiroInicio, novo.admissionDate, "Início do 13º");
   if (erroEntrada) return response.status(400).json({ message: erroEntrada });
 
   const legs = parseLegs(b.vtLegs);
@@ -545,7 +554,8 @@ employeeRouter.put("/:id", async (request, response) => {
   const acompanhado = comCombinadoAcompanhando(existing, { cpf, ...base, ...combinado.dados, ...adiantamento.dados, ...teto.dados });
   if ("erro" in acompanhado) return response.status(400).json({ message: acompanhado.erro });
   const dados = acompanhado.dados;
-  const erroEntrada = entradaAntesDaAdmissao(dados.inicioGorjeta, dados.admissionDate ?? existing.admissionDate);
+  const erroEntrada = entradaAntesDaAdmissao(dados.inicioGorjeta, dados.admissionDate ?? existing.admissionDate)
+    ?? entradaAntesDaAdmissao(dados.decimoTerceiroInicio, dados.admissionDate ?? existing.admissionDate, "Início do 13º");
   if (erroEntrada) return response.status(400).json({ message: erroEntrada });
   const vigencia = lerVigencia(b, existing, dados, dados.admissionDate ?? existing.admissionDate);
   if ("erro" in vigencia) return response.status(400).json({ message: vigencia.erro });

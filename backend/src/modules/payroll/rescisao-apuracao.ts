@@ -9,6 +9,7 @@ import { computeTipCommission } from "./tip-commission.service.js";
 import { carregarHistorico, semRegistroEm } from "./cadastro-historico.service.js";
 import { serializar, valorVigenteEm } from "./cadastro-historico.js";
 import { acertosDaListaNaSaida } from "./rescisao-acerto.js";
+import { inicioDoDecimo } from "./decimo-terceiro-sr.js";
 import { type VerbasOpcionaisApuracao, calcularVerbasOpcionais, ocultarValoresVerbas } from "./rescisao-verbas-opcionais.js";
 import { DIA_PRIMEIRA_QUINZENA } from "./tip-rateio.js";
 import { costOfCalendarDay, round2, type Leg } from "./vt-calc.js";
@@ -234,7 +235,7 @@ export async function apurarRescisao(employeeId: string): Promise<ApuracaoRescis
   const emp = await prisma.employee.findFirst({
     where: { id: employeeId, deletedAt: null },
     select: {
-      id: true, modality: true, terminationDate: true, vtType: true, baseSalary: true, admissionDate: true,
+      id: true, modality: true, terminationDate: true, vtType: true, baseSalary: true, admissionDate: true, decimoTerceiroInicio: true,
       vtLegs: { include: { fare: true }, orderBy: [{ direction: "asc" }, { sortOrder: "asc" }] },
     },
   });
@@ -309,7 +310,7 @@ export async function apurarRescisao(employeeId: string): Promise<ApuracaoRescis
     horaExtra: g.horaExtra,
     ...(g.gorjetaPartes ? { gorjetaPartes: g.gorjetaPartes } : {}),
     verbasOpcionais: semRegistro
-      ? await verbasDaSaida(employeeId, salarioNaSaida == null ? null : Number(salarioNaSaida), emp.admissionDate, saida)
+      ? await verbasDaSaida(employeeId, salarioNaSaida == null ? null : Number(salarioNaSaida), emp.admissionDate, saida, inicioDoDecimo(emp.admissionDate, emp.decimoTerceiroInicio))
       : null,
   };
   return { ...base, sugestao: montarSugestao(base) };
@@ -330,7 +331,7 @@ async function descontarAcertoPago(employeeId: string, semRegistro: boolean, sai
 
 // Férias, 13º e aviso de sem registro, sobre o salário base vigente na saída. Os lançamentos
 // de FÉRIAS só servem para avisar de período completo sem férias registradas.
-async function verbasDaSaida(employeeId: string, salario: number | null, inicio: Date | null, saida: Date): Promise<VerbasOpcionaisApuracao> {
+async function verbasDaSaida(employeeId: string, salario: number | null, inicio: Date | null, saida: Date, inicioDecimo: Date | null): Promise<VerbasOpcionaisApuracao> {
   if (!inicio) return { calculo: null, observacao: "Sem data de início (admissão) no cadastro: não dá para calcular férias, 13º e aviso. Use o valor livre se for o caso." };
   if (salario == null || !(salario > 0)) return { calculo: null, observacao: "Sem salário base vigente na saída no cadastro: não dá para calcular férias, 13º e aviso. Use o valor livre se for o caso." };
   const ferias = await prisma.payrollItem.findMany({
@@ -338,7 +339,7 @@ async function verbasDaSaida(employeeId: string, salario: number | null, inicio:
     select: { periodStart: true },
   });
   const calculo = calcularVerbasOpcionais({
-    salarioBase: salario, inicio, saida,
+    salarioBase: salario, inicio, saida, inicioDecimo,
     feriasRegistradas: ferias.map((f) => f.periodStart).filter((x): x is Date => x instanceof Date),
   });
   return { calculo, observacao: null };

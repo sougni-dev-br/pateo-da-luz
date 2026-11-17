@@ -136,13 +136,15 @@ export const AVISO_FERIAS_VENCIDAS = "Há período de férias completo sem regis
 // os que começam a partir do início do aquisitivo anterior.
 export function calcularVerbasOpcionais(e: {
   salarioBase: number | null; inicio: Date | null; saida: Date; feriasRegistradas: Date[];
+  // Recomeço da contagem do 13º (rescisão anterior no papel): só o 13º parte dele; férias e aviso seguem pelo início.
+  inicioDecimo?: Date | null;
 }): CalculoVerbas | null {
   if (!e.inicio || e.salarioBase == null || !(e.salarioBase > 0)) return null;
   const S = round2(e.salarioBase);
   const f = avosFerias(e.inicio, e.saida);
   const ferias = round2((S / 12) * f.avos);
   const terco = round2(ferias / 3);
-  const t = avos13(e.inicio, e.saida);
+  const t = avos13(e.inicioDecimo ?? e.inicio, e.saida);
   const a = diasAviso(e.inicio, e.saida);
   const aquisitivoAnterior = somarMeses(new Date(`${f.inicioAquisitivo}T00:00:00Z`), -12);
   const cobertas = e.feriasRegistradas.some((x) => utc(x) >= utc(aquisitivoAnterior));
