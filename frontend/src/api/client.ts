@@ -1405,7 +1405,7 @@ export type MembroFolhaLote = {
 };
 
 export type SalarioComposicao = {
-  tipo: "SALARIO_COMBINADO" | "PENDENTE_GORJETA" | "DECIMO_SOMADO";
+  tipo: "SALARIO_COMBINADO" | "PENDENTE_GORJETA" | "DECIMO_SOMADO" | "FERIAS_SOMADO";
   /** 13º somado ao título do extrato: o que foi somado ao líquido (diferença do combinado ou 13º do período sem registro). */
   descricao?: string | null;
   liquidoExtrato: number;
@@ -1414,6 +1414,10 @@ export type SalarioComposicao = {
   combinado: number | null;
   adiantamento: number | null;
   gorjetaIntegral: number | null;
+  /** Férias somadas: fórmula com a média e a origem dos meses; meses (AAAA-MM) que ficaram fora da média. */
+  formula?: string | null;
+  mesesContados?: number | null;
+  mesesAusentes?: string[] | null;
 };
 
 export type SmallExpenseReportRow = {
@@ -8642,11 +8646,12 @@ export function getPayroll(year: number, month: number) {
   return request<PayrollList>(`/payroll?year=${year}&month=${month}`);
 }
 
-export function previewPayroll(year: number, month: number) {
+/** ajudaProporcional: a ajuda de custo sai proporcional aos dias de férias (padrão: cheia). */
+export function previewPayroll(year: number, month: number, opcoes: { ajudaProporcional?: boolean } = {}) {
   return request<PayrollPreview>("/payroll/preview", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ year, month })
+    body: JSON.stringify({ year, month, ...(opcoes.ajudaProporcional ? { ajudaProporcional: true } : {}) })
   });
 }
 
@@ -8659,11 +8664,11 @@ export type PayrollKind = "ALL" | "VT" | "VT_Q1" | "VT_Q2" | "FOLHA" | "ADIANTAM
 // Valor ajustado à mão na prévia, quando o cálculo não bate com a realidade.
 export type PayrollOverride = { employeeId: string; type: PayrollItemType; periodLabel: string; amount: number };
 
-export function generatePayroll(year: number, month: number, kind: PayrollKind = "ALL", overrides: PayrollOverride[] = []) {
+export function generatePayroll(year: number, month: number, kind: PayrollKind = "ALL", overrides: PayrollOverride[] = [], opcoes: { ajudaProporcional?: boolean } = {}) {
   return request<{ year: number; month: number; kind: PayrollKind; created: number; atualizados?: number; skipped: number; ajustados: number; avisos?: string[] }>("/payroll/generate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ year, month, kind, overrides })
+    body: JSON.stringify({ year, month, kind, overrides, ...(opcoes.ajudaProporcional ? { ajudaProporcional: true } : {}) })
   });
 }
 

@@ -180,7 +180,8 @@ payrollRouter.get("/", async (request, response) => {
 // ─── PREVIEW (calcula sem persistir) ────────────────────────────────────────────
 payrollRouter.post("/preview", async (request, response) => {
   const { year, month } = parseYearMonth(request.body as { year?: unknown; month?: unknown });
-  const result = await computePayroll(year, month);
+  const opcoes = { ajudaProporcional: (request.body as { ajudaProporcional?: unknown }).ajudaProporcional === true };
+  const result = await computePayroll(year, month, null, opcoes);
   response.json(result);
 });
 
@@ -189,7 +190,7 @@ payrollRouter.post("/generate", async (request, response) => {
   const user = await getSessionUser(request);
   if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
 
-  const body = request.body as { year?: unknown; month?: unknown; kind?: unknown; overrides?: unknown };
+  const body = request.body as { year?: unknown; month?: unknown; kind?: unknown; overrides?: unknown; ajudaProporcional?: unknown };
   const { year, month } = parseYearMonth(body);
   // O DRE posiciona a folha pela competencia (competenceYear/Month), entao gerar folha
   // de um mes travado ou com CMV fechado alteraria um periodo ja encerrado.
@@ -212,7 +213,7 @@ payrollRouter.post("/generate", async (request, response) => {
     }))
     .filter((o) => o.employeeId && o.type && o.periodLabel && Number.isFinite(o.amount) && o.amount > 0);
 
-  const result = await generatePayroll(year, month, user.id, kind, overrides);
+  const result = await generatePayroll(year, month, user.id, kind, overrides, { ajudaProporcional: body.ajudaProporcional === true });
 
   await auditLog({
     userId: user.id, action: "GENERATE_PAYROLL", entity: "PayrollItem",

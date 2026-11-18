@@ -19,6 +19,7 @@ vi.mock("../salario-combinado.service.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../salario-combinado.service.js")>()),
   mapaCombinados: vi.fn(async () => new Map()),
   gorjetasDaCompetencia: vi.fn(async () => null),
+  feriasNoMes: vi.fn(async () => new Map()),
 }));
 vi.mock("../../../config/database.js", () => ({
   prisma: {
@@ -32,7 +33,7 @@ vi.mock("../../../config/database.js", () => ({
 
 import { prisma } from "../../../config/database.js";
 import { importExtrato } from "../rh-extract.service.js";
-import { gorjetasDaCompetencia, mapaCombinados } from "../salario-combinado.service.js";
+import { feriasNoMes, gorjetasDaCompetencia, mapaCombinados } from "../salario-combinado.service.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = prisma as any;
@@ -254,6 +255,16 @@ describe("importExtrato — salário combinado", () => {
     textoDoPdf.atual = folhaDoCombinado();
     vi.mocked(mapaCombinados).mockResolvedValue(new Map([["e1", 5200]]));
     vi.mocked(gorjetasDaCompetencia).mockResolvedValue(new Map([["e1", { noPeriodo: true, gorjetaLiquida: 2223.54 }]]));
+    vi.mocked(feriasNoMes).mockResolvedValue(new Map());
+  });
+
+  test("com 10 dias de férias no mês: o combinado entra proporcional (5.200 × 20/30)", async () => {
+    vi.mocked(feriasNoMes).mockResolvedValue(new Map([["e1", { dias: 10, diasNoMes: 30 }]]));
+    await importar();
+    expect(feriasNoMes).toHaveBeenCalledWith(2026, 9, ["e1"]);
+    const sal = salarioCriado();
+    expect(sal.amount).toBe(4221.34); // 3.466,60 − 1.468,80 + 2.223,54
+    expect(sal.details).toMatchObject({ combinado: 3466.6, combinadoCheio: 5200, diasDeFerias: 10 });
   });
 
   test("com combinado e gorjeta apurada: lança o valor integral e guarda a composição", async () => {

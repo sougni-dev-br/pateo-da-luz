@@ -13,7 +13,7 @@ import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
 import { lerDetalhesExtrato } from "./rh-extract-detalhes.js";
 import { avisosDoExtrato, guardarExtrato, preencherAdmissaoCarteira } from "./rh-extract-store.service.js";
 import { aposSaida, duplicadosDe, ehComplemento, excluidoAMao } from "./folha-duplicidade.js";
-import { avisoGorjetaPendente, gorjetasDaCompetencia, mapaCombinados } from "./salario-combinado.service.js";
+import { avisoFeriasDoCombinado, avisoGorjetaPendente, feriasNoMes, gorjetasDaCompetencia, mapaCombinados } from "./salario-combinado.service.js";
 import { type GorjetaDaApuracao, gorjetaDaPessoa, salarioDaFolha } from "./salario-combinado-folha.js";
 import { nomeProprio } from "../../shared/utils/nome-proprio.js";
 
@@ -433,6 +433,8 @@ export async function importExtrato(opts: {
   // Salário combinado vigente na competência (folha do mês): o SALARIO vai pelo valor integral.
   const combinados = adiantamento || decimo ? new Map<string, number>() : await mapaCombinados(competenceYear, competenceMonth,
     parsed.funcionarios.map((f) => (f.cpfNorm ? byCpf.get(f.cpfNorm) : undefined)).filter((x): x is string => Boolean(x)));
+  // Dias de férias no mês de quem tem combinado: saem do combinado do mês (pagos no título FERIAS).
+  const feriasDoMes = combinados.size > 0 ? await feriasNoMes(competenceYear, competenceMonth, [...combinados.keys()]) : new Map<string, { dias: number; diasNoMes: number }>();
   const avisosDaImportacao: string[] = [];
   // Gorjeta da competência: só calculada se alguém tiver combinado, e uma vez.
   let gorjetas: Map<string, GorjetaDaApuracao> | null | undefined;
@@ -449,9 +451,10 @@ export async function importExtrato(opts: {
   const lancamento = async (f: ExtratoFuncionario, empId: string) => {
     const combinado = combinados.get(empId);
     if (combinado == null) return { valor: f.liquido, detalhes: details(f) };
-    const calc = salarioDaFolha({ liquidoExtrato: f.liquido, adiantamento: f.adiantamento, combinado, gorjeta: await gorjetaDe(empId) });
+    const calc = salarioDaFolha({ liquidoExtrato: f.liquido, adiantamento: f.adiantamento, combinado, gorjeta: await gorjetaDe(empId), ferias: feriasDoMes.get(empId) ?? null });
     if (calc.pendenteGorjeta) avisosDaImportacao.push(avisoGorjetaPendente(f.nome));
     if (calc.aviso) avisosDaImportacao.push(`Salário combinado de ${f.nome}: ${calc.aviso}.`);
+    if (calc.detalhes.diasDeFerias) avisosDaImportacao.push(avisoFeriasDoCombinado(f.nome, calc.detalhes.diasDeFerias));
     return { valor: calc.valor, detalhes: { ...details(f), ...calc.detalhes } };
   };
 

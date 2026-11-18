@@ -38,6 +38,22 @@ function ComposicaoSalario({ c }: { c: SalarioComposicao }) {
       </section>
     );
   }
+  if (c.tipo === "FERIAS_SOMADO") {
+    return (
+      <section className="modal-section">
+        <h3 className="modal-section-title">Férias: de onde vem o valor</h3>
+        <p className="pg-texto">
+          Líquido do recibo da contabilidade <Money value={c.liquidoExtrato} /> + {c.descricao ?? "valor somado"} <Money value={c.complemento} /> = <strong><Money value={c.total} /></strong>
+        </p>
+        {c.formula && <p className="pg-nota">{c.formula}.</p>}
+        <p className="pg-nota">
+          A gorjeta entra pela média dos últimos 12 meses ({c.mesesContados ?? 0} com valor)
+          {c.mesesAusentes && c.mesesAusentes.length > 0 ? `; sem valor e fora da média: ${c.mesesAusentes.join(", ")}` : ""}. Sem IR/INSS descontados do funcionário.
+        </p>
+        <p className="pg-nota">Um título só: pague o valor inteiro deste título.</p>
+      </section>
+    );
+  }
   return (
     <section className="modal-section">
       <h3 className="modal-section-title">Salário combinado</h3>
