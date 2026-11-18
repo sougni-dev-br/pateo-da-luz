@@ -8942,6 +8942,21 @@ export function importarReciboFerias(fileBase64: string, fileName: string, aplic
   return request<{ previa: ReciboFeriasPrevia; aplicado: boolean; id?: string }>("/payroll/ferias/recibo", json("POST", { fileBase64, fileName, aplicar, employeeId }));
 }
 
+/** Um dos 12 meses da média da gorjeta integral; "INFORMADA" = valor digitado à mão, "AUSENTE" = sem apuração (fora da média). */
+export type MesDaGorjetaFerias = { chave: string; valor: number | null; origem: "APURACAO" | "INFORMADA" | "AUSENTE" };
+/** Prévia do complemento do salário combinado sobre o título de férias (POST /payroll/ferias/combinado). */
+export type PreviaFeriasCombinado = {
+  payrollItemId: string; employeeId: string; nome: string;
+  combinado: number | null; mediaGorjeta: number; mesesContados: number; mesesAusentes: string[]; meses: MesDaGorjetaFerias[];
+  remuneracao: number; liquidoRecibo: number; complemento: number; valorAntes: number; valorDepois: number;
+  formula: string | null; avisos: string[];
+};
+export type ResultadoFeriasCombinado = { aplicado: boolean; previa: PreviaFeriasCombinado; motivo?: string };
+/** Sem `aplicar` devolve só a prévia; com `aplicar: true` grava o complemento no título em aberto. `gorjetasInformadas`: { "AAAA-MM": valor }. */
+export function complementarFeriasCombinado(payrollItemId: string, aplicar: boolean, gorjetasInformadas?: Record<string, number>) {
+  return request<ResultadoFeriasCombinado>("/payroll/ferias/combinado", json("POST", { payrollItemId, aplicar, gorjetasInformadas }));
+}
+
 export type PedidoFerias = {
   aquisitivoInicio: string; gozoInicio: string; dias: number; diasAbono: number; observacao?: string; status?: "PROGRAMADA" | "GOZADA";
 };
