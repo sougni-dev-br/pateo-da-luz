@@ -8897,7 +8897,7 @@ export type ProgramacaoFerias = {
   /** Quando a pessoa foi avisada por escrito das datas; vazio = ainda não avisada. */
   avisadoEm?: string | null;
   /** O título de pagamento já lançado para estas férias (recibo da contabilidade ou lançamento manual). */
-  pagamento?: { id: string; valor: number; vencimento: string; pago: boolean } | null;
+  pagamento?: { id: string; valor: number; vencimento: string; pago: boolean; /** Tem salário combinado vigente no mês do gozo (ou o título já recebeu o complemento): dá para complementar. */ combinado?: boolean } | null;
 };
 /** O que o colaborador pediu para um período aquisitivo; a empresa decide pela programação. */
 export type SolicitacaoFerias = {

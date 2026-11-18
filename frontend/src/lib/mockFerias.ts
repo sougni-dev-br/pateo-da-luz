@@ -85,7 +85,7 @@ function programacaoNoPeriodo(g: Gravada): ProgramacaoFerias {
     id: g.id, aquisitivoInicio: g.aquisitivoInicio, gozoInicio: g.gozoInicio, gozoFim, dias: g.dias, diasAbono: g.diasAbono, status: g.status,
     observacao: g.observacao, avisadoEm: g.avisadoEm ?? null, passouDaData: g.status === "PROGRAMADA" && g.gozoInicio !== null && g.gozoInicio <= hoje(),
     // Título de férias em aberto (fictício) para ver a ação "Complementar pelo combinado".
-    ...(g.employeeId === "f5" && g.status === "PROGRAMADA" && g.gozoInicio ? { pagamento: { id: "pi-mock", valor: 5000, vencimento: somaDias(g.gozoInicio, -2), pago: false } } : {}),
+    ...(g.employeeId === "f5" && g.status === "PROGRAMADA" && g.gozoInicio ? { pagamento: { id: "pi-mock", valor: 5000, vencimento: somaDias(g.gozoInicio, -2), pago: false, combinado: true } } : {}),
   };
 }
 

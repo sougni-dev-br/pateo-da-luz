@@ -31,9 +31,14 @@ function montar(pagamento: ProgramacaoFerias["pagamento"], onComplementar?: (id:
 describe("LinhaPeriodo · Complementar pelo combinado", () => {
   test("título em aberto mostra a ação e entrega o id do título", () => {
     const onComplementar = vi.fn();
-    montar({ id: "pi1", valor: 5304.84, vencimento: "2026-12-24", pago: false }, onComplementar);
+    montar({ id: "pi1", valor: 5304.84, vencimento: "2026-12-24", pago: false, combinado: true }, onComplementar);
     fireEvent.click(screen.getByRole("button", { name: /Complementar pelo combinado/ }));
     expect(onComplementar).toHaveBeenCalledWith("pi1");
+  });
+
+  test("título em aberto de quem não tem combinado não tem a ação", () => {
+    montar({ id: "pi1", valor: 5304.84, vencimento: "2026-12-24", pago: false, combinado: false }, vi.fn());
+    expect(screen.queryByRole("button", { name: /Complementar pelo combinado/ })).toBeNull();
   });
 
   test("título pago não tem a ação", () => {

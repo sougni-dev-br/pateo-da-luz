@@ -81,7 +81,7 @@ export function LinhaPeriodo({ linha, ocupado, formulario, onProgramar, onPedido
                 </span>
               )}
               <span className="fe-botoes">
-                {onComplementar && g.pagamento && !g.pagamento.pago && (
+                {onComplementar && g.pagamento && !g.pagamento.pago && g.pagamento.combinado === true && (
                   <Button size="sm" variant="secondary" leadingIcon={<Calculator size={14} />} aria-disabled={ocupado} aria-label={`Complementar pelo combinado, férias de ${nome} (${resumo})`} onClick={guarda(() => onComplementar(g.pagamento!.id))}>Complementar pelo combinado</Button>
                 )}
                 {g.status === "PROGRAMADA" && g.passouDaData && (
