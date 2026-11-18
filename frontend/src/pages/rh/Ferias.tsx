@@ -12,6 +12,7 @@ import { FormularioProgramacao } from "./ferias/FormularioProgramacao";
 import { type DadosDoPedido, PedidoDoColaborador } from "./ferias/PedidoDoColaborador";
 import { ImpressaoIndividual } from "./ferias/ImpressaoIndividual";
 import { ImpressaoFerias } from "./ferias/ImpressaoFerias";
+import { ComplementarCombinado } from "./ferias/ComplementarCombinado";
 import { ImportarRecibos } from "./ferias/ImportarRecibos";
 import { ImpressaoTela } from "./ferias/ImpressaoTela";
 import { LinhaDoTempo } from "./ferias/LinhaDoTempo";
@@ -56,6 +57,7 @@ export function Ferias() {
   const gatilho = useRef<HTMLElement | null>(null);
   const [imprimindo, setImprimindo] = useState(false);
   const [importando, setImportando] = useState(false);
+  const [complementando, setComplementando] = useState<{ id: string; nome: string } | null>(null);
   const [fichaDe, setFichaDe] = useState<PessoaFerias | null>(null);
   const imprimirPessoa = (pessoa: PessoaFerias) => { gatilho.current = document.activeElement as HTMLElement | null; setFichaDe(pessoa); };
   const [imprimindoTela, setImprimindoTela] = useState(false);
@@ -380,6 +382,7 @@ export function Ferias() {
             const chave = chaveDe(l);
             return (
               <LinhaPeriodo key={chave} linha={l} ocupado={salvando} onPedido={() => abrirPedido(l.pessoa, l.periodo)} onImprimir={() => imprimirPessoa(l.pessoa)}
+                onComplementar={(id) => { gatilho.current = document.activeElement as HTMLElement | null; setComplementando({ id, nome: l.pessoa.nome }); }}
                 onProgramar={() => abrir({ chave })}
                 onJaGozou={() => jaGozou(l)}
                 onEditar={(g) => abrir({ chave, programacao: g })}
@@ -400,6 +403,9 @@ export function Ferias() {
       )}
       {importando && (
         <ImportarRecibos onLancou={() => void carregar()} onClose={() => { setImportando(false); devolverFoco(); }} />
+      )}
+      {complementando && (
+        <ComplementarCombinado payrollItemId={complementando.id} nome={complementando.nome} onAplicou={() => void carregar()} onClose={() => { setComplementando(null); devolverFoco(); }} />
       )}
       {imprimindo && lista && (
         <ImpressaoFerias lista={lista} onClose={() => { setImprimindo(false); devolverFoco(); }} />

@@ -19,10 +19,12 @@ vi.mock("../../../config/database.js", () => {
 vi.mock("../../security/security-utils.js", () => ({
   getSessionUser: vi.fn(), auditLog: vi.fn(), requestIp: vi.fn(() => "127.0.0.1"),
 }));
+vi.mock("../salario-combinado.service.js", () => ({ mapaCombinados: vi.fn(async () => new Map<string, number>()) }));
 vi.mock("../extras-comum.js", () => ({ hojeEmSaoPaulo: () => "2026-10-15" }));
 
 import { prisma } from "../../../config/database.js";
 import { auditLog, getSessionUser } from "../../security/security-utils.js";
+import { mapaCombinados } from "../salario-combinado.service.js";
 import { carregarFerias, contarAlertas, contarDireitoChegando, feriasRouter, montarPessoa } from "../ferias.routes.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -88,8 +90,27 @@ describe("GET /payroll/ferias — pagamento lançado", () => {
     db.payrollItem.findMany.mockResolvedValue([titulo(), titulo({ id: "t2", periodStart: d("2027-02-01") })]);
     const r = await request(app).get("/payroll/ferias");
     const g = r.body.pessoas[0].periodos.flatMap((p: { programacoes: unknown[] }) => p.programacoes)[0];
-    expect(g.pagamento).toEqual({ id: "t1", valor: 4633.68, vencimento: "2026-11-30", pago: false });
+    expect(g.pagamento).toEqual({ id: "t1", valor: 4633.68, vencimento: "2026-11-30", pago: false, combinado: false });
     expect(db.payrollItem.findMany.mock.calls[0][0].where).toMatchObject({ type: "FERIAS", deletedAt: null, employeeId: { in: ["e1"] } });
+  });
+
+  test("combinado: true só para título em aberto de quem tem combinado vigente no mês do gozo (ou já recebeu o complemento)", async () => {
+    db.employee.findMany.mockResolvedValue([eliana({ feriasProgramadas: [prog] })]);
+    const pagamento = async () => {
+      const r = await request(app).get("/payroll/ferias");
+      return r.body.pessoas[0].periodos.flatMap((p: { programacoes: Array<{ pagamento: { combinado: boolean } }> }) => p.programacoes)[0].pagamento.combinado;
+    };
+    db.payrollItem.findMany.mockResolvedValue([titulo()]);
+    vi.mocked(mapaCombinados).mockResolvedValueOnce(new Map([["e1", 6000]]));
+    expect(await pagamento()).toBe(true);
+    expect(vi.mocked(mapaCombinados)).toHaveBeenLastCalledWith(2026, 12, ["e1"]);
+    // Sem combinado vigente, mas já somado: continua oferecendo (para recalcular ou desfazer).
+    db.payrollItem.findMany.mockResolvedValue([titulo({ details: { origemValor: "FERIAS_COMBINADO", complemento: 100 } })]);
+    expect(await pagamento()).toBe(true);
+    // Pago: nunca.
+    db.payrollItem.findMany.mockResolvedValue([titulo({ paymentDate: d("2026-11-30") })]);
+    vi.mocked(mapaCombinados).mockResolvedValueOnce(new Map([["e1", 6000]]));
+    expect(await pagamento()).toBe(false);
   });
 
   test("pago quando o título tem data de pagamento; sem título, nulo; sem programação, nem consulta", async () => {

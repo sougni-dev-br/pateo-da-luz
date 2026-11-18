@@ -4,6 +4,8 @@ import { prisma } from "../../config/database.js";
 import { auditLog, getSessionUser, requestIp } from "../security/security-utils.js";
 import { hojeEmSaoPaulo } from "./extras-comum.js";
 import { feriasCombinadoRouter } from "./ferias-combinado.routes.js";
+import { foiSomadoAFerias } from "./ferias-combinado.js";
+import { mapaCombinados } from "./salario-combinado.service.js";
 import { feriasReciboRouter } from "./ferias-recibo.routes.js";
 import {
   DIAS_ABONO, diaValido, periodosDeFerias, piorNivel, somarDias, somarMeses,
@@ -148,9 +150,20 @@ async function comPagamentos(pessoas: PessoaFerias[]): Promise<PessoaFerias[]> {
   if (ids.length === 0) return pessoas;
   const itens = await prisma.payrollItem.findMany({
     where: { type: "FERIAS", deletedAt: null, status: { not: "CANCELED" }, employeeId: { in: ids }, periodStart: { not: null } },
-    select: { id: true, employeeId: true, periodStart: true, amount: true, dueDate: true, paymentDate: true },
+    select: { id: true, employeeId: true, periodStart: true, amount: true, dueDate: true, paymentDate: true, details: true },
   });
-  const porChave = new Map(itens.map((i) => [`${i.employeeId}|${isoDia(i.periodStart)}`, { id: i.id, valor: Number(i.amount), vencimento: isoDia(i.dueDate) as string, pago: i.paymentDate !== null }]));
+  // `combinado`: a pessoa tem salário combinado vigente no mês do gozo (ou o título já recebeu o complemento), então a tela pode oferecer o complemento.
+  const porMes = new Map<string, string[]>();
+  for (const i of itens.filter((x) => x.paymentDate === null && x.periodStart)) {
+    const mes = isoDia(i.periodStart)!.slice(0, 7);
+    porMes.set(mes, [...(porMes.get(mes) ?? []), i.employeeId]);
+  }
+  const vigentes = new Map<string, Map<string, number>>();
+  for (const [mes, quem] of porMes) vigentes.set(mes, await mapaCombinados(Number(mes.slice(0, 4)), Number(mes.slice(5, 7)), quem));
+  const porChave = new Map(itens.map((i) => [`${i.employeeId}|${isoDia(i.periodStart)}`, {
+    id: i.id, valor: Number(i.amount), vencimento: isoDia(i.dueDate) as string, pago: i.paymentDate !== null,
+    combinado: i.paymentDate === null && (foiSomadoAFerias(i.details) || vigentes.get(isoDia(i.periodStart)!.slice(0, 7))?.has(i.employeeId) === true),
+  }]));
   return pessoas.map((p) => ({
     ...p,
     periodos: p.periodos.map((per) => ({

@@ -84,6 +84,8 @@ function programacaoNoPeriodo(g: Gravada): ProgramacaoFerias {
   return {
     id: g.id, aquisitivoInicio: g.aquisitivoInicio, gozoInicio: g.gozoInicio, gozoFim, dias: g.dias, diasAbono: g.diasAbono, status: g.status,
     observacao: g.observacao, avisadoEm: g.avisadoEm ?? null, passouDaData: g.status === "PROGRAMADA" && g.gozoInicio !== null && g.gozoInicio <= hoje(),
+    // Título de férias em aberto (fictício) para ver a ação "Complementar pelo combinado".
+    ...(g.employeeId === "f5" && g.status === "PROGRAMADA" && g.gozoInicio ? { pagamento: { id: "pi-mock", valor: 5000, vencimento: somaDias(g.gozoInicio, -2), pago: false, combinado: true } } : {}),
   };
 }
 
@@ -211,6 +213,28 @@ export function mockFerias(url: string, method = "GET", corpo?: unknown): unknow
       avisos: ["Não há férias programadas no ERP com início em " + ini.split("-").reverse().join("/") + ": o título será lançado mesmo assim."],
     };
     return d.aplicar ? { previa, aplicado: true, id: "pi-mock" } : { previa, aplicado: false };
+  }
+  if (/\/payroll\/ferias\/combinado$/.test(u.pathname) && method.toUpperCase() === "POST") {
+    // Valores fictícios: líquido 5.000,00, combinado 6.000,00, média 1.500,00 → (6.000 + 1.500) × 4/3 − 5.000 = 5.000,00.
+    const d = (typeof corpo === "string" && corpo ? JSON.parse(corpo) : {}) as { aplicar?: boolean; gorjetasInformadas?: Record<string, number> };
+    const h = hoje();
+    const meses = Array.from({ length: 12 }, (_, i) => {
+      const chave = somaMeses(`${h.slice(0, 7)}-01`, -(12 - i)).slice(0, 7);
+      const info = d.gorjetasInformadas?.[chave];
+      if (i === 0) return info != null ? { chave, valor: info, origem: "INFORMADA" as const } : { chave, valor: null, origem: "AUSENTE" as const };
+      return { chave, valor: 1500, origem: "APURACAO" as const };
+    });
+    const comValor = meses.filter((x) => x.valor != null);
+    const media = Math.round((comValor.reduce((s, x) => s + (x.valor as number), 0) / comValor.length) * 100) / 100;
+    const remuneracao = Math.round((6000 + media) * (4 / 3) * 100) / 100;
+    const complemento = Math.round((remuneracao - 5000) * 100) / 100;
+    const previa = {
+      payrollItemId: "pi-mock", employeeId: "f1", nome: "Carla Exemplo", combinado: 6000, mediaGorjeta: media, mesesContados: comValor.length,
+      mesesAusentes: meses.filter((x) => x.valor == null).map((x) => x.chave), meses, remuneracao, liquidoRecibo: 5000, complemento,
+      valorAntes: 5000, valorDepois: Math.round((5000 + complemento) * 100) / 100, formula: "(6.000,00 + média da gorjeta) × 4/3 − líquido do recibo (dados de demonstração)",
+      avisos: meses[0].valor == null ? ["1 mês sem apuração nem valor informado: não entra na média. Informe à mão se houve gorjeta."] : [],
+    };
+    return { aplicado: d.aplicar === true, previa };
   }
   const m = /\/payroll\/ferias(?:\/([^/]+))?$/.exec(u.pathname);
   if (!m) return undefined;
