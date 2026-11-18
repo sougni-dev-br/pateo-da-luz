@@ -11,6 +11,7 @@ import { type ColunaOpcional, SeletorColunas, useColunas } from "./colunas";
 import { BarraFiltro, opcoesDe, useFiltro } from "./filtro";
 import { NomePessoa, textoPessoa } from "./NomePessoa";
 import { emTesteNaGorjeta } from "./emTesteNaGorjeta";
+import { aparecemNaEquipe } from "./equipeVisivel";
 import "./gorjeta.css";
 import { hojeLocal, inputStyle, mutedStyle, panelStyle, pts } from "./gorjetaUtils";
 import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
@@ -19,6 +20,8 @@ type Props = {
   canEdit: boolean;
   onNotice: (tone: "success" | "error" | "warning", message: string) => void;
   onChanged: () => void;
+  /** Início do ciclo da apuração aberta (AAAA-MM-DD): desligado que saiu antes dele não aparece. */
+  inicioDoCiclo?: string | null;
 };
 
 // Nome completo em cima; o apelido (displayName) só aparece se for diferente dele.
@@ -27,6 +30,7 @@ const apelidoDe = (e: TipTeamMember) => {
   const a = e.displayName?.trim();
   return a && a.toLocaleLowerCase("pt-BR") !== nome(e).toLocaleLowerCase("pt-BR") ? a : null;
 };
+const dataBr = (iso: string) => iso.slice(0, 10).split("-").reverse().join("/");
 const primeiroDe = (texto: Set<string>) => (coluna: string) => (texto.has(coluna) ? "asc" as const : "desc" as const);
 
 const COLUNAS_EQUIPE: ColunaOpcional[] = [
@@ -39,7 +43,7 @@ const TEXTO_EQUIPE = new Set(["nome", "funcao", "empresa"]);
 // Quem participa da gorjeta, com que função e em que empresa. Os pontos-base do
 // rateio saem daqui: pontos da função + ponto extra da pessoa (com justificativa).
 // O ajuste de cada mês é feito na aba Apuração, sem mexer nesta base.
-export function AbaEquipe({ canEdit, onNotice, onChanged }: Props) {
+export function AbaEquipe({ canEdit, onNotice, onChanged, inicioDoCiclo }: Props) {
   const [team, setTeam] = useState<TipTeamMember[]>([]);
   const [funcoes, setFuncoes] = useState<TipFunction[]>([]);
   const [empresas, setEmpresas] = useState<Array<{ id: string; tradeName: string }>>([]);
@@ -138,7 +142,7 @@ export function AbaEquipe({ canEdit, onNotice, onChanged }: Props) {
     }
   }
 
-  const visiveis = team.filter((m) => mostrarInativos || m.isActive || m.participaGorjeta);
+  const visiveis = aparecemNaEquipe(team, inicioDoCiclo, mostrarInativos);
   const listasFiltro = [
     { chave: "vinculo", rotulo: "Vínculo", opcoes: [{ valor: "CLT", rotulo: "CLT" }, { valor: "Sem registro", rotulo: "Sem registro" }] },
     { chave: "empresa", rotulo: "Empresa", opcoes: opcoesDe(visiveis, nomeEmpresa) },
@@ -156,7 +160,7 @@ export function AbaEquipe({ canEdit, onNotice, onChanged }: Props) {
   const participantesPrimeiro = [...filtrados].sort((a, b) => Number(b.participaGorjeta) - Number(a.participaGorjeta));
   const equipeOrdenada = aplicarOrdem(participantesPrimeiro, ordEquipe.ordem, extratoresEquipe);
   // Com filtro, a contagem e a soma são só das linhas que aparecem.
-  const participantes = (filtro.ativo ? filtrados : team).filter((m) => m.participaGorjeta);
+  const participantes = (filtro.ativo ? filtrados : visiveis).filter((m) => m.participaGorjeta);
   const somaBase = participantes.filter((m) => m.isActive).reduce((a, m) => a + (baseDe(m) ?? 0), 0);
 
   return (
@@ -181,7 +185,7 @@ export function AbaEquipe({ canEdit, onNotice, onChanged }: Props) {
             </span>
             <label className="barra-lista-campo">
               <input type="checkbox" checked={mostrarInativos} onChange={(e) => setMostrarInativos(e.target.checked)} />
-              Mostrar desligados que não participam
+              Mostrar desligados de ciclos anteriores
             </label>
             <SeletorColunas colunas={COLUNAS_EQUIPE} ocultas={colEquipe.ocultas} alternar={colEquipe.alternar} mostrarTodas={colEquipe.mostrarTodas} />
           </div>
@@ -222,8 +226,20 @@ export function AbaEquipe({ canEdit, onNotice, onChanged }: Props) {
                       {m.modality === "NAO_CLT" && <StatusBadge tone="warning">Sem registro</StatusBadge>}
                       {!m.isActive && <StatusBadge tone="neutral">Desligado</StatusBadge>}
                       {emTesteNaGorjeta(m, hojeLocal()) && (
-                        <StatusBadge tone="info" title="Participa, mas ainda não entrou na gorjeta. Preencha 'Entra na gorjeta em' no cadastro do funcionário.">
-                          em teste (fora da gorjeta)
+                        <StatusBadge tone="info" title="Participa, mas ainda não entrou na gorjeta. A data 'Entra na gorjeta em' vem do cadastro do funcionário.">
+                          {m.inicioGorjeta ? `entra na gorjeta em ${dataBr(m.inicioGorjeta)}` : "em teste (fora da gorjeta)"}
+                        </StatusBadge>
+                      )}
+                      {m.isActive && !m.participaGorjeta && (
+                        <StatusBadge tone="neutral" title={m.inicioGorjeta
+                          ? `Fora do rateio: "Participa da gorjeta" está desmarcado. Início da gorjeta no cadastro: ${dataBr(m.inicioGorjeta)}.`
+                          : "Fora do rateio: \"Participa da gorjeta\" está desmarcado no cadastro."}>
+                          fora do rateio
+                        </StatusBadge>
+                      )}
+                      {m.isActive && m.participaGorjeta && !m.tipFunctionId && m.tipoGorjeta === "PONTOS" && (
+                        <StatusBadge tone="warning" title="Sem função não há pontos, então a pessoa não recebe gorjeta. Escolha a função.">
+                          sem função: sem pontos
                         </StatusBadge>
                       )}
                     </NomePessoa>
