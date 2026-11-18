@@ -22,10 +22,12 @@ describe("mesesDaCobertura", () => {
 });
 
 describe("montarPanorama", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => { vi.clearAllMocks(); porEmpresa = []; });
 
+  let porEmpresa: object[] = [];
   function responder(situacao: object, cobertura: object[], semCompetencia: number) {
     db.$queryRawUnsafe.mockImplementation(async (sql: string) => {
+      if (sql.includes(`GROUP BY "mes", "grupo", "empresaId"`)) return porEmpresa;
       if (sql.includes("GROUP BY 1, 2")) return cobertura;
       if (sql.includes(`"competenceDate" IS NULL`)) return [{ total: semCompetencia }];
       return [situacao];
@@ -52,12 +54,30 @@ describe("montarPanorama", () => {
     expect(p.meses[11]).toBe("2026-10");
   });
 
+  test("devolve a cobertura por empresa (empresa inativa conta como sem empresa) sem guia cancelada nem excluída", async () => {
+    porEmpresa = [
+      { mes: "2026-09", grupo: "FGTS", empresaId: "c1", empresa: "Pateo da Luz", qtd: "2" },
+      { mes: "2026-09", grupo: "FGTS", empresaId: null, empresa: null, qtd: 1 },
+    ];
+    responder({}, [], 0);
+    const p = await montarPanorama(new Date("2026-10-20T15:00:00Z"));
+    expect(p.coberturaPorEmpresa).toEqual([
+      { mes: "2026-09", grupo: "FGTS", empresaId: "c1", empresa: "Pateo da Luz", qtd: 2 },
+      { mes: "2026-09", grupo: "FGTS", empresaId: null, empresa: null, qtd: 1 },
+    ]);
+    const sql = db.$queryRawUnsafe.mock.calls.map((c: unknown[]) => String(c[0])).find((s: string) => s.includes(`"empresaId"`)) as string;
+    expect(sql).toContain(`c."isActive" = true`);
+    expect(sql).toContain(`tp."deletedAt" IS NULL`);
+    expect(sql).toContain(`tp."status" <> 'CANCELED'`);
+  });
+
   test("sem nenhuma guia devolve zeros, não quebra", async () => {
     db.$queryRawUnsafe.mockResolvedValue([]);
     const p = await montarPanorama(new Date("2026-10-20T15:00:00Z"));
     expect(p.situacoes.todas).toBe(0);
     expect(p.aPagar.vencido).toEqual({ qtd: 0, valor: 0 });
     expect(p.cobertura).toEqual([]);
+    expect(p.coberturaPorEmpresa).toEqual([]);
     expect(p.semCompetencia).toBe(0);
   });
 
@@ -65,7 +85,7 @@ describe("montarPanorama", () => {
     db.$queryRawUnsafe.mockResolvedValue([]);
     await montarPanorama(new Date("2026-10-20T15:00:00Z"));
     const consultas = db.$queryRawUnsafe.mock.calls.map((c: unknown[]) => String(c[0]));
-    expect(consultas).toHaveLength(3);
+    expect(consultas).toHaveLength(4);
     for (const q of consultas) expect(q).toContain(`"deletedAt" IS NULL`);
     for (const q of consultas.filter((s: string) => s.includes("competenceDate"))) expect(q).toContain(`"status" <> 'CANCELED'`);
   });

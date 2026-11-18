@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   type AppUser, type Company, type TaxPanorama, type TaxPayment, type TaxPaymentFilters,
-  deleteTaxPayment, getCompanies, getTaxPanorama, getTaxPayments,
+  deleteTaxPayment, getCompanies, getTaxPanorama, getTaxPaymentTypes, getTaxPayments,
 } from "../api/client";
 import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { Notice, useNotice } from "../components/Notice";
@@ -14,7 +14,7 @@ import { ListaGuias } from "./tax-payments/ListaGuias";
 import { ModalGuia, type GuiaSalva, type InicialDaGuia } from "./tax-payments/ModalGuia";
 import { ModalImportacao } from "./tax-payments/ModalImportacao";
 import { ResumoImpostos } from "./tax-payments/ResumoImpostos";
-import { TIPOS_DE_GUIA } from "./tax-payments/formularioGuia";
+import { tiposParaOFiltro } from "./tax-payments/formularioGuia";
 import { competenciaDoMes, linkContasAPagar, rotuloMes, ultimoDiaDoMes } from "./tax-payments/regras";
 import "./tax-payments/tax-payments.css";
 
@@ -56,6 +56,7 @@ export function TaxPayments({ user }: Props) {
   const [semCompetencia, setSemCompetencia] = useState(false);
   const [empresaId, setEmpresaId] = useState("");
   const [empresas, setEmpresas] = useState<Company[]>([]);
+  const [tiposExistentes, setTiposExistentes] = useState<string[]>([]);
   const [pagina, setPagina] = useState(1);
 
   const [janela, setJanela] = useState<JanelaAberta>(null);
@@ -67,6 +68,13 @@ export function TaxPayments({ user }: Props) {
 
   // Quem lança guia nem sempre pode ver Empresas: sem a lista, o filtro por empresa não aparece.
   useEffect(() => { getCompanies().then(setEmpresas).catch(() => setEmpresas([])); }, []);
+
+  // Tipos que existem de fato nas guias (o legado importado tem textos livres): recarrega quando o total de guias muda.
+  useEffect(() => {
+    let descartada = false;
+    getTaxPaymentTypes().then((l) => { if (!descartada) setTiposExistentes(l.map((x) => x.documentType)); }).catch(() => undefined);
+    return () => { descartada = true; };
+  }, [paginacao.total]);
 
   const filtros = useMemo<TaxPaymentFilters>(() => ({
     status: situacao || undefined,
@@ -278,7 +286,7 @@ export function TaxPayments({ user }: Props) {
             placeholder="Todos os tipos"
             value={tipo}
             onChange={(e) => filtrar({ tipo: e.target.value })}
-            options={TIPOS_DE_GUIA.map((t) => ({ value: t, label: t }))}
+            options={tiposParaOFiltro(tiposExistentes).map((t) => ({ value: t, label: t }))}
           />
           {empresas.length > 1 && (
             <Select
@@ -333,6 +341,7 @@ export function TaxPayments({ user }: Props) {
 
       {janela?.tipo === "guia" && (
         <ModalGuia
+          usuarioId={user.id}
           editId={janela.editId}
           duplicarDe={janela.duplicarDe}
           inicial={janela.inicial}

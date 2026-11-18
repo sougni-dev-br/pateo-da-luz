@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
-  competenciaDoMes, composicaoAPagar, lacunasPorImposto, linkContasAPagar, mesAnterior, mesDaData, montarGrade, prazoDaGuia, rotuloMes, ultimoDiaDoMes,
+  competenciaDoMes, composicaoAPagar, lacunasPorEmpresa, lacunasPorImposto, linkContasAPagar, mesAnterior, mesDaData, montarGrade, prazoDaGuia, rotuloMes, ultimoDiaDoMes,
   type LinhaCobertura,
 } from "../regras";
 
@@ -66,6 +66,87 @@ describe("composicaoAPagar", () => {
     const c = composicaoAPagar({ vencido: z, ate7: z, ate30: z, depois: z });
     expect(c.total).toBe(0);
     expect(c.fatias.every((f) => f.pct === 0)).toBe(true);
+  });
+});
+
+describe("falta de guia de uma empresa", () => {
+  const meses = ["2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10"];
+  const hoje = "2026-11-18"; // o último mês esperado é outubro
+  const g = (mes: string, grupo: string, empresaId: string | null, extra: object = {}) => ({
+    mes, grupo, empresaId, empresa: empresaId === "A" ? "Empresa A" : empresaId === "B" ? "Empresa B" : null, qtd: 1, ...extra,
+  });
+  const mensais = (grupo: string, empresaId: string, lista: string[]) => lista.map((m) => g(m, grupo, empresaId));
+
+  test("uma empresa sem a guia do mês que a outra lançou é acusada (a grade global mostra '1' e não acusa)", () => {
+    const cob = [
+      ...mensais("FGTS", "A", ["2026-05", "2026-07", "2026-08", "2026-09", "2026-10"]),
+      ...mensais("FGTS", "B", ["2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10"]),
+    ];
+    expect(lacunasPorEmpresa(cob, meses, hoje)).toEqual([{ grupo: "FGTS", empresaId: "A", empresa: "Empresa A", meses: ["2026-06"] }]);
+  });
+
+  test("mês em que ninguém tem a guia não é por empresa: quem acusa é a grade global", () => {
+    const cob = [...mensais("FGTS", "A", ["2026-05", "2026-07", "2026-08"]), ...mensais("FGTS", "B", ["2026-05", "2026-07", "2026-08"])];
+    expect(lacunasPorEmpresa(cob, meses, hoje)).toEqual([]);
+  });
+
+  test("guia sem empresa no mês (legado) impede acusar: pode ser da empresa que 'falta'", () => {
+    const cob = [
+      ...mensais("FGTS", "A", ["2026-05", "2026-07", "2026-08", "2026-09"]),
+      ...mensais("FGTS", "B", ["2026-05", "2026-07", "2026-08", "2026-09"]),
+      g("2026-06", "FGTS", null),
+    ];
+    expect(lacunasPorEmpresa(cob, meses, hoje)).toEqual([]);
+  });
+
+  test("empresa com poucos meses de guia (menos de 3) não é cobrada", () => {
+    const cob = [...mensais("FGTS", "A", ["2026-06", "2026-07"]), ...mensais("FGTS", "B", ["2026-05", "2026-06", "2026-07", "2026-08", "2026-09"])];
+    expect(lacunasPorEmpresa(cob, meses, hoje)).toEqual([]);
+  });
+
+  test("só a partir do primeiro mês da empresa: antes disso ela ainda não existia no imposto", () => {
+    const cob = [...mensais("FGTS", "A", ["2026-08", "2026-09", "2026-10"]), ...mensais("FGTS", "B", meses)];
+    expect(lacunasPorEmpresa(cob, meses, hoje)).toEqual([]);
+  });
+
+  test("empresa que parou de lançar (nenhuma guia nos 3 últimos meses esperados) é tratada como encerrada", () => {
+    // última guia da A em maio; hoje é novembro: junho a setembro não são falta dela (CNPJ antigo)
+    const cob = [...mensais("FGTS", "A", ["2026-03", "2026-04", "2026-05"]), ...mensais("FGTS", "B", ["2026-03", "2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10"])];
+    expect(lacunasPorEmpresa(cob, ["2026-03", "2026-04", "2026-05", ...meses.slice(1)], hoje)).toEqual([]);
+    // mas quem lançou até agosto ainda é cobrada em setembro
+    const ativa = [...mensais("FGTS", "A", ["2026-05", "2026-06", "2026-08"]), ...mensais("FGTS", "B", ["2026-05", "2026-06", "2026-07", "2026-08", "2026-09"])];
+    expect(lacunasPorEmpresa(ativa, meses, hoje).map((x) => [x.empresa, x.meses])).toEqual([["Empresa A", ["2026-07", "2026-09"]]]);
+  });
+
+  test("o mês corrente (novembro) nunca é cobrado", () => {
+    const cob = [...mensais("FGTS", "A", ["2026-08", "2026-09", "2026-10"]), ...mensais("FGTS", "B", ["2026-08", "2026-09", "2026-10", "2026-11"])];
+    expect(lacunasPorEmpresa(cob, [...meses, "2026-11"], hoje)).toEqual([]);
+  });
+
+  test("INSS e IRRF / DARF contam como um imposto só (o DARF é um documento): guia em qualquer das duas vale", () => {
+    const cob = [
+      ...mensais("INSS", "A", ["2026-07", "2026-08", "2026-09"]), g("2026-10", "IRRF / DARF", "A"),
+      ...mensais("INSS", "B", ["2026-07", "2026-08", "2026-09", "2026-10"]),
+    ];
+    expect(lacunasPorEmpresa(cob, meses, hoje)).toEqual([]);
+    // mês em que só uma terceira empresa lançou (sem as duas): as duas são acusadas, juntas num imposto "DARF"
+    const jun = [
+      ...mensais("INSS", "A", ["2026-05", "2026-07", "2026-08"]), ...mensais("INSS", "B", ["2026-05", "2026-07", "2026-08"]),
+      g("2026-06", "IRRF / DARF", "C", { empresa: "Empresa C" }),
+    ];
+    const r = lacunasPorEmpresa(jun, meses, hoje);
+    expect(r.map((x) => [x.grupo, x.empresa, x.meses])).toEqual([["DARF", "Empresa A", ["2026-06"]], ["DARF", "Empresa B", ["2026-06"]]]);
+  });
+
+  test("parcelamento, IPTU, taxas e 'Sem categoria' não entram", () => {
+    for (const grupo of ["Parcelamentos Tributarios", "IPTU", "Taxas Municipais", "Sem categoria"]) {
+      const cob = [...mensais(grupo, "A", ["2026-05", "2026-07", "2026-08"]), ...mensais(grupo, "B", ["2026-05", "2026-06", "2026-07", "2026-08"])];
+      expect(lacunasPorEmpresa(cob, meses, hoje)).toEqual([]);
+    }
+  });
+
+  test("sem dados devolve vazio", () => {
+    expect(lacunasPorEmpresa([], meses, hoje)).toEqual([]);
   });
 });
 

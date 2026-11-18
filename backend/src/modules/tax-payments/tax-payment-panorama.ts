@@ -16,6 +16,9 @@ export type PanoramaImpostos = {
   meses: string[];
   cobertura: Array<{ mes: string; grupo: string; categoriaId: string | null; qtd: number; pagas: number; vencidas: number; valor: number }>;
   semCompetencia: number;
+  // Quantas guias cada empresa tem por mês e categoria (só guias com empresa ativa identificada; sem empresa, empresaId = null).
+  // Serve para acusar o mês em que UMA das empresas ficou sem a guia que as outras têm: cada CNPJ recolhe a sua.
+  coberturaPorEmpresa: Array<{ mes: string; grupo: string; empresaId: string | null; empresa: string | null; qtd: number }>;
 };
 
 const MESES_NA_COBERTURA = 12;
@@ -35,6 +38,8 @@ type LinhaSituacao = {
   v_qtd: number; v_valor: string; s7_qtd: number; s7_valor: string; s30_qtd: number; s30_valor: string; d_qtd: number; d_valor: string;
 };
 
+type LinhaCoberturaEmpresa = { mes: string; grupo: string; empresaId: string | null; empresa: string | null; qtd: number };
+
 type LinhaCobertura = { mes: string; grupo: string; categoriaId: string | null; qtd: number; pagas: number; vencidas: number; valor: string };
 
 export async function montarPanorama(agora: Date = new Date()): Promise<PanoramaImpostos> {
@@ -44,7 +49,7 @@ export async function montarPanorama(agora: Date = new Date()): Promise<Panorama
   const primeiroMes = `${meses[0]}-01`;
   const T = `'${hoje}'::timestamp`;
 
-  const [situacao, cobertura, semComp] = await Promise.all([
+  const [situacao, cobertura, semComp, porEmpresa] = await Promise.all([
     prisma.$queryRawUnsafe<LinhaSituacao[]>(`
       SELECT
         COUNT(*)::int AS "todas",
@@ -86,6 +91,22 @@ export async function montarPanorama(agora: Date = new Date()): Promise<Panorama
       SELECT COUNT(*)::int AS "total" FROM "TaxPayment" tp
       WHERE tp."deletedAt" IS NULL AND tp."status" <> 'CANCELED' AND tp."competenceDate" IS NULL
     `),
+    // Empresa inativa vale como "sem empresa" (não dá para cobrar guia de quem não opera mais).
+    prisma.$queryRawUnsafe<LinhaCoberturaEmpresa[]>(`
+      SELECT
+        to_char(date_trunc('month', tp."competenceDate"), 'YYYY-MM') AS "mes",
+        COALESCE(dc."name", 'Sem categoria') AS "grupo",
+        CASE WHEN c."id" IS NOT NULL THEN tp."companyId" END AS "empresaId",
+        MAX(COALESCE(NULLIF(TRIM(c."tradeName"), ''), c."legalName")) AS "empresa",
+        COUNT(*)::int AS "qtd"
+      FROM "TaxPayment" tp
+      LEFT JOIN "DRECategory" dc ON dc."id" = tp."dreCategoryId"
+      LEFT JOIN "Company" c ON c."id" = tp."companyId" AND c."isActive" = true
+      WHERE tp."deletedAt" IS NULL AND tp."status" <> 'CANCELED'
+        AND tp."competenceDate" >= '${primeiroMes}'::timestamp
+        AND tp."competenceDate" < date_trunc('month', ${T}) + interval '1 month'
+      GROUP BY "mes", "grupo", "empresaId"
+    `),
   ]);
 
   const s = situacao[0];
@@ -105,5 +126,6 @@ export async function montarPanorama(agora: Date = new Date()): Promise<Panorama
     meses,
     cobertura: cobertura.map((c) => ({ ...c, valor: Number(c.valor) })),
     semCompetencia: semComp[0]?.total ?? 0,
+    coberturaPorEmpresa: porEmpresa.map((c) => ({ ...c, qtd: Number(c.qtd) })),
   };
 }

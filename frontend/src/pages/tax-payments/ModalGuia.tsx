@@ -1,7 +1,7 @@
 import { CheckCircle2, CircleAlert, ExternalLink, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import {
-  ApiError, createTaxPayment, getCompanies, getEmployees, getTaxCategorySuggestion, getTaxCodes, getTaxDreCategories, getTaxPayment, getTaxPayments, updateTaxPayment,
+  ApiError, EVENTO_SESSAO_EXPIRADA, createTaxPayment, getCompanies, getEmployees, getTaxCategorySuggestion, getTaxCodes, getTaxDreCategories, getTaxPayment, getTaxPayments, updateTaxPayment,
   type Company, type Employee, type TaxCode, type TaxDreCategory, type TaxPayment, type TaxPaymentDetail,
 } from "../../api/client";
 import { DRE_GROUPS, dreGroupLabel } from "../../components/DRECategoryOptions";
@@ -14,12 +14,13 @@ import {
   linhasComValor, linhasDoModelo, mesSugerido, payloadDaGuia, pendenciasDaGuia, temVerbaDeRescisao, totalDaGuia, type FormGuia, type LinhaForm,
 } from "./formularioGuia";
 import { LinhasDaGuia } from "./LinhasDaGuia";
+import { apagarRascunho, guardarRascunho, lerRascunho, type RascunhoDaGuia } from "./rascunhoDaGuia";
 import { modeloDoTipo } from "./modelosDeGuia";
 import { mesDaData, rotuloMes } from "./regras";
 import "../payables/payables.css";
 import "./tax-payments.css";
 
-export type InicialDaGuia = { tipo?: string; mes?: string; dueDate?: string };
+export type InicialDaGuia = { tipo?: string; mes?: string; dueDate?: string; empresaId?: string };
 
 /** O que a guia lançada deixa para a tela: com isso ela oferece "Lançar outra guia" já com vencimento e competência. */
 export type GuiaSalva = { dueDate: string; mes: string };
@@ -34,6 +35,8 @@ type Props = {
   podeEditar: boolean;
   /** Pode ver Funcionários: sem isso a lista de desligados não carrega e o vínculo não é exigido. */
   podeVerFuncionarios?: boolean;
+  /** Quem está lançando: o rascunho da sessão expirada só é oferecido a ele. */
+  usuarioId?: string;
   /** Cancelar ou reativar a guia pede a permissão de excluir. */
   podeCancelar: boolean;
   /** Atalho para a guia em Contas a Pagar (onde se estorna um pagamento); omitido para quem não vê essa tela. */
@@ -44,6 +47,17 @@ type Props = {
 };
 
 const CHAVE_EMPRESA = "impostos:ultimaEmpresa:";
+
+// Gerado uma vez por modal: se o salvamento estourar o tempo e a pessoa clicar de novo, o servidor reconhece o mesmo
+// lançamento e devolve a guia já criada em vez de criar outra.
+function novoIdentificador(): string | undefined {
+  try { return crypto.randomUUID(); } catch { return undefined; }
+}
+
+function minutosAtras(salvoEm: number): string {
+  const min = Math.max(1, Math.round((Date.now() - salvoEm) / 60_000));
+  return min < 60 ? `${min} min` : `${Math.round(min / 60)} h`;
+}
 
 // Lembrar a última empresa de cada tipo poupa um clique por guia no lote do dia 20. Só conveniência: sem armazenamento, segue sem lembrar.
 function empresaLembrada(tipo: string): string {
@@ -63,7 +77,7 @@ function formInicial(inicial?: InicialDaGuia): FormGuia {
   return inicial?.tipo ? { ...base, documentType: inicial.tipo, linhas: linhasDoModelo(inicial.tipo) } : base;
 }
 
-export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, podeVerFuncionarios = false, podeCancelar, onContasAPagar, onFechar, onSalvo }: Props) {
+export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, podeVerFuncionarios = false, usuarioId = "", podeCancelar, onContasAPagar, onFechar, onSalvo }: Props) {
   const emEdicao = editId != null;
   const [form, setForm] = useState<FormGuia>(() => formInicial(inicial));
   const [detalhe, setDetalhe] = useState<TaxPaymentDetail | null>(null);
@@ -91,17 +105,33 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
   const [confirmarModelo, setConfirmarModelo] = useState(false);
   const [tipoPendente, setTipoPendente] = useState<string | null>(null);
   const [confirmarDescarte, setConfirmarDescarte] = useState(false);
+  const idDoLancamento = useRef<string | undefined | null>(null);
+  if (idDoLancamento.current === null) idDoLancamento.current = novoIdentificador();
+  // Rascunho guardado quando a sessão expirou no meio de um lançamento (só oferecido em guia nova).
+  const [rascunho, setRascunho] = useState<RascunhoDaGuia | null>(() => (editId == null && duplicarDe == null ? lerRascunho(usuarioId) : null));
   // Foto do formulário como foi aberto (ou carregado): Esc, X ou Fechar com algo digitado pedem confirmação.
   const formOriginal = useRef<string | null>(null);
   if (formOriginal.current === null) formOriginal.current = fotoDoFormulario(form, emEdicao);
   const erroRef = useRef<HTMLParagraphElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
+  const formAtual = useRef(form);
+  formAtual.current = form;
 
   const campo = <K extends keyof FormGuia>(k: K, v: FormGuia[K]) => setForm((f) => ({ ...f, [k]: v }));
   const editavel = podeEditar && !salvando;
   // Guia paga está fechada: valores só mudam depois de estornar o pagamento em Contas a Pagar.
   const paga = Boolean(detalhe?.paymentDate);
   const valoresFixos = emEdicao && paga;
+
+  // Sessão expirada: a página vai recarregar para o login. Guarda o que foi digitado para oferecer depois.
+  useEffect(() => {
+    if (emEdicao || !podeEditar) return;
+    const aoExpirar = () => {
+      if (fotoDoFormulario(formAtual.current, false) !== formOriginal.current) guardarRascunho(formAtual.current, usuarioId);
+    };
+    window.addEventListener(EVENTO_SESSAO_EXPIRADA, aoExpirar);
+    return () => window.removeEventListener(EVENTO_SESSAO_EXPIRADA, aoExpirar);
+  }, [emEdicao, podeEditar, usuarioId]);
 
   useEffect(() => {
     getTaxDreCategories().then(setCategorias).catch(() => setErroApi("Não consegui carregar as categorias do DRE."));
@@ -168,9 +198,10 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
   // Guia nova: a empresa da última guia deste tipo já vem escolhida (continua editável).
   useEffect(() => {
     if (emEdicao || duplicarDe || !form.documentType || form.companyId || empresas.length === 0) return;
-    const e = empresas.find((x) => x.id === empresaLembrada(form.documentType));
+    // A empresa pedida pelo alerta ("falta a guia da empresa X") vale mais que a última usada.
+    const e = empresas.find((x) => x.id === (inicial?.empresaId || empresaLembrada(form.documentType)));
     if (e) setForm((f) => (f.companyId ? f : { ...f, companyId: e.id, cnpj: e.cnpj, legalName: e.legalName, tradeName: e.tradeName }));
-  }, [emEdicao, duplicarDe, form.documentType, form.companyId, empresas]);
+  }, [emEdicao, duplicarDe, form.documentType, form.companyId, empresas, inicial?.empresaId]);
 
   const descricaoDasLinhasAtual = descricaoDasLinhas(form.linhas);
 
@@ -297,7 +328,8 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
         onSalvo("Guia atualizada.");
         return;
       }
-      await createTaxPayment(payload);
+      await createTaxPayment(idDoLancamento.current ? { ...payload, clientId: idDoLancamento.current } : payload);
+      apagarRascunho();
       lembrarEmpresa(form.documentType, form.companyId);
       onSalvo(
         `${form.documentType} lançada. Já aparece em Contas a Pagar (vence em ${formatarDiaDaGuia(form.dueDate)}) e entra no DRE de ${rotuloMes(form.mes)}. A baixa é feita lá.`,
@@ -421,6 +453,23 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
             </div>
           )}
         </FormSection>
+
+        {rascunho && podeEditar && !emEdicao && (
+          <p className="ip-aviso" role="status">
+            <TriangleAlert size={16} aria-hidden="true" />
+            Recuperei o que você estava lançando há {minutosAtras(rascunho.salvoEm)}, antes de a sessão expirar.{" "}
+            <Button size="sm" variant="secondary" onClick={() => {
+              setForm(rascunho.form);
+              setLinhasMexidas(true);
+              setCompetenciaDigitada(true);
+              setCategoriaEscolhida(false);
+              setCategoriaAuto(null);
+              apagarRascunho();
+              setRascunho(null);
+            }}>Restaurar</Button>{" "}
+            <Button size="sm" variant="secondary" onClick={() => { apagarRascunho(); setRascunho(null); }}>Descartar</Button>
+          </p>
+        )}
 
         {duplicarDe && (
           <p className="ip-aviso" role="status">
@@ -563,7 +612,7 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
         title="Descartar o que foi digitado?"
         description="A guia ainda não foi salva: fechar agora perde o que você preencheu."
         confirmLabel="Descartar e fechar"
-        onConfirm={() => { setConfirmarDescarte(false); onFechar(); }}
+        onConfirm={() => { setConfirmarDescarte(false); apagarRascunho(); onFechar(); }}
         onCancel={() => setConfirmarDescarte(false)}
       />
       <ConfirmDialog

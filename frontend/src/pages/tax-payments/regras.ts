@@ -146,6 +146,60 @@ export function montarGrade(cobertura: LinhaCobertura[], meses: string[], hoje: 
   });
 }
 
+// ─── falta de guia de UMA empresa ───────────────────────────────────────────────
+// A grade acima é de todas as empresas: se a Empresa A lançou o FGTS do mês e a B não, a célula mostra "1" e a falta da B
+// passa. Cada CNPJ recolhe a sua guia, então aqui se confere empresa por empresa, de forma conservadora (para não acusar
+// falta que não existe):
+//  - só empresa com guia identificada em 3 ou mais meses do imposto (as que apareceram uma vez não são cobradas) e que
+//    ainda lança: sem guia nos 3 últimos meses esperados ela é tratada como encerrada (ex.: CNPJ antigo);
+//  - só a partir do primeiro mês dela e até o mês anterior ao de hoje;
+//  - só o mês em que ALGUÉM tem a guia (se ninguém tem, a grade já acusa) e em que nenhuma guia está sem empresa
+//    (guia antiga sem empresa pode ser dela);
+//  - INSS e IRRF / DARF contam como um imposto só: é o mesmo DARF.
+export type CoberturaEmpresa = { mes: string; grupo: string; empresaId: string | null; empresa: string | null; qtd: number };
+
+export type LacunaDeEmpresa = { grupo: string; empresaId: string; empresa: string; meses: string[] };
+
+function grupoLogico(grupo: string): string {
+  const g = semAcento(grupo);
+  return g === "inss" || g === "irrf / darf" ? "DARF" : grupo;
+}
+
+export function lacunasPorEmpresa(cobertura: CoberturaEmpresa[], meses: string[], hoje: string): LacunaDeEmpresa[] {
+  const ultimoEsperado = mesAnterior(mesDaData(hoje));
+  const porGrupo = new Map<string, CoberturaEmpresa[]>();
+  for (const c of cobertura) {
+    if (c.qtd <= 0) continue;
+    const g = semAcento(c.grupo);
+    if (g === "sem categoria" || SEM_REGRA_MENSAL.has(g)) continue;
+    const logico = grupoLogico(c.grupo);
+    porGrupo.set(logico, [...(porGrupo.get(logico) ?? []), c]);
+  }
+
+  const limiteDeAtividade = mesAnterior(mesAnterior(ultimoEsperado));
+  const lacunas: LacunaDeEmpresa[] = [];
+  for (const [grupo, linhas] of porGrupo) {
+    const mesesComGuia = new Set(linhas.map((l) => l.mes));
+    const mesesComGuiaSemEmpresa = new Set(linhas.filter((l) => !l.empresaId).map((l) => l.mes));
+    const empresas = new Map<string, { nome: string; meses: Set<string> }>();
+    for (const l of linhas) {
+      if (!l.empresaId) continue;
+      const e = empresas.get(l.empresaId) ?? { nome: l.empresa ?? "Empresa", meses: new Set<string>() };
+      e.meses.add(l.mes);
+      empresas.set(l.empresaId, e);
+    }
+    for (const [empresaId, e] of empresas) {
+      if (e.meses.size < MESES_PARA_SER_MENSAL) continue;
+      const ordenados = [...e.meses].sort();
+      if (ordenados[ordenados.length - 1] < limiteDeAtividade) continue;
+      const primeiro = ordenados[0];
+      const faltando = meses.filter((m) => m >= primeiro && m <= ultimoEsperado && !e.meses.has(m) && mesesComGuia.has(m) && !mesesComGuiaSemEmpresa.has(m));
+      if (faltando.length > 0) lacunas.push({ grupo, empresaId, empresa: e.nome, meses: faltando });
+    }
+  }
+  return lacunas.sort((a, b) => a.grupo.localeCompare(b.grupo, "pt-BR") || a.empresa.localeCompare(b.empresa, "pt-BR"));
+}
+
 // Por imposto mensal, os meses esperados (até o anterior ao de hoje) em que falta a guia.
 export type LacunaDoImposto = { grupo: string; meses: string[] };
 

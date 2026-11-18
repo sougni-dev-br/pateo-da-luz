@@ -2,7 +2,7 @@ import { AlertTriangle, CheckCircle2, CircleAlert, Plus } from "lucide-react";
 import { Button, Money } from "../../design-system";
 import type { TaxPanorama } from "../../api/client";
 import {
-  composicaoAPagar, lacunasPorImposto, montarGrade, rotuloMes,
+  composicaoAPagar, lacunasPorEmpresa, lacunasPorImposto, montarGrade, rotuloMes,
   type CelulaGrade, type EstadoCelula,
 } from "./regras";
 import { tipoDoGrupo } from "./formularioGuia";
@@ -11,7 +11,7 @@ import "./tax-payments.css";
 type Props = {
   panorama: TaxPanorama;
   podeLancar: boolean;
-  onLancar: (inicial?: { tipo?: string; mes?: string }) => void;
+  onLancar: (inicial?: { tipo?: string; mes?: string; empresaId?: string }) => void;
   onVerSituacao: (situacao: "OVERDUE") => void;
   /** Sem categoria: só o mês. Com ela (clique numa célula): o mês daquele imposto. */
   onVerMes: (mes: string, categoria?: { id: string; nome: string }) => void;
@@ -35,6 +35,7 @@ export function ResumoImpostos({ panorama, podeLancar, onLancar, onVerSituacao, 
   const vencido = panorama.aPagar.vencido;
   const grade = montarGrade(panorama.cobertura, panorama.meses, panorama.hoje);
   const lacunas = lacunasPorImposto(grade);
+  const lacunasEmpresa = lacunasPorEmpresa(panorama.coberturaPorEmpresa ?? [], panorama.meses, panorama.hoje);
 
   return (
     <div className="ip-panorama">
@@ -68,6 +69,7 @@ export function ResumoImpostos({ panorama, podeLancar, onLancar, onVerSituacao, 
         <Atencao
           panorama={panorama}
           lacunas={lacunas}
+          lacunasEmpresa={lacunasEmpresa}
           podeLancar={podeLancar}
           onLancar={onLancar}
           onVerSituacao={onVerSituacao}
@@ -82,8 +84,8 @@ export function ResumoImpostos({ panorama, podeLancar, onLancar, onVerSituacao, 
 
 type Alerta = { chave: string; tom: "danger" | "warning" | "success"; titulo: string; texto: React.ReactNode; acao?: React.ReactNode };
 
-function Atencao({ panorama, lacunas, podeLancar, onLancar, onVerSituacao, onVerSemCompetencia }: {
-  panorama: TaxPanorama; lacunas: ReturnType<typeof lacunasPorImposto>; podeLancar: boolean; onLancar: Props["onLancar"]; onVerSituacao: Props["onVerSituacao"]; onVerSemCompetencia: Props["onVerSemCompetencia"];
+function Atencao({ panorama, lacunas, lacunasEmpresa, podeLancar, onLancar, onVerSituacao, onVerSemCompetencia }: {
+  panorama: TaxPanorama; lacunas: ReturnType<typeof lacunasPorImposto>; lacunasEmpresa: ReturnType<typeof lacunasPorEmpresa>; podeLancar: boolean; onLancar: Props["onLancar"]; onVerSituacao: Props["onVerSituacao"]; onVerSemCompetencia: Props["onVerSemCompetencia"];
 }) {
   const alertas: Alerta[] = [];
   const vencido = panorama.aPagar.vencido;
@@ -112,6 +114,28 @@ function Atencao({ panorama, lacunas, podeLancar, onLancar, onVerSituacao, onVer
           onClick={() => onLancar(lacunas.length === 1 ? { tipo: tipoDoGrupo(lacunas[0].grupo) ?? undefined, mes: lacunas[0].meses[0] } : undefined)}
         >
           {lacunas.length === 1 ? `Lançar ${lacunas[0].grupo} de ${rotuloMes(lacunas[0].meses[0])}` : "Lançar guia"}
+        </Button>
+      ) : undefined,
+    });
+  }
+
+  if (lacunasEmpresa.length > 0) {
+    const um = lacunasEmpresa.length === 1 ? lacunasEmpresa[0] : null;
+    const detalhe = lacunasEmpresa.slice(0, 4).map((l) => `${l.grupo}, ${l.empresa}: ${l.meses.map(rotuloMes).join(", ")}`).join(" · ");
+    alertas.push({
+      chave: "sem-guia-empresa",
+      tom: "warning",
+      titulo: um ? `Falta a guia de ${um.grupo} da ${um.empresa}` : `Falta guia de uma das empresas em ${lacunasEmpresa.length} casos`,
+      texto: `${detalhe}${lacunasEmpresa.length > 4 ? " · …" : ""}. As outras empresas já têm a guia do mês: cada CNPJ recolhe a sua.`,
+      acao: podeLancar ? (
+        <Button
+          size="sm" variant="secondary" leadingIcon={<Plus size={14} />}
+          onClick={() => {
+            const alvo = lacunasEmpresa[0];
+            onLancar({ tipo: tipoDoGrupo(alvo.grupo) ?? undefined, mes: alvo.meses[0], empresaId: alvo.empresaId });
+          }}
+        >
+          {um ? `Lançar ${um.grupo} de ${rotuloMes(um.meses[0])}` : "Lançar a primeira"}
         </Button>
       ) : undefined,
     });

@@ -10,6 +10,9 @@ const NETWORK_IMPORT_ERROR_MESSAGE = "Nao foi possivel gerar o preview porque o 
 const TIMEOUT_ERROR_MESSAGE = "A requisicao demorou demais para responder. Tente novamente.";
 const TIMEOUT_IMPORT_ERROR_MESSAGE = "A geracao do preview demorou demais para responder. Tente novamente.";
 
+/** Disparado pouco antes de a página recarregar por sessão expirada: telas com trabalho em andamento guardam o que puderem. */
+export const EVENTO_SESSAO_EXPIRADA = "pateo:sessao-expirada";
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -112,6 +115,7 @@ async function request<T>(path: string, options?: RequestInit, timeoutMs = REQUE
 
       // Sessão inválida ou encerrada: limpar token e recarregar para a tela de login
       if (response.status === 401 && !path.startsWith("/auth/")) {
+        window.dispatchEvent(new Event(EVENTO_SESSAO_EXPIRADA));
         localStorage.removeItem(SESSION_TOKEN_KEY);
         sessionStorage.removeItem(SESSION_TOKEN_KEY);
         window.location.reload();
@@ -170,6 +174,7 @@ async function fetchBlob(path: string, timeoutMs = REQUEST_TIMEOUT_MS): Promise<
       if (response.ok) break;
 
       if (response.status === 401) {
+        window.dispatchEvent(new Event(EVENTO_SESSAO_EXPIRADA));
         localStorage.removeItem(SESSION_TOKEN_KEY);
         sessionStorage.removeItem(SESSION_TOKEN_KEY);
         window.location.reload();
@@ -5901,6 +5906,8 @@ export type TaxPaymentDetail = TaxPayment & {
 export type TaxPaymentPayload = Omit<Partial<TaxPayment>, "id" | "createdAt" | "updatedAt" | "dreCategoryName" | "amount"> & {
   amount?: string;
   items?: TaxPaymentItemInput[];
+  /** Identificador do modal de lançamento (UUID): reenviar o mesmo lançamento não cria a guia duas vezes. */
+  clientId?: string;
 };
 
 export type TaxPaymentSummary = {
@@ -5951,7 +5958,14 @@ export type TaxPanorama = {
   meses: string[];
   cobertura: Array<{ mes: string; grupo: string; categoriaId?: string | null; qtd: number; pagas: number; vencidas: number; valor: number }>;
   semCompetencia: number;
+  /** Guias por empresa, mês e categoria (empresaId null = guia sem empresa identificada). */
+  coberturaPorEmpresa?: Array<{ mes: string; grupo: string; empresaId: string | null; empresa: string | null; qtd: number }>;
 };
+
+/** Tipos que existem de fato nas guias (inclui os do legado importado), do mais usado ao menos usado. */
+export function getTaxPaymentTypes() {
+  return request<Array<{ documentType: string; qtd: number }>>("/tax-payments/tipos");
+}
 
 export function getTaxPanorama() {
   return request<TaxPanorama>("/tax-payments/panorama");

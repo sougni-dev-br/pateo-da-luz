@@ -126,6 +126,19 @@ describe("ResumoImpostos", () => {
     expect(props.onLancar).toHaveBeenCalledWith({ tipo: "FGTS", mes: "2026-08" });
   });
 
+  test("falta a guia de uma empresa: o alerta diz qual e o botão abre o modal com tipo, mês e empresa", () => {
+    const g = (mes: string, empresaId: string, empresa: string) => ({ mes, grupo: "FGTS", empresaId, empresa, qtd: 1 });
+    const porEmpresa = [
+      ...["2026-07", "2026-08", "2026-09"].map((m) => g(m, "a", "Pateo A")),
+      ...["2026-07", "2026-08", "2026-09", "2026-10"].map((m) => g(m, "b", "Pateo B")),
+    ];
+    const cobertura = ["2026-07", "2026-08", "2026-09", "2026-10"].map((mes) => ({ mes, grupo: "FGTS", categoriaId: "cat-fgts", qtd: 1, pagas: 1, vencidas: 0, valor: 100 }));
+    render(<ResumoImpostos panorama={{ ...base, hoje: "2026-11-18", meses: ["2026-07", "2026-08", "2026-09", "2026-10"], cobertura, coberturaPorEmpresa: porEmpresa }} {...props} />);
+    expect(screen.getByText("Falta a guia de FGTS da Pateo A")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Lançar FGTS de out/26" }));
+    expect(props.onLancar).toHaveBeenCalledWith({ tipo: "FGTS", mes: "2026-10", empresaId: "a" });
+  });
+
   test("clicar numa célula pede a lista daquele mês e daquele imposto; o cabeçalho do mês, todas as guias", () => {
     const cobertura = [{ mes: "2026-09", grupo: "FGTS", categoriaId: "cat-fgts", qtd: 1, pagas: 1, vencidas: 0, valor: 100 }];
     render(<ResumoImpostos panorama={{ ...base, cobertura }} {...props} />);
