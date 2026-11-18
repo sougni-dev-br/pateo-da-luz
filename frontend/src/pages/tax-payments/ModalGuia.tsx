@@ -88,7 +88,7 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
   // Falha ao carregar as empresas (diferente de "sem permissão para vê-las"): bloqueia o lançamento até conseguir.
   const [empresasFalhou, setEmpresasFalhou] = useState(false);
   const [tentativaEmpresas, setTentativaEmpresas] = useState(0);
-  const [desligados, setDesligados] = useState<Employee[]>([]);
+  const [funcionarios, setFuncionarios] = useState<Employee[]>([]);
   const [catalogo, setCatalogo] = useState<TaxCode[]>([]);
   const [categoriaEscolhida, setCategoriaEscolhida] = useState(false);
   // A categoria vem do tipo e das linhas: true = veio automática (campo travado); false = não há regra para esta guia
@@ -154,8 +154,8 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
     if (!podeVerFuncionarios) return;
     let descartada = false;
     getEmployees({ includeInactive: true })
-      .then((todos) => { if (!descartada) setDesligados(todos.filter((e) => e.terminationDate || !e.isActive)); })
-      .catch(() => { if (!descartada) setDesligados([]); });
+      .then((todos) => { if (!descartada) setFuncionarios(todos); })
+      .catch(() => { if (!descartada) setFuncionarios([]); });
     return () => { descartada = true; };
   }, [podeVerFuncionarios]);
 
@@ -248,6 +248,9 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
     return () => { descartada = true; clearTimeout(t); };
   }, [form.documentNumber, editId]);
 
+  // FGTS de rescisão: quem já saiu, mais o funcionário que a guia já tem (readmitido depois não some da lista nem deixa o campo em branco).
+  const funcionariosDaLista = funcionarios.filter((e) => e.terminationDate || !e.isActive || e.id === form.employeeId);
+
   const modelo = modeloDoTipo(form.documentType);
   // FGTS não separa multa e juros: o que há de encargos é uma linha própria. Guia antiga que já tenha esses valores mantém as colunas.
   const tipoSemMultaEJuros = form.documentType === "FGTS" && !form.linhas.some((l) => l.fine.trim() || l.interest.trim());
@@ -299,10 +302,26 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
   function teclarNoFormulario(e: KeyboardEvent<HTMLFormElement>) {
     if (e.key !== "Enter" || (e.target as HTMLElement).tagName !== "INPUT") return;
     e.preventDefault();
-    if (!(e.ctrlKey || e.metaKey)) return;
+    if (!(e.ctrlKey || e.metaKey)) {
+      // Nos campos do cabeçalho, Enter anda para o próximo (nas linhas ele já tem o seu comportamento).
+      const alvo = e.target as HTMLElement;
+      if (!alvo.closest(".ip-linhas")) focarProximoCampo(alvo);
+      return;
+    }
     // Com pendência, o atalho leva ao campo que falta, em vez de não fazer nada.
     if (pendencias.length > 0) irParaPendencia(pendencias[0].campo);
     else void salvar();
+  }
+
+  // Enter num campo do cabeçalho: foca o próximo campo editável do formulário (como Tab, sem passar por botões).
+  function focarProximoCampo(atual: HTMLElement) {
+    const raiz = formRef.current;
+    if (!raiz) return;
+    const campos = Array.from(raiz.querySelectorAll<HTMLElement>("input, select, textarea"))
+      .filter((el) => !el.hasAttribute("disabled") && !el.hasAttribute("readonly") && el.tabIndex !== -1 && !el.closest("[hidden]")
+        && !["hidden", "radio", "checkbox"].includes((el as HTMLInputElement).type));
+    const i = campos.indexOf(atual);
+    if (i >= 0 && campos[i + 1]) campos[i + 1].focus();
   }
 
   // Clicar numa pendência leva ao campo que a resolve.
@@ -459,7 +478,7 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
                 <Select
                   placeholder="Nenhum (FGTS mensal)" value={form.employeeId} disabled={!editavel}
                   onChange={(e) => campo("employeeId", e.target.value)}
-                  options={desligados.map((e) => ({ value: e.id, label: `${e.displayName || `${e.firstName} ${e.lastName}`}${e.terminationDate ? ` — saiu em ${e.terminationDate.slice(8, 10)}/${e.terminationDate.slice(5, 7)}/${e.terminationDate.slice(0, 4)}` : ""}` }))}
+                  options={funcionariosDaLista.map((e) => ({ value: e.id, label: `${e.displayName || `${e.firstName} ${e.lastName}`}${e.terminationDate ? ` — saiu em ${e.terminationDate.slice(8, 10)}/${e.terminationDate.slice(5, 7)}/${e.terminationDate.slice(0, 4)}` : e.isActive ? " — hoje ativo(a)" : ""}` }))}
                 />
               </FormField>
             </div>

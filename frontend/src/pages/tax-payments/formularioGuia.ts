@@ -285,8 +285,18 @@ export { maskMoney };
 // Valor colado de outro lugar ("1.234,56", "1234,56", "1.234"): a máscara de digitação (que enche os centavos da direita)
 // transformaria "1.234" em 12,34. Na colagem, vírgula é o decimal; sem vírgula, "1.234" com 3 dígitos depois do ponto é milhar.
 export function valorColado(texto: string): string {
+  // Negativo (estorno, "(1.250,00)", "1.250,00-") não é valor de guia: antes o sinal sumia e o valor entrava positivo.
+  // Cobre o sinal no começo, no fim e antes do número no meio do texto ("Valor: -1.250,00", "Estorno – R$ 50,00"); o hífen
+  // entre dígitos (data, faixa colada junto) não conta como sinal.
+  if (/^\s*(R\$\s*)?[-−–(]/.test(texto) || /\d\s*[-−–]\s*$/.test(texto) || /(^|[^\d])\s*[-−–]\s*(R\$\s*)?\d/.test(texto)) return "";
   const limpo = texto.replace(/[^\d.,]/g, "");
   if (!limpo) return "";
+  // Formato americano ("1,613.84", "1,613,456"): vírgula é milhar e ponto é decimal. "1,613" sozinho segue como decimal
+  // brasileiro (ambíguo), como sempre.
+  if (/^\d{1,3}(,\d{3})+(\.\d{1,2})?$/.test(limpo) && (limpo.includes(".") || (limpo.match(/,/g) ?? []).length >= 2)) {
+    const americano = Number(limpo.replace(/,/g, ""));
+    return americano > 0 ? moneyToMasked(americano) : "";
+  }
   const milharBr = /^\d{1,3}(\.\d{3})+$/.test(limpo);
   const numero = limpo.includes(",") || milharBr ? numeroBr(limpo.replace(/\./g, "").replace(",", ".")) : numeroBr(limpo);
   return numero > 0 ? moneyToMasked(numero) : "";
