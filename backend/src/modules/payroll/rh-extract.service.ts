@@ -6,6 +6,7 @@ import crypto from "node:crypto";
 import { PDFParse } from "pdf-parse";
 import { prisma } from "../../config/database.js";
 import { FOLHA_CATEGORY } from "./payroll.service.js";
+import { lerMediaValor13, type MediaValorExtrato } from "./decimo-terceiro-gorjeta-combinado.js";
 import { ROTULO_13_EXTRATO_PARCELA_1 } from "./decimo-terceiro-sr.js";
 import { sincronizarCombinadoDoDecimo } from "./decimo-terceiro.service.js";
 import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
@@ -26,6 +27,8 @@ export type ExtratoFuncionario = {
   adiantamento: number | null;
   // "Trabalhando", "Demitido", "Afastado"… como vem no extrato.
   situacao: string | null;
+  // Só no extrato do 13º: a rubrica "MEDIA VALOR 13o ADIANTADO" (a gorjeta declarada entra aqui). null = a pessoa não tem.
+  mediaValor13?: MediaValorExtrato | null;
 };
 
 // O mesmo "Extrato Mensal" da contabilidade sai em três cálculos: a folha do mês
@@ -112,6 +115,7 @@ export function lerTextoExtrato(txt: string): ExtratoParsed {
       gorjeta: gor ? brToNumber(gor) : null,
       adiantamento: adiant ? brToNumber(adiant) : null,
       situacao,
+      ...(calculo === "DECIMO_TERCEIRO" ? { mediaValor13: lerMediaValor13(body) } : {}),
     });
   }
 

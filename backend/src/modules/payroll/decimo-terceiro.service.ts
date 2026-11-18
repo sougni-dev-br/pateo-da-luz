@@ -13,6 +13,7 @@ import { prisma } from "../../config/database.js";
 import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
 import { computeTipCommission } from "./tip-commission.service.js";
 import { cadastrosVigentes, carregarHistorico } from "./cadastro-historico.service.js";
+import { DESCRICAO_COMBINADO_E_GORJETA, mediaDeclaradaMensal, variaveisDaDiferencaDaGorjeta, type MediaValorExtrato } from "./decimo-terceiro-gorjeta-combinado.js";
 import { complementoSomado, DESCRICAO_COMBINADO, diferencaDoCombinado, foiSomado, inicioDoCombinado, liquidoDoExtrato } from "./decimo-terceiro-combinado.js";
 import { type MesFaltando, mesesDoPeriodo13, mesesSemVariavel } from "./decimo-terceiro-meses-faltando.js";
 import { type ResultadoSoma, somarCombinadoAoExtrato } from "./decimo-terceiro-combinado.service.js";
@@ -90,6 +91,8 @@ const TODOS_OS_ROTULOS = [ROTULOS_SR.p1, ROTULOS_SR.p2, ROTULOS_COMBINADO.p1, RO
 // Mês em andamento (período que ainda não terminou) fica de fora até fechar: valor parcial puxaria a média para baixo.
 export type VariavelInformada = { mes: number; valor: number; motivo: string };
 type Variaveis = {
+  // Gorjeta integral (a mesma da folha de líquidos) de cada pessoa por mês: base da diferença somada ao 13º do combinado.
+  gorjetaIntegral: Map<string, Map<number, number>>;
   porPessoa: Map<string, Map<number, number>>; status: Map<number, string>; apurados: Set<number>;
   informadas: Map<string, VariavelInformada[]>;
 };
@@ -99,6 +102,7 @@ type Variaveis = {
 async function variaveisDoAno(ano: number): Promise<Variaveis> {
   const periodos = await prisma.tipPeriod.findMany({ where: { competenceYear: ano }, select: { competenceMonth: true, periodEnd: true } });
   const porPessoa = new Map<string, Map<number, number>>();
+  const gorjetaIntegral = new Map<string, Map<number, number>>();
   const status = new Map<number, string>();
   const apurados = new Set<number>();
   const agora = Date.now();
@@ -113,6 +117,11 @@ async function variaveisDoAno(ano: number): Promise<Variaveis> {
       const meses = porPessoa.get(p.employeeId) ?? new Map<number, number>();
       meses.set(per.competenceMonth, (meses.get(per.competenceMonth) ?? 0) + v);
       porPessoa.set(p.employeeId, meses);
+      // Gorjeta integral: líquida dos pontos (rateio − vales + créditos); fora do período ou paga na rescisão não conta.
+      const integral = p.tipoCalculo !== "FORA_DO_PERIODO" && !p.pagoNaRescisao ? p.netCommission ?? 0 : 0;
+      const gi = gorjetaIntegral.get(p.employeeId) ?? new Map<number, number>();
+      gi.set(per.competenceMonth, round2((gi.get(per.competenceMonth) ?? 0) + integral));
+      gorjetaIntegral.set(p.employeeId, gi);
     }
   }
   // Valor informado à mão substitui o da apuração, só aqui (a gorjeta em si não muda).
@@ -126,7 +135,30 @@ async function variaveisDoAno(ano: number): Promise<Variaveis> {
     porPessoa.set(r.employeeId, meses);
     informadas.set(r.employeeId, [...(informadas.get(r.employeeId) ?? []), { mes: r.mes, valor: round2(Number(r.valor)), motivo: r.motivo }]);
   }
-  return { porPessoa, status, apurados, informadas };
+  return { gorjetaIntegral, porPessoa, status, apurados, informadas };
+}
+
+// Gorjeta DECLARADA que o extrato do 13º já pagou a cada pessoa (rubrica "MEDIA VALOR"), pelo CPF. Lê o texto guardado
+// do extrato importado: não precisa reimportar.
+async function mediaDeclaradaDoExtrato(ano: number): Promise<Map<string, MediaValorExtrato>> {
+  const out = new Map<string, MediaValorExtrato>();
+  // Import dinâmico: rh-extract.service puxa a leitura de PDF (pesada) e importa este módulo (ciclo).
+  const { lerTextoExtrato } = await import("./rh-extract.service.js");
+  const extratos = await prisma.rhExtract.findMany({
+    where: { calculo: "DECIMO_TERCEIRO", competenceYear: ano }, select: { texto: true }, orderBy: { createdAt: "asc" },
+  });
+  for (const x of extratos) {
+    if (!x.texto) continue;
+    let funcionarios: Array<{ cpfNorm: string; mediaValor13?: MediaValorExtrato | null }>;
+    try { funcionarios = lerTextoExtrato(x.texto).funcionarios; } catch { continue; } // extrato antigo de outro formato: não derruba o 13º de todos
+    for (const f of funcionarios) {
+      if (!f.mediaValor13) continue;
+      // A mesma pessoa em mais de um extrato: vale a MAIOR declarada (a que menos soma), nunca a que pagaria a mais.
+      const atual = out.get(f.cpfNorm);
+      if (!atual || mediaDeclaradaMensal(f.mediaValor13) > mediaDeclaradaMensal(atual)) out.set(f.cpfNorm, f.mediaValor13);
+    }
+  }
+  return out;
 }
 
 // Avisos sobre a base da média: mês sem apuração, em andamento ou ainda não fechado.
@@ -245,7 +277,7 @@ export async function listarDecimoTerceiroSR(ano: number): Promise<PreviaDecimo1
   const emps = await prisma.employee.findMany({
     where: { deletedAt: null, terminationDate: null, recebeDecimoTerceiro: true },
     select: {
-      id: true, firstName: true, lastName: true, sector: true, modality: true, baseSalary: true, salarioCombinado: true,
+      id: true, firstName: true, lastName: true, sector: true, modality: true, baseSalary: true, salarioCombinado: true, cpf: true,
       admissionDate: true, admissaoCarteira: true, decimoTerceiroInicio: true, terminationDate: true,
     },
     orderBy: [{ firstName: "asc" }],
@@ -346,18 +378,34 @@ export async function listarDecimoTerceiroSR(ano: number): Promise<PreviaDecimo1
   // CLT com salário combinado: a diferença acima do registrado (o registrado vem do extrato).
   const comCombinado = emps.filter((e) => vigentes.get(e.id)?.modality === "CLT" && vigentes.get(e.id)?.salarioCombinado != null);
   const historicoCombinado = comCombinado.length > 0 ? await carregarHistorico(comCombinado.map((e) => e.id)) : new Map();
+  const declaradas = comCombinado.length > 0 ? await mediaDeclaradaDoExtrato(ano) : new Map<string, MediaValorExtrato>();
   for (const e of comCombinado) {
     const v = vigentes.get(e.id)!;
     const diferenca = diferencaDoCombinado(v.baseSalary, v.salarioCombinado);
     if (diferenca == null) continue;
+    const extratoLido = itemDe(e.id, ROTULO_13_EXTRATO_PARCELA_1);
+    const extrato = extratoLido && String(extratoLido.status ?? "") === "CANCELED" ? undefined : extratoLido;
+    // Diferença da gorjeta integral (decisão do Eli, 18/11/2026): o extrato já pagou a gorjeta declarada; soma-se o que a
+    // integral tem a mais. Valor informado à mão no mês vale como gorjeta integral dele. Sem a média do extrato não há
+    // como descontar a declarada: não soma e avisa (nunca paga a mais).
+    const declarada = declaradas.get(String(e.cpf ?? "").replace(/\D/g, ""));
+    const mesesApuradosDif = new Set([...variaveis.apurados, ...(variaveis.informadas.get(e.id) ?? []).map((i) => i.mes)]);
+    const integralPorMes = new Map(variaveis.gorjetaIntegral.get(e.id) ?? []);
+    for (const i of variaveis.informadas.get(e.id) ?? []) integralPorMes.set(i.mes, i.valor);
+    if (!declarada && extrato && [...integralPorMes.values()].some((v) => v > 0)) {
+      avisosCombinado.push(`${nomeDe(e)}: o extrato do 13º não trouxe a média de valores (gorjeta declarada) dele; a diferença da gorjeta integral não foi somada. Reimporte o extrato do 13º.`);
+    }
+    // Limite conhecido: o extrato da 2ª parcela ainda não é lido; a 2ª usa a mesma média declarada da 1ª.
+    if (declarada && !avisosCombinado.some((a) => a.includes("gorjeta integral na 2ª parcela"))) {
+      avisosCombinado.push("A diferença da gorjeta integral na 2ª parcela assume a mesma média declarada do extrato da 1ª: confira com o extrato da 2ª parcela da contabilidade antes de pagar.");
+    }
     const calculo = calcularDecimoTerceiroSR({
       ano, salarioBase: diferenca, inicio: inicioDoCombinado(historicoCombinado.get(e.id) ?? []) ?? e.admissionDate,
       desligamento: null, diasAfastados: afastados.get(e.id),
+      ...(declarada ? { variaveis: variaveisDaDiferencaDaGorjeta(integralPorMes, mediaDeclaradaMensal(declarada), mesesApuradosDif), mesesApurados: mesesApuradosDif } : {}),
     });
     // Sem avos neste ano (combinado muito recente): nada a mostrar.
     if (!calculo) continue;
-    const extratoLido = itemDe(e.id, ROTULO_13_EXTRATO_PARCELA_1);
-    const extrato = extratoLido && String(extratoLido.status ?? "") === "CANCELED" ? undefined : extratoLido;
     const primeiraSomada = primeiraSomadaDoExtrato(extrato);
     const proprias = parcelasDaLinha(itemDe, e.id, ROTULOS_COMBINADO, calculo, primeiraSomada);
     const p1 = resolverViaExtrato(extrato, proprias.p1, calculo.parcela1, nomeDe(e), avisosCombinado, { sujeito: "a diferença do salário combinado", pago: "paga", lancar: "lançá-la" });
@@ -365,7 +413,7 @@ export async function listarDecimoTerceiroSR(ano: number): Promise<PreviaDecimo1
       employeeId: e.id, nome: nomeDe(e), setor: e.sector, calculo, motivoSemCalculo: null,
       ...proprias, p1: p1.p1,
       preRegistro: false, semRegistroAte: null, registroEm: null, informadas: [], mesesFaltando: [], origem: "COMBINADO", rotulos: ROTULOS_COMBINADO, viaExtrato: p1.viaExtrato, primeiraSomada,
-      somaNoExtrato: true, complementoDescricao: DESCRICAO_COMBINADO,
+      somaNoExtrato: true, complementoDescricao: calculo.mediaParcela1 > 0 || calculo.mediaFinal > 0 ? DESCRICAO_COMBINADO_E_GORJETA : DESCRICAO_COMBINADO,
     });
   }
   const comSomaViva = new Set(linhas.filter((l) => l.somaNoExtrato && l.viaExtrato).map((l) => l.employeeId));

@@ -9,6 +9,7 @@ vi.mock("../../../config/database.js", () => ({
     employeeScheduleDay: { findMany: vi.fn() },
     tipPeriod: { findMany: vi.fn() },
     decimoTerceiroVariavel: { findMany: vi.fn() },
+    rhExtract: { findMany: vi.fn() },
     dRECategory: { findFirst: vi.fn() },
     $transaction: vi.fn(),
   },
@@ -24,6 +25,7 @@ vi.mock("../cadastro-historico.service.js", () => ({
 }));
 
 import { prisma } from "../../../config/database.js";
+import { computeTipCommission } from "../tip-commission.service.js";
 import { ROTULO_13_EXTRATO_PARCELA_1 } from "../decimo-terceiro-sr.js";
 import { gerarDecimoTerceiroSR, listarDecimoTerceiroSR, p1DoCombinado, primeiraSomadaDoExtrato } from "../decimo-terceiro.service.js";
 import { valorComCombinado } from "../decimo-terceiro-combinado.js";
@@ -33,7 +35,7 @@ const db = prisma as any;
 // CLT com base 3.000 e combinado 4.500 (diferença 1.528 em outro exemplo: aqui 1.500), desde 01/03/2026 → 10 avos, 9 na 1ª.
 const clt = {
   id: "e1", firstName: "Ana", lastName: "Silva", sector: "Gerência", modality: "CLT", baseSalary: 3000, salarioCombinado: 4500,
-  admissionDate: new Date("2025-03-01T00:00:00Z"), admissaoCarteira: new Date("2025-03-01T00:00:00Z"), terminationDate: null,
+  admissionDate: new Date("2025-03-01T00:00:00Z"), admissaoCarteira: new Date("2025-03-01T00:00:00Z"), terminationDate: null, cpf: "000.000.001-91",
 };
 const itemExtrato = (over: Record<string, unknown> = {}) => ({
   id: "x1", employeeId: "e1", periodLabel: ROTULO_13_EXTRATO_PARCELA_1, amount: 2000, paidAmount: null, paymentDate: null, deletedAt: null, deletedById: null,
@@ -53,6 +55,7 @@ beforeEach(() => {
   db.employeeScheduleDay.findMany.mockResolvedValue([]);
   db.tipPeriod.findMany.mockResolvedValue([]);
   db.decimoTerceiroVariavel.findMany.mockResolvedValue([]);
+  db.rhExtract.findMany.mockResolvedValue([]);
   db.dRECategory.findFirst.mockResolvedValue({ id: "dre1" });
   db.payrollItem.createMany.mockResolvedValue({ count: 1 });
   db.payrollItem.updateMany.mockResolvedValue({ count: 1 });
@@ -280,5 +283,111 @@ describe("soma órfã e CANCELED na lista CLT (terceira auditoria)", () => {
     const l = (await listarDecimoTerceiroSR(2026)).linhas.find((x) => x.origem === "COMBINADO")!;
     expect(l.p1.conferir).toBeUndefined();
     expect(l.p1.gerar).toBe(true); // diferença à parte
+  });
+});
+
+// ── Diferença da gorjeta integral no 13º (decisão do Eli, 18/11/2026) ──────────────────────────────────────────
+// Extrato do 13º FICTÍCIO: a rubrica "MEDIA VALOR" paga 100,00 na 1ª parcela (12 avos) → gorjeta declarada de 200,00 por mês.
+const textoExtrato = (mediaValor: string | null) => [
+  "Página: 1/1", "Emissão: 12/11/2026", "EXTRATO MENSAL", "11/2026", "Cálculo: 13o Adiantamento", "00.000.000/0001-00", "EMPRESA EXEMPLO COMERCIO LTDA",
+  "20 ANA SILVA	Empr.: 01/03/2025	Adm:	000.000.001-91	Trabalhando CPF:	Situação:",
+  "13 13 SALARIO ADIANTADO P	1.500,00	12,00", ...(mediaValor ? [`834 MEDIA VALOR 13o ADIANTADO P	${mediaValor}	12,00`] : []),
+  "ND: 1 Proventos: 1.600,00 Líquido:	Descontos: 0,00 Informativa: 1 Informativa Dedutora: 0 1.600,00", "NF: 1 Base INSS: 0,00",
+].join("\n");
+
+// Gorjeta integral (netCommission) de ago, set e out: 1.000 / 1.200 / 800 → média 1.000.
+function apuracao(porMes: Record<number, number | null>) {
+  db.tipPeriod.findMany.mockResolvedValue(Object.keys(porMes).map((m) => ({ competenceMonth: Number(m), periodEnd: new Date("2026-01-01T00:00:00Z") })));
+  vi.mocked(computeTipCommission).mockImplementation((async (_ano: number, mes: number) => ({
+    status: "CLOSED",
+    participants: porMes[mes] == null ? [] : [{ employeeId: "e1", netCommission: porMes[mes], tipoCalculo: "NORMAL", pagoNaRescisao: false, rateioAmount: 0 }],
+  })) as never);
+}
+
+describe("diferença da gorjeta integral no 13º do combinado", () => {
+  test("soma (integral − declarada) à diferença do combinado: (1.500 + 800) ÷ 12 × 9 ÷ 2 = 862,50", async () => {
+    monta([itemExtrato()]);
+    db.rhExtract.findMany.mockResolvedValue([{ texto: textoExtrato("100,00") }]);
+    apuracao({ 8: 1000, 9: 1200, 10: 800 });
+    const l = await comb();
+    expect(l.calculo!.mediaParcela1).toBe(800); // média 1.000 − declarada 200
+    expect(l.calculo!.parcela1).toBe(862.5);
+    expect(l.complementoDescricao).toContain("gorjeta integral");
+  });
+
+  test("mês apurado sem gorjeta da pessoa conta como zero na média", async () => {
+    monta([itemExtrato()]);
+    db.rhExtract.findMany.mockResolvedValue([{ texto: textoExtrato("100,00") }]);
+    apuracao({ 8: 1000, 9: 1200, 10: null }); // out: ele não aparece → 0 − 200
+    const l = await comb();
+    expect(l.calculo!.mediaParcela1).toBe(533.33); // (800 + 1.000 − 200) ÷ 3
+    expect(l.calculo!.parcela1).toBe(762.5); // (1.500 + 533,33) ÷ 12 × 9 ÷ 2
+  });
+
+  test("gorjeta integral abaixo da declarada: nada a somar (nunca desconta do extrato) e a descrição é a antiga", async () => {
+    monta([itemExtrato()]);
+    db.rhExtract.findMany.mockResolvedValue([{ texto: textoExtrato("100,00") }]);
+    apuracao({ 8: 100, 9: 100, 10: 100 });
+    const l = await comb();
+    expect(l.calculo!.mediaParcela1).toBe(0);
+    expect(l.calculo!.parcela1).toBe(562.5);
+    expect(l.complementoDescricao).toBe("diferença do salário combinado");
+  });
+
+  test("extrato sem a rubrica de média: não soma gorjeta e avisa (não dá para descontar a declarada)", async () => {
+    monta([itemExtrato()]);
+    db.rhExtract.findMany.mockResolvedValue([{ texto: textoExtrato(null) }]);
+    apuracao({ 8: 1000, 9: 1200, 10: 800 });
+    const previa = await listarDecimoTerceiroSR(2026);
+    const l = previa.linhas.find((x) => x.origem === "COMBINADO")!;
+    expect(l.calculo!.parcela1).toBe(562.5);
+    expect(previa.avisos.join(" ")).toContain("gorjeta integral");
+  });
+
+  test("sem extrato importado: segue a regra antiga, sem aviso extra", async () => {
+    monta([]);
+    apuracao({ 8: 1000, 9: 1200, 10: 800 });
+    const previa = await listarDecimoTerceiroSR(2026);
+    expect(previa.linhas.find((x) => x.origem === "COMBINADO")!.calculo!.parcela1).toBe(562.5);
+    expect(previa.avisos.join(" ")).not.toContain("média de valores");
+  });
+
+  test("valor informado à mão para o mês substitui a gorjeta da apuração", async () => {
+    monta([itemExtrato()]);
+    db.rhExtract.findMany.mockResolvedValue([{ texto: textoExtrato("100,00") }]);
+    apuracao({ 8: 1000, 9: 1200, 10: 800 });
+    db.decimoTerceiroVariavel.findMany.mockResolvedValue([{ employeeId: "e1", mes: 8, valor: 1900, motivo: "gorjeta integral paga por fora" }]);
+    const l = await comb();
+    expect(l.calculo!.mediaParcela1).toBe(1100); // (1.700 + 1.000 + 600) ÷ 3
+  });
+});
+
+describe("diferença da gorjeta — salvaguardas", () => {
+  test("sem rubrica e sem gorjeta integral (fora da gorjeta): não avisa para reimportar", async () => {
+    monta([itemExtrato()]);
+    db.rhExtract.findMany.mockResolvedValue([{ texto: textoExtrato(null) }]);
+    apuracao({ 8: null, 9: null, 10: null });
+    expect((await listarDecimoTerceiroSR(2026)).avisos.join(" ")).not.toContain("Reimporte");
+  });
+
+  test("a mesma pessoa em dois extratos: vale a maior declarada (nunca paga a mais)", async () => {
+    monta([itemExtrato()]);
+    db.rhExtract.findMany.mockResolvedValue([{ texto: textoExtrato("100,00") }, { texto: textoExtrato("50,00") }]);
+    apuracao({ 8: 1000, 9: 1200, 10: 800 });
+    expect((await comb()).calculo!.mediaParcela1).toBe(800); // declarada 200, não 100
+  });
+
+  test("extrato guardado ilegível não derruba a prévia", async () => {
+    monta([itemExtrato()]);
+    db.rhExtract.findMany.mockResolvedValue([{ texto: "Cálculo: 13o Salário\nlixo" }, { texto: textoExtrato("100,00") }]);
+    apuracao({ 8: 1000, 9: 1200, 10: 800 });
+    expect((await comb()).calculo!.parcela1).toBe(862.5);
+  });
+
+  test("avisa o limite: a 2ª parcela assume a mesma média declarada", async () => {
+    monta([itemExtrato()]);
+    db.rhExtract.findMany.mockResolvedValue([{ texto: textoExtrato("100,00") }]);
+    apuracao({ 8: 1000, 9: 1200, 10: 800 });
+    expect((await listarDecimoTerceiroSR(2026)).avisos.join(" ")).toContain("2ª parcela assume a mesma média declarada");
   });
 });
