@@ -8096,6 +8096,15 @@ export type TipComputation = {
   warnings: string[];
   /** Os mesmos textos, com as pessoas citadas (ausente em respostas antigas). */
   situacao?: TipItemSituacao[];
+  /** O mês anterior fechado, para comparar; null/ausente quando não há fechamento vigente. */
+  anterior?: TipMesAnterior | null;
+};
+
+export type TipAnteriorDaPessoa = {
+  gorjeta: number; pontosBase: number; pontosApurados: number; diasComputados: number; diasReferencia: number; funcao: string | null; tipo: string | null; tipoCalculo: string | null;
+};
+export type TipMesAnterior = {
+  year: number; month: number; label: string; valorPonto: number | null; porPessoa: Record<string, TipAnteriorDaPessoa>;
 };
 
 export type TipItemSituacao = { gravidade: "PENDENCIA" | "AVISO"; texto: string; employeeIds: string[] };

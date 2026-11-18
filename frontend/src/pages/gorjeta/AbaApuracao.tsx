@@ -14,6 +14,7 @@ import { NomePessoa, textoPessoa } from "./NomePessoa";
 import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
 import { explicarPontos } from "./explicacaoPontos";
 import { idLinhaDaPessoa } from "./irParaPessoa";
+import { compararComAnterior, resumirComparacao } from "./comparacaoMesAnterior";
 import {
   type LocalRow, type RowPatch, fmtDate, money, mutedStyle, numInputStyle, ordenar, panelStyle, pts,
 } from "./gorjetaUtils";
@@ -208,6 +209,7 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
   // Quem não participa da gorjeta (sem registro só pelo salário) não entra no rateio:
   // fica fora da tabela e das somas, numa seção à parte no fim.
   const participantes = useMemo(() => ordenar(comp.participants).filter((p) => !p.foraDaGorjeta), [comp]);
+  const resumoComparacao = useMemo(() => resumirComparacao(comp, participantes), [comp, participantes]);
   const soSalario = useMemo(() => ordenar(comp.participants).filter((p) => p.foraDaGorjeta), [comp]);
   const { ordem, alternar, definir } = useOrdenacao("apuracao");
   // No celular começa com o essencial (nome, pontos, gorjeta); o resto se liga em "Colunas".
@@ -279,6 +281,7 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
     const fora = p.tipoCalculo === "FORA_DO_PERIODO";
     const set = (patch: Partial<LocalRow>) => onRow(p.employeeId, patch);
     const explicacao = explicarPontos(p, diasDoCiclo);
+    const comparacao = compararComAnterior(p, comp.pointValue, comp.anterior);
     const saldoVales = p.creditos - p.descontos;
     return (
       <Table.Row key={p.employeeId} id={idLinhaDaPessoa(p.employeeId)} style={fora ? { opacity: 0.55 } : undefined}>
@@ -361,6 +364,12 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
                   )}
                 </span>
                 {p.gorjetaReal && <div style={{ ...mutedStyle, fontSize: 11 }}>calculada <Money value={p.gorjetaCalculada} /></div>}
+                {comparacao && (
+                  <details className={`comparacao comparacao-${comparacao.tipo}`}>
+                    <summary aria-label={`${comparacao.rotulo}. Ver o que mudou`}>{comparacao.curta}</summary>
+                    <span className="comparacao-texto">{comparacao.longa}</span>
+                  </details>
+                )}
                 {p.tipoCalculo === "RESCISAO" && <div style={{ ...mutedStyle, fontSize: 11 }}>ponto {money(p.valorPonto)}</div>}
                 {p.tipoCalculo === "RESCISAO_QUITADA" && <div style={{ ...mutedStyle, fontSize: 11 }}>quitada</div>}
               </>}
@@ -456,6 +465,7 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
         <DialogoGorjetaReal participante={editandoReal} onFechar={() => setEditandoReal(null)}
           onSalvar={(valor, motivo) => onGorjetaReal(editandoReal.participantId!, valor, motivo)} />
       )}
+      {resumoComparacao && <p className="comparacao-resumo">{resumoComparacao}</p>}
       <div className="barra-lista">
         <label className="barra-lista-campo">
           <span>Ordenar por</span>
