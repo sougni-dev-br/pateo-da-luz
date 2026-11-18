@@ -483,6 +483,12 @@ export async function computePayroll(year: number, month: number, quinzenaAGerar
       }
     } else if (emp.vtType === "AUXILIO_COMBUSTIVEL") {
       const val = round2(Number(emp.vtFixedAmount ?? 0));
+      // Decisão pendente do Eli: a ajuda de custo é proporcional aos dias de férias? Até ele confirmar, o valor
+      // sai cheio e a prévia só avisa (não inventar regra: mexe no que a pessoa recebe).
+      const diasFeriasNoMes = feriasByEmp.get(emp.id)?.size ?? 0;
+      if (val > 0 && diasFeriasNoMes > 0) {
+        warnings.push(`${name}: ajuda de custo de ${String(month).padStart(2, "0")}/${year} com ${diasFeriasNoMes} dia(s) de férias no mês — não foi proporcionalizada (regra ainda não confirmada); confira o valor.`);
+      }
       if (val > 0) {
         const periods = vtPeriods({
           year, month, daysInMonth, periodicity: emp.vtPeriodicity,
@@ -506,7 +512,10 @@ export async function computePayroll(year: number, month: number, quinzenaAGerar
     const vigente = vigentes.get(emp.id)!;
     const base = round2(Number(vigente.baseSalary ?? 0));
     if (base > 0 && comFeriasNaFolha.has(emp.id)) {
-      warnings.push(`${name} tem férias e salário na mesma competência (${String(month).padStart(2, "0")}/${year}) — confira os valores para não pagar em dobro.`);
+      const combinadoNota = emp.salarioCombinado != null
+        ? " Salário combinado: ao sincronizar o salário do extrato, o combinado do mês é proporcional aos dias de férias (os dias de gozo são pagos no título de férias)."
+        : "";
+      warnings.push(`${name} tem férias e salário na mesma competência (${String(month).padStart(2, "0")}/${year}) — confira os valores para não pagar em dobro.${combinadoNota}`);
     }
     const semRegistro = vigente.modality === "NAO_CLT";
     if (base > 0 && semRegistro) temSemRegistroComSalario = true;

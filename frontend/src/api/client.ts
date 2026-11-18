@@ -1400,7 +1400,7 @@ export type MembroFolhaLote = {
 };
 
 export type SalarioComposicao = {
-  tipo: "SALARIO_COMBINADO" | "PENDENTE_GORJETA" | "DECIMO_SOMADO";
+  tipo: "SALARIO_COMBINADO" | "PENDENTE_GORJETA" | "DECIMO_SOMADO" | "FERIAS_SOMADO";
   /** 13º somado ao título do extrato: o que foi somado ao líquido (diferença do combinado ou 13º do período sem registro). */
   descricao?: string | null;
   liquidoExtrato: number;
@@ -1409,6 +1409,10 @@ export type SalarioComposicao = {
   combinado: number | null;
   adiantamento: number | null;
   gorjetaIntegral: number | null;
+  /** Férias somadas: fórmula com a média e a origem dos meses; meses (AAAA-MM) que ficaram fora da média. */
+  formula?: string | null;
+  mesesContados?: number | null;
+  mesesAusentes?: string[] | null;
 };
 
 export type SmallExpenseReportRow = {

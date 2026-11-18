@@ -3,6 +3,7 @@ import { Router } from "express";
 import { prisma } from "../../config/database.js";
 import { auditLog, getSessionUser, requestIp } from "../security/security-utils.js";
 import { hojeEmSaoPaulo } from "./extras-comum.js";
+import { feriasCombinadoRouter } from "./ferias-combinado.routes.js";
 import { feriasReciboRouter } from "./ferias-recibo.routes.js";
 import {
   DIAS_ABONO, diaValido, periodosDeFerias, piorNivel, somarDias, somarMeses,
@@ -21,6 +22,8 @@ import { SEMANAS_DE_ESCALA_LIDAS, feriadosEntre, motivoInicioVedado, repousoDaPe
 export const feriasRouter = Router();
 // Aviso e recibo de férias da contabilidade → título no Contas a Pagar.
 feriasRouter.use("/recibo", feriasReciboRouter);
+// Diferença do salário combinado + gorjeta integral somada ao título de férias em aberto.
+feriasRouter.use("/combinado", feriasCombinadoRouter);
 
 const MIN_DIAS_GOZO = 5;
 const MAX_PARTES = 3;

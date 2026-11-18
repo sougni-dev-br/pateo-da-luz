@@ -123,3 +123,66 @@ describe("salário combinado: gorjeta paga na rescisão e pessoa fora da apuraç
     expect(gorjetaDaPessoa(mapa, "e1")).toEqual({ noPeriodo: true, gorjetaLiquida: 10 });
   });
 });
+
+// Férias no mês: o combinado é proporcionalizado antes do adiantamento e da gorjeta (valores fictícios).
+describe("salarioDaFolha com dias de férias no mês", () => {
+  const base = { liquidoExtrato: 1500, adiantamento: 1000, combinado: 6000, gorjeta: { noPeriodo: true, gorjetaLiquida: 1500 } };
+
+  test("sem férias (omitido ou 0): idêntico ao comportamento anterior", () => {
+    const antes = salarioDaFolha(base);
+    expect(salarioDaFolha({ ...base, ferias: { dias: 0, diasNoMes: 30 } })).toEqual(antes);
+    expect(antes.valor).toBe(6500);
+    expect(antes.detalhes).not.toHaveProperty("diasDeFerias");
+  });
+
+  test("10 dias de férias: (6.000 × 20/30) − adiantamento + gorjeta", () => {
+    const r = salarioDaFolha({ ...base, ferias: { dias: 10, diasNoMes: 31 } });
+    expect(r.valor).toBe(4500); // 4.000 − 1.000 + 1.500
+    expect(r.detalhes).toMatchObject({ combinado: 4000, combinadoCheio: 6000, diasDeFerias: 10, adiantamento: 1000, gorjetaIntegral: 1500 });
+    expect(r.detalhes.composicao).toContain("proporcional");
+    expect(r.detalhes.composicao).toContain("10 dia(s) de férias");
+  });
+
+  test("mês inteiro de férias: combinado zero (só gorjeta − adiantamento)", () => {
+    const r = salarioDaFolha({ ...base, ferias: { dias: 31, diasNoMes: 31 } });
+    expect(r.detalhes.combinado).toBe(0);
+    expect(r.valor).toBe(500);
+  });
+
+  test("quem não tem combinado ignora férias", () => {
+    const r = salarioDaFolha({ ...base, combinado: null, ferias: { dias: 10, diasNoMes: 30 } });
+    expect(r).toEqual({ valor: 1500, detalhes: { liquidoExtrato: 1500 }, pendenteGorjeta: false, aviso: null });
+  });
+
+  test("gorjeta pendente com férias: mantém o líquido e guarda os dias", () => {
+    const r = salarioDaFolha({ ...base, gorjeta: null, ferias: { dias: 10, diasNoMes: 30 } });
+    expect(r.valor).toBe(1500);
+    expect(r.pendenteGorjeta).toBe(true);
+  });
+
+  test("mesclarDetalhes remove as marcas de férias de um cálculo antigo", () => {
+    const antigo = salarioDaFolha({ ...base, ferias: { dias: 10, diasNoMes: 30 } }).detalhes;
+    const novo = salarioDaFolha(base).detalhes;
+    const m = mesclarDetalhes(antigo, novo);
+    expect(m).not.toHaveProperty("diasDeFerias");
+    expect(m).not.toHaveProperty("combinadoCheio");
+  });
+});
+
+describe("composicaoParaTela — férias com combinado", () => {
+  test("título FERIAS somado: explica recibo + diferença, com a fórmula e as fontes (só nos detalhes)", () => {
+    const c = composicaoParaTela({
+      origemValor: "FERIAS_COMBINADO", liquidoExtrato: 6000, complemento: 4000, complementoDescricao: "diferença do salário combinado e da gorjeta integral",
+      feriasCombinado: { formula: "(combinado R$ 6.000,00 + média R$ 1.500,00) × 4/3", mesesContados: 12, mesesAusentes: [] },
+    }, 10000);
+    expect(c).toMatchObject({
+      tipo: "FERIAS_SOMADO", liquidoExtrato: 6000, complemento: 4000, total: 10000,
+      descricao: "diferença do salário combinado e da gorjeta integral", formula: "(combinado R$ 6.000,00 + média R$ 1.500,00) × 4/3",
+      mesesContados: 12, mesesAusentes: [],
+    });
+  });
+
+  test("título de férias sem soma: sem composição", () => {
+    expect(composicaoParaTela({ recibo: { liquido: 6000 } }, 6000)).toBeNull();
+  });
+});
