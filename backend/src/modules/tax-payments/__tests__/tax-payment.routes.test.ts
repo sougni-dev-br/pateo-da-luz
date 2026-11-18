@@ -310,13 +310,27 @@ describe("discriminação da guia (linhas) e total somado", () => {
   });
 
   test("quantidade de trabalhadores (FGTS) é gravada; inválida é 400 e não grava", async () => {
-    const ok = await request(app).post("/tax-payments").send({ ...guia, items: das, workersCount: "12" });
+    const ok = await request(app).post("/tax-payments").send({ ...guia, documentType: "FGTS", items: das, workersCount: "12" });
     expect(ok.status).toBe(201);
     expect(db.taxPayment.create.mock.calls.at(-1)?.[0].data.workersCount).toBe(12);
+    await request(app).post("/tax-payments").send({ ...guia, items: das, workersCount: "12" });
+    expect(db.taxPayment.create.mock.calls.at(-1)?.[0].data.workersCount).toBeNull();
     const antes = db.taxPayment.create.mock.calls.length;
     const ruim = await request(app).post("/tax-payments").send({ ...guia, items: das, workersCount: "doze" });
     expect(ruim.status).toBe(400);
     expect(db.taxPayment.create.mock.calls.length).toBe(antes);
+  });
+
+  test("código novo só vai para o catálogo depois de a guia ser gravada; guia recusada não deixa lixo", async () => {
+    db.taxCodeCatalog.findMany.mockResolvedValue([]);
+    db.$queryRawUnsafe.mockResolvedValueOnce([{ id: "g9", documentType: "DARF", competenceDate: null }]);
+    const novo = [{ code: "9999", description: "CODIGO NOVO", principal: 10 }];
+    const recusada = await request(app).post("/tax-payments").send({ ...guia, documentType: "DARF", items: novo });
+    expect(recusada.status).toBe(409);
+    expect(db.taxCodeCatalog.createMany).not.toHaveBeenCalled();
+    const ok = await request(app).post("/tax-payments").send({ ...guia, documentType: "DARF", documentNumber: "NOVO-1", items: novo });
+    expect(ok.status).toBe(201);
+    expect(db.taxCodeCatalog.createMany).toHaveBeenCalledTimes(1);
   });
 
   test("o valor da guia é a soma das linhas e as linhas são gravadas junto, na mesma operação", async () => {
@@ -490,6 +504,30 @@ describe("discriminação da guia (linhas) e total somado", () => {
       expect(db.taxPayment.update).not.toHaveBeenCalled();
     });
 
+    test("guia de FGTS ligada a quem foi readmitido continua editável (só revalida se o vínculo mudar)", async () => {
+      db.taxPayment.findFirst.mockResolvedValue({ ...existente, documentType: "FGTS", employeeId: "e1" });
+      const r = await request(app).put("/tax-payments/g1").send({ comments: "ok", employeeId: "e1" });
+      expect(r.status).toBe(200);
+      expect(db.taxPayment.update.mock.calls[0][0].data.employeeId).toBe("e1");
+    });
+
+    test("trocar o tipo de FGTS para outro limpa funcionário e trabalhadores", async () => {
+      db.taxPayment.findFirst.mockResolvedValue({ ...existente, documentType: "FGTS", employeeId: "e1", workersCount: 3 });
+      const r = await request(app).put("/tax-payments/g1").send({ documentType: "DARF" });
+      expect(r.status).toBe(200);
+      const data = db.taxPayment.update.mock.calls[0][0].data;
+      expect(data.employeeId).toBeNull();
+      expect(data.workersCount).toBeNull();
+    });
+
+    test("restaurar com o índice único violado na corrida devolve 409, não 500", async () => {
+      db.taxPayment.findFirst.mockResolvedValue({ ...existente, deletedAt: new Date("2099-12-01T00:00:00Z") });
+      db.taxPayment.update.mockRejectedValueOnce(Object.assign(new Error("unique"), { code: "P2002" }));
+      const r = await request(app).patch("/tax-payments/g1/restore").send({});
+      expect(r.status).toBe(409);
+      expect(r.body.code).toBe("DUPLICATE_DOCUMENT");
+    });
+
     test("guia paga ainda aceita editar texto", async () => {
       db.taxPayment.findFirst.mockResolvedValue(paga);
       const r = await request(app).put("/tax-payments/g1").send({ comments: "conferida", paymentDate: "2099-12-19", paidAmount: 100 });
@@ -602,6 +640,22 @@ describe("lista e totais da tela de impostos", () => {
     const lista = consultas().find((q: string) => q.includes("ORDER BY")) as string;
     expect(lista).toContain(`tp."status" <> 'CANCELED'`);
     expect(lista).not.toContain("NOW()");
+  });
+
+  test("filtros da lista: tipo exato, sem categoria e sem competência sem canceladas", async () => {
+    await request(app).get("/tax-payments").query({ documentType: "DARF", dreCategoryId: "none", withoutCompetence: "true" });
+    const lista = consultas().find((q: string) => q.includes("ORDER BY")) as string;
+    expect(lista).toContain('LOWER(tp."documentType") = LOWER($1)');
+    expect(lista).not.toContain("ILIKE $1");
+    expect(lista).toContain('tp."dreCategoryId" IS NULL');
+    expect(lista).toContain('tp."competenceDate" IS NULL');
+    expect(lista).toContain(`tp."status" <> 'CANCELED'`);
+    db.$queryRawUnsafe.mockClear();
+    await request(app).get("/tax-payments").query({ withoutCompetence: "true", status: "CANCELED" });
+    const canceladas = consultas().find((q: string) => q.includes("ORDER BY")) as string;
+    const filtroCancel = canceladas.slice(canceladas.indexOf("WHERE"), canceladas.indexOf("ORDER BY"));
+    expect(filtroCancel).toContain('tp."competenceDate" IS NULL');
+    expect(filtroCancel).not.toContain(`<> 'CANCELED'`);
   });
 
   test("a lista vem por urgência: o que falta pagar primeiro, pagas e canceladas depois", async () => {

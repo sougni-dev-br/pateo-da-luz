@@ -166,7 +166,7 @@ export function LinhasDaGuia({
             <strong><Money value={totalDaGuia(linhas)} /></strong>
           </div>
           {!somenteLeitura && (
-            <div className="ip-total-papel">
+            <div className="ip-total-papel" data-pend="papel">
               <label>
                 <span className="ip-rotulo">Total no papel (conferir)</span>
                 <input

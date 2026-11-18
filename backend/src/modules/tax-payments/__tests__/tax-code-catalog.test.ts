@@ -5,7 +5,7 @@ vi.mock("../../../config/database.js", () => ({
 }));
 
 import { prisma } from "../../../config/database.js";
-import { aplicarCatalogoDeCodigos } from "../tax-code-catalog.js";
+import { aplicarCatalogoDeCodigos, guardarCodigosNovos } from "../tax-code-catalog.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const catalogo = (prisma as any).taxCodeCatalog;
@@ -29,9 +29,32 @@ describe("aplicarCatalogoDeCodigos", () => {
     expect(catalogo.findMany.mock.calls[0][0].where).toEqual({ documentType: "DARF", code: { in: ["1082", "1099"] } });
   });
 
-  test("código novo entra no catálogo, uma vez, com a denominação informada", async () => {
-    const r = await aplicarCatalogoDeCodigos("DARF", [linha("5952", "RETENCAO CSLL/COFINS/PIS"), linha("5952", "repetido")]);
+  test("aplicar só LÊ: código novo não é gravado (guia recusada não deixa lixo no catálogo)", async () => {
+    const r = await aplicarCatalogoDeCodigos("DARF", [linha("5952", "RETENCAO CSLL/COFINS/PIS")]);
     expect(r[0].description).toBe("RETENCAO CSLL/COFINS/PIS");
+    expect(catalogo.createMany).not.toHaveBeenCalled();
+  });
+
+  test("linhas sem código (FGTS) não consultam nada", async () => {
+    const r = await aplicarCatalogoDeCodigos("FGTS", [linha(null, "FGTS Mensal")]);
+    expect(r[0].description).toBe("FGTS Mensal");
+    expect(catalogo.findMany).not.toHaveBeenCalled();
+  });
+
+  test("o mesmo código em outro tipo de guia não é confundido (o catálogo é por tipo)", async () => {
+    await aplicarCatalogoDeCodigos("GPS / INSS", [linha("1001", "OUTRA COISA")]);
+    expect(catalogo.findMany.mock.calls[0][0].where.documentType).toBe("GPS / INSS");
+  });
+});
+
+describe("guardarCodigosNovos (depois de a guia ser gravada)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    catalogo.findMany.mockResolvedValue([]);
+  });
+
+  test("código novo entra no catálogo, uma vez, com a denominação informada", async () => {
+    await guardarCodigosNovos("DARF", [linha("5952", "RETENCAO CSLL/COFINS/PIS"), linha("5952", "repetido")]);
     expect(catalogo.createMany).toHaveBeenCalledWith({
       data: [{ documentType: "DARF", code: "5952", description: "RETENCAO CSLL/COFINS/PIS" }],
       skipDuplicates: true,
@@ -39,21 +62,24 @@ describe("aplicarCatalogoDeCodigos", () => {
   });
 
   test("mistura de conhecido e novo: só o novo é gravado", async () => {
-    catalogo.findMany.mockResolvedValue([{ code: "1082", description: "CONTR PREV" }]);
-    await aplicarCatalogoDeCodigos("DARF", [linha("1082", "x"), linha("9999", "NOVO")]);
+    catalogo.findMany.mockResolvedValue([{ code: "1082" }]);
+    await guardarCodigosNovos("DARF", [linha("1082", "x"), linha("9999", "NOVO")]);
     expect(catalogo.createMany.mock.calls[0][0].data).toEqual([{ documentType: "DARF", code: "9999", description: "NOVO" }]);
   });
 
-  test("linhas sem código (FGTS) não consultam nem gravam nada", async () => {
-    const r = await aplicarCatalogoDeCodigos("FGTS", [linha(null, "FGTS Mensal")]);
-    expect(r[0].description).toBe("FGTS Mensal");
+  test("sem código novo ou sem código algum, não grava nem consulta à toa", async () => {
+    await guardarCodigosNovos("FGTS", [linha(null, "FGTS Mensal")]);
     expect(catalogo.findMany).not.toHaveBeenCalled();
+    catalogo.findMany.mockResolvedValue([{ code: "1082" }]);
+    await guardarCodigosNovos("DARF", [linha("1082", "x")]);
     expect(catalogo.createMany).not.toHaveBeenCalled();
   });
 
-  test("o mesmo código em outro tipo de guia não é confundido (o catálogo é por tipo)", async () => {
-    await aplicarCatalogoDeCodigos("GPS / INSS", [linha("1001", "OUTRA COISA")]);
-    expect(catalogo.findMany.mock.calls[0][0].where.documentType).toBe("GPS / INSS");
-    expect(catalogo.createMany.mock.calls[0][0].data[0]).toMatchObject({ documentType: "GPS / INSS", code: "1001" });
+  test("falha ao guardar não derruba a guia já gravada", async () => {
+    catalogo.createMany.mockRejectedValueOnce(new Error("banco fora"));
+    const erro = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await expect(guardarCodigosNovos("DARF", [linha("9999", "NOVO")])).resolves.toBeUndefined();
+    expect(erro).toHaveBeenCalled();
+    erro.mockRestore();
   });
 });

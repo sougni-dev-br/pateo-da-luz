@@ -76,6 +76,8 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
   // A categoria vem do tipo e das linhas: true = veio automática (campo travado); false = não há regra para esta guia
   // (a pessoa escolhe e isso é pendência); null = ainda não consultada.
   const [categoriaAuto, setCategoriaAuto] = useState<boolean | null>(null);
+  // Guia já gravada que trocou de tipo: a categoria antiga não vale mais e é sugerida de novo.
+  const [tipoAlterado, setTipoAlterado] = useState(false);
   const [competenciaDigitada, setCompetenciaDigitada] = useState(Boolean(inicial?.mes));
   // Enquanto as linhas não são mexidas, trocar o tipo troca as linhas pelas do modelo do tipo.
   const [linhasMexidas, setLinhasMexidas] = useState(emEdicao || duplicarDe != null);
@@ -120,7 +122,8 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
         setForm(f);
         // Guia que já tem multa ou juros mostra as colunas; as demais começam recolhidas.
         setMostrarMultaJuros(f.linhas.some((l) => l.fine.trim() !== "" || l.interest.trim() !== ""));
-        setCategoriaEscolhida(Boolean(d.dreCategoryId));
+        // Duplicar começa sem categoria "escolhida": ela é recalculada pelo tipo e pelas linhas da cópia.
+        setCategoriaEscolhida(emEdicao ? Boolean(d.dreCategoryId) : false);
         setCategoriaAuto(emEdicao ? Boolean(d.dreCategoryId) : null);
         setCompetenciaDigitada(emEdicao);
       })
@@ -147,8 +150,8 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
 
   // A categoria do DRE vem do tipo e das linhas da guia (resposta atrasada é descartada); sem regra, a pessoa escolhe.
   useEffect(() => {
-    // Guia já gravada não muda de categoria sozinha.
-    if (emEdicao || categoriaEscolhida || !form.documentType) return;
+    // Guia já gravada não muda de categoria sozinha, a não ser que tenha trocado de tipo.
+    if ((emEdicao && !tipoAlterado) || categoriaEscolhida || !form.documentType) return;
     let descartada = false;
     const t = setTimeout(() => {
       getTaxCategorySuggestion(form.documentType, descricaoDasLinhasAtual)
@@ -160,7 +163,7 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
         .catch(() => undefined);
     }, 300);
     return () => { descartada = true; clearTimeout(t); };
-  }, [emEdicao, form.documentType, descricaoDasLinhasAtual, categoriaEscolhida]);
+  }, [emEdicao, tipoAlterado, form.documentType, descricaoDasLinhasAtual, categoriaEscolhida]);
 
   // Aviso de guia repetida: o número do documento é único por emissão (comparado só por letras e dígitos).
   useEffect(() => {
@@ -199,7 +202,9 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
     });
     if (refazerLinhas) setLinhasMexidas(false);
     // Outro tipo, outra categoria automática: consulta de novo.
-    if (!emEdicao) { setCategoriaEscolhida(false); setCategoriaAuto(null); }
+    setCategoriaEscolhida(false);
+    setCategoriaAuto(null);
+    if (emEdicao) setTipoAlterado(true);
   }
 
   function escolherTipo(tipo: string) {
