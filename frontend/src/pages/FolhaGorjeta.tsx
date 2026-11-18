@@ -367,6 +367,7 @@ export function FolhaGorjeta() {
       {aba === "equipe" && (
         <AbaEquipe
           canEdit={canEdit}
+          inicioDoCiclo={comp?.periodStart?.slice(0, 10) ?? null}
           onNotice={(tone, message) => setNotice({ tone, message })}
           onChanged={() => { if (comp?.periodId && !closed) void getTipCommission(year, month).then(setComp); }}
         />
