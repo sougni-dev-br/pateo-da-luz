@@ -377,6 +377,9 @@
 .ip-nome--travada .ds-text-field-input { background: var(--paper-soft); color: var(--ink-soft); cursor: default; padding-right: 28px; }
 .ip-nome--travada .ds-text-field-input:focus { box-shadow: none; border-color: var(--line); }
 .ip-nome-cadeado { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+.ip-nome-corrigir { position: absolute; right: 28px; top: 50%; transform: translateY(-50%); display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; }
+.ip-nome-corrigir:hover, .ip-nome-corrigir:focus-visible { background: var(--paper-soft); color: var(--ink); }
+.ip-nome--travada .ds-text-field-input { padding-right: 54px; }
 .ip-dica-linha { grid-column: 1 / -1; margin-top: -2px; font-size: var(--fs-xs); color: var(--info); }
 
 .ip-linhas-rodape { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 6px; padding-top: 10px; border-top: 2px solid var(--ink); }

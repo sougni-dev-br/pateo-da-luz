@@ -1,7 +1,7 @@
 import { CheckCircle2, CircleAlert, ExternalLink, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import {
-  ApiError, EVENTO_SESSAO_EXPIRADA, createTaxPayment, getCompanies, getEmployees, getTaxCategorySuggestion, getTaxCodes, getTaxDreCategories, getTaxPayment, getTaxPayments, updateTaxPayment,
+  ApiError, EVENTO_SESSAO_EXPIRADA, createTaxPayment, getCompanies, getEmployees, getTaxCategorySuggestion, getTaxCodes, getTaxDreCategories, getTaxPayment, getTaxPayments, updateTaxCode, updateTaxPayment,
   type Company, type Employee, type TaxCode, type TaxDreCategory, type TaxPayment, type TaxPaymentDetail,
 } from "../../api/client";
 import { DRE_GROUPS, dreGroupLabel } from "../../components/DRECategoryOptions";
@@ -13,6 +13,7 @@ import {
   FORM_VAZIO, TIPOS_DE_GUIA, TIPOS_EM_DESTAQUE, chaveDoNumero, descricaoDasLinhas, descricaoDoCodigo, diferencaComOPapel, fotoDoFormulario, formDaGuia, formDuplicado,
   linhasComValor, linhasDoModelo, mesSugerido, payloadDaGuia, pendenciasDaGuia, temVerbaDeRescisao, totalDaGuia, type FormGuia, type LinhaForm,
 } from "./formularioGuia";
+import { CorrigirDenominacao } from "./CorrigirDenominacao";
 import { LinhasDaGuia } from "./LinhasDaGuia";
 import { apagarRascunho, guardarRascunho, lerRascunho, type RascunhoDaGuia } from "./rascunhoDaGuia";
 import { modeloDoTipo } from "./modelosDeGuia";
@@ -105,6 +106,7 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
   const [confirmarModelo, setConfirmarModelo] = useState(false);
   const [tipoPendente, setTipoPendente] = useState<string | null>(null);
   const [confirmarDescarte, setConfirmarDescarte] = useState(false);
+  const [corrigindo, setCorrigindo] = useState<{ codigo: string; descricao: string } | null>(null);
   const idDoLancamento = useRef<string | undefined | null>(null);
   if (idDoLancamento.current === null) idDoLancamento.current = novoIdentificador();
   // Rascunho guardado quando a sessão expirou no meio de um lançamento (só oferecido em guia nova).
@@ -342,6 +344,16 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
     }
   }
 
+  // Corrige a denominação de um código no catálogo e já a aplica nas linhas desta guia que usam o código.
+  async function corrigirCodigo(descricao: string) {
+    if (!corrigindo) return;
+    const codigo = corrigindo.codigo;
+    const salvo = await updateTaxCode(form.documentType, codigo, descricao);
+    setCatalogo((c) => c.map((x) => (x.code === codigo ? { ...x, description: salvo.description } : x)));
+    setForm((f) => ({ ...f, linhas: f.linhas.map((l) => (l.code.trim() === codigo ? { ...l, description: salvo.description } : l)) }));
+    setCorrigindo(null);
+  }
+
   // Esc, X ou Fechar com algo digitado: pergunta antes de descartar.
   function tentarFechar() {
     if (podeEditar && !salvando && fotoDoFormulario(form, emEdicao) !== formOriginal.current) setConfirmarDescarte(true);
@@ -504,6 +516,7 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
               onTotalDoPapel={(t) => campo("totalDoPapel", t)}
               diferenca={diferenca}
               linhasPendentes={linhasPendentes}
+              onCorrigirCodigo={editavel && !valoresFixos ? (codigo, descricao) => setCorrigindo({ codigo, descricao }) : undefined}
             />
           </div>
           {editavel && !valoresFixos && form.documentType && linhasMexidas && (
@@ -606,6 +619,15 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
         onConfirm={() => { setConfirmarModelo(false); setLinhasMexidas(false); setForm((f) => ({ ...f, linhas: linhasDoModelo(f.documentType), totalDoPapel: "" })); }}
         onCancel={() => setConfirmarModelo(false)}
       />
+      {corrigindo && (
+        <CorrigirDenominacao
+          tipo={form.documentType}
+          codigo={corrigindo.codigo}
+          descricaoAtual={corrigindo.descricao}
+          onSalvar={corrigirCodigo}
+          onFechar={() => setCorrigindo(null)}
+        />
+      )}
       <ConfirmDialog
         open={confirmarDescarte}
         tone="warning"

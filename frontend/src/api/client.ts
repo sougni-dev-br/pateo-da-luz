@@ -5892,6 +5892,15 @@ export function getTaxCodes(tipo: string) {
   return request<TaxCode[]>(`/tax-payments/codigos?${new URLSearchParams({ tipo })}`);
 }
 
+/** Corrige a denominação de um código do catálogo (vale para as próximas guias). */
+export function updateTaxCode(documentType: string, code: string, description: string) {
+  return request<TaxCode>("/tax-payments/codigos", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ documentType, code, description }),
+  });
+}
+
 export type TaxPaymentItemInput = {
   code: string | null;
   description: string;
@@ -6051,6 +6060,8 @@ export function deleteTaxPayment(id: string) {
   return request<{ ok: boolean }>(`/tax-payments/${id}`, { method: "DELETE" });
 }
 
+const UPLOAD_PLANILHA_TIMEOUT_MS = 120_000;
+
 export async function previewTaxImportXlsx(file: File): Promise<TaxImportPreview> {
   const formData = new FormData();
   formData.append("file", file);
@@ -6060,7 +6071,22 @@ export async function previewTaxImportXlsx(file: File): Promise<TaxImportPreview
   const candidates = [`${API_BASE_URL}/tax-payments/import-xlsx/preview`];
   if (API_BASE_URL.startsWith("/")) candidates.push(`${BACKEND_TARGET_URL}/tax-payments/import-xlsx/preview`);
   for (const url of candidates) {
-    const resp = await fetch(url, { method: "POST", headers, body: formData });
+    let resp: Response;
+    try {
+      // Planilha grande no Render frio pode demorar: tem prazo (antes ficava pendurada sem aviso).
+      resp = await fetchWithTimeout(url, { method: "POST", headers, body: formData }, UPLOAD_PLANILHA_TIMEOUT_MS);
+    } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") throw new Error("A leitura da planilha demorou demais. Tente de novo.");
+      throw e;
+    }
+    // Sessão encerrada: mesmo tratamento das outras chamadas (guarda o rascunho de quem tem tela aberta e volta ao login).
+    if (resp.status === 401) {
+      window.dispatchEvent(new Event(EVENTO_SESSAO_EXPIRADA));
+      localStorage.removeItem(SESSION_TOKEN_KEY);
+      sessionStorage.removeItem(SESSION_TOKEN_KEY);
+      window.location.reload();
+      throw new ApiError("Sessão encerrada. Faça login novamente.", 401);
+    }
     if (resp.ok) return resp.json() as Promise<TaxImportPreview>;
     const body = await resp.json().catch(() => null) as Record<string, unknown> | null;
     throw new ApiError(body?.message as string ?? `Erro ${resp.status}`, resp.status, body ?? undefined);
