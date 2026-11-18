@@ -44,7 +44,7 @@ const render = (ui: ReactElement) => renderRaw(
 function renderApuracao(c: TipComputation, onRow = vi.fn()) {
   render(
     <AbaApuracao comp={c} rows={toRows(c)} readonly={false} onRow={onRow} onRemove={vi.fn()} onVerVales={vi.fn()}
-      recibo={{ antesDeGravar: vi.fn(), onAplicado: vi.fn(), onErro: vi.fn() }} onGorjetaReal={vi.fn()} />,
+      recibo={{ antesDeGravar: vi.fn(), onAplicado: vi.fn(), onErro: vi.fn() }} onGorjetaReal={vi.fn()} conferencia={{ obterCalculo: vi.fn(), onErro: vi.fn() }} />,
   );
   return onRow;
 }

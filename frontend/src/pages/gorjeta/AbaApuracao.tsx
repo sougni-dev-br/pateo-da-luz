@@ -14,6 +14,7 @@ import { NomePessoa, textoPessoa } from "./NomePessoa";
 import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
 import { explicarPontos } from "./explicacaoPontos";
 import { idLinhaDaPessoa } from "./irParaPessoa";
+import { BotoesConferencia } from "./BotoesConferencia";
 import { compararComAnterior, resumirComparacao } from "./comparacaoMesAnterior";
 import {
   type LocalRow, type RowPatch, fmtDate, money, mutedStyle, numInputStyle, ordenar, panelStyle, pts,
@@ -31,6 +32,8 @@ type Props = {
   onRemove: (p: TipComputedParticipant) => void;
   /** Gorjeta real no lugar da calculada (valor null volta à calculada). */
   onGorjetaReal: (participantId: string, valor: number | null, motivo: string) => Promise<void>;
+  /** Relatório de conferência: o cálculo mais recente (salva a edição pendente antes) e o aviso de erro. */
+  conferencia: { obterCalculo: () => Promise<TipComputation>; onErro: (mensagem: string) => void };
 };
 
 const num: CSSProperties = { fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" };
@@ -201,7 +204,7 @@ function RescisaoLancada({ r, employeeId }: { r: TipComputedParticipant["rescisa
   );
 }
 
-export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales, recibo, onGorjetaReal }: Props) {
+export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales, recibo, onGorjetaReal, conferencia }: Props) {
   const [editandoReal, setEditandoReal] = useState<TipComputedParticipant | null>(null);
   const [regrasDe, setRegrasDe] = useState<string | null>(null);
 
@@ -485,6 +488,7 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
           </>
         )}
         <SeletorColunas colunas={COLUNAS} ocultas={colunas.ocultas} alternar={colunas.alternar} mostrarTodas={colunas.mostrarTodas} />
+        <BotoesConferencia obterCalculo={conferencia.obterCalculo} onErro={conferencia.onErro} />
         <div className="barra-lista-segmento" role="group" aria-label="Visualização">
           <button type="button" aria-pressed={agrupar} onClick={() => setAgrupar(true)}>Por situação</button>
           <button type="button" aria-pressed={!agrupar} onClick={() => setAgrupar(false)}>Lista única</button>
