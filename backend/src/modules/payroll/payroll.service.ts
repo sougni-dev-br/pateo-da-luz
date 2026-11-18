@@ -111,7 +111,11 @@ export function computeStatus(dueDate: Date, paymentDate: Date | null): "PENDING
 // nunca vira lançamento — "reserva" as faltas e a 2ª sai sem o desconto que
 // deveria ter. O dinheiro sai a mais e o acerto só aconteceria no período
 // seguinte. Informando o escopo, só a quinzena que vai virar lançamento reserva.
-export async function computePayroll(year: number, month: number, quinzenaAGerar?: 1 | 2 | null) {
+// `ajudaProporcional`: escolha de quem gera a folha. Ligada, a ajuda de custo (AUXILIO_COMBUSTIVEL) sai proporcional
+// aos dias de férias do período; desligada (padrão), sai cheia e a prévia só avisa.
+export type OpcoesPayroll = { ajudaProporcional?: boolean };
+
+export async function computePayroll(year: number, month: number, quinzenaAGerar?: 1 | 2 | null, opcoes: OpcoesPayroll = {}) {
   const settings = await getOrDefaultSettings();
   const daysInMonth = new Date(year, month, 0).getDate();
 
@@ -483,20 +487,32 @@ export async function computePayroll(year: number, month: number, quinzenaAGerar
       }
     } else if (emp.vtType === "AUXILIO_COMBUSTIVEL") {
       const val = round2(Number(emp.vtFixedAmount ?? 0));
+      // Proporcional aos dias de férias é ESCOLHA de quem gera (opcoes.ajudaProporcional); por padrão sai cheia.
+      const diasFeriasNoMes = feriasByEmp.get(emp.id)?.size ?? 0;
+      if (val > 0 && diasFeriasNoMes > 0) {
+        warnings.push(opcoes.ajudaProporcional
+          ? `${name}: ajuda de custo de ${String(month).padStart(2, "0")}/${year} proporcional aos ${diasFeriasNoMes} dia(s) de férias no mês.`
+          : `${name}: ajuda de custo de ${String(month).padStart(2, "0")}/${year} com ${diasFeriasNoMes} dia(s) de férias no mês — não foi proporcionalizada; marque a opção de ajuda de custo proporcional na prévia, se for o caso.`);
+      }
       if (val > 0) {
         const periods = vtPeriods({
           year, month, daysInMonth, periodicity: emp.vtPeriodicity,
           secondPeriodStartDay: settings.vtSecondPeriodStartDay, labelPrefix: "Ajuda de custo",
         });
         for (const p of periods) {
+          const diasDoPeriodo = p.endDay - p.startDay + 1;
+          const feriasNoPeriodo = opcoes.ajudaProporcional
+            ? [...(feriasByEmp.get(emp.id) ?? [])].filter((dia) => dia >= p.startDay && dia <= p.endDay).length : 0;
+          if (feriasNoPeriodo >= diasDoPeriodo) continue; // período inteiro de férias: nada a pagar
+          const valorDoPeriodo = feriasNoPeriodo > 0 ? round2((val * (diasDoPeriodo - feriasNoPeriodo)) / diasDoPeriodo) : val;
           items.push({
             employeeId: emp.id, employeeName: name, employeeDisplayName: emp.displayName, sector: emp.sector, type: "VALE_TRANSPORTE",
             periodLabel: p.label,
             periodStart: isoDate(year, month, p.startDay), periodEnd: isoDate(year, month, p.endDay),
             dueDate: isoDate(...p.due),
-            amount: val, workedDays: null, freeDays: null, quinzena: p.quinzena,
+            amount: valorDoPeriodo, workedDays: null, freeDays: null, quinzena: p.quinzena,
             dreCategoryId: dreVt?.id ?? null, dreCategoryName: dreVt?.name ?? null,
-            details: { auxilioCombustivel: true }, exists: existsKey.has(`${emp.id}|VALE_TRANSPORTE|${p.label}`),
+            details: { auxilioCombustivel: true, ...(feriasNoPeriodo > 0 ? { proporcionalFerias: { diasDeFerias: feriasNoPeriodo, diasDoPeriodo, valorCheio: val } } : {}) }, exists: existsKey.has(`${emp.id}|VALE_TRANSPORTE|${p.label}`),
           });
         }
       }
@@ -506,7 +522,10 @@ export async function computePayroll(year: number, month: number, quinzenaAGerar
     const vigente = vigentes.get(emp.id)!;
     const base = round2(Number(vigente.baseSalary ?? 0));
     if (base > 0 && comFeriasNaFolha.has(emp.id)) {
-      warnings.push(`${name} tem férias e salário na mesma competência (${String(month).padStart(2, "0")}/${year}) — confira os valores para não pagar em dobro.`);
+      const combinadoNota = emp.salarioCombinado != null
+        ? " Salário combinado: ao sincronizar o salário do extrato, o combinado do mês é proporcional aos dias de férias (os dias de gozo são pagos no título de férias)."
+        : "";
+      warnings.push(`${name} tem férias e salário na mesma competência (${String(month).padStart(2, "0")}/${year}) — confira os valores para não pagar em dobro.${combinadoNota}`);
     }
     const semRegistro = vigente.modality === "NAO_CLT";
     if (base > 0 && semRegistro) temSemRegistroComSalario = true;
@@ -640,9 +659,9 @@ const overrideKey = (o: { employeeId: string; type: string; periodLabel: string 
   `${o.employeeId}|${o.type}|${o.periodLabel}`;
 
 export async function generatePayroll(
-  year: number, month: number, userId: string, kind: PayrollKind = "ALL", overrides: PayrollOverride[] = []
+  year: number, month: number, userId: string, kind: PayrollKind = "ALL", overrides: PayrollOverride[] = [], opcoes: OpcoesPayroll = {}
 ) {
-  const { items, warnings } = await computePayroll(year, month, KIND_QUINZENA[kind]);
+  const { items, warnings } = await computePayroll(year, month, KIND_QUINZENA[kind], opcoes);
 
   // VT e folha (adiantamento + salário) são coisas distintas: periodicidade,
   // categoria no DRE e momento de fechamento diferentes. Por isso dá para

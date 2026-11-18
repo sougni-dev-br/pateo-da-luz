@@ -10,12 +10,12 @@ vi.mock("../../../config/database.js", () => ({
   },
 }));
 vi.mock("../cadastro-historico.service.js", () => ({ carregarHistorico: vi.fn(async () => new Map()) }));
-vi.mock("../tip-commission.service.js", () => ({ computeTipCommission: vi.fn() }));
+vi.mock("../tip-commission.service.js", () => ({ computeTipCommission: vi.fn(), diasDeFerias: vi.fn(async () => new Map()) }));
 vi.mock("../../cmv-real/cmv-real.service.js", () => ({ assertPeriodWritableForDate: vi.fn(async () => undefined) }));
 vi.mock("../../security/security-utils.js", () => ({ auditLog: vi.fn(async () => undefined) }));
 
 import { prisma } from "../../../config/database.js";
-import { computeTipCommission } from "../tip-commission.service.js";
+import { computeTipCommission, diasDeFerias } from "../tip-commission.service.js";
 import { assertPeriodWritableForDate } from "../../cmv-real/cmv-real.service.js";
 import { auditLog } from "../../security/security-utils.js";
 import { gorjetasDaCompetencia, sincronizarSalariosCombinados } from "../salario-combinado.service.js";
@@ -42,6 +42,7 @@ beforeEach(() => {
   db.payrollItem.findMany.mockResolvedValue([item()]);
   db.payrollItem.update.mockResolvedValue({});
   vi.mocked(computeTipCommission).mockResolvedValue(apuracao([{ employeeId: "e1", netCommission: 2223.54 }]));
+  vi.mocked(diasDeFerias).mockResolvedValue(new Map());
 });
 
 describe("gorjetasDaCompetencia", () => {
@@ -84,6 +85,28 @@ describe("sincronizarSalariosCombinados", () => {
     }));
     expect(r.alterados).toEqual([{ payrollItemId: "p1", employeeId: "e1", nome: "Teodoro Fictício", antes: 3030, depois: 5954.74, pendenteGorjeta: false }]);
     expect(r.pagosIgnorados).toBe(0);
+  });
+
+  test("com 10 dias de férias no mês: o combinado é proporcional (5.200 × 20/30) antes do adiantamento e da gorjeta", async () => {
+    const dias = new Set(Array.from({ length: 10 }, (_, i) => `2026-09-${String(i + 1).padStart(2, "0")}`));
+    vi.mocked(diasDeFerias).mockResolvedValue(new Map([["e1", dias]]));
+    const r = await sincronizarSalariosCombinados(2026, 9, usuario);
+    expect(r.avisos.join(" ")).toContain("10 dia(s) de férias");
+    // 5.200 ÷ 30 = 173,33 × 20 = 3.466,60; − 1.468,80 + 2.223,54 = 4.221,34
+    const upd = db.payrollItem.update.mock.calls[0][0];
+    expect(upd.data.amount).toBe(4221.34);
+    expect(upd.data.details).toMatchObject({ combinado: 3466.6, combinadoCheio: 5200, diasDeFerias: 10, origemValor: "SALARIO_COMBINADO" });
+    // a busca de dias é do mês da competência
+    const [ids, ini, fim] = vi.mocked(diasDeFerias).mock.calls[0];
+    expect(ids).toEqual(["e1"]);
+    expect(ini.toISOString().slice(0, 10)).toBe("2026-09-01");
+    expect(fim.toISOString().slice(0, 10)).toBe("2026-09-30");
+  });
+
+  test("férias de outro mês não entram: dias fora da competência são ignorados", async () => {
+    vi.mocked(diasDeFerias).mockResolvedValue(new Map([["e1", new Set(["2026-10-01", "2026-10-02"])]]));
+    await sincronizarSalariosCombinados(2026, 9, usuario);
+    expect(db.payrollItem.update.mock.calls[0][0].data.amount).toBe(5954.74);
   });
 
   test("pago: nunca mexe, e conta como ignorado", async () => {

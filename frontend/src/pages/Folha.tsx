@@ -163,6 +163,8 @@ export function Folha({ secao = "lancamentos" }: { secao?: SecaoFolha }) {
   const [preview, setPreview] = useState<PayrollPreview | null>(null);
   // Escopo da prévia (VT ou folha) e valores ajustados à mão antes de gerar.
   const [previewScope, setPreviewScope] = useState<"VT" | "FOLHA">("VT");
+  // Escolha na hora de gerar: ajuda de custo proporcional aos dias de férias (desligada = sai cheia).
+  const [ajudaProporcional, setAjudaProporcional] = useState(false);
   const [ajustes, setAjustes] = useState<Record<string, string>>({});
   const [settings, setSettings] = useState<PayrollSettings | null>(null);
   const [settingsForm, setSettingsForm] = useState(emptySettingsForm);
@@ -334,7 +336,7 @@ export function Folha({ secao = "lancamentos" }: { secao?: SecaoFolha }) {
     setAjustes({});
     setPreviewScope(scope);
     try {
-      setPreview(await previewPayroll(year, month));
+      setPreview(await previewPayroll(year, month, { ajudaProporcional }));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao calcular a prévia.");
     } finally {
@@ -404,7 +406,7 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
     setBusy(true);
     setError(null);
     try {
-      const res = await generatePayroll(year, month, kind, ajustesParaEnviar(itensDoEscopo));
+      const res = await generatePayroll(year, month, kind, ajustesParaEnviar(itensDoEscopo), { ajudaProporcional });
       const oque = kind === "VT_Q1" ? "VT da 1ª quinzena gerado"
         : kind === "VT_Q2" ? "VT da 2ª quinzena gerado"
         : kind === "VT" ? "Vale-transporte gerado"
@@ -893,6 +895,22 @@ tfoot td{font-weight:bold;background:#f4f4f4;font-size:13px}
                   <div style={{ marginTop: 2, color: "var(--ink, inherit)" }}>
                     O valor é editável — se o cálculo não bater, ajuste antes de gerar.
                   </div>
+                  {previewScope === "VT" && (
+                    <label style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 6 }}>
+                      <input type="checkbox" checked={ajudaProporcional} disabled={busy}
+                        onChange={async (e) => {
+                          const ligada = e.target.checked;
+                          setAjudaProporcional(ligada);
+                          setBusy(true);
+                          setError(null);
+                          setAjustes({});
+                          try { setPreview(await previewPayroll(year, month, { ajudaProporcional: ligada })); }
+                          catch (err) { setError(err instanceof Error ? err.message : "Erro ao calcular a prévia."); }
+                          finally { setBusy(false); }
+                        }} />
+                      Ajuda de custo proporcional aos dias de férias (desmarcado: sai o valor cheio)
+                    </label>
+                  )}
                 </div>
               </div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>

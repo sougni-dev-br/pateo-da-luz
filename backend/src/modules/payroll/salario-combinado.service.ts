@@ -6,7 +6,7 @@ import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
 import { auditLog } from "../security/security-utils.js";
 import { cadastroVigenteEm, diaDeReferencia } from "./cadastro-historico.js";
 import { carregarHistorico } from "./cadastro-historico.service.js";
-import { computeTipCommission } from "./tip-commission.service.js";
+import { computeTipCommission, diasDeFerias } from "./tip-commission.service.js";
 import { type GorjetaDaApuracao, gorjetaDaPessoa, mesclarDetalhes, salarioDaFolha } from "./salario-combinado-folha.js";
 
 // Salário combinado VIGENTE no mês da competência (não o de hoje): quem teve o combinado
@@ -44,6 +44,24 @@ export async function gorjetasDaCompetencia(ano: number, mes: number): Promise<M
   return new Map(comp.participants.map((p) => [p.employeeId, { noPeriodo: p.tipoCalculo !== "FORA_DO_PERIODO", gorjetaLiquida: p.netCommission, pagoNaRescisao: Boolean(p.pagoNaRescisao) }]));
 }
 
+// Dias de férias de cada pessoa DENTRO do mês da competência (lançamento FERIAS da Folha com período, ou marca
+// FERIAS da Escala — a mesma fonte que desconta a gorjeta). Só entram quem tem dia no mês.
+export async function feriasNoMes(ano: number, mes: number, ids: string[]): Promise<Map<string, { dias: number; diasNoMes: number }>> {
+  const diasNoMes = new Date(Date.UTC(ano, mes, 0)).getUTCDate();
+  const prefixo = `${ano}-${String(mes).padStart(2, "0")}-`;
+  const mapa = await diasDeFerias([...new Set(ids)], new Date(Date.UTC(ano, mes - 1, 1)), new Date(Date.UTC(ano, mes - 1, diasNoMes)));
+  const out = new Map<string, { dias: number; diasNoMes: number }>();
+  for (const [id, dias] of mapa) {
+    const dentro = [...dias].filter((d) => d.startsWith(prefixo)).length;
+    if (dentro > 0) out.set(id, { dias: dentro, diasNoMes });
+  }
+  return out;
+}
+
+// O combinado dos dias de férias sai do salário e só é pago se o título de férias for complementado.
+export const avisoFeriasDoCombinado = (nome: string, dias: number) =>
+  `Salário combinado de ${nome}: ${dias} dia(s) de férias no mês saíram do combinado; confira se o título de férias recebeu o complemento (RH > Férias).`;
+
 export const avisoGorjetaPendente = (nome: string) =>
   `Salário combinado de ${nome}: gorjeta do mês ainda não apurada; lançado o líquido do extrato. Será atualizado ao fechar a gorjeta.`;
 
@@ -59,7 +77,7 @@ export type ResultadoSincronizacao = {
 const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
 const objeto = (v: unknown) => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
 const mesmoValor = (a: number, b: number) => Math.abs(a - b) < 0.005;
-const CHAVES_COMPARADAS = ["combinado", "adiantamento", "gorjetaIntegral", "complemento", "origemValor", "pendenteGorjeta"];
+const CHAVES_COMPARADAS = ["combinado", "combinadoCheio", "diasDeFerias", "adiantamento", "gorjetaIntegral", "complemento", "origemValor", "pendenteGorjeta"];
 const mesmoEstado = (a: Record<string, unknown>, b: Record<string, unknown>) =>
   CHAVES_COMPARADAS.every((k) => JSON.stringify(a[k] ?? null) === JSON.stringify(b[k] ?? null));
 
@@ -89,6 +107,7 @@ export async function sincronizarSalariosCombinados(ano: number, mes: number, us
 
   await assertPeriodWritableForDate(new Date(Date.UTC(ano, mes - 1, 1)), "Atualização dos salários combinados");
   const gorjetas = await gorjetasDaCompetencia(ano, mes);
+  const ferias = await feriasNoMes(ano, mes, abertos.map((i) => i.employeeId));
 
   for (const i of abertos) {
     const nome = `${i.employee.firstName} ${i.employee.lastName}`.trim();
@@ -101,9 +120,11 @@ export async function sincronizarSalariosCombinados(ano: number, mes: number, us
     }
     const calc = salarioDaFolha({
       liquidoExtrato, adiantamento: num(d.adiantamento), combinado, gorjeta: gorjetaDaPessoa(gorjetas, i.employeeId),
+      ferias: ferias.get(i.employeeId) ?? null,
     });
     if (calc.pendenteGorjeta) resultado.avisos.push(`Salário combinado de ${nome}: gorjeta do mês ainda não apurada; mantido o líquido do extrato.`);
     if (calc.aviso) resultado.avisos.push(`Salário combinado de ${nome}: ${calc.aviso}.`);
+    if (calc.detalhes.diasDeFerias) resultado.avisos.push(avisoFeriasDoCombinado(nome, calc.detalhes.diasDeFerias));
     const antes = Number(i.amount);
     const detalhes = mesclarDetalhes(i.details, calc.detalhes);
     if (mesmoValor(antes, calc.valor) && mesmoEstado(d, detalhes)) { resultado.semMudanca += 1; continue; }

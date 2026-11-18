@@ -32,16 +32,18 @@ const emp = (over: Record<string, unknown> = {}) => ({
 type Linha = { employeeId: string; date: Date; type: string };
 let escala: Linha[] = [];
 let lancamentos: Array<Record<string, unknown>> = [];
+let feriasLancadas: Array<Record<string, unknown>> = [];
 
 beforeEach(() => {
   vi.clearAllMocks();
   escala = [];
   lancamentos = [];
+  feriasLancadas = [];
   db.employeeScheduleDay.findMany.mockImplementation(async ({ where }: { where: { type: string | { in: string[] } } }) =>
     escala.filter((l) => (typeof where.type === "string" ? l.type === where.type : where.type.in.includes(l.type))));
   // Só a busca dos lançamentos da competência filtra por competenceYear.
-  db.payrollItem.findMany.mockImplementation(async ({ where }: { where: { competenceYear?: number } }) =>
-    (where.competenceYear ? lancamentos : []));
+  db.payrollItem.findMany.mockImplementation(async ({ where }: { where: { competenceYear?: number; type?: string } }) =>
+    (where.competenceYear ? lancamentos : where.type === "FERIAS" ? feriasLancadas : []));
   db.vtFaltaDeduction.findMany.mockResolvedValue([]);
   db.dRECategory.findMany.mockResolvedValue([{ id: "dre1", name: "Folha de Pagamento" }, { id: "dre2", name: "Vale-Transporte" }]);
   db.payrollSettings.findUnique.mockResolvedValue({ id: "singleton", advancePercent: 40, advanceDueDay: 20, salaryDueDay: 5, vtSecondPeriodStartDay: 16 });
@@ -171,5 +173,93 @@ describe("férias marcadas na escala tiram os dias do VT", () => {
     escala = [{ employeeId: "e1", date: d("2026-09-14"), type: "FERIAS" }, { employeeId: "e1", date: d("2026-09-15"), type: "AFASTAMENTO" }];
     const { warnings } = await computePayroll(2026, 9);
     expect(warnings.some((w) => w.includes("férias e salário"))).toBe(false);
+  });
+});
+
+describe("férias lançadas e salário na mesma competência", () => {
+  const feriasDe = (de: string, ate: string) => [{ employeeId: "e1", periodStart: d(de), periodEnd: d(ate) }];
+
+  test("aviso de pagar em dobro continua para quem tem férias lançadas", async () => {
+    db.employee.findMany.mockResolvedValue([emp()]);
+    feriasLancadas = feriasDe("2026-09-14", "2026-09-23");
+    const { warnings } = await computePayroll(2026, 9);
+    const aviso = warnings.find((w) => w.includes("férias e salário"));
+    expect(aviso).toBeDefined();
+    expect(aviso).not.toContain("proporcional");
+  });
+
+  test("quem tem salário combinado: o aviso explica que o combinado é proporcionalizado aos dias de férias", async () => {
+    db.employee.findMany.mockResolvedValue([emp({ salarioCombinado: 6000 })]);
+    feriasLancadas = feriasDe("2026-09-14", "2026-09-23");
+    const { warnings } = await computePayroll(2026, 9);
+    expect(warnings.find((w) => w.includes("férias e salário"))).toContain("combinado");
+    expect(warnings.find((w) => w.includes("férias e salário"))).toContain("proporcional");
+  });
+});
+
+describe("ajuda de custo (AUXILIO_COMBUSTIVEL) com férias no mês — decisão pendente do Eli", () => {
+  const ajuda = (over: Record<string, unknown> = {}) => emp({ baseSalary: null, vtType: "AUXILIO_COMBUSTIVEL", vtFixedAmount: 300, ...over });
+
+  test("sem férias: sai cheia e sem aviso", async () => {
+    db.employee.findMany.mockResolvedValue([ajuda()]);
+    const { items, warnings } = await computePayroll(2026, 9);
+    expect(items.find((i) => i.type === "VALE_TRANSPORTE")?.amount).toBe(300);
+    expect(warnings.some((w) => w.includes("ajuda de custo"))).toBe(false);
+  });
+
+  test("com férias no mês: o valor NÃO muda (regra não confirmada), mas a prévia avisa", async () => {
+    db.employee.findMany.mockResolvedValue([ajuda()]);
+    escala = [14, 15, 16].map((dia) => ({ employeeId: "e1", date: d(`2026-09-${dia}`), type: "FERIAS" }));
+    const { items, warnings } = await computePayroll(2026, 9);
+    expect(items.find((i) => i.type === "VALE_TRANSPORTE")?.amount).toBe(300);
+    const aviso = warnings.find((w) => w.includes("ajuda de custo"));
+    expect(aviso).toContain("3 dia(s) de férias");
+    expect(aviso).toContain("não foi proporcionalizada");
+  });
+});
+
+describe("ajuda de custo proporcional — opção escolhida ao gerar", () => {
+  const ajuda = () => emp({ baseSalary: null, vtType: "AUXILIO_COMBUSTIVEL", vtFixedAmount: 300 });
+  const tresDias = () => [14, 15, 16].map((dia) => ({ employeeId: "e1", date: d(`2026-09-${dia}`), type: "FERIAS" }));
+  const valor = async (opcoes?: { ajudaProporcional?: boolean }) =>
+    (await computePayroll(2026, 9, null, opcoes)).items.find((i) => i.type === "VALE_TRANSPORTE");
+
+  test("opção desligada (padrão): sai cheia, como antes", async () => {
+    db.employee.findMany.mockResolvedValue([ajuda()]);
+    escala = tresDias();
+    expect((await valor())?.amount).toBe(300);
+    expect((await valor({ ajudaProporcional: false }))?.amount).toBe(300);
+  });
+
+  test("opção ligada: valor × (dias do período − dias de férias) ÷ dias do período (3 de 30 → 270)", async () => {
+    db.employee.findMany.mockResolvedValue([ajuda()]);
+    escala = tresDias();
+    const item = await valor({ ajudaProporcional: true });
+    expect(item?.amount).toBe(270);
+    expect(item?.details).toMatchObject({ auxilioCombustivel: true, proporcionalFerias: { diasDeFerias: 3, diasDoPeriodo: 30 } });
+  });
+
+  test("opção ligada sem férias no mês: valor cheio e sem marca", async () => {
+    db.employee.findMany.mockResolvedValue([ajuda()]);
+    const item = await valor({ ajudaProporcional: true });
+    expect(item?.amount).toBe(300);
+    expect(item?.details).not.toHaveProperty("proporcionalFerias");
+  });
+
+  test("opção ligada com o mês inteiro de férias: ajuda zero (item não é gerado)", async () => {
+    db.employee.findMany.mockResolvedValue([ajuda()]);
+    escala = Array.from({ length: 30 }, (_, i) => ({ employeeId: "e1", date: d(`2026-09-${String(i + 1).padStart(2, "0")}`), type: "FERIAS" }));
+    expect(await valor({ ajudaProporcional: true })).toBeUndefined();
+  });
+
+  test("com a opção ligada o aviso diz que foi proporcionalizada; desligada, ensina a opção", async () => {
+    db.employee.findMany.mockResolvedValue([ajuda()]);
+    escala = tresDias();
+    const ligada = (await computePayroll(2026, 9, null, { ajudaProporcional: true })).warnings.find((w) => w.includes("ajuda de custo"));
+    expect(ligada).toContain("proporcional");
+    expect(ligada).not.toContain("não foi proporcionalizada");
+    const desligada = (await computePayroll(2026, 9)).warnings.find((w) => w.includes("ajuda de custo"));
+    expect(desligada).toContain("não foi proporcionalizada");
+    expect(desligada).toContain("opção");
   });
 });
