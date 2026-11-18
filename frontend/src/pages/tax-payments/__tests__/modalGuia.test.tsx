@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 // Money lê o contexto de "ocultar valores" (que exige sessão); aqui só interessa o valor.
@@ -39,6 +39,8 @@ vi.mock("../../../api/client", async (importOriginal) => ({
 }));
 
 import { createTaxPayment, getCompanies, getEmployees, getTaxCategorySuggestion, getTaxCodes, getTaxDreCategories, getTaxPayment, getTaxPayments } from "../../../api/client";
+import { EVENTO_SESSAO_EXPIRADA } from "../../../api/client";
+import { FORM_VAZIO } from "../formularioGuia";
 import { ModalGuia } from "../ModalGuia";
 
 const VALORES_DAS = ["46971", "29890", "108803", "23571", "358689", "206087"];
@@ -449,6 +451,97 @@ describe("ModalGuia: editar guia", () => {
 });
 
 
+describe("ModalGuia: lançamento repetível e rascunho da sessão", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(getCompanies).mockResolvedValue([]);
+    // testes anteriores trocam a implementação da sugestão: volta ao padrão (tipos com regra devolvem a categoria do Simples)
+    vi.mocked(getTaxCategorySuggestion).mockImplementation(async (tipo: string) => (tipo === "IPTU" ? { dreCategoryId: null, nome: null } : { dreCategoryId: "cat-simples", nome: "Simples Nacional" }));
+    sessionStorage.clear();
+  });
+
+  test("salvar de novo depois de uma falha reenvia o MESMO identificador (o servidor não cria a guia duas vezes)", async () => {
+    vi.mocked(createTaxPayment).mockRejectedValueOnce(new Error("tempo esgotado"));
+    abrir();
+    await preencherDas();
+    fireEvent.click(botaoLancar());
+    expect(await screen.findByText("tempo esgotado")).toBeTruthy();
+    await waitFor(() => expect(botaoLancar().disabled).toBe(false));
+    fireEvent.click(botaoLancar());
+    await waitFor(() => expect(createTaxPayment).toHaveBeenCalledTimes(2));
+    const [primeira, segunda] = vi.mocked(createTaxPayment).mock.calls.map((c) => (c[0] as { clientId?: string }).clientId);
+    expect(primeira).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    expect(segunda).toBe(primeira);
+  });
+
+  test("cada modal novo gera o seu identificador", async () => {
+    abrir();
+    await preencherDas();
+    fireEvent.click(botaoLancar());
+    await waitFor(() => expect(createTaxPayment).toHaveBeenCalledTimes(1));
+    cleanup();
+    abrir();
+    await preencherDas({ numero: "07.20.26290.0000000-1" });
+    fireEvent.click(botaoLancar());
+    await waitFor(() => expect(createTaxPayment).toHaveBeenCalledTimes(2));
+    const ids = vi.mocked(createTaxPayment).mock.calls.map((c) => (c[0] as { clientId?: string }).clientId);
+    expect(ids[0]).not.toBe(ids[1]);
+  });
+
+  function abrirParaRascunho() {
+    return render(<ModalGuia editId={null} podeEditar podeCancelar onFechar={vi.fn()} onSalvo={vi.fn()} />);
+  }
+
+  test("sessão expirada no meio do lançamento: guarda o rascunho e, depois do login, oferece restaurar", async () => {
+    const primeira = abrirParaRascunho();
+    fireEvent.click(screen.getByRole("radio", { name: "DARF" }));
+    fireEvent.change(await screen.findByLabelText("Principal da linha 1"), { target: { value: "442851" } });
+    fireEvent.change(screen.getByLabelText(/Número do documento/), { target: { value: "07.16.26253.0501136-1" } });
+    window.dispatchEvent(new Event(EVENTO_SESSAO_EXPIRADA));
+    expect(sessionStorage.getItem("impostos:rascunho:v1")).not.toBeNull();
+    primeira.unmount();
+
+    abrirParaRascunho();
+    expect(await screen.findByText(/Recuperei o que você estava lançando/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Restaurar" }));
+    expect((await screen.findByLabelText("Principal da linha 1") as HTMLInputElement).value).toBe("4.428,51");
+    expect((screen.getByLabelText(/Número do documento/) as HTMLInputElement).value).toBe("07.16.26253.0501136-1");
+    expect(screen.queryByText(/Recuperei o que você estava lançando/)).toBeNull();
+    expect(sessionStorage.getItem("impostos:rascunho:v1")).toBeNull();
+  });
+
+  test("descartar o rascunho apaga e o aviso some", async () => {
+    const primeira = abrirParaRascunho();
+    fireEvent.click(screen.getByRole("radio", { name: "DARF" }));
+    fireEvent.change(await screen.findByLabelText("Principal da linha 1"), { target: { value: "100" } });
+    window.dispatchEvent(new Event(EVENTO_SESSAO_EXPIRADA));
+    primeira.unmount();
+    abrirParaRascunho();
+    fireEvent.click(await screen.findByRole("button", { name: "Descartar" }));
+    expect(screen.queryByText(/Recuperei o que você estava lançando/)).toBeNull();
+    expect(sessionStorage.getItem("impostos:rascunho:v1")).toBeNull();
+  });
+
+  test("modal em que nada foi digitado não guarda rascunho", () => {
+    abrirParaRascunho();
+    window.dispatchEvent(new Event(EVENTO_SESSAO_EXPIRADA));
+    expect(sessionStorage.getItem("impostos:rascunho:v1")).toBeNull();
+  });
+
+  test("editar guia gravada não guarda nem oferece rascunho", async () => {
+    sessionStorage.setItem("impostos:rascunho:v1", JSON.stringify({ salvoEm: Date.now(), form: { ...FORM_VAZIO, documentType: "DARF" } }));
+    vi.mocked(getTaxPayment).mockResolvedValue({
+      id: "g1", documentType: "FGTS", description: "x", documentNumber: "A-1", competenceDate: "2026-09-01T00:00:00.000Z",
+      dueDate: "2026-10-20T00:00:00.000Z", amount: "100.00", paymentDate: null, paidAmount: null, status: "PENDING", comments: null,
+      companyId: null, cnpj: null, legalName: null, tradeName: null, dreCategoryId: "cat-simples",
+      items: [{ id: "i1", position: 0, code: null, description: "FGTS Mensal", principal: "100.00", fine: "0.00", interest: "0.00" }],
+    } as never);
+    abrir({ editId: "g1" });
+    await screen.findByLabelText("Principal da linha 1");
+    expect(screen.queryByText(/Recuperei o que você estava lançando/)).toBeNull();
+  });
+});
+
 describe("ModalGuia: robustez do lançamento", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -515,6 +608,16 @@ describe("ModalGuia: robustez do lançamento", () => {
     expect(await screen.findByText(/Não consegui sugerir a categoria do DRE/)).toBeTruthy();
     expect((screen.getByLabelText(/Categoria no DRE/) as HTMLSelectElement).disabled).toBe(false);
     expect(screen.getByRole("button", { name: /Escolha a categoria do DRE/ })).toBeTruthy();
+  });
+
+  test("lançar a partir do alerta de empresa: a empresa pedida já vem escolhida", async () => {
+    vi.mocked(getCompanies).mockResolvedValue([
+      { id: "c1", cnpj: "00000000000100", legalName: "Empresa A Ltda", tradeName: "Empresa A" },
+      { id: "c2", cnpj: "00000000000200", legalName: "Empresa B Ltda", tradeName: "Empresa B" },
+    ] as never);
+    abrir({ inicial: { tipo: "FGTS", mes: "2026-10", empresaId: "c2" } });
+    const select = await screen.findByLabelText(/Empresa \(CNPJ no documento\)/) as HTMLSelectElement;
+    await waitFor(() => expect(select.value).toBe("c2"));
   });
 
   test("Esc com a confirmação de descarte aberta cancela a pergunta, sem fechar o modal", async () => {

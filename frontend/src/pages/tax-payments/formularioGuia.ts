@@ -11,6 +11,21 @@ export const TIPOS_DE_GUIA = [
 ];
 
 // Os tipos que quase todo lançamento usa ficam à vista; os demais, no seletor.
+// Lista do filtro de tipo da tela: os tipos padrão primeiro e, depois, os que existem nas guias e não estão entre eles (a
+// importação de planilha grava o texto livre da coluna, ex.: "RECEITA FEDERAL"). O filtro é de tipo exato, então sem isso
+// essas guias não seriam alcançáveis. Compara sem diferenciar caixa e não repete.
+export function tiposParaOFiltro(existentes: ReadonlyArray<string>): string[] {
+  const visto = new Set(TIPOS_DE_GUIA.map((t) => t.toLowerCase()));
+  const extras: string[] = [];
+  for (const bruto of existentes) {
+    const tipo = bruto.trim();
+    if (!tipo || visto.has(tipo.toLowerCase())) continue;
+    visto.add(tipo.toLowerCase());
+    extras.push(tipo);
+  }
+  return [...TIPOS_DE_GUIA, ...extras.sort((a, b) => a.localeCompare(b, "pt-BR"))];
+}
+
 export const TIPOS_EM_DESTAQUE = ["Simples Nacional / DAS", "DAS MEI", "FGTS", "GPS / INSS", "DARF"];
 
 // Uma linha da composição da guia (código, denominação, principal, multa e juros), com os valores como o usuário digita.
@@ -304,7 +319,8 @@ export function tipoDoGrupo(grupo: string): string | null {
     case "FGTS": return "FGTS";
     // O INSS da empresa vem no DARF previdenciário (códigos 1082 e 1099), não na GPS.
     case "INSS": return "DARF";
-    case "IRRF / DARF": return "DARF";
+    case "IRRF / DARF":
+    case "DARF": return "DARF";
     case "GARE / ICMS": return "GARE ICMS";
     case "IPTU": return "IPTU";
     default: return null;

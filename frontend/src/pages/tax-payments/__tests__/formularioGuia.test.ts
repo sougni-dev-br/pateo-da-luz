@@ -3,7 +3,7 @@ import type { TaxPaymentDetail } from "../../../api/client";
 import {
   FORM_VAZIO, codigoDaDenominacao, descricaoDasLinhas, formDaGuia, formDuplicado, linhasComValor, linhasDoModelo, mesSugerido, novaLinha,
   payloadDaGuia, totalDaGuia, totalDaLinha, type FormGuia,
-  chaveDoNumero, descricaoDoCodigo, diferencaComOPapel, estadoDaDenominacao, fotoDoFormulario, pendenciasDaGuia, temVerbaDeRescisao, tipoDoGrupo, tipoSemCatalogo, valorColado,
+  chaveDoNumero, descricaoDoCodigo, diferencaComOPapel, estadoDaDenominacao, fotoDoFormulario, pendenciasDaGuia, temVerbaDeRescisao, tipoDoGrupo, tipoSemCatalogo, tiposParaOFiltro, valorColado,
   type ContextoDasPendencias,
 } from "../formularioGuia";
 import { modeloDoTipo, sugestoesDoTipo } from "../modelosDeGuia";
@@ -151,6 +151,15 @@ describe("pendenciasDaGuia (a guia só conclui com tudo resolvido)", () => {
   test("lista tudo o que falta, na ordem do formulário", () => {
     const p = pendenciasDaGuia({ ...FORM_VAZIO, linhas: [novaLinha()] }, ctx({ exigeEmpresa: true }));
     expect(p.map((x) => x.campo)).toEqual(["tipo", "empresa", "vencimento", "competencia", "linhas"]);
+  });
+
+  test("filtro de tipo: os padrões primeiro e depois os tipos do legado que existem nas guias, sem repetir", () => {
+    const lista = tiposParaOFiltro(["FGTS", "receita federal", "RECEITA FEDERAL", "  GPS ", "SIMPLES NACIONAL - DASN", "darf", ""]);
+    expect(lista.slice(0, 3)).toEqual(["FGTS", "GPS / INSS", "DARF"]);
+    // "FGTS" e "darf" já são padrão (qualquer caixa); "GPS" sozinho não é "GPS / INSS", então entra
+    expect(lista.filter((t) => t.toLowerCase() === "fgts")).toHaveLength(1);
+    expect(lista.slice(-3)).toEqual(["GPS", "receita federal", "SIMPLES NACIONAL - DASN"]);
+    expect(tiposParaOFiltro([])).toEqual(tiposParaOFiltro(["", "  "]));
   });
 
   test("lista de empresas indisponível é pendência (e não vale para guia já gravada)", () => {

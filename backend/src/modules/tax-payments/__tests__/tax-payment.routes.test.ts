@@ -30,7 +30,7 @@ vi.mock("../tax-payment-import.service.js", () => ({
 
 import { prisma } from "../../../config/database.js";
 import { userHasPermission } from "../../security/menu-permissions.js";
-import { getSessionUser } from "../../security/security-utils.js";
+import { auditLog, getSessionUser } from "../../security/security-utils.js";
 import { previewTaxImport } from "../tax-payment-import.service.js";
 import { taxPaymentRouter } from "../tax-payment.routes.js";
 
@@ -123,8 +123,8 @@ describe("importação da planilha", () => {
 
   test("cada guia importada recebe a categoria sugerida", async () => {
     const importFileId = "a".repeat(32);
-    fs.mkdirSync("uploads", { recursive: true });
-    fs.writeFileSync(path.join("uploads", importFileId), "x");
+    fs.mkdirSync(path.join("uploads", "impostos"), { recursive: true });
+    fs.writeFileSync(path.join("uploads", "impostos", importFileId), "x");
     const linha = {
       valid: true, isDuplicate: false, cnpj: "00000000000100", legalName: "Empresa Exemplo Ltda", tradeName: null,
       description: null, competenceDate: new Date("2026-09-01T00:00:00Z"), dueDate: new Date("2099-12-20T00:00:00Z"),
@@ -142,13 +142,13 @@ describe("importação da planilha", () => {
 
     expect(r.status).toBe(200);
     expect(criados.map((c) => c.dreCategoryId)).toEqual(["cat-simples", "cat-inss"]);
-    expect(fs.existsSync(path.join("uploads", importFileId))).toBe(false);
+    expect(fs.existsSync(path.join("uploads", "impostos", importFileId))).toBe(false);
   });
 
   test("a confirmação reserva o arquivo antes de ler: ninguém mais o encontra e a segunda confirmação não importa de novo", async () => {
     const importFileId = "b".repeat(32);
-    fs.mkdirSync("uploads", { recursive: true });
-    fs.writeFileSync(path.join("uploads", importFileId), "x");
+    fs.mkdirSync(path.join("uploads", "impostos"), { recursive: true });
+    fs.writeFileSync(path.join("uploads", "impostos", importFileId), "x");
     vi.mocked(previewTaxImport).mockResolvedValue({ totalRows: 0, rows: [] } as never);
     db.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => fn({ taxPayment: { create: async () => ({}) } }));
 
@@ -156,8 +156,8 @@ describe("importação da planilha", () => {
     expect(primeira.status).toBe(200);
     // o preview leu o arquivo já renomeado (reservado), e nada sobrou na pasta
     expect(String(vi.mocked(previewTaxImport).mock.calls.at(-1)?.[0])).toMatch(/\.processando$/);
-    expect(fs.existsSync(path.join("uploads", importFileId))).toBe(false);
-    expect(fs.existsSync(path.join("uploads", `${importFileId}.processando`))).toBe(false);
+    expect(fs.existsSync(path.join("uploads", "impostos", importFileId))).toBe(false);
+    expect(fs.existsSync(path.join("uploads", "impostos", `${importFileId}.processando`))).toBe(false);
 
     const segunda = await request(app).post("/tax-payments/import-xlsx/confirm").send({ importFileId });
     expect(segunda.status).toBe(400); // arquivo já consumido: não importa de novo
@@ -166,23 +166,23 @@ describe("importação da planilha", () => {
 
   test("se a importação falhar depois de reservar o arquivo, ele volta ao nome original (a confirmação pode ser repetida)", async () => {
     const importFileId = "d".repeat(32);
-    fs.mkdirSync("uploads", { recursive: true });
-    fs.writeFileSync(path.join("uploads", importFileId), "x");
+    fs.mkdirSync(path.join("uploads", "impostos"), { recursive: true });
+    fs.writeFileSync(path.join("uploads", "impostos", importFileId), "x");
     const { buildExistingDedupKeys } = await import("../tax-payment-import.service.js");
     vi.mocked(buildExistingDedupKeys).mockRejectedValueOnce(new Error("banco fora"));
 
     const r = await request(app).post("/tax-payments/import-xlsx/confirm").send({ importFileId });
 
     expect(r.status).toBe(500);
-    await vi.waitFor(() => expect(fs.existsSync(path.join("uploads", importFileId))).toBe(true));
-    expect(fs.existsSync(path.join("uploads", `${importFileId}.processando`))).toBe(false);
-    fs.rmSync(path.join("uploads", importFileId), { force: true });
+    await vi.waitFor(() => expect(fs.existsSync(path.join("uploads", "impostos", importFileId))).toBe(true));
+    expect(fs.existsSync(path.join("uploads", "impostos", `${importFileId}.processando`))).toBe(false);
+    fs.rmSync(path.join("uploads", "impostos", importFileId), { force: true });
   });
 
   test("a transação da importação tem prazo próprio (o padrão de 5 s estourava com lotes grandes)", async () => {
     const importFileId = "c".repeat(32);
-    fs.mkdirSync("uploads", { recursive: true });
-    fs.writeFileSync(path.join("uploads", importFileId), "x");
+    fs.mkdirSync(path.join("uploads", "impostos"), { recursive: true });
+    fs.writeFileSync(path.join("uploads", "impostos", importFileId), "x");
     vi.mocked(previewTaxImport).mockResolvedValue({ totalRows: 0, rows: [] } as never);
     db.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => fn({ taxPayment: { create: async () => ({}) } }));
     await request(app).post("/tax-payments/import-xlsx/confirm").send({ importFileId });
@@ -215,6 +215,99 @@ describe("importação da planilha", () => {
       apaga.mockRestore();
     }
   );
+});
+
+describe("lançamento repetível (idempotência pelo identificador do modal)", () => {
+  const ID = "3f2b8c1e-5a47-4d9e-9b6a-1c2d3e4f5a6b";
+  const guia = { documentType: "FGTS", dueDate: "2026-10-20", amount: 1500, competenceDate: "2026-09-01", clientId: ID };
+  const existente = {
+    id: ID, createdById: "u1", deletedAt: null, documentType: "FGTS", documentNumber: null, amount: "1500.00", items: [],
+    dueDate: new Date("2026-10-20T00:00:00Z"), competenceDate: new Date("2026-09-01T00:00:00Z"),
+  };
+
+  test("o identificador do modal vira o id da guia", async () => {
+    const r = await request(app).post("/tax-payments").send(guia);
+    expect(r.status).toBe(201);
+    expect(db.taxPayment.create.mock.calls[0][0].data.id).toBe(ID);
+  });
+
+  test("identificador inválido é ignorado: a guia recebe um id próprio", async () => {
+    await request(app).post("/tax-payments").send({ ...guia, clientId: "x; DROP TABLE" });
+    const id = db.taxPayment.create.mock.calls[0][0].data.id;
+    expect(id).not.toBe("x; DROP TABLE");
+    expect(id).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  test("reenvio depois de timeout: devolve a guia já criada, sem criar outra nem registrar de novo", async () => {
+    db.taxPayment.findFirst.mockResolvedValueOnce(existente);
+    const r = await request(app).post("/tax-payments").send(guia);
+    expect(r.status).toBe(200);
+    expect(r.headers["idempotent-replayed"]).toBe("true");
+    expect(r.body.id).toBe(ID);
+    expect(db.taxPayment.create).not.toHaveBeenCalled();
+    expect(auditLog).not.toHaveBeenCalled();
+  });
+
+  test("reenvio com dados DIFERENTES (a pessoa corrigiu depois de a resposta se perder) não devolve a guia antiga: 409 manda editar", async () => {
+    const criada = { ...existente, documentNumber: "A-1", dueDate: new Date("2026-10-20T00:00:00Z"), competenceDate: new Date("2026-09-01T00:00:00Z"), amount: "1500.00" };
+    db.taxPayment.findFirst.mockResolvedValue(criada);
+    const igual = await request(app).post("/tax-payments").send({ ...guia, documentNumber: "A-1" });
+    expect(igual.status).toBe(200);
+    for (const mudanca of [{ documentNumber: "B-2" }, { dueDate: "2026-11-20" }, { competenceDate: "2026-08-01" }, { documentType: "DARF" }, { items: [{ description: "FGTS Mensal", principal: "1600.00" }] }]) {
+      const r = await request(app).post("/tax-payments").send({ ...guia, documentNumber: "A-1", ...mudanca });
+      expect(r.status).toBe(409);
+      expect(r.body.code).toBe("TAX_PAYMENT_ALREADY_CREATED");
+      expect(r.body.id).toBe(ID);
+    }
+    // mesmos valores nas linhas: ainda é reenvio
+    const mesmoTotal = await request(app).post("/tax-payments").send({ ...guia, documentNumber: "A-1", items: [{ description: "FGTS Mensal", principal: "1500.00" }] });
+    expect(mesmoTotal.status).toBe(200);
+    expect(db.taxPayment.create).not.toHaveBeenCalled();
+    db.taxPayment.findFirst.mockReset();
+  });
+
+  test("identificador que já é de guia de outra pessoa (ou excluída) não é reaproveitado: 409", async () => {
+    db.taxPayment.findFirst.mockResolvedValueOnce({ ...existente, createdById: "outro" });
+    const r = await request(app).post("/tax-payments").send(guia);
+    expect(r.status).toBe(409);
+    expect(r.body.code).toBe("CLIENT_ID_IN_USE");
+    expect(db.taxPayment.create).not.toHaveBeenCalled();
+  });
+
+  test("dois envios ao mesmo tempo: o que perde a corrida na chave primária recebe a guia criada pelo outro", async () => {
+    db.taxPayment.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce(existente);
+    db.taxPayment.create.mockRejectedValueOnce(Object.assign(new Error("unique"), { code: "P2002", meta: { target: ["id"] } }));
+    const r = await request(app).post("/tax-payments").send(guia);
+    expect(r.status).toBe(200);
+    expect(r.headers["idempotent-replayed"]).toBe("true");
+    expect(auditLog).not.toHaveBeenCalled();
+  });
+
+  test("número de documento repetido continua 409 de duplicada (não é reenvio)", async () => {
+    db.taxPayment.findFirst.mockResolvedValue(null);
+    db.$queryRawUnsafe.mockResolvedValue([]); // nenhuma guia com este número na consulta prévia
+    db.taxPayment.create.mockRejectedValueOnce(Object.assign(new Error("unique"), { code: "P2002", meta: { target: "TaxPayment_documentNumber_ativo_key" } }));
+    const r = await request(app).post("/tax-payments").send({ ...guia, documentNumber: "A-1" });
+    expect(r.status).toBe(409);
+    expect(r.body.code).toBe("DUPLICATE_DOCUMENT");
+  });
+
+  test("sem identificador o lançamento funciona como sempre", async () => {
+    db.taxPayment.findFirst.mockReset();
+    const r = await request(app).post("/tax-payments").send({ ...guia, clientId: undefined });
+    expect(r.status).toBe(201);
+    expect(db.taxPayment.findFirst).not.toHaveBeenCalled();
+  });
+});
+
+describe("tipos de guia para o filtro", () => {
+  test("lista os tipos que existem de fato (inclusive os do legado importado) com a quantidade", async () => {
+    db.$queryRawUnsafe.mockResolvedValueOnce([{ documentType: "FGTS", qtd: "178" }, { documentType: "RECEITA FEDERAL", qtd: 109 }]);
+    const r = await request(app).get("/tax-payments/tipos");
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual([{ documentType: "FGTS", qtd: 178 }, { documentType: "RECEITA FEDERAL", qtd: 109 }]);
+    expect(db.taxPayment.findFirst).not.toHaveBeenCalled(); // não caiu em /:id
+  });
 });
 
 describe("lançamento manual: validações", () => {

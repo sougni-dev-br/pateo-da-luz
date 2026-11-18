@@ -13,6 +13,7 @@ import type { SessionUser } from "../security/security-utils.js";
 import { montarPanorama } from "./tax-payment-panorama.js";
 import { descricaoDosItens, lerNumeroDoDocumento, lerQuantidadeDeTrabalhadores, normalizarItens, type ItemGuia } from "./tax-payment-items.js";
 import { aplicarCatalogoDeCodigos, guardarCodigosNovos } from "./tax-code-catalog.js";
+import { limparUploadsAntigos, PASTA_UPLOADS_IMPOSTOS } from "./tax-payment-uploads.js";
 import { lerFuncionarioDaGuia } from "./tax-payment-employee.js";
 import { diaIso, hojeBrasilia, lerData, parseValorGuia, resolverUploadImportacao, statusDaGuia, statusDeGuiaEmAberto } from "./tax-payment-rules.js";
 
@@ -20,7 +21,7 @@ export const taxPaymentRouter = Router();
 
 // ─── upload multer ────────────────────────────────────────────────────────────
 const upload = multer({
-  dest: "uploads/",
+  dest: PASTA_UPLOADS_IMPOSTOS,
   limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB
   fileFilter(_req, file, cb) {
     const ok =
@@ -33,7 +34,43 @@ const upload = multer({
 });
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
-const PASTA_UPLOADS = "uploads/";
+const PASTA_UPLOADS = PASTA_UPLOADS_IMPOSTOS;
+
+// Identificador que a tela gera uma vez por modal de lançamento (UUID): torna o POST repetível sem lançar a guia duas vezes.
+const ID_DO_CLIENTE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// O corpo reenviado descreve a guia que já existe? Compara o que identifica o lançamento (tipo, número, vencimento,
+// competência e valor); campos que o corpo não traz não entram na comparação.
+function ehOMesmoLancamento(
+  guia: { documentType: string; documentNumber: string | null; dueDate: Date; competenceDate: Date | null; amount: unknown },
+  corpo: Record<string, unknown>,
+): boolean {
+  if (typeof corpo.documentType === "string" && corpo.documentType.trim() !== guia.documentType) return false;
+  if (corpo.documentNumber !== undefined) {
+    const numero = lerNumeroDoDocumento(corpo.documentNumber);
+    if (!numero.ok || (numero.valor ?? null) !== (guia.documentNumber ?? null)) return false;
+  }
+  if (corpo.dueDate !== undefined) {
+    const v = lerData(corpo.dueDate);
+    if (!v.ok || diaIso(v.data) !== diaIso(guia.dueDate)) return false;
+  }
+  if (corpo.competenceDate !== undefined) {
+    const c = lerData(corpo.competenceDate);
+    if (!c.ok || diaIso(c.data) !== diaIso(guia.competenceDate)) return false;
+  }
+  if (corpo.items !== undefined) {
+    const lidos = normalizarItens(corpo.items);
+    if (!lidos.ok || Math.round(lidos.total * 100) !== Math.round(Number(guia.amount) * 100)) return false;
+  }
+  return true;
+}
+
+// Violação da chave primária (e não do índice do número do documento): a mesma guia criada duas vezes com o mesmo id.
+function ehIdRepetido(error: unknown): boolean {
+  if (!ehNumeroRepetido(error)) return false;
+  const alvo = (error as { meta?: { target?: unknown } }).meta?.target;
+  return Array.isArray(alvo) ? alvo.includes("id") : typeof alvo === "string" && /(^|_)(id|pkey)$/.test(alvo);
+}
 
 function categoriasAtivas() {
   return prisma.dRECategory.findMany({
@@ -250,6 +287,17 @@ taxPaymentRouter.get("/panorama", async (_request, response) => {
   response.json(await montarPanorama());
 });
 
+// Tipos que existem de fato nas guias (a importação de planilha grava o texto livre da coluna, ex.: "RECEITA FEDERAL"):
+// a lista de tipos do filtro sai daqui, senão essas guias não seriam alcançáveis pelo filtro de tipo exato.
+taxPaymentRouter.get("/tipos", async (_request, response) => {
+  const linhas = await prisma.$queryRawUnsafe<Array<{ documentType: string; qtd: number }>>(
+    `SELECT TRIM(tp."documentType") AS "documentType", COUNT(*)::int AS "qtd"
+       FROM "TaxPayment" tp WHERE tp."deletedAt" IS NULL AND TRIM(tp."documentType") <> ''
+      GROUP BY TRIM(tp."documentType") ORDER BY COUNT(*) DESC, TRIM(tp."documentType")`
+  );
+  response.json(linhas.map((l) => ({ documentType: l.documentType, qtd: Number(l.qtd) })));
+});
+
 taxPaymentRouter.get("/categorias-dre", async (_request, response) => {
   response.json(await categoriasAtivas());
 });
@@ -379,7 +427,7 @@ taxPaymentRouter.post("/", async (request, response) => {
 
   const {
     companyId, cnpj, legalName, tradeName, documentType, description,
-    competenceDate, dueDate, amount, paymentDate, paidAmount, comments, dreCategoryId, documentNumber, workersCount, employeeId, items,
+    competenceDate, dueDate, amount, paymentDate, paidAmount, comments, dreCategoryId, documentNumber, workersCount, employeeId, items, clientId,
   } = request.body as Record<string, unknown>;
 
   if (!documentType || typeof documentType !== "string" || !documentType.trim()) {
@@ -387,6 +435,30 @@ taxPaymentRouter.post("/", async (request, response) => {
   }
   const textoInvalido = validarTextos(request.body as Record<string, unknown>);
   if (textoInvalido) return response.status(400).json({ message: textoInvalido });
+
+  // Reenvio do mesmo lançamento (timeout seguido de novo clique, nova tentativa do cliente HTTP): a tela manda um
+  // identificador gerado uma vez por modal. Se a guia já existe com ele, devolve a que foi criada em vez de lançar outra.
+  const idDoCliente = typeof clientId === "string" && ID_DO_CLIENTE.test(clientId) ? clientId.toLowerCase() : null;
+  const incluirItens = { items: { orderBy: { position: "asc" as const } } };
+  if (idDoCliente) {
+    const jaCriada = await prisma.taxPayment.findFirst({ where: { id: idDoCliente }, include: incluirItens });
+    if (jaCriada) {
+      if (jaCriada.createdById !== user.id || jaCriada.deletedAt) {
+        return response.status(409).json({ message: "Este identificador de lançamento já foi usado. Feche e abra o lançamento de novo.", code: "CLIENT_ID_IN_USE" });
+      }
+      // Só é reenvio se for o mesmo lançamento. Se a pessoa corrigiu algo depois de a resposta se perder, devolver a guia
+      // antiga diria "lançada" e a correção se perderia: avisa e manda editar a guia já criada.
+      if (!ehOMesmoLancamento(jaCriada, request.body as Record<string, unknown>)) {
+        return response.status(409).json({
+          message: "Esta guia já foi lançada antes (a resposta pode ter se perdido) e os dados que você enviou agora são outros. Feche, abra a guia na lista e corrija por lá.",
+          code: "TAX_PAYMENT_ALREADY_CREATED",
+          id: jaCriada.id,
+        });
+      }
+      response.setHeader("Idempotent-Replayed", "true");
+      return response.status(200).json(jaCriada);
+    }
+  }
 
   const vencimento = lerData(dueDate);
   if (!vencimento.ok || !vencimento.data) return response.status(400).json({ message: "Vencimento obrigatório e válido." });
@@ -441,9 +513,10 @@ taxPaymentRouter.post("/", async (request, response) => {
 
   // Dentro da função da gravação o TypeScript perde o estreitamento feito acima, então o vencimento é fixado antes.
   const dataDeVencimento: Date = vencimento.data;
+  let reenvio = false;
   const created = await gravar(response, () => prisma.taxPayment.create({
     data: {
-      id: crypto.randomUUID(),
+      id: idDoCliente ?? crypto.randomUUID(),
       companyId: (companyId as string) || null,
       cnpj: cnpj ? String(cnpj).replace(/\D/g, "") : null,
       legalName: (legalName as string) || null,
@@ -466,8 +539,19 @@ taxPaymentRouter.post("/", async (request, response) => {
       ...(itens ? { items: { create: itensParaGravar(itens) } } : {}),
     },
     include: { items: { orderBy: { position: "asc" } } },
+  }).catch(async (error: unknown) => {
+    // Dois envios do mesmo lançamento ao mesmo tempo: o que perde a corrida bate na chave primária e recebe a guia criada.
+    if (idDoCliente && ehIdRepetido(error)) {
+      const existente = await prisma.taxPayment.findFirst({ where: { id: idDoCliente, createdById: user.id, deletedAt: null }, include: incluirItens });
+      if (existente) { reenvio = true; return existente; }
+    }
+    throw error;
   }));
   if (!created) return;
+  if (reenvio) {
+    response.setHeader("Idempotent-Replayed", "true");
+    return response.status(200).json(created);
+  }
   if (itens) await guardarCodigosNovos(documentType.trim(), itens);
 
   await auditLog({
@@ -908,6 +992,9 @@ taxPaymentRouter.get("/:id/history", async (request, response) => {
 // ─── POST /tax-payments/import-xlsx/preview ───────────────────────────────────
 taxPaymentRouter.post("/import-xlsx/preview", upload.single("file"), async (request, response) => {
   if (!request.file) return response.status(400).json({ message: "Arquivo XLSX obrigatório." });
+
+  // Planilhas de prévias antigas que nunca foram confirmadas (e confirmações que caíram no meio) não ficam para sempre.
+  void limparUploadsAntigos().catch(() => undefined);
 
   // Buscar chaves de deduplicação já existentes no banco
   const existingKeySet = await buildExistingDedupKeys();
