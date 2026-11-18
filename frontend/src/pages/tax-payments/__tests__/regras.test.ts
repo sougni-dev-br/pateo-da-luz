@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
-  competenciaDoMes, composicaoAPagar, lacunasPorEmpresa, lacunasPorImposto, linkContasAPagar, mesAnterior, mesDaData, montarGrade, prazoDaGuia, rotuloMes, ultimoDiaDoMes,
+  competenciaDoMes, composicaoAPagar, mesDoFiltro, lacunasPorEmpresa, lacunasPorImposto, linkContasAPagar, mesAnterior, mesDaData, montarGrade, prazoDaGuia, rotuloMes, ultimoDiaDoMes,
   type LinhaCobertura,
 } from "../regras";
 
@@ -67,6 +67,12 @@ describe("composicaoAPagar", () => {
     expect(c.total).toBe(0);
     expect(c.fatias.every((f) => f.pct === 0)).toBe(true);
   });
+});
+
+describe("mês do filtro de competência", () => {
+  test.each([["", "vazio"], ["2026-09", "valido"], ["2000-01", "valido"], ["20266-02", "invalido"], ["202-09", "invalido"], ["2026-13", "invalido"], ["2026-00", "invalido"], ["abc", "invalido"]])(
+    "%j é %s", (valor, esperado) => { expect(mesDoFiltro(valor)).toBe(esperado); },
+  );
 });
 
 describe("falta de guia de uma empresa", () => {

@@ -543,6 +543,87 @@ describe("ModalGuia: lançamento repetível e rascunho da sessão", () => {
   });
 });
 
+describe("ModalGuia: acabamentos do teclado e do FGTS de rescisão", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(getCompanies).mockResolvedValue([]);
+    vi.mocked(getTaxCategorySuggestion).mockImplementation(async (tipo: string) => (tipo === "IPTU" ? { dreCategoryId: null, nome: null } : { dreCategoryId: "cat-simples", nome: "Simples Nacional" }));
+  });
+
+  test("guia de FGTS ligada a um funcionário readmitido: ele continua na lista e o campo não fica em branco", async () => {
+    vi.mocked(getEmployees).mockResolvedValue([
+      { id: "voltou", firstName: "Carla", lastName: "Voltou", displayName: null, terminationDate: null, isActive: true },
+      { id: "saiu", firstName: "Bruno", lastName: "Saiu", displayName: null, terminationDate: "2026-09-03T00:00:00.000Z", isActive: false },
+      { id: "ativo", firstName: "Ana", lastName: "Ativa", displayName: null, terminationDate: null, isActive: true },
+    ] as never);
+    vi.mocked(getTaxPayment).mockResolvedValue({
+      id: "g1", documentType: "FGTS", description: "x", documentNumber: "A-1", competenceDate: "2026-09-01T00:00:00.000Z",
+      dueDate: "2026-10-20T00:00:00.000Z", amount: "100.00", paymentDate: null, paidAmount: null, status: "PENDING", comments: null,
+      companyId: null, cnpj: null, legalName: null, tradeName: null, dreCategoryId: "cat-simples", employeeId: "voltou", workersCount: 1,
+      items: [{ id: "i1", position: 0, code: null, description: "FGTS Rescisório", principal: "100.00", fine: "0.00", interest: "0.00" }],
+    } as never);
+    abrir({ editId: "g1", podeVerFuncionarios: true });
+    const campo = await screen.findByLabelText(/Funcionário desligado/) as HTMLSelectElement;
+    await waitFor(() => expect(screen.getByRole("option", { name: /Carla Voltou — hoje ativo\(a\)/ })).toBeTruthy());
+    await waitFor(() => expect(campo.value).toBe("voltou"));
+    expect(screen.getByRole("option", { name: /Bruno Saiu — saiu em 03\/09\/2026/ })).toBeTruthy();
+    // quem não tem relação com a guia e está ativo continua fora da lista
+    expect(screen.queryByRole("option", { name: /Ana Ativa/ })).toBeNull();
+  });
+
+  test("Ctrl+Delete NÃO remove a linha (no campo de texto ele apaga a próxima palavra)", async () => {
+    abrir();
+    fireEvent.click(screen.getByRole("radio", { name: "Simples Nacional / DAS" }));
+    await waitFor(() => expect(screen.getAllByLabelText(/^Principal da linha/)).toHaveLength(6));
+    fireEvent.keyDown(screen.getByLabelText("Principal da linha 3"), { key: "Delete", ctrlKey: true });
+    expect(screen.getAllByLabelText(/^Principal da linha/)).toHaveLength(6);
+  });
+
+  test("Alt+Delete numa linha remove a linha e leva o foco para o valor de uma vizinha", async () => {
+    abrir();
+    fireEvent.click(screen.getByRole("radio", { name: "Simples Nacional / DAS" }));
+    await waitFor(() => expect(screen.getAllByLabelText(/^Principal da linha/)).toHaveLength(6));
+    const terceira = screen.getByLabelText("Principal da linha 3") as HTMLInputElement;
+    terceira.focus();
+    fireEvent.keyDown(terceira, { key: "Delete", altKey: true });
+    await waitFor(() => expect(screen.getAllByLabelText(/^Principal da linha/)).toHaveLength(5));
+    expect(screen.queryByDisplayValue("1004")).toBeNull(); // o código da linha removida
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Principal da linha 3")));
+  });
+
+  test("Alt+Delete na única linha deixa uma linha em branco (nunca zero linhas)", async () => {
+    abrir();
+    fireEvent.click(screen.getByRole("radio", { name: "DARF" }));
+    await waitFor(() => expect(screen.getAllByLabelText(/^Principal da linha/)).toHaveLength(2));
+    fireEvent.keyDown(screen.getByLabelText("Principal da linha 2"), { key: "Delete", altKey: true });
+    await waitFor(() => expect(screen.getAllByLabelText(/^Principal da linha/)).toHaveLength(1));
+    fireEvent.keyDown(screen.getByLabelText("Principal da linha 1"), { key: "Delete", altKey: true });
+    await waitFor(() => expect(screen.getAllByLabelText(/^Principal da linha/)).toHaveLength(1));
+    expect((screen.getByLabelText("Código da linha 1") as HTMLInputElement).value).toBe("");
+  });
+
+  test("o X do mouse e Alt+Delete fazem a mesma coisa", async () => {
+    abrir();
+    fireEvent.click(screen.getByRole("radio", { name: "Simples Nacional / DAS" }));
+    await waitFor(() => expect(screen.getAllByLabelText(/^Principal da linha/)).toHaveLength(6));
+    fireEvent.click(screen.getByRole("button", { name: "Remover a linha 2" }));
+    await waitFor(() => expect(screen.getAllByLabelText(/^Principal da linha/)).toHaveLength(5));
+    expect(screen.queryByDisplayValue("1002")).toBeNull();
+  });
+
+  test("Enter nos campos do cabeçalho anda para o próximo campo (não grava)", async () => {
+    abrir();
+    fireEvent.click(screen.getByRole("radio", { name: "DARF" }));
+    const vencimento = await screen.findByLabelText(/Vencimento/) as HTMLInputElement;
+    vencimento.focus();
+    fireEvent.keyDown(vencimento, { key: "Enter" });
+    expect(document.activeElement).toBe(screen.getByLabelText(/Competência/));
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: "Enter" });
+    expect(document.activeElement).toBe(screen.getByLabelText(/Número do documento/));
+    expect(createTaxPayment).not.toHaveBeenCalled();
+  });
+});
+
 describe("ModalGuia: corrigir a denominação de um código do catálogo", () => {
   beforeEach(() => {
     vi.clearAllMocks();

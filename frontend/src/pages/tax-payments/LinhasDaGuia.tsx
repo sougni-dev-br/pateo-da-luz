@@ -68,7 +68,25 @@ export function LinhasDaGuia({
     }));
   }
 
+  // Remove a linha (o X do mouse tem o mesmo efeito) e leva o foco para o valor de uma vizinha; sozinha, ela vira uma linha em branco.
+  function remover(chave: string) {
+    const i = linhas.findIndex((x) => x.chave === chave);
+    if (i < 0) return;
+    if (linhas.length > 1) {
+      const vizinha = linhas[i + 1] ?? linhas[i - 1];
+      onChange(linhas.filter((x) => x.chave !== chave));
+      setFocarLinha(vizinha.chave);
+      return;
+    }
+    const nova = novaLinha();
+    onChange([nova]);
+    setFocarLinha(nova.chave);
+  }
+
   function teclar(e: KeyboardEvent<HTMLInputElement>, indice: number, daLinha: boolean) {
+    // Teclado: Alt+Delete remove a linha (o botão X fica fora da ordem do Tab para o lançamento ser rápido). Não é Ctrl+Delete:
+    // no campo de texto ele apaga a próxima palavra e levaria a linha inteira junto.
+    if (e.key === "Delete" && e.altKey && !e.ctrlKey && !somenteLeitura) { e.preventDefault(); remover(linhas[indice].chave); return; }
     if (e.key !== "Enter" || e.ctrlKey || e.metaKey) return;
     // Enter nunca grava a guia: só anda. No código e na denominação vai para o valor da própria linha.
     e.preventDefault();
@@ -153,7 +171,7 @@ export function LinhasDaGuia({
             {somenteLeitura ? <span /> : (
               <IconButton
                 label={`Remover a linha ${n}`} icon={<X size={15} />} size="sm" tabIndex={-1}
-                onClick={() => onChange(linhas.length > 1 ? linhas.filter((x) => x.chave !== l.chave) : [novaLinha()])}
+                onClick={() => remover(l.chave)}
               />
             )}
             {codigoNovo && !somenteLeitura && <small className="ip-dica-linha">Código novo para {tipo || "este tipo de guia"}: a denominação fica guardada no sistema para as próximas guias.</small>}
@@ -165,7 +183,7 @@ export function LinhasDaGuia({
         {catalogo.map((c) => <option key={c.code} value={c.code}>{c.description}</option>)}
       </datalist>
 
-      {!somenteLeitura && <small className="ip-dica-linhas">{semCodigo ? "Informe o valor de cada linha como está no documento. " : "Digite o código: a denominação vem sozinha. "}Linhas sem valor são ignoradas ao salvar. Enter passa para o valor.</small>}
+      {!somenteLeitura && <small className="ip-dica-linhas">{semCodigo ? "Informe o valor de cada linha como está no documento. " : "Digite o código: a denominação vem sozinha. "}Linhas sem valor são ignoradas ao salvar. Enter passa para o valor; Alt+Delete remove a linha.</small>}
 
       <div className="ip-linhas-rodape">
         {somenteLeitura ? <span /> : (

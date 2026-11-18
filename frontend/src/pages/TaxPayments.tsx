@@ -15,7 +15,7 @@ import { ModalGuia, type GuiaSalva, type InicialDaGuia } from "./tax-payments/Mo
 import { ModalImportacao } from "./tax-payments/ModalImportacao";
 import { ResumoImpostos } from "./tax-payments/ResumoImpostos";
 import { tiposParaOFiltro } from "./tax-payments/formularioGuia";
-import { competenciaDoMes, linkContasAPagar, rotuloMes, ultimoDiaDoMes } from "./tax-payments/regras";
+import { competenciaDoMes, linkContasAPagar, mesDoFiltro, rotuloMes, ultimoDiaDoMes } from "./tax-payments/regras";
 import "./tax-payments/tax-payments.css";
 
 type Situacao = "" | "OVERDUE" | "PENDING" | "PAID" | "CANCELED";
@@ -54,6 +54,8 @@ export function TaxPayments({ user }: Props) {
   // Vindo de uma célula da grade: o imposto (categoria do DRE) daquele mês.
   const [categoria, setCategoria] = useState<{ id: string; nome: string } | null>(null);
   const [semCompetencia, setSemCompetencia] = useState(false);
+  // Ano com 5 ou 6 dígitos no campo de mês: avisa em vez de filtrar por um mês que não existe.
+  const [mesInvalido, setMesInvalido] = useState(false);
   const [empresaId, setEmpresaId] = useState("");
   const [empresas, setEmpresas] = useState<Company[]>([]);
   const [tiposExistentes, setTiposExistentes] = useState<string[]>([]);
@@ -162,13 +164,13 @@ export function TaxPayments({ user }: Props) {
   function filtrar(proximo: Partial<{ situacao: Situacao; tipo: string; mes: string; empresa: string }>) {
     if (proximo.situacao !== undefined) setSituacao(proximo.situacao);
     if (proximo.tipo !== undefined) setTipo(proximo.tipo);
-    if (proximo.mes !== undefined) { setMes(proximo.mes); setSemCompetencia(false); }
+    if (proximo.mes !== undefined) { setMes(proximo.mes); setSemCompetencia(false); setMesInvalido(false); }
     if (proximo.empresa !== undefined) setEmpresaId(proximo.empresa);
     setPagina(1);
   }
 
   function limparFiltros() {
-    setSituacao(""); setBusca(""); setBuscaAplicada(""); setTipo(""); setMes(""); setCategoria(null); setSemCompetencia(false); setEmpresaId(""); setPagina(1);
+    setSituacao(""); setBusca(""); setBuscaAplicada(""); setTipo(""); setMes(""); setCategoria(null); setSemCompetencia(false); setEmpresaId(""); setMesInvalido(false); setPagina(1);
   }
 
   function verMes(m: string, cat?: { id: string; nome: string }) {
@@ -181,6 +183,7 @@ export function TaxPayments({ user }: Props) {
   // Guias sem competência: ficam fora do DRE e não aparecem em nenhum mês da grade.
   function alternarSemCompetencia(ligar: boolean) {
     setSemCompetencia(ligar);
+    setMesInvalido(false);
     if (ligar) { setMes(""); setCategoria(null); }
     setPagina(1);
   }
@@ -192,6 +195,8 @@ export function TaxPayments({ user }: Props) {
   }
 
   const filtrando = Boolean(situacao || buscaAplicada || tipo || mes || categoria || semCompetencia || empresaId);
+  // As pílulas contam todas as guias; a lista respeita os demais filtros. Com algum deles ligado, a tela diz isso.
+  const filtrandoAlemDaSituacao = Boolean(buscaAplicada || tipo || mes || categoria || semCompetencia || empresaId);
   const contagens = panorama?.situacoes;
   const PILULAS: Array<{ valor: Situacao; rotulo: string; qtd: number | undefined; tom?: string }> = [
     { valor: "", rotulo: "Todas", qtd: contagens?.todas },
@@ -297,7 +302,17 @@ export function TaxPayments({ user }: Props) {
               options={empresas.map((e) => ({ value: e.id, label: e.tradeName || e.legalName }))}
             />
           )}
-          <TextField type="month" aria-label="Competência" title="Competência" value={semCompetencia ? "" : mes} disabled={semCompetencia} onChange={(e) => { setCategoria(null); filtrar({ mes: e.target.value }); }} />
+          <TextField
+            type="month" aria-label="Competência" title="Competência" min="2000-01" max="2099-12" aria-invalid={mesInvalido || undefined}
+            value={semCompetencia ? "" : mes} disabled={semCompetencia}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (mesDoFiltro(v) === "invalido") { setMesInvalido(true); return; }
+              setMesInvalido(false);
+              setCategoria(null);
+              filtrar({ mes: v });
+            }}
+          />
           {filtrando && (
             <Button variant="secondary" size="sm" leadingIcon={<X size={14} />} onClick={limparFiltros}>Limpar</Button>
           )}
@@ -307,6 +322,13 @@ export function TaxPayments({ user }: Props) {
         {mes && !semCompetencia && (
           <p className="ip-filtro-ativo">
             Mostrando guias {categoria ? <>de <b>{categoria.nome}</b> </> : null}com competência em <b>{rotuloMes(mes)}</b>.
+          </p>
+        )}
+
+        {mesInvalido && <p className="ip-filtro-ativo" role="alert">Informe a competência com ano de 4 dígitos (ex.: 09/2026).</p>}
+        {filtrandoAlemDaSituacao && !carregando && (
+          <p className="ip-filtro-ativo">
+            Os números das pílulas são de todas as guias. Com estes filtros, a lista tem <b>{paginacao.total}</b> {paginacao.total === 1 ? "guia" : "guias"}.
           </p>
         )}
 

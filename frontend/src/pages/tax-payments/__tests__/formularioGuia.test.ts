@@ -162,6 +162,27 @@ describe("pendenciasDaGuia (a guia só conclui com tudo resolvido)", () => {
     expect(tiposParaOFiltro([])).toEqual(tiposParaOFiltro(["", "  "]));
   });
 
+  test.each([
+    ["1,613.84", "1.613,84"], ["R$ 1,613.84", "1.613,84"], ["1,613,456", "1.613.456,00"], ["12,345,678.90", "12.345.678,90"],
+    // brasileiro continua como sempre
+    ["1.613,84", "1.613,84"], ["1613,84", "1.613,84"], ["1,5", "1,50"], ["1,613", "1,61"],
+  ])("valor colado %s vira %s (formato americano reconhecido, brasileiro intacto)", (texto, esperado) => {
+    expect(valorColado(texto)).toBe(esperado);
+  });
+
+  test.each(["-1.250,00", "R$ -1.250,00", "-R$ 1.250,00", "(1.250,00)", "R$ (1.250,00)", "1.250,00-", "\u22121.250,00",
+    "Valor: -1.250,00", "Estorno – R$ 50,00", "Estorno \u2212R$ 50,00"])(
+    "valor colado negativo %s não entra como positivo: o campo fica vazio", (texto) => {
+      expect(valorColado(texto)).toBe("");
+    },
+  );
+
+  test("hífen entre dígitos (data, faixa) não é sinal e parêntese com texto não zera o valor", () => {
+    expect(valorColado("Total (R$) 1.234,56")).toBe("1.234,56");
+    expect(valorColado("R$ 1.234,56 (liquido)")).toBe("1.234,56");
+    expect(valorColado("1.234,56")).toBe("1.234,56");
+  });
+
   test("lista de empresas indisponível é pendência (e não vale para guia já gravada)", () => {
     const f = { ...FORM_VAZIO, documentType: "FGTS", mes: "2026-09", dueDate: "2026-10-20" };
     expect(pendenciasDaGuia(f, ctx({ empresasIndisponiveis: true })).some((p) => p.campo === "empresa" && /lista de empresas/.test(p.texto))).toBe(true);

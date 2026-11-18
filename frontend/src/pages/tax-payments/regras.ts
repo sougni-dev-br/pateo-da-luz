@@ -42,6 +42,13 @@ export function competenciaDoMes(mes: string): string {
   return /^\d{4}-\d{2}$/.test(mes) ? `${mes}-01` : "";
 }
 
+// Mês digitado no filtro de competência: vazio, válido (AAAA-MM com 4 dígitos) ou inválido (ano de 5 ou 6 dígitos, que o campo
+// de mês aceita). Inválido não pode virar filtro: a lista voltaria inteira com o texto "competência em —".
+export function mesDoFiltro(valor: string): "vazio" | "valido" | "invalido" {
+  if (!valor) return "vazio";
+  return /^\d{4}-(0[1-9]|1[0-2])$/.test(valor) ? "valido" : "invalido";
+}
+
 // Último dia do mês ("2026-09" → "2026-09-30"), para o filtro "até".
 export function ultimoDiaDoMes(mes: string): string {
   const m = /^(\d{4})-(\d{2})$/.exec(mes);
