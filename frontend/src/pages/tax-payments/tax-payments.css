@@ -472,6 +472,41 @@
   .ip-pagar-ctx { gap: 18px; }
 }
 
+/* Modal de lançamento no celular (375 px): a denominação, o interruptor de multa e juros, o rodapé do total e os botões
+   ficavam espremidos em colunas de uma palavra por linha. */
+@media (max-width: 560px) {
+  /* Seção: o interruptor "Com multa e juros" desce para baixo do texto em vez de ocupar metade da largura. */
+  .ip-form .ds-form-section-header { flex-direction: column; gap: 8px; }
+
+  /* Linha da composição: código e botão de remover na primeira linha; a denominação com a largura toda. As três colunas valem
+     para todas as variantes (a do FGTS, sem código e sem multa, herdava 4 colunas fixas da tela larga e o valor sumia). */
+  .ip-linha-form,
+  .ip-linhas--simples .ip-linha-form,
+  .ip-linhas--sem-codigo .ip-linha-form,
+  .ip-linhas--sem-codigo.ip-linhas--simples .ip-linha-form { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .ip-linha-form { grid-template-areas: "cod cod rem" "nome nome nome" "pri mul jur" "tot tot tot"; }
+  .ip-linhas--simples .ip-linha-form { grid-template-areas: "cod cod rem" "nome nome nome" "pri tot tot"; }
+  .ip-linhas--sem-codigo .ip-linha-form { grid-template-areas: "nome nome rem" "pri mul jur" "tot tot tot"; }
+  .ip-linhas--sem-codigo.ip-linhas--simples .ip-linha-form { grid-template-areas: "nome nome rem" "pri tot tot"; }
+  .ip-in-codigo { max-width: 160px; }
+  /* Denominação travada: sem o cadeado (decorativo) sobra largura para o texto, e o lápis de corrigir fica na ponta. */
+  .ip-nome--travada .ds-text-field-input { padding-right: 34px; font-size: 11.5px; letter-spacing: -0.01em; text-overflow: ellipsis; }
+  .ip-nome-cadeado { display: none; }
+  .ip-nome-corrigir { right: 6px; }
+
+  /* Adicionar linha e totais empilhados, cada um com a largura toda. */
+  .ip-linhas-rodape { flex-direction: column; align-items: stretch; }
+  .ip-linhas-rodape .ds-button { width: 100%; justify-content: center; }
+  .ip-totais { justify-content: space-between; gap: 16px; }
+  .ip-total-guia { justify-items: start; }
+
+  /* Rodapé do modal: aviso de pendências em cima, Fechar e Lançar lado a lado com a mesma largura (eram duas linhas soltas). */
+  /* (.pg-janela na frente: a regra de Contas a Pagar `.pg-janela .modal-actions` tem a mesma especificidade e vem depois.) */
+  .pg-janela .ip-form .modal-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; justify-content: stretch; }
+  .pg-janela .ip-form .modal-actions .ip-faltam { grid-column: 1 / -1; margin: 0; justify-self: start; }
+  .pg-janela .ip-form .modal-actions .ds-button { width: 100%; justify-content: center; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ip-celula, .ip-pilula, .ip-tipo, .ip-soltar, .ip-fatia { transition: none; }
   .ip-celula:hover { transform: none; }

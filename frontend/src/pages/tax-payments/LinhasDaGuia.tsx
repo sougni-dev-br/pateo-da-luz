@@ -135,7 +135,7 @@ export function LinhasDaGuia({
             {/* A denominação não se digita quando o código a traz: campo travado, que o código preenche. */}
             <div className={`ip-nome${travada ? " ip-nome--travada" : ""}`}>
               <input
-                className="ds-text-field-input ip-in-nome" data-linha-nome={l.chave} aria-label={`Denominação da linha ${n}`} readOnly={travada} tabIndex={travada ? -1 : undefined}
+                className="ds-text-field-input ip-in-nome" data-linha-nome={l.chave} aria-label={`Denominação da linha ${n}`} readOnly={travada} tabIndex={travada ? -1 : undefined} title={travada && l.description ? l.description : undefined}
                 placeholder={estado === "aguardaCodigo" ? "Digite o código ao lado" : codigoNovo ? "Código novo: informe a denominação" : "Denominação"}
                 aria-invalid={pendente || undefined} value={l.description} disabled={somenteLeitura && !l.description}
                 onChange={(e) => mudar(l.chave, "description", e.target.value)} onKeyDown={(e) => teclar(e, i, true)}
