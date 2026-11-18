@@ -16,6 +16,7 @@ import {
 } from "../cmv-real/cmv-purchase-base.service.js";
 import { excludeAggregatorsSql } from "../purchases/purchase-aggregators.js";
 import { semParcelamentoForaDoDreSql } from "../parcelamentos/parcelamento-dre.js";
+import { taxPaymentDreLinhasSql } from "../tax-payments/tax-payment-dre.js";
 
 export const dreRouter = Router();
 
@@ -436,6 +437,7 @@ async function calcDRE(from: Date, to: Date, competencia: Competencia | null) {
     // ── Impostos e Guias por competência ──
     // TaxPayments entram no DRE pela competenceDate (não pela data de pagamento).
     // Registros sem competenceDate são ignorados do DRE (entram apenas no fluxo de caixa).
+    // O DARF que junta INSS e IRRF é dividido por linha (taxPaymentDreLinhasSql): cada parte vai para a sua categoria.
     prisma.$queryRaw<Array<{
       dreCategory: string | null;
       dreCategoryName: string | null;
@@ -450,8 +452,8 @@ async function calcDRE(from: Date, to: Date, competencia: Competencia | null) {
         dc."sortOrder"      AS "dreSortOrder",
         dc."dreGroup"       AS "dreGroup",
         SUM(tp.amount)::text AS total,
-        COUNT(*)::int        AS count
-      FROM "TaxPayment" tp
+        COUNT(DISTINCT tp."taxPaymentId")::int AS count
+      FROM (${taxPaymentDreLinhasSql}) tp
       LEFT JOIN "DRECategory" dc ON dc.id = tp."dreCategoryId"
       WHERE tp."deletedAt" IS NULL
         AND tp.status NOT IN ('CANCELED')

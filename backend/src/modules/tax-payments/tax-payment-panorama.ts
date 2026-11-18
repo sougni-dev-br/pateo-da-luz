@@ -63,6 +63,8 @@ export async function montarPanorama(agora: Date = new Date()): Promise<Panorama
       FROM "TaxPayment" tp
       WHERE tp."deletedAt" IS NULL
     `),
+    // A cobertura conta GUIAS por categoria da guia (a tela só usa a quantidade e o estado). O DRE, que soma dinheiro, divide o
+    // DARF por linha (tax-payment-dre.ts): não use o "valor" daqui para comparar com o DRE.
     prisma.$queryRawUnsafe<LinhaCobertura[]>(`
       SELECT
         to_char(date_trunc('month', tp."competenceDate"), 'YYYY-MM') AS "mes",

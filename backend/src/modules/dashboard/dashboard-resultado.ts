@@ -3,6 +3,7 @@ import { prisma } from "../../config/database.js";
 import { custoExtrasSql } from "../payroll/extras-custo.js";
 import { excludeAggregatorsSql } from "../purchases/purchase-aggregators.js";
 import { semParcelamentoForaDoDreSql } from "../parcelamentos/parcelamento-dre.js";
+import { taxPaymentDreLinhasSql } from "../tax-payments/tax-payment-dre.js";
 
 // Grupos do DRE que o Resultado completo mostra em linha própria. Compra
 // lançada com produto desses grupos (a nota do condomínio, por exemplo) já está
@@ -88,7 +89,7 @@ export async function calcularResultadoCompleto(
     `,
     prisma.$queryRaw<Array<{ grupo: string | null; total: unknown }>>`
       SELECT dc."dreGroup" AS grupo, COALESCE(SUM(tp.amount), 0) AS total
-      FROM "TaxPayment" tp
+      FROM (${taxPaymentDreLinhasSql}) tp
       LEFT JOIN "DRECategory" dc ON dc.id = tp."dreCategoryId"
       WHERE tp."deletedAt" IS NULL
         AND tp.status NOT IN ('CANCELED')

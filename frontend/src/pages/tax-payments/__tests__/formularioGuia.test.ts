@@ -153,6 +153,12 @@ describe("pendenciasDaGuia (a guia só conclui com tudo resolvido)", () => {
     expect(p.map((x) => x.campo)).toEqual(["tipo", "empresa", "vencimento", "competencia", "linhas"]);
   });
 
+  test("lista de empresas indisponível é pendência (e não vale para guia já gravada)", () => {
+    const f = { ...FORM_VAZIO, documentType: "FGTS", mes: "2026-09", dueDate: "2026-10-20" };
+    expect(pendenciasDaGuia(f, ctx({ empresasIndisponiveis: true })).some((p) => p.campo === "empresa" && /lista de empresas/.test(p.texto))).toBe(true);
+    expect(pendenciasDaGuia(f, ctx({ empresasIndisponiveis: true, emEdicao: true })).some((p) => p.campo === "empresa")).toBe(false);
+  });
+
   test("DAS, FGTS e DARF exigem o número do documento (ou o identificador); outros tipos não", () => {
     expect(pendenciasDaGuia({ ...guiaDas(), companyId: "e", dreCategoryId: "c" }, ctx()).map((x) => x.campo)).toContain("numero");
     const fgts = pendenciasDaGuia({ ...FORM_VAZIO, documentType: "FGTS", mes: "2026-07", dueDate: "2026-08-20", linhas: [novaLinha({ description: "FGTS Mensal", principal: "10,00" })] }, ctx());
