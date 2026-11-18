@@ -127,12 +127,13 @@ export function AvisoCadastro({ periodId, versao, ocupado, podeAtualizar, onAtua
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   <span style={mutedStyle}>
                     {desligadosComParticipaMarcado} desligado(s) de ciclos já fechados ainda estão com "Participa da gorjeta" marcado
-                    no cadastro: {(previa.desligadosParaLimpar ?? []).map((p) => p.nome).join(", ")}. Não entram na apuração.
+                    no cadastro: {(previa.desligadosParaLimpar ?? []).map((p) => p.nome).join(", ")}. Não entram na apuração. O sistema tira
+                    essa marca sozinho ao fechar o mês e ao atualizar do cadastro; o botão faz isso agora.
                   </span>
                   {podeAtualizar && (
                     <div>
                       <Button size="sm" variant="secondary" onClick={() => void limpar()} disabled={ocupado || limpando} leadingIcon={<Eraser size={14} />}>
-                        Limpar do cadastro
+                        Limpar agora
                       </Button>
                     </div>
                   )}

@@ -92,7 +92,7 @@ describe("AvisoCadastro", () => {
     const onNotice = vi.fn();
     montar({ onNotice });
     fireEvent.click(await screen.findByRole("button", { name: /Fora do rateio neste ciclo/ }));
-    fireEvent.click(screen.getByRole("button", { name: /^Limpar do cadastro$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Limpar agora$/ }));
     // A confirmação é um diálogo do próprio sistema; o botão de confirmar repete o rótulo.
     const dialogo = await screen.findByRole("alertdialog");
     fireEvent.click(within(dialogo).getByRole("button", { name: /Limpar do cadastro/ }));
@@ -108,6 +108,6 @@ describe("AvisoCadastro", () => {
     }));
     montar({ podeAtualizar: false });
     fireEvent.click(await screen.findByRole("button", { name: /Fora do rateio neste ciclo/ }));
-    expect(screen.queryByRole("button", { name: /Limpar do cadastro/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Limpar agora/ })).toBeNull();
   });
 });

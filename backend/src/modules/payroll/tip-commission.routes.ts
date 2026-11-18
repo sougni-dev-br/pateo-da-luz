@@ -596,9 +596,10 @@ tipCommissionRouter.post("/periods/:id/sync", async (request, response) => {
   const period = await prisma.tipPeriod.findUnique({ where: { id: periodId } });
   if (!period) return response.status(404).json({ message: "Período não encontrado." });
   if (await barrouPorFechamento(periodId, response, "Recarregar os participantes")) return;
+  const desligadosLimpos = await limparDesligadosAutomatico(request, user, "atualizar-do-cadastro");
   const { added, elegiveis, atualizados, removidos } = await syncParticipantsFromCadastro(periodId);
   const computation = await computeTipCommission(period.competenceYear, period.competenceMonth, { incluirDadosPessoais: await podeVerDadosPessoais(request) });
-  response.json({ added, elegiveis, atualizados, removidos, computation });
+  response.json({ added, elegiveis, atualizados, removidos, desligadosLimpos, computation });
 });
 
 // Prévia do "Atualizar do cadastro": só leitura. O que mudaria no período, quem está fora do
@@ -613,7 +614,30 @@ tipCommissionRouter.get("/periods/:id/sync-preview", async (request, response) =
 });
 
 // Tira "Participa da gorjeta" de quem já saiu e cujo ciclo da saída já fechou. Grava histórico e
-// auditoria; o ciclo aberto não é afetado (a prévia só lista quem não precisa mais dele).
+// auditoria; o ciclo aberto não é afetado (só entra quem não precisa mais dele).
+async function registrarLimpezaDeDesligados(request: Request, user: { id: string }, limpos: Array<{ employeeId: string; nome: string; terminationDate: Date }>, origem: string) {
+  if (limpos.length === 0) return;
+  await auditLog({
+    userId: user.id, action: "CLEAR_TIP_PARTICIPA_DESLIGADOS", entity: "Employee", entityId: limpos.map((l) => l.employeeId).join(","),
+    newValue: { origem, pessoas: limpos.map((l) => ({ employeeId: l.employeeId, nome: l.nome, saida: l.terminationDate })) },
+    ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
+  });
+}
+
+// O sistema faz sozinho: ao fechar o mês e ao atualizar do cadastro, quem saiu e já teve o ciclo da
+// saída fechado deixa de constar como participante. Uma falha aqui nunca derruba a operação
+// principal: fica no log e a pessoa continua aparecendo na limpeza manual.
+async function limparDesligadosAutomatico(request: Request, user: { id: string }, origem: string): Promise<string[]> {
+  try {
+    const limpos = await limparParticipaDeDesligados(user);
+    await registrarLimpezaDeDesligados(request, user, limpos, origem);
+    return limpos.map((l) => l.nome);
+  } catch (err) {
+    console.error("[gorjeta] limpeza automática de desligados falhou:", err);
+    return [];
+  }
+}
+
 tipCommissionRouter.post("/periods/:id/limpar-desligados", async (request, response) => {
   const user = await getSessionUser(request);
   if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
@@ -623,13 +647,7 @@ tipCommissionRouter.post("/periods/:id/limpar-desligados", async (request, respo
   const ids = (request.body as { employeeIds?: unknown } | undefined)?.employeeIds;
   const employeeIds = Array.isArray(ids) ? ids.filter((x): x is string => typeof x === "string") : undefined;
   const limpos = await limparParticipaDeDesligados(user, employeeIds);
-  if (limpos.length > 0) {
-    await auditLog({
-      userId: user.id, action: "CLEAR_TIP_PARTICIPA_DESLIGADOS", entity: "Employee", entityId: limpos.map((l) => l.employeeId).join(","),
-      newValue: limpos.map((l) => ({ employeeId: l.employeeId, nome: l.nome, saida: l.terminationDate })),
-      ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
-    });
-  }
+  await registrarLimpezaDeDesligados(request, user, limpos, "manual");
   response.json({ limpos: limpos.length, nomes: limpos.map((l) => l.nome) });
 });
 
@@ -778,7 +796,9 @@ tipCommissionRouter.post("/periods/:year/:month/close", async (request, response
     const usuario = { id: user.id, name: user.name, role: user.role };
     // Fechado o mês, o salário de quem tem salário combinado passa ao valor integral.
     const salariosCombinados = await sincronizarAposFechar(request, year, month, usuario);
-    response.json({ ...result, salariosCombinados, acertosLista: await lancarAcertosAposFechar(request, year, month, usuario) });
+    // O ciclo que acabou de fechar libera a limpeza de quem saiu nele.
+    const desligadosLimpos = await limparDesligadosAutomatico(request, user, "fechamento");
+    response.json({ ...result, salariosCombinados, desligadosLimpos, acertosLista: await lancarAcertosAposFechar(request, year, month, usuario) });
   } catch (err) {
     response.status(422).json({ message: (err as Error).message });
   }
