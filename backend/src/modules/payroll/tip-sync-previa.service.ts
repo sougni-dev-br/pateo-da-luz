@@ -1,6 +1,7 @@
 import { prisma } from "../../config/database.js";
 import { carregarParaSync, pontosBaseDoCadastro } from "./tip-commission.service.js";
 import { nomeCompleto } from "./nomes.js";
+import { desligadosParaLimpar } from "./tip-desligados.service.js";
 import {
   type DiferencaCadastro, type ForaDoRateio, type PessoaDoCadastro, type PessoaDoPeriodo, diferencasDoSync, foraDoRateio,
 } from "./tip-sync-diferencas.js";
@@ -8,8 +9,9 @@ import {
 export type PreviaSyncCadastro = {
   diferencas: DiferencaCadastro[];
   foraDoRateio: ForaDoRateio[];
-  /** Desligados de ciclos anteriores que ainda estão com "Participa" marcado no cadastro. */
+  /** Desligados cujo ciclo da saída já fechou e que ainda estão com "Participa" marcado no cadastro. */
   desligadosComParticipaMarcado: number;
+  desligadosParaLimpar: Array<{ employeeId: string; nome: string; saida: string }>;
 };
 
 type ComNome = { id: string; firstName?: string; lastName?: string; displayName?: string | null };
@@ -20,7 +22,9 @@ const nomeDe = (e: ComNome) => nomeCompleto({ firstName: e.firstName ?? "", last
 export async function previaSyncCadastro(periodId: string): Promise<PreviaSyncCadastro> {
   const { periodo, elegiveis, emTeste, soSalario, existing } = await carregarParaSync(periodId);
 
-  const daPessoa = (e: ComNome & { tipoGorjeta?: "PONTOS" | "FIXO"; tipFunction: { name: string; points?: unknown } | null; pontosExtra?: unknown }): PessoaDoCadastro => ({
+  const saiuNoCiclo = (e: { terminationDate?: Date | null }) => e.terminationDate != null && e.terminationDate <= periodo.periodEnd;
+  const daPessoa = (e: ComNome & { tipoGorjeta?: "PONTOS" | "FIXO"; tipFunction: { name: string; points?: unknown } | null; pontosExtra?: unknown; terminationDate?: Date | null }): PessoaDoCadastro => ({
+    saiuNoCiclo: saiuNoCiclo(e),
     id: e.id,
     nome: nomeDe(e),
     funcao: e.tipFunction?.name ?? null,
@@ -29,7 +33,7 @@ export async function previaSyncCadastro(periodId: string): Promise<PreviaSyncCa
   });
   const diferencas = diferencasDoSync({
     elegiveis: elegiveis.map(daPessoa),
-    soSalario: soSalario.map((e) => ({ id: e.id, nome: nomeDe(e), funcao: e.tipFunction?.name ?? null, pontos: 0, tipoGorjeta: "PONTOS" as const })),
+    soSalario: soSalario.map((e) => ({ id: e.id, nome: nomeDe(e), funcao: e.tipFunction?.name ?? null, pontos: 0, tipoGorjeta: "PONTOS" as const, saiuNoCiclo: saiuNoCiclo(e) })),
     emTeste: emTeste.map(daPessoa),
     existentes: existing.map((x) => ({
       employeeId: x.employeeId,
@@ -60,9 +64,12 @@ export async function previaSyncCadastro(periodId: string): Promise<PreviaSyncCa
   }));
   const soSalarioIds = new Set(existing.filter((x) => x.foraDaGorjeta).map((x) => x.employeeId));
 
-  const desligadosComParticipaMarcado = await prisma.employee.count({
-    where: { deletedAt: null, isActive: false, participaGorjeta: true, terminationDate: { lt: periodo.periodStart } },
-  });
+  const paraLimpar = await desligadosParaLimpar();
 
-  return { diferencas, foraDoRateio: foraDoRateio(pessoas, periodo.periodEnd, soSalarioIds), desligadosComParticipaMarcado };
+  return {
+    diferencas,
+    foraDoRateio: foraDoRateio(pessoas, periodo.periodEnd, soSalarioIds),
+    desligadosComParticipaMarcado: paraLimpar.length,
+    desligadosParaLimpar: paraLimpar.map((p) => ({ employeeId: p.employeeId, nome: p.nome, saida: p.terminationDate.toISOString() })),
+  };
 }

@@ -1235,7 +1235,7 @@ export async function carregarParaSync(periodId: string) {
 // vira fora da gorjeta. Quem estava só pelo salário e deixou de ter direito (virou CLT,
 // saiu antes do mês) sai do período — a não ser que tenha vale lançado.
 export async function syncParticipantsFromCadastro(periodId: string): Promise<{ added: number; elegiveis: number; atualizados: number; removidos: number }> {
-  const { elegiveis, emTeste, soSalario, existing } = await carregarParaSync(periodId);
+  const { periodo, elegiveis, emTeste, soSalario, existing } = await carregarParaSync(periodId);
   const byEmp = new Map(existing.map((e) => [e.employeeId, e]));
   const toAdd = elegiveis.filter((e) => !byEmp.has(e.id));
   const soSalarioNovos = soSalario.filter((e) => !byEmp.has(e.id));
@@ -1297,6 +1297,9 @@ export async function syncParticipantsFromCadastro(periodId: string): Promise<{ 
   for (const e of [...soSalario, ...cltEmTeste]) {
     const atual = byEmp.get(e.id);
     if (!atual || atual.foraDaGorjeta) continue;
+    // Já saiu neste ciclo: a gorjeta dele é da rescisão. Limpar o "Participa" do cadastro (ou
+    // desmarcar depois da saída) não pode rebaixá-lo para só salário num ciclo reaberto.
+    if (e.terminationDate && e.terminationDate <= periodo.periodEnd) continue;
     await prisma.tipParticipant.update({ where: { id: atual.id }, data: { foraDaGorjeta: true } });
     foraAgora.add(atual.id);
     atualizados += 1;

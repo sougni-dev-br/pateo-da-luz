@@ -7,6 +7,8 @@ export type DiferencaCadastro = { employeeId: string; nome: string; tipo: TipoDi
 
 export type PessoaDoCadastro = {
   id: string; nome: string; funcao: string | null; pontos: number; tipoGorjeta: "PONTOS" | "FIXO";
+  /** Já saiu neste ciclo: a gorjeta é da rescisão, a atualização não o tira do rateio. */
+  saiuNoCiclo?: boolean;
 };
 
 export type ParticipanteDoPeriodo = {
@@ -45,7 +47,7 @@ export function diferencasDoSync(entrada: {
   const foraAgora = new Set<string>();
   for (const p of [...soSalario, ...emTeste.filter((e) => !soSalarioIds.has(e.id))]) {
     const atual = porPessoa.get(p.id);
-    if (!atual || atual.foraDaGorjeta) continue;
+    if (!atual || atual.foraDaGorjeta || p.saiuNoCiclo) continue;
     foraAgora.add(p.id);
     add(p, "SAI_DO_RATEIO", "sai do rateio (não participa ou ainda não entrou na gorjeta)");
   }

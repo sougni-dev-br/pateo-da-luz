@@ -40,6 +40,10 @@ describe("diferencasDoSync", () => {
     const r = diferencasDoSync({ ...base, soSalario: [p("a")], emTeste: [p("a")], existentes: [ex("a")] });
     expect(r.map((x) => `${x.employeeId}:${x.tipo}`)).toEqual(["a:SAI_DO_RATEIO"]);
   });
+  test("quem já saiu neste ciclo não é tirado do rateio (a gorjeta é da rescisão)", () => {
+    const r = diferencasDoSync({ ...base, soSalario: [p("a", { saiuNoCiclo: true })], emTeste: [p("a", { saiuNoCiclo: true })], existentes: [ex("a")] });
+    expect(r).toEqual([]);
+  });
   test("CLT em teste sai do rateio e do período (a sincronização o remove), a não ser que tenha vale", () => {
     const sem = diferencasDoSync({ ...base, emTeste: [p("c")], existentes: [ex("c")] });
     expect(sem.map((x) => x.tipo)).toEqual(["SAI_DO_RATEIO", "SAI_DO_PERIODO"]);
