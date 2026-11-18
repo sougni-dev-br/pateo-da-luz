@@ -37,6 +37,7 @@ vi.mock("jspdf-autotable", () => ({
   default: (_doc: unknown, opts: Record<string, unknown>) => { guardar(opts.head); guardar(opts.body); guardar(opts.foot); },
 }));
 import { exportarListaPagamento } from "../exportarPdf";
+import { gerarPdfConferencia } from "../pdfConferencia";
 import { gerarPdfFolhaLiquidos } from "../pdfFolhaLiquidos";
 import { gerarReciboVale } from "../reciboVale";
 
@@ -104,6 +105,26 @@ describe("PDF só leva caracteres que a fonte do jsPDF desenha", () => {
     const todos = enviados.join("\n");
     expect(todos).not.toMatch(/[−–]/);
     expect(foraDoPdf(todos)).toEqual([]);
+  });
+
+  test("conferência: pendências, avisos, comparação e nomes com traços especiais saem limpos", async () => {
+    const c = {
+      year: 2026, month: 11, label: "Gorjeta 26/10–25/11", code: "GOR-2026-10", status: "OPEN", fechamento: null,
+      periodStart: "2026-10-26T00:00:00.000Z", periodEnd: "2026-11-25T00:00:00.000Z",
+      grossPool: 10000, servicoFaturamento: 10000, ajusteServico: -100, ajusteServicoMotivo: "dobro – lançado", deductionPercent: 20, quebraPercent: 2, quebraValor: 160,
+      netPool: 7840, fixedTotal: 0, pontosDisponiveis: 80, totalPoints: 80, pointValue: 98, distribuido: 7840, saldo: 0, reservaTotal: 0, rescisoes: { valor: 120, pontos: 1 },
+      totals: { rateio: 7840, vales: 10, netCommission: 7830 },
+      participants: [pessoa({ employeeName: "Ana – Souza", semRegistro: false, rateioAmount: 400, netCommission: 390, descontos: 10, creditos: 0, points: 4, diasComputados: 20, diasReferencia: 26 }),
+        pessoa({ employeeId: "b", employeeName: "Bia", foraDaGorjeta: true })],
+      pendencias: ["A distribuição (R$ 10,00) passa do líquido − em R$ 1,00."], warnings: ["Vales maiores → que a gorjeta: Ana – Souza."],
+      anterior: { year: 2026, month: 10, label: "Outubro/2026", valorPonto: 100, porPessoa: { e: { gorjeta: 450, pontosBase: 2, pontosApurados: 2, diasComputados: 26, diasReferencia: 26, funcao: null, tipo: "PONTOS", tipoCalculo: "MES" } } },
+    } as unknown as TipComputation;
+    await gerarPdfConferencia(c);
+    const todos = enviados.join("\n");
+    expect(todos).not.toMatch(/[−–‐]/);
+    expect(foraDoPdf(todos)).toEqual([]);
+    expect(todos).toContain("Conferência da gorjeta");
+    expect(todos).toMatch(/Pendências que impedem o fechamento \(1\)/);
   });
 
   test("recibo do vale: descrição e nomes digitados com traços especiais saem limpos", async () => {

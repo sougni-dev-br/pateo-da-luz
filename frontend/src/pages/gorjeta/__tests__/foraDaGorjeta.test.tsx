@@ -77,7 +77,7 @@ describe("apuração com quem está fora da gorjeta", () => {
     const c = comp([ANA, CARMELITA]);
     render(
       <AbaApuracao comp={c} rows={toRows(c)} readonly={false} onRow={vi.fn()} onRemove={vi.fn()} onVerVales={vi.fn()}
-        recibo={{ antesDeGravar: vi.fn(), onAplicado: vi.fn(), onErro: vi.fn() }} onGorjetaReal={vi.fn()} />,
+        recibo={{ antesDeGravar: vi.fn(), onAplicado: vi.fn(), onErro: vi.fn() }} onGorjetaReal={vi.fn()} conferencia={{ obterCalculo: vi.fn(), onErro: vi.fn() }} />,
     );
     // Na tabela, só quem participa (1 pessoa); o total distribuído não leva os vales dela.
     expect(screen.queryByRole("textbox", { name: /Carmelita/ })).toBeNull();

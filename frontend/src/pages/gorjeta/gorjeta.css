@@ -485,6 +485,7 @@
 .extra-motivo { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .extra-lapis { color: var(--muted); }
 .linha-em-edicao > td { background: color-mix(in srgb, var(--ink) 3%, transparent); }
+.botoes-conferencia { display: inline-flex; flex-wrap: wrap; gap: 6px; }
 .comparacao { font-size: 11px; }
 .comparacao > summary { cursor: pointer; white-space: nowrap; list-style: none; }
 .comparacao > summary::-webkit-details-marker { display: none; }

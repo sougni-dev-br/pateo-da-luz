@@ -138,12 +138,21 @@ export function FolhaGorjeta() {
     setParams(parametrosDe(c));
   }
 
+  // O cálculo mais recente, também quando a edição acabou de ser salva e a tela ainda não redesenhou.
+  const compRef = useRef<TipComputation | null>(null);
+  compRef.current = comp;
+  async function calculoAtual(): Promise<TipComputation> {
+    await flush();
+    if (!compRef.current) throw new Error("a apuração ainda não carregou");
+    return compRef.current;
+  }
+
   function salvarLinhas(): Promise<void> {
     const periodId = periodoEditavel.current;
     if (!periodId) return Promise.resolve();
     setAutoSaving(true);
     const p = saveTipParticipants(periodId, rowsRef.current.map(toPayload))
-      .then((c) => { setComp(c); })
+      .then((c) => { compRef.current = c; setComp(c); })
       .catch(erro)
       .finally(() => { setAutoSaving(false); emVoo.current = null; });
     emVoo.current = p;
@@ -534,7 +543,7 @@ export function FolhaGorjeta() {
 
               {aba === "apuracao" && (
                 <AbaApuracao comp={comp} rows={rows} readonly={readonly} onRow={setRow}
-                  onRemove={(p) => void remover(p)} onGorjetaReal={gravarGorjetaReal} onVerVales={(id) => { pedidosVales.current += 1; setPedidoVales(id ? { pessoa: id, n: pedidosVales.current } : null); setAba("vales"); }}
+                  onRemove={(p) => void remover(p)} onGorjetaReal={gravarGorjetaReal} conferencia={{ obterCalculo: calculoAtual, onErro: (m) => setNotice({ tone: "error", message: m }) }} onVerVales={(id) => { pedidosVales.current += 1; setPedidoVales(id ? { pessoa: id, n: pedidosVales.current } : null); setAba("vales"); }}
                   recibo={{
                     antesDeGravar: flush,
                     onAplicado: (c) => { aplicar(c); setNotice({ tone: "success", message: "Termo de rescisão lido: a gorjeta paga ficou registrada e saiu da lista a pagar." }); },
