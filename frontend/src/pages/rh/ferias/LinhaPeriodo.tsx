@@ -1,4 +1,4 @@
-import { Check, MessageSquareText, Pencil, Plus, Printer, Trash2, Undo2 } from "lucide-react";
+import { Calculator, Check, MessageSquareText, Pencil, Plus, Printer, Trash2, Undo2 } from "lucide-react";
 import type { ReactNode } from "react";
 import type { ProgramacaoFerias } from "../../../api/client";
 import { Button, Money, StatusBadge } from "../../../design-system";
@@ -18,13 +18,15 @@ type Props = {
   onCancelar: (g: ProgramacaoFerias) => void;
   onConfirmar: (g: ProgramacaoFerias) => void;
   onDesfazer: (g: ProgramacaoFerias) => void;
+  /** Somar o salário combinado e a gorjeta integral ao título de férias (do recibo) ainda em aberto. */
+  onSomarCombinado?: (g: ProgramacaoFerias) => void;
   /** Imprimir a ficha de férias da pessoa (todos os períodos dela). */
   onImprimir?: () => void;
 };
 
 // Os botões levam o nome da pessoa e o texto visível no começo do nome acessível (WCAG 2.5.3):
 // "Programar" → "Programar férias de Ana". O ocupado usa aria-disabled para o foco não se perder.
-export function LinhaPeriodo({ linha, ocupado, formulario, onProgramar, onPedido, onJaGozou, onEditar, onCancelar, onConfirmar, onDesfazer, onImprimir }: Props) {
+export function LinhaPeriodo({ linha, ocupado, formulario, onProgramar, onPedido, onJaGozou, onEditar, onCancelar, onConfirmar, onDesfazer, onSomarCombinado, onImprimir }: Props) {
   const { pessoa, periodo: p } = linha;
   const nome = pessoa.nome;
   const emAquisicao = p.situacao === "EM_AQUISICAO";
@@ -79,6 +81,12 @@ export function LinhaPeriodo({ linha, ocupado, formulario, onProgramar, onPedido
                 </span>
               )}
               <span className="fe-botoes">
+                {onSomarCombinado && g.pagamento?.doRecibo && !g.pagamento.pago && (
+                  <Button size="sm" variant="secondary" leadingIcon={<Calculator size={14} />} aria-disabled={ocupado}
+                    aria-label={`${g.pagamento.combinadoSomado ? "Refazer a soma do combinado" : "Somar combinado"} nas férias de ${nome} (${resumo})`} onClick={guarda(() => onSomarCombinado(g))}>
+                    {g.pagamento.combinadoSomado ? "Refazer combinado" : "Somar combinado"}
+                  </Button>
+                )}
                 {g.status === "PROGRAMADA" && g.passouDaData && (
                   <Button size="sm" variant="secondary" leadingIcon={<Check size={14} />} aria-disabled={ocupado} aria-label={`Confirmar que gozou, férias de ${nome} (${resumo})`} onClick={guarda(() => onConfirmar(g))}>Confirmar que gozou</Button>
                 )}

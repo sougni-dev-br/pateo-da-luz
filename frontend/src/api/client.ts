@@ -8897,7 +8897,13 @@ export type ProgramacaoFerias = {
   /** Quando a pessoa foi avisada por escrito das datas; vazio = ainda não avisada. */
   avisadoEm?: string | null;
   /** O título de pagamento já lançado para estas férias (recibo da contabilidade ou lançamento manual). */
-  pagamento?: { id: string; valor: number; vencimento: string; pago: boolean } | null;
+  pagamento?: {
+    id: string; valor: number; vencimento: string; pago: boolean;
+    /** O título veio do recibo da contabilidade (só esses recebem o complemento do combinado). */
+    doRecibo?: boolean;
+    /** O título já recebeu a soma do salário combinado e da gorjeta integral. */
+    combinadoSomado?: boolean;
+  } | null;
 };
 /** O que o colaborador pediu para um período aquisitivo; a empresa decide pela programação. */
 export type SolicitacaoFerias = {
@@ -8940,6 +8946,22 @@ export type ReciboFeriasPrevia = {
 /** Lê o recibo (PDF em base64); com aplicar=true lança o título de férias no Contas a Pagar. Mais de uma pessoa com o nome: 409 com `candidatos`. */
 export function importarReciboFerias(fileBase64: string, fileName: string, aplicar: boolean, employeeId?: string) {
   return request<{ previa: ReciboFeriasPrevia; aplicado: boolean; id?: string }>("/payroll/ferias/recibo", json("POST", { fileBase64, fileName, aplicar, employeeId }));
+}
+
+/** Gorjeta integral de um mês da média (apuração do ERP, informada à mão ou ausente). */
+export type MesDaGorjetaFerias = { chave: string; valor: number | null; origem: "APURACAO" | "INFORMADA" | "AUSENTE" };
+export type PreviaFeriasCombinado = {
+  payrollItemId: string; employeeId: string; nome: string;
+  combinado: number | null; mediaGorjeta: number; mesesContados: number; mesesAusentes: string[]; meses: MesDaGorjetaFerias[];
+  remuneracao: number; liquidoRecibo: number; complemento: number; valorAntes: number; valorDepois: number;
+  formula: string | null; avisos: string[];
+};
+/**
+ * Soma ao título de férias em aberto a diferença do salário combinado e da gorjeta integral (média de 12 meses).
+ * aplicar=false é só a prévia. `gorjetasInformadas`: { "AAAA-MM": valor } dos meses sem apuração. Exige ver Funcionários.
+ */
+export function somarCombinadoAFerias(payrollItemId: string, aplicar: boolean, gorjetasInformadas?: Record<string, number>) {
+  return request<{ aplicado: boolean; previa: PreviaFeriasCombinado; motivo?: string }>("/payroll/ferias/combinado", json("POST", { payrollItemId, aplicar, gorjetasInformadas }));
 }
 
 export type PedidoFerias = {

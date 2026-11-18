@@ -4,6 +4,7 @@ import { prisma } from "../../config/database.js";
 import { auditLog, getSessionUser, requestIp } from "../security/security-utils.js";
 import { hojeEmSaoPaulo } from "./extras-comum.js";
 import { feriasCombinadoRouter } from "./ferias-combinado.routes.js";
+import { foiSomadoAFerias, liquidoDoRecibo } from "./ferias-combinado.js";
 import { feriasReciboRouter } from "./ferias-recibo.routes.js";
 import {
   DIAS_ABONO, diaValido, periodosDeFerias, piorNivel, somarDias, somarMeses,
@@ -148,9 +149,13 @@ async function comPagamentos(pessoas: PessoaFerias[]): Promise<PessoaFerias[]> {
   if (ids.length === 0) return pessoas;
   const itens = await prisma.payrollItem.findMany({
     where: { type: "FERIAS", deletedAt: null, status: { not: "CANCELED" }, employeeId: { in: ids }, periodStart: { not: null } },
-    select: { id: true, employeeId: true, periodStart: true, amount: true, dueDate: true, paymentDate: true },
+    select: { id: true, employeeId: true, periodStart: true, amount: true, dueDate: true, paymentDate: true, details: true },
   });
-  const porChave = new Map(itens.map((i) => [`${i.employeeId}|${isoDia(i.periodStart)}`, { id: i.id, valor: Number(i.amount), vencimento: isoDia(i.dueDate) as string, pago: i.paymentDate !== null }]));
+  // doRecibo / combinadoSomado: só sim ou não (os detalhes do título, com salário e gorjeta, não saem daqui).
+  const porChave = new Map(itens.map((i) => [`${i.employeeId}|${isoDia(i.periodStart)}`, {
+    id: i.id, valor: Number(i.amount), vencimento: isoDia(i.dueDate) as string, pago: i.paymentDate !== null,
+    doRecibo: liquidoDoRecibo(i.details) != null, combinadoSomado: foiSomadoAFerias(i.details),
+  }]));
   return pessoas.map((p) => ({
     ...p,
     periodos: p.periodos.map((per) => ({
