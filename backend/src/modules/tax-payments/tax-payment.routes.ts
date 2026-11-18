@@ -321,15 +321,47 @@ function ehNumeroRepetido(error: unknown): boolean {
 
 const MENSAGEM_NUMERO_REPETIDO = "Já existe uma guia ativa com este número de documento. Edite a existente em vez de lançar outra.";
 
-// Roda a gravação e transforma a violação do índice único em 409 (devolve null; a resposta já foi enviada).
-async function gravar<T>(response: { status: (c: number) => { json: (b: unknown) => void } }, operacao: () => Promise<T>): Promise<T | null> {
+// A guia mudou entre a leitura e a gravação (outra pessoa pagou, estornou, cancelou, excluiu ou editou): o Prisma não
+// encontra o registro com as condições do `where` e devolve P2025.
+function guiaMudouNoMeioDaGravacao(error: unknown): boolean {
+  return typeof error === "object" && error !== null && (error as { code?: string }).code === "P2025";
+}
+
+const MENSAGEM_GUIA_MUDOU = "Esta guia foi alterada por outra pessoa enquanto você a salvava. Atualize a tela, confira o estado atual e tente de novo.";
+
+// Roda a gravação e transforma em 409 a violação do índice único e a guia que mudou no meio (devolve null; a resposta já foi
+// enviada). As gravações que precisam de exclusão mútua (baixa, estorno, edição) põem as condições no `where` do update.
+async function gravar<T>(
+  response: { status: (c: number) => { json: (b: unknown) => void } },
+  operacao: () => Promise<T>,
+  mensagemSeMudou: string = MENSAGEM_GUIA_MUDOU,
+): Promise<T | null> {
   try {
     return await operacao();
   } catch (error) {
+    if (guiaMudouNoMeioDaGravacao(error)) {
+      response.status(409).json({ message: mensagemSeMudou, code: "TAX_PAYMENT_CHANGED" });
+      return null;
+    }
     if (!ehNumeroRepetido(error)) throw error;
     response.status(409).json({ message: MENSAGEM_NUMERO_REPETIDO, code: "DUPLICATE_DOCUMENT" });
     return null;
   }
+}
+
+// Campos de texto livre: tipo e tamanho, para não gravar "[object Object]" nem texto sem limite.
+const LIMITES_DE_TEXTO: Array<[string, number]> = [
+  ["documentType", 80], ["legalName", 200], ["tradeName", 200], ["description", 500], ["comments", 2000], ["cnpj", 30],
+];
+
+function validarTextos(corpo: Record<string, unknown>): string | null {
+  for (const [campo, limite] of LIMITES_DE_TEXTO) {
+    const valor = corpo[campo];
+    if (valor == null) continue;
+    if (typeof valor !== "string" && !(campo === "cnpj" && typeof valor === "number")) return `Campo ${campo} inválido.`;
+    if (String(valor).length > limite) return `Campo ${campo} com mais de ${limite} caracteres.`;
+  }
+  return null;
 }
 
 function mensagemDeGuiaRepetida(g: { documentType: string; competenceDate: Date | null }, numero: string) {
@@ -353,6 +385,8 @@ taxPaymentRouter.post("/", async (request, response) => {
   if (!documentType || typeof documentType !== "string" || !documentType.trim()) {
     return response.status(400).json({ message: "Tipo de documento obrigatório." });
   }
+  const textoInvalido = validarTextos(request.body as Record<string, unknown>);
+  if (textoInvalido) return response.status(400).json({ message: textoInvalido });
 
   const vencimento = lerData(dueDate);
   if (!vencimento.ok || !vencimento.data) return response.status(400).json({ message: "Vencimento obrigatório e válido." });
@@ -467,6 +501,12 @@ taxPaymentRouter.put("/:id", async (request, response) => {
     competenceDate, dueDate, amount, paymentDate, paidAmount, comments, dreCategoryId, status, documentNumber, workersCount, employeeId, items,
   } = request.body as Record<string, unknown>;
 
+  const textoInvalido = validarTextos(request.body as Record<string, unknown>);
+  if (textoInvalido) return response.status(400).json({ message: textoInvalido });
+  if (documentType !== undefined && (typeof documentType !== "string" || !documentType.trim())) {
+    return response.status(400).json({ message: "Tipo de documento inválido." });
+  }
+
   const pagoAnterior = existing.paidAmount == null ? null : Number(existing.paidAmount);
   const pagoInformado = paidAmount === null || paidAmount === "" ? null : Number(paidAmount);
   const pagamentoMudou =
@@ -511,7 +551,7 @@ taxPaymentRouter.put("/:id", async (request, response) => {
     trabalhadoresDaGuia = lido.valor;
   }
 
-  const tipoFinal = documentType ? String(documentType).trim() : existing.documentType;
+  const tipoFinal = typeof documentType === "string" ? documentType.trim() : existing.documentType;
   let funcionarioDaGuia = existing.employeeId;
   // Só revalida quando o vínculo mudou: quem foi readmitido depois da guia não pode travar a edição dela.
   if (employeeId !== undefined && (employeeId || null) !== existing.employeeId) {
@@ -575,14 +615,16 @@ taxPaymentRouter.put("/:id", async (request, response) => {
 
   // Dentro da função da gravação o TypeScript perde o estreitamento feito acima, então o vencimento é fixado antes.
   const dataDeVencimento: Date = vencimento.data;
+  // Quem grava depois de outro pedido que mexeu na guia entre a leitura (acima) e este update bate no updatedAt: 409 em vez de
+  // sobrescrever (ex.: uma edição que lê antes de uma baixa não pode devolver a guia paga para "em aberto").
   const updated = await gravar(response, () => prisma.taxPayment.update({
-    where: { id },
+    where: { id, deletedAt: null, updatedAt: existing.updatedAt },
     data: {
       companyId: companyId !== undefined ? ((companyId as string) || null) : existing.companyId,
       cnpj: cnpj !== undefined ? (cnpj ? String(cnpj).replace(/\D/g, "") : null) : existing.cnpj,
       legalName: legalName !== undefined ? ((legalName as string) || null) : existing.legalName,
       tradeName: tradeName !== undefined ? ((tradeName as string) || null) : existing.tradeName,
-      documentType: documentType ? String(documentType).trim() : existing.documentType,
+      documentType: tipoFinal,
       description: descricaoFinal,
       documentNumber: numeroDoDocumento,
       workersCount: tipoFinal === "FGTS" ? trabalhadoresDaGuia : null,
@@ -590,7 +632,10 @@ taxPaymentRouter.put("/:id", async (request, response) => {
       competenceDate: competencia.data,
       dueDate: dataDeVencimento,
       amount: valor,
-      status: statusDaGuia(existing.paymentDate, dataDeVencimento, cancelada),
+      // "Sem comprovante" é um estado deliberado: editar a guia não pode apagá-lo (e reabrir a guia para uma segunda baixa).
+      status: existing.status === "WITHOUT_RECEIPT" && !existing.paymentDate && !cancelada
+        ? "WITHOUT_RECEIPT"
+        : statusDaGuia(existing.paymentDate, dataDeVencimento, cancelada),
       comments: comments !== undefined ? ((comments as string) || null) : existing.comments,
       dreCategoryId: categoriaFinal,
       updatedById: user.id,
@@ -763,8 +808,10 @@ taxPaymentRouter.patch("/:id/pay", async (request, response) => {
   if (await competenciaBloqueada(existing.competenceDate, "Baixa de imposto", response)) return;
   if (await competenciaBloqueada(paymentDate, "Baixa de imposto (data do pagamento)", response)) return;
 
-  const updated = await prisma.taxPayment.update({
-    where: { id },
+  // Duas baixas quase juntas (toque duplo, duas abas) passam pela checagem acima: só a primeira grava. A segunda não
+  // encontra a guia "em aberto" e recebe 409, em vez de sobrescrever data e valor da primeira.
+  const updated = await gravar(response, () => prisma.taxPayment.update({
+    where: { id, deletedAt: null, paymentDate: null, status: { not: "CANCELED" } },
     data: {
       paymentDate,
       paidAmount,
@@ -772,7 +819,8 @@ taxPaymentRouter.patch("/:id/pay", async (request, response) => {
       ...(comments !== undefined ? { comments } : {}),
       updatedById: user.id,
     },
-  });
+  }), "Esta guia mudou enquanto era baixada (já foi paga, cancelada ou excluída por outra pessoa). Atualize a tela e confira antes de baixar de novo.");
+  if (!updated) return;
 
   await auditLog({
     userId: user.id,
@@ -815,15 +863,16 @@ taxPaymentRouter.patch("/:id/reverse", async (request, response) => {
 
   const reversedStatus = statusDeGuiaEmAberto(existing.dueDate);
 
-  const updated = await prisma.taxPayment.update({
-    where: { id },
+  const updated = await gravar(response, () => prisma.taxPayment.update({
+    where: { id, deletedAt: null, paymentDate: { not: null }, status: { not: "CANCELED" } },
     data: {
       paymentDate: null,
       paidAmount: null,
       status: reversedStatus,
       updatedById: user.id,
     },
-  });
+  }), "Esta guia mudou enquanto era estornada (já foi estornada, cancelada ou excluída por outra pessoa). Atualize a tela e confira.");
+  if (!updated) return;
 
   await auditLog({
     userId: user.id,
@@ -845,7 +894,8 @@ taxPaymentRouter.get("/:id/history", async (request, response) => {
   if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
 
   const rows = await prisma.$queryRaw<Array<Record<string, unknown>>>`
-    SELECT a.*, u."name" AS "userName", u."email" AS "userEmail"
+    SELECT a."id", a."userId", a."action", a."entity", a."entityId", a."previousValue", a."newValue", a."createdAt",
+           u."name" AS "userName"
     FROM "AuditLog" a
     LEFT JOIN "User" u ON u."id" = a."userId"
     WHERE a."entity" = 'TaxPayment' AND a."entityId" = ${request.params.id}
@@ -897,11 +947,27 @@ taxPaymentRouter.post("/import-xlsx/confirm", async (request, response) => {
   if (!filePath) return response.status(400).json({ message: "importFileId inválido. Faça o upload novamente." });
   if (!fs.existsSync(filePath)) return response.status(400).json({ message: "Arquivo não encontrado. Faça o upload novamente." });
 
-  const limparArquivo = () => fs.unlink(filePath, () => undefined);
+  // Duas confirmações do mesmo arquivo (retry depois de timeout, aba duplicada) importariam tudo duas vezes: o arquivo é
+  // "reservado" renomeando-o de forma atômica, e quem chega depois não o encontra.
+  const emProcesso = `${filePath}.processando`;
+  try {
+    fs.renameSync(filePath, emProcesso);
+  } catch {
+    return response.status(409).json({ message: "Esta importação já está em andamento ou foi concluída. Confira a lista antes de importar de novo." });
+  }
+  // O arquivo só fica reservado enquanto a importação roda: se qualquer coisa falhar (banco fora, erro inesperado) ou a
+  // conexão cair, ele volta ao nome original e a confirmação pode ser repetida. Concluída, some (inclusive do nome original).
+  let emAndamento = true;
+  const devolverArquivo = () => { try { fs.renameSync(emProcesso, filePath); } catch { /* já devolvido ou apagado */ } };
+  const limparArquivo = () => {
+    emAndamento = false;
+    for (const caminho of [emProcesso, filePath]) { try { fs.unlinkSync(caminho); } catch { /* já apagado */ } }
+  };
+  response.once("close", () => { if (emAndamento) devolverArquivo(); });
   const existingKeySet = await buildExistingDedupKeys();
   let preview: Awaited<ReturnType<typeof previewTaxImport>>;
   try {
-    preview = await previewTaxImport(filePath, existingKeySet);
+    preview = await previewTaxImport(emProcesso, existingKeySet);
   } catch (error) {
     limparArquivo();
     return response.status(400).json({ message: error instanceof Error ? error.message : "Erro ao processar arquivo." });
@@ -927,6 +993,7 @@ taxPaymentRouter.post("/import-xlsx/confirm", async (request, response) => {
     }
   }
   if (linhaBloqueada.length > 0) {
+    devolverArquivo(); // o período pode ser reaberto e a confirmação repetida com o mesmo arquivo
     return response.status(400).json({
       message: `A importacao tem ${linhaBloqueada.length} lancamento(s) em periodo fechado e foi recusada por inteiro. Reabra o periodo ou remova essas linhas da planilha.`,
       bloqueios: linhaBloqueada.slice(0, 10)
@@ -967,9 +1034,12 @@ taxPaymentRouter.post("/import-xlsx/confirm", async (request, response) => {
       records.push(record);
     }
     return records;
+  }, { maxWait: 15_000, timeout: 120_000 }).catch((error) => {
+    devolverArquivo();
+    throw error;
   });
 
-  fs.unlink(filePath, () => undefined);
+  limparArquivo();
 
   await auditLog({
     userId: user.id,

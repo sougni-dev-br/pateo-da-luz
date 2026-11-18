@@ -1,7 +1,7 @@
 import { CheckCircle2, CircleAlert, ExternalLink, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import {
-  createTaxPayment, getCompanies, getEmployees, getTaxCategorySuggestion, getTaxCodes, getTaxDreCategories, getTaxPayment, getTaxPayments, updateTaxPayment,
+  ApiError, createTaxPayment, getCompanies, getEmployees, getTaxCategorySuggestion, getTaxCodes, getTaxDreCategories, getTaxPayment, getTaxPayments, updateTaxPayment,
   type Company, type Employee, type TaxCode, type TaxDreCategory, type TaxPayment, type TaxPaymentDetail,
 } from "../../api/client";
 import { DRE_GROUPS, dreGroupLabel } from "../../components/DRECategoryOptions";
@@ -70,6 +70,9 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
   const [carregando, setCarregando] = useState(emEdicao || duplicarDe != null);
   const [categorias, setCategorias] = useState<TaxDreCategory[]>([]);
   const [empresas, setEmpresas] = useState<Company[]>([]);
+  // Falha ao carregar as empresas (diferente de "sem permissão para vê-las"): bloqueia o lançamento até conseguir.
+  const [empresasFalhou, setEmpresasFalhou] = useState(false);
+  const [tentativaEmpresas, setTentativaEmpresas] = useState(0);
   const [desligados, setDesligados] = useState<Employee[]>([]);
   const [catalogo, setCatalogo] = useState<TaxCode[]>([]);
   const [categoriaEscolhida, setCategoriaEscolhida] = useState(false);
@@ -103,8 +106,16 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
   useEffect(() => {
     getTaxDreCategories().then(setCategorias).catch(() => setErroApi("Não consegui carregar as categorias do DRE."));
     // Quem lança guia nem sempre pode ver Empresas: sem a lista, a empresa fica em campo livre.
-    getCompanies().then(setEmpresas).catch(() => setEmpresas([]));
-  }, []);
+    let descartada = false;
+    getCompanies()
+      .then((lista) => { if (!descartada) { setEmpresas(lista); setEmpresasFalhou(false); } })
+      .catch((e: unknown) => {
+        if (descartada) return;
+        setEmpresas([]);
+        setEmpresasFalhou(!(e instanceof ApiError && e.status === 403));
+      });
+    return () => { descartada = true; };
+  }, [tentativaEmpresas]);
 
   // FGTS de rescisão: só quem já saiu entra na lista (e quem a guia já tinha, para a edição mostrar o nome).
   useEffect(() => {
@@ -173,7 +184,9 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
         .then((s) => {
           if (descartada) return;
           setCategoriaAuto(s.dreCategoryId != null);
-          setForm((f) => ({ ...f, dreCategoryId: s.dreCategoryId ?? "" }));
+          // Duplicar: sem regra automática para o tipo, a categoria que a guia de origem tinha (escolhida à mão) continua.
+          // Só enquanto o tipo é o da guia de origem: trocar de tipo invalida a categoria que ela tinha.
+          setForm((f) => ({ ...f, dreCategoryId: s.dreCategoryId ?? (duplicarDe && detalhe?.documentType === f.documentType ? f.dreCategoryId : "") }));
         })
         .catch(() => {
           if (descartada) return;
@@ -183,7 +196,7 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
         });
     }, 300);
     return () => { descartada = true; clearTimeout(t); };
-  }, [emEdicao, tipoAlterado, form.documentType, descricaoDasLinhasAtual, categoriaEscolhida]);
+  }, [emEdicao, duplicarDe, detalhe, tipoAlterado, form.documentType, descricaoDasLinhasAtual, categoriaEscolhida]);
 
   // Aviso de guia repetida: o número do documento é único por emissão (comparado só por letras e dígitos).
   useEffect(() => {
@@ -209,9 +222,9 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
 
   // O que ainda impede de lançar: a guia só conclui com tudo resolvido.
   const pendencias = useMemo(() => (podeEditar ? pendenciasDaGuia(form, {
-    emEdicao, valoresFixos, exigeEmpresa: empresas.length > 0, exigeCategoria: categoriaAuto === false, catalogo,
+    emEdicao, valoresFixos, exigeEmpresa: empresas.length > 0, empresasIndisponiveis: empresasFalhou, exigeCategoria: categoriaAuto === false, catalogo,
     numeroRepetido: repetida?.documentNumber ?? null, podeVincularFuncionario: podeVerFuncionarios,
-  }) : []), [podeEditar, form, emEdicao, valoresFixos, empresas.length, categoriaAuto, catalogo, repetida, podeVerFuncionarios]);
+  }) : []), [podeEditar, form, emEdicao, valoresFixos, empresas.length, empresasFalhou, categoriaAuto, catalogo, repetida, podeVerFuncionarios]);
   const linhasPendentes = pendencias.filter((p) => p.campo.startsWith("linha:")).map((p) => p.campo.slice(6));
 
   function aplicarTipo(tipo: string, refazerLinhas: boolean) {
@@ -313,8 +326,11 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
 
   const tipoForaDoDestaque = form.documentType !== "" && !TIPOS_EM_DESTAQUE.includes(form.documentType);
   const titulo = emEdicao ? (podeEditar ? "Editar guia" : "Guia") : duplicarDe ? "Duplicar guia" : "Lançar guia de imposto";
+  // O DARF da Receita junta INSS e IRRF: a guia tem uma categoria, mas o DRE divide o valor pelas linhas.
+  const dividePorLinha = categoriaAuto === true && (categoria?.name === "INSS" || categoria?.name === "IRRF / DARF") && /DARF|RECEITA/i.test(form.documentType);
   const hintCategoria = !form.documentType
     ? "Vem do tipo e das linhas da guia."
+    : dividePorLinha ? "Automática. No DRE o DARF é dividido por linha: 1082 e 1099 vão para INSS, 0561 para IRRF / DARF."
     : categoriaAuto === true ? "Automática: definida pelo tipo e pelas linhas da guia."
     : categoriaAuto === false ? "Este tipo não tem categoria automática: escolha a categoria."
     : emEdicao ? undefined : "Consultando a categoria…";
@@ -346,6 +362,12 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
 
           {/* Na ordem do papel: quem paga, quando vence, o que apurou e o número do documento. */}
           <div data-pend="empresa">
+            {empresasFalhou && (
+              <p className="field-hint field-hint--alerta" role="alert">
+                Não consegui carregar a lista de empresas.{" "}
+                <Button size="sm" variant="secondary" onClick={() => setTentativaEmpresas((n) => n + 1)}>Tentar de novo</Button>
+              </p>
+            )}
             {empresas.length > 0 ? (
               <FormField label="Empresa (CNPJ no documento)" required={!emEdicao}>
                 <Select placeholder="Selecione a empresa" value={form.companyId} disabled={!editavel} onChange={(e) => escolherEmpresa(e.target.value)}

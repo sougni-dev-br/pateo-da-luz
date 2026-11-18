@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { prisma } from "../../config/database.js";
 import ExcelJS from "exceljs";
+import { MAXIMO_DE_VALOR_DA_GUIA } from "./tax-payment-rules.js";
 
 export type TaxImportRow = {
   cnpj: string | null;
@@ -111,8 +112,11 @@ export function parseAmount(value: unknown): number | null {
   // Valor negativo (estorno, restituição) não é despesa: vira linha inválida em vez de entrar com o sinal trocado.
   if (typeof value === "number") return isNaN(value) || value < 0 ? null : value;
   const bruto = String(value).trim();
-  // Sinal antes do número, parêntese ou sinal à direita ("1.250,00-", comum em extrato).
-  if (/^[^\d(\-−]*[-−(]/.test(bruto) || /[-−]\s*$/.test(bruto)) return null;
+  // Negativo (estorno, restituição): sinal antes do número ("-1.250,00", "R$ -1.250,00"), valor entre parênteses
+  // ("(1.250,00)", "R$ (1.250,00)") ou sinal à direita ("1.250,00-", comum em extrato). Parêntese no meio de um texto
+  // ("Total (R$) 1.234,56") não é sinal.
+  // Cobre "-1.250,00", "R$ -1.250,00", "-R$ 1.250,00", "- R$ 100,00", "(1.250,00)", "(R$ 1.250,00)", "R$ (1.250,00)" e "1.250,00-".
+  if (/^\s*(R\$\s*)?[-−]/.test(bruto) || /^\s*(R\$\s*)?\(\s*(R\$\s*)?[\d.,]+\s*\)\s*$/.test(bruto) || /\d\s*[-−]\s*$/.test(bruto)) return null;
   // "12.50" (ponto decimal, sem vírgula) é 12,50; antes o ponto era tratado como milhar e virava 1250.
   const pontoDecimal = !bruto.includes(",") && /^\D*\d+\.\d{1,2}\D*$/.test(bruto);
   const text = (pontoDecimal ? bruto : bruto.replace(/\./g, "").replace(",", ".")).replace(/[^\d.]/g, "");
@@ -318,6 +322,7 @@ export async function previewTaxImport(
     if (!row.documentType) errors.push("Tipo de documento (ÓRGÃO/DOCUMENTO) obrigatório");
     if (!row.dueDate) errors.push("Vencimento inválido ou ausente");
     if (row.amount == null || row.amount <= 0) errors.push("Valor inválido, zero ou ausente");
+    else if (row.amount > MAXIMO_DE_VALOR_DA_GUIA) errors.push("Valor acima do máximo de uma guia");
     // Sem competência a guia não entra em DRE nenhum; o lançamento manual também exige.
     if (!row.competenceDate) errors.push("Competência ausente ou ilegível (use dd/mm/aaaa ou mm/aaaa)");
 

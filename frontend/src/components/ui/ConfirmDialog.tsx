@@ -1,5 +1,5 @@
 import { AlertTriangle } from "lucide-react";
-import { ReactNode } from "react";
+import { ReactNode, useEffect } from "react";
 
 type ConfirmDialogProps = {
   open: boolean;
@@ -22,6 +22,18 @@ export function ConfirmDialog({
   onConfirm,
   onCancel
 }: ConfirmDialogProps) {
+  // Esc cancela (antes não fazia nada: o diálogo ficava aberto por cima da janela, que ignora Esc enquanto ele existe).
+  useEffect(() => {
+    if (!open) return;
+    const tecla = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      onCancel();
+    };
+    document.addEventListener("keydown", tecla, true);
+    return () => document.removeEventListener("keydown", tecla, true);
+  }, [open, onCancel]);
+
   if (!open) return null;
 
   return (

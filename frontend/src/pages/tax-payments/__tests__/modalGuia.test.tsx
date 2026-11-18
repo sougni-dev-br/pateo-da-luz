@@ -38,7 +38,7 @@ vi.mock("../../../api/client", async (importOriginal) => ({
   getTaxPayment: vi.fn(),
 }));
 
-import { createTaxPayment, getCompanies, getEmployees, getTaxCategorySuggestion, getTaxCodes, getTaxPayment, getTaxPayments } from "../../../api/client";
+import { createTaxPayment, getCompanies, getEmployees, getTaxCategorySuggestion, getTaxCodes, getTaxDreCategories, getTaxPayment, getTaxPayments } from "../../../api/client";
 import { ModalGuia } from "../ModalGuia";
 
 const VALORES_DAS = ["46971", "29890", "108803", "23571", "358689", "206087"];
@@ -400,6 +400,28 @@ describe("ModalGuia: editar guia", () => {
     await waitFor(() => expect((screen.getByLabelText(/Categoria no DRE/) as HTMLSelectElement).value).toBe("cat-simples"));
   });
 
+  test("duplicar tipo sem categoria automática mantém a categoria escolhida à mão na guia de origem", async () => {
+    vi.mocked(getTaxPayment).mockResolvedValue(detalhe({ documentType: "IPTU", dreCategoryId: "cat-outra" }) as never);
+    vi.mocked(getTaxCategorySuggestion).mockImplementation(async () => ({ dreCategoryId: null, nome: null }));
+    abrir({ duplicarDe: "g1" });
+    await screen.findByLabelText("Principal da linha 1");
+    await waitFor(() => expect(screen.getByText(/Este tipo não tem categoria automática/)).toBeTruthy());
+    expect((screen.getByLabelText(/Categoria no DRE/) as HTMLSelectElement).value).toBe("cat-outra");
+    expect(screen.queryByRole("button", { name: /Escolha a categoria do DRE/ })).toBeNull();
+  });
+
+  test("duplicar e depois trocar para outro tipo sem regra automática: a categoria da origem sai e vira pendência", async () => {
+    vi.mocked(getTaxPayment).mockResolvedValue(detalhe({ documentType: "IPTU", dreCategoryId: "cat-outra" }) as never);
+    vi.mocked(getTaxCategorySuggestion).mockImplementation(async () => ({ dreCategoryId: null, nome: null }));
+    abrir({ duplicarDe: "g1" });
+    await screen.findByLabelText("Principal da linha 1");
+    await waitFor(() => expect((screen.getByLabelText(/Categoria no DRE/) as HTMLSelectElement).value).toBe("cat-outra"));
+    fireEvent.change(screen.getByLabelText("Outro tipo de guia"), { target: { value: "ISS" } });
+    fireEvent.click(await screen.findByRole("button", { name: "Trocar o tipo" }));
+    await waitFor(() => expect((screen.getByLabelText(/Categoria no DRE/) as HTMLSelectElement).value).toBe(""));
+    expect(screen.getByRole("button", { name: /Escolha a categoria do DRE/ })).toBeTruthy();
+  });
+
   test("o rodapé diz Fechar (cancelar a guia é outra coisa, na situação da guia)", async () => {
     vi.mocked(getTaxPayment).mockResolvedValue(detalhe() as never);
     abrir({ editId: "g1" });
@@ -493,6 +515,38 @@ describe("ModalGuia: robustez do lançamento", () => {
     expect(await screen.findByText(/Não consegui sugerir a categoria do DRE/)).toBeTruthy();
     expect((screen.getByLabelText(/Categoria no DRE/) as HTMLSelectElement).disabled).toBe(false);
     expect(screen.getByRole("button", { name: /Escolha a categoria do DRE/ })).toBeTruthy();
+  });
+
+  test("Esc com a confirmação de descarte aberta cancela a pergunta, sem fechar o modal", async () => {
+    const onFechar = vi.fn();
+    abrir({ onFechar });
+    fireEvent.click(screen.getByRole("radio", { name: "DARF" }));
+    fireEvent.change(await screen.findByLabelText("Principal da linha 1"), { target: { value: "442851" } });
+    fireEvent.click(ultimoFechar());
+    expect(await screen.findByText("Descartar o que foi digitado?")).toBeTruthy();
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByText("Descartar o que foi digitado?")).toBeNull());
+    expect(onFechar).not.toHaveBeenCalled();
+    expect((screen.getByLabelText("Principal da linha 1") as HTMLInputElement).value).toBe("4.428,51");
+  });
+
+  test("lista de empresas que falha ao carregar bloqueia o lançamento e deixa tentar de novo", async () => {
+    vi.mocked(getCompanies).mockRejectedValueOnce(new Error("rede"));
+    abrir();
+    expect(await screen.findByText(/Não consegui carregar a lista de empresas\./, { selector: "p" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Não consegui carregar a lista de empresas\. Tente de novo/ })).toBeTruthy();
+    vi.mocked(getCompanies).mockResolvedValueOnce([{ id: "c1", cnpj: "00000000000100", legalName: "Empresa Exemplo Ltda", tradeName: "Exemplo" }] as never);
+    fireEvent.click(screen.getByRole("button", { name: "Tentar de novo" }));
+    await waitFor(() => expect(screen.queryByText(/Não consegui carregar a lista de empresas\./, { selector: "p" })).toBeNull());
+    expect(getCompanies).toHaveBeenCalledTimes(2);
+  });
+
+  test("DARF com categoria automática de INSS explica que o DRE divide por linha", async () => {
+    vi.mocked(getTaxDreCategories).mockResolvedValueOnce([{ id: "cat-inss", name: "INSS", dreGroup: "PESSOAL" }, { id: "cat-irrf", name: "IRRF / DARF", dreGroup: "IMPOSTOS" }] as never);
+    vi.mocked(getTaxCategorySuggestion).mockResolvedValueOnce({ dreCategoryId: "cat-inss", nome: "INSS" });
+    abrir();
+    fireEvent.click(screen.getByRole("radio", { name: "DARF" }));
+    expect(await screen.findByText(/o DARF é dividido por linha: 1082 e 1099 vão para INSS, 0561 para IRRF/)).toBeTruthy();
   });
 
   test("Ctrl+Enter com pendências leva ao campo que falta e não grava", async () => {

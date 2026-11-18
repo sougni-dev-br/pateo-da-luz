@@ -174,6 +174,8 @@ export type ContextoDasPendencias = {
   valoresFixos: boolean;
   /** Há empresas cadastradas: escolher uma é obrigatório (os CNPJs do grupo são diferentes). */
   exigeEmpresa: boolean;
+  /** A lista de empresas falhou ao carregar (rede, servidor lento): sem ela a guia seria gravada sem empresa. */
+  empresasIndisponiveis?: boolean;
   /** Tipo e linhas não têm categoria automática no DRE: a pessoa precisa escolher. */
   exigeCategoria: boolean;
   catalogo: ReadonlyArray<TaxCode>;
@@ -188,7 +190,8 @@ const dinheiro = (n: number) => n.toLocaleString("pt-BR", { style: "currency", c
 export function pendenciasDaGuia(f: FormGuia, ctx: ContextoDasPendencias): Pendencia[] {
   const p: Pendencia[] = [];
   if (!f.documentType) p.push({ campo: "tipo", texto: "Escolha o tipo da guia." });
-  if (!ctx.emEdicao && ctx.exigeEmpresa && !f.companyId) p.push({ campo: "empresa", texto: "Escolha a empresa (o CNPJ que está no documento)." });
+  if (!ctx.emEdicao && ctx.empresasIndisponiveis) p.push({ campo: "empresa", texto: "Não consegui carregar a lista de empresas. Tente de novo antes de lançar: sem a empresa a guia ficaria fora do controle por CNPJ." });
+  else if (!ctx.emEdicao && ctx.exigeEmpresa && !f.companyId) p.push({ campo: "empresa", texto: "Escolha a empresa (o CNPJ que está no documento)." });
   if (!f.dueDate) p.push({ campo: "vencimento", texto: "Informe o vencimento (pagar até)." });
   if (!f.cancelada && !f.mes) p.push({ campo: "competencia", texto: "Informe a competência. Sem ela a guia fica fora do DRE e não pode ser lançada." });
   if (!ctx.emEdicao && f.documentType) {

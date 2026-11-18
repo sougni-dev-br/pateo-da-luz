@@ -13,6 +13,7 @@ vi.mock("../../../config/database.js", () => {
     dRECategory: { findMany: vi.fn() },
     $transaction: vi.fn(),
     $queryRawUnsafe: vi.fn(),
+    $queryRaw: vi.fn(),
     taxCodeCatalog: { findMany: vi.fn(), createMany: vi.fn() },
   };
   return { prisma };
@@ -142,6 +143,51 @@ describe("importação da planilha", () => {
     expect(r.status).toBe(200);
     expect(criados.map((c) => c.dreCategoryId)).toEqual(["cat-simples", "cat-inss"]);
     expect(fs.existsSync(path.join("uploads", importFileId))).toBe(false);
+  });
+
+  test("a confirmação reserva o arquivo antes de ler: ninguém mais o encontra e a segunda confirmação não importa de novo", async () => {
+    const importFileId = "b".repeat(32);
+    fs.mkdirSync("uploads", { recursive: true });
+    fs.writeFileSync(path.join("uploads", importFileId), "x");
+    vi.mocked(previewTaxImport).mockResolvedValue({ totalRows: 0, rows: [] } as never);
+    db.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => fn({ taxPayment: { create: async () => ({}) } }));
+
+    const primeira = await request(app).post("/tax-payments/import-xlsx/confirm").send({ importFileId });
+    expect(primeira.status).toBe(200);
+    // o preview leu o arquivo já renomeado (reservado), e nada sobrou na pasta
+    expect(String(vi.mocked(previewTaxImport).mock.calls.at(-1)?.[0])).toMatch(/\.processando$/);
+    expect(fs.existsSync(path.join("uploads", importFileId))).toBe(false);
+    expect(fs.existsSync(path.join("uploads", `${importFileId}.processando`))).toBe(false);
+
+    const segunda = await request(app).post("/tax-payments/import-xlsx/confirm").send({ importFileId });
+    expect(segunda.status).toBe(400); // arquivo já consumido: não importa de novo
+    expect(db.$transaction).toHaveBeenCalledTimes(1);
+  });
+
+  test("se a importação falhar depois de reservar o arquivo, ele volta ao nome original (a confirmação pode ser repetida)", async () => {
+    const importFileId = "d".repeat(32);
+    fs.mkdirSync("uploads", { recursive: true });
+    fs.writeFileSync(path.join("uploads", importFileId), "x");
+    const { buildExistingDedupKeys } = await import("../tax-payment-import.service.js");
+    vi.mocked(buildExistingDedupKeys).mockRejectedValueOnce(new Error("banco fora"));
+
+    const r = await request(app).post("/tax-payments/import-xlsx/confirm").send({ importFileId });
+
+    expect(r.status).toBe(500);
+    await vi.waitFor(() => expect(fs.existsSync(path.join("uploads", importFileId))).toBe(true));
+    expect(fs.existsSync(path.join("uploads", `${importFileId}.processando`))).toBe(false);
+    fs.rmSync(path.join("uploads", importFileId), { force: true });
+  });
+
+  test("a transação da importação tem prazo próprio (o padrão de 5 s estourava com lotes grandes)", async () => {
+    const importFileId = "c".repeat(32);
+    fs.mkdirSync("uploads", { recursive: true });
+    fs.writeFileSync(path.join("uploads", importFileId), "x");
+    vi.mocked(previewTaxImport).mockResolvedValue({ totalRows: 0, rows: [] } as never);
+    db.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => fn({ taxPayment: { create: async () => ({}) } }));
+    await request(app).post("/tax-payments/import-xlsx/confirm").send({ importFileId });
+    const opcoes = db.$transaction.mock.calls.at(-1)?.[1];
+    expect(opcoes).toEqual({ maxWait: 15_000, timeout: 120_000 });
   });
 
   test("a prévia devolve só o nome do upload, nunca o caminho do servidor", async () => {
@@ -547,6 +593,37 @@ describe("discriminação da guia (linhas) e total somado", () => {
       expect(db.taxPayment.update.mock.calls[0][0].data.dreCategoryId).toBe("cat-fgts");
     });
 
+    test("a edição só grava se a guia não mudou desde a leitura (updatedAt no where) e devolve 409 se mudou", async () => {
+      const lida = { ...existente, documentType: "FGTS", updatedAt: new Date("2026-10-01T12:00:00.000Z") };
+      db.taxPayment.findFirst.mockResolvedValue(lida);
+      const ok = await request(app).put("/tax-payments/g1").send({ comments: "x" });
+      expect(ok.status).toBe(200);
+      expect(db.taxPayment.update.mock.calls[0][0].where).toEqual({ id: "g1", deletedAt: null, updatedAt: lida.updatedAt });
+
+      db.taxPayment.update.mockRejectedValueOnce(Object.assign(new Error("not found"), { code: "P2025" }));
+      const conflito = await request(app).put("/tax-payments/g1").send({ comments: "y" });
+      expect(conflito.status).toBe(409);
+      expect(conflito.body.code).toBe("TAX_PAYMENT_CHANGED");
+    });
+
+    test("guia 'sem comprovante' continua assim depois de editar (não reabre para uma segunda baixa)", async () => {
+      db.taxPayment.findFirst.mockResolvedValue({ ...existente, status: "WITHOUT_RECEIPT", paymentDate: null });
+      await request(app).put("/tax-payments/g1").send({ comments: "x" });
+      expect(db.taxPayment.update.mock.calls[0][0].data.status).toBe("WITHOUT_RECEIPT");
+    });
+
+    test.each([
+      [{ documentType: "   " }, /Tipo de documento inválido/],
+      [{ documentType: { a: 1 } }, /documentType inválido/],
+      [{ comments: "x".repeat(2001) }, /comments com mais de 2000/],
+      [{ legalName: 5 }, /legalName inválido/],
+    ])("campo de texto inválido %j é recusado com 400", async (corpo, mensagem) => {
+      const r = await request(app).put("/tax-payments/g1").send(corpo);
+      expect(r.status).toBe(400);
+      expect(r.body.message).toMatch(mensagem);
+      expect(db.taxPayment.update).not.toHaveBeenCalled();
+    });
+
     test("restaurar com o índice único violado na corrida devolve 409, não 500", async () => {
       db.taxPayment.findFirst.mockResolvedValue({ ...existente, deletedAt: new Date("2099-12-01T00:00:00Z") });
       db.taxPayment.update.mockRejectedValueOnce(Object.assign(new Error("unique"), { code: "P2002" }));
@@ -752,6 +829,43 @@ describe("pagar e excluir", () => {
     id: "g1", amount: 1500, status: "PENDING", paymentDate: null,
     competenceDate: new Date("2026-09-01T00:00:00Z"), dueDate: new Date("2099-12-20T00:00:00Z"),
   };
+
+  test("a baixa só grava se a guia ainda está em aberto: segunda baixa simultânea recebe 409", async () => {
+    db.taxPayment.findFirst.mockResolvedValue(base);
+    db.taxPayment.update.mockResolvedValueOnce({ id: "g1", status: "PAID" });
+    const primeira = await request(app).patch("/tax-payments/g1/pay").send({ paymentDate: "2026-10-10", paidAmount: 1500 });
+    expect(primeira.status).toBe(200);
+    expect(db.taxPayment.update.mock.calls[0][0].where).toEqual({ id: "g1", deletedAt: null, paymentDate: null, status: { not: "CANCELED" } });
+
+    // a segunda leu a guia ainda em aberto, mas a primeira já gravou: o update não encontra o registro
+    db.taxPayment.update.mockRejectedValueOnce(Object.assign(new Error("not found"), { code: "P2025" }));
+    const segunda = await request(app).patch("/tax-payments/g1/pay").send({ paymentDate: "2026-10-10", paidAmount: 1500 });
+    expect(segunda.status).toBe(409);
+    expect(segunda.body.code).toBe("TAX_PAYMENT_CHANGED");
+    expect(segunda.body.message).toMatch(/mudou enquanto era baixada/);
+  });
+
+  test("o estorno só grava em guia ainda paga: segundo estorno simultâneo recebe 409", async () => {
+    db.taxPayment.findFirst.mockResolvedValue({ ...base, status: "PAID", paymentDate: new Date("2026-10-10T00:00:00Z"), paidAmount: 1500 });
+    db.taxPayment.update.mockResolvedValueOnce({ id: "g1", status: "PENDING" });
+    const primeiro = await request(app).patch("/tax-payments/g1/reverse").send({ reason: "valor errado" });
+    expect(primeiro.status).toBe(200);
+    expect(db.taxPayment.update.mock.calls[0][0].where).toEqual({ id: "g1", deletedAt: null, paymentDate: { not: null }, status: { not: "CANCELED" } });
+
+    db.taxPayment.update.mockRejectedValueOnce(Object.assign(new Error("not found"), { code: "P2025" }));
+    const segundo = await request(app).patch("/tax-payments/g1/reverse").send({ reason: "valor errado" });
+    expect(segundo.status).toBe(409);
+    expect(segundo.body.code).toBe("TAX_PAYMENT_CHANGED");
+  });
+
+  test("o histórico não devolve IP, navegador nem e-mail", async () => {
+    db.$queryRaw.mockResolvedValue([]);
+    const r = await request(app).get("/tax-payments/g1/history");
+    expect(r.status).toBe(200);
+    const sql = (db.$queryRaw.mock.calls[0][0] as string[]).join(" ");
+    expect(sql).not.toMatch(/ipAddress|userAgent|email|a\.\*/);
+    expect(sql).toContain('"userName"');
+  });
 
   test.each([true, "1e3", "0x1F", [7], 1e12])("baixa com valor pago fora do formato (%s) é recusada", async (paidAmount) => {
     db.taxPayment.findFirst.mockResolvedValue(base);

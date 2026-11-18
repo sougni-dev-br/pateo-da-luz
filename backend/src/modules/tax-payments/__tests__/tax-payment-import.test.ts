@@ -42,6 +42,14 @@ describe("valor da planilha", () => {
   });
 
   // Estorno ou restituição não é despesa: o sinal não pode ser descartado em silêncio.
+  test.each(["Total (R$) 1.234,56", "R$ 1.234,56 (liquido)"])("%s não é negativo: parêntese solto no texto não vale como sinal", (entrada) => {
+    expect(parseAmount(entrada)).toBe(1234.56);
+  });
+
+  test.each(["R$ (1.234,56)", "(1.234,56)", "1.234,56-", "R$ -1.234,56", "-R$ 1.250,00", "- R$ 100,00", "(R$ 1.250,00)", "\u2212R$ 5,00"])("%s é negativo e recusado", (entrada) => {
+    expect(parseAmount(entrada)).toBeNull();
+  });
+
   test.each(["-1.250,00", "R$ -1.250,00", "(1.250,00)", "−1.250,00", "1.250,00-", -50])("%s é recusado (valor negativo)", (entrada) => {
     expect(parseAmount(entrada)).toBeNull();
   });
