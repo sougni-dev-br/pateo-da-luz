@@ -14,6 +14,7 @@ import {
   closeTipPeriod, computeTipCommission, ensureTipPeriod, findOverlappingPeriod,
   getServicePool, getServicePoolByRange, pontosBaseDoCadastro, reopenTipPeriod, syncParticipantsFromCadastro, tipPeriodBounds,
 } from "./tip-commission.service.js";
+import { previaSyncCadastro } from "./tip-sync-previa.service.js";
 import { contarLancamentosExistentes, extrairTextoPdf, importExtrato, preverImportacao, lerTextoExtrato, onlyDigits, type ImportExtratoResult } from "./rh-extract.service.js";
 import { lerDetalhesExtrato } from "./rh-extract-detalhes.js";
 import { avisosDoExtrato } from "./rh-extract-store.service.js";
@@ -597,6 +598,17 @@ tipCommissionRouter.post("/periods/:id/sync", async (request, response) => {
   const { added, elegiveis, atualizados, removidos } = await syncParticipantsFromCadastro(periodId);
   const computation = await computeTipCommission(period.competenceYear, period.competenceMonth, { incluirDadosPessoais: await podeVerDadosPessoais(request) });
   response.json({ added, elegiveis, atualizados, removidos, computation });
+});
+
+// Prévia do "Atualizar do cadastro": só leitura. O que mudaria no período, quem está fora do
+// rateio e por quê. A tela usa para avisar que o cadastro mudou.
+tipCommissionRouter.get("/periods/:id/sync-preview", async (request, response) => {
+  const user = await getSessionUser(request);
+  if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
+  const period = await prisma.tipPeriod.findUnique({ where: { id: request.params.id }, select: { id: true, status: true } });
+  if (!period) return response.status(404).json({ message: "Período não encontrado." });
+  if (period.status === "CLOSED") return response.json({ diferencas: [], foraDoRateio: [], desligadosComParticipaMarcado: 0 });
+  response.json(await previaSyncCadastro(period.id));
 });
 
 // Remover um participante do período.
