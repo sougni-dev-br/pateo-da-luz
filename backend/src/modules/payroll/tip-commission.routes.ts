@@ -26,6 +26,7 @@ import {
   registrarHistorico, saldoReserva, travarFundo,
 } from "./tip-historico.service.js";
 import { detalheFechamento, listarFechamentos } from "./tip-fechamento.service.js";
+import { carregarMesAnterior } from "./tip-mes-anterior.js";
 import { lerPdfRescisao } from "./tip-trct.service.js";
 import { pdfDoCorpo } from "./pdf-corpo.js";
 import { tipConferenciaRouter } from "./tip-conferencia.routes.js";
@@ -155,9 +156,20 @@ async function participantesTravadosPelaRescisao(employeeIds: string[]): Promise
     .filter((id): id is string => Boolean(id)));
 }
 
+// O cálculo como a tela o recebe: com o mês anterior ao lado, para comparar. Sem fechamento
+// anterior vigente (ou se a leitura falhar), segue sem a comparação — ela é só apoio.
+async function calcularParaTela(year: number, month: number, request: Request) {
+  const computation = await computeTipCommission(year, month, { incluirDadosPessoais: await podeVerDadosPessoais(request) });
+  const anterior = await carregarMesAnterior(year, month).catch((erro: unknown) => {
+    console.error("[gorjeta] mês anterior indisponível:", erro);
+    return null;
+  });
+  return { ...computation, anterior };
+}
+
 tipCommissionRouter.get("/", async (request, response) => {
   const { year, month } = parseYearMonth(request.query as { year?: unknown; month?: unknown });
-  const computation = await computeTipCommission(year, month, { incluirDadosPessoais: await podeVerDadosPessoais(request) });
+  const computation = await calcularParaTela(year, month, request);
   response.json(computation);
 });
 
@@ -478,7 +490,7 @@ tipCommissionRouter.put("/periods/:id/participants", async (request, response) =
   });
 
   const period = await prisma.tipPeriod.findUniqueOrThrow({ where: { id: periodId } });
-  const computation = await computeTipCommission(period.competenceYear, period.competenceMonth, { incluirDadosPessoais: await podeVerDadosPessoais(request) });
+  const computation = await calcularParaTela(period.competenceYear, period.competenceMonth, request);
   response.json(computation);
 });
 
@@ -598,7 +610,7 @@ tipCommissionRouter.post("/periods/:id/sync", async (request, response) => {
   if (await barrouPorFechamento(periodId, response, "Recarregar os participantes")) return;
   const desligadosLimpos = await limparDesligadosAutomatico(request, user, "atualizar-do-cadastro");
   const { added, elegiveis, atualizados, removidos } = await syncParticipantsFromCadastro(periodId);
-  const computation = await computeTipCommission(period.competenceYear, period.competenceMonth, { incluirDadosPessoais: await podeVerDadosPessoais(request) });
+  const computation = await calcularParaTela(period.competenceYear, period.competenceMonth, request);
   response.json({ added, elegiveis, atualizados, removidos, desligadosLimpos, computation });
 });
 
@@ -698,7 +710,7 @@ tipCommissionRouter.put("/participants/:id/gorjeta-real", async (request, respon
     newValue: { gorjetaReal: valor, motivo },
     ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
   });
-  const computation = await computeTipCommission(p.period.competenceYear, p.period.competenceMonth, { incluirDadosPessoais: await podeVerDadosPessoais(request) });
+  const computation = await calcularParaTela(p.period.competenceYear, p.period.competenceMonth, request);
   response.json(computation);
 });
 
@@ -1307,6 +1319,6 @@ tipCommissionRouter.post("/periods/:year/:month/rescisao-recibo", async (request
     newValue: { employeeId: emp.id, ...gravado },
     ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
   });
-  const computation = await computeTipCommission(year, month, { incluirDadosPessoais: await podeVerDadosPessoais(request) });
+  const computation = await calcularParaTela(year, month, request);
   response.json({ previa, aplicado: true, computation });
 });

@@ -485,6 +485,15 @@
 .extra-motivo { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .extra-lapis { color: var(--muted); }
 .linha-em-edicao > td { background: color-mix(in srgb, var(--ink) 3%, transparent); }
+.comparacao { font-size: 11px; }
+.comparacao > summary { cursor: pointer; white-space: nowrap; list-style: none; }
+.comparacao > summary::-webkit-details-marker { display: none; }
+.comparacao-texto { display: block; max-width: 230px; margin: 2px auto 0; white-space: normal; text-align: left; color: var(--muted, #666); }
+.comparacao-subiu { color: var(--success); }
+.comparacao-caiu { color: var(--danger); }
+.comparacao-igual { color: var(--muted, #888); }
+.comparacao-novo { color: var(--info, var(--ink)); font-style: italic; }
+.comparacao-resumo { margin: 0 0 8px; font-size: 13px; color: var(--muted, #666); }
 .linha-destacada > td { background: color-mix(in srgb, var(--warning) 22%, transparent); transition: background 0.4s; }
 .linha-destacada:focus { outline: none; }
 .pendencia-pessoas { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-left: 6px; vertical-align: middle; }
