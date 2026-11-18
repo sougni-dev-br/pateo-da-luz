@@ -1,4 +1,4 @@
-import { CheckCircle2, CircleAlert, Lock, Plus, X } from "lucide-react";
+import { CheckCircle2, CircleAlert, Lock, Pencil, Plus, X } from "lucide-react";
 import { useEffect, useId, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
 import type { TaxCode } from "../../api/client";
 import { Button, IconButton, Money } from "../../design-system";
@@ -23,6 +23,8 @@ type Props = {
   diferenca: number | null;
   /** Chaves das linhas com pendência (destacadas). */
   linhasPendentes?: string[];
+  /** Corrigir a denominação de um código do catálogo (erro de digitação que ficou como oficial). Omitido: sem o botão. */
+  onCorrigirCodigo?: (codigo: string, descricaoAtual: string) => void;
 };
 
 type Campo = "code" | "description" | "principal" | "fine" | "interest";
@@ -36,7 +38,7 @@ const ROTULO: Record<"principal" | "fine" | "interest", string> = { principal: "
 // dele, travada (o sistema guarda os códigos); código novo pede a denominação uma vez e fica guardado.
 // Enter pula para o principal; na última linha, abre uma linha nova.
 export function LinhasDaGuia({
-  linhas, tipo, catalogo, onChange, somenteLeitura, mostrarMultaJuros, totalDoPapel, onTotalDoPapel, diferenca, linhasPendentes = [],
+  linhas, tipo, catalogo, onChange, somenteLeitura, mostrarMultaJuros, totalDoPapel, onTotalDoPapel, diferenca, linhasPendentes = [], onCorrigirCodigo,
 }: Props) {
   const listaId = useId();
   const principais = useRef(new Map<string, HTMLInputElement>());
@@ -121,6 +123,12 @@ export function LinhasDaGuia({
                 onChange={(e) => mudar(l.chave, "description", e.target.value)} onKeyDown={(e) => teclar(e, i, true)}
               />
               {travada && l.description && !somenteLeitura && <Lock size={12} className="ip-nome-cadeado" aria-hidden="true" />}
+              {onCorrigirCodigo && travada && l.description && !somenteLeitura && descricaoDoCodigo(catalogo, l.code) != null && (
+                <button
+                  type="button" className="ip-nome-corrigir" aria-label={`Corrigir a denominação do código ${l.code.trim()}`} title="Corrigir a denominação deste código"
+                  onClick={() => onCorrigirCodigo(l.code.trim(), descricaoDoCodigo(catalogo, l.code) ?? l.description)}
+                ><Pencil size={12} aria-hidden="true" /></button>
+              )}
             </div>
             {campos.map((campo) => (
               // No celular o cabeçalho some e cada valor ganha o seu rótulo.

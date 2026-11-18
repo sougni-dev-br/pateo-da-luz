@@ -113,8 +113,9 @@ export function ModalBaixa({ paying, form, onCampo, onEmpresa, formas, companies
         )}
       </div>
 
-      {/* Diferença e justificativa — compras e folha */}
-      {!imposto && pago > 0 && (
+      {/* Diferença: aparece em todo título. A justificativa só é exigida em compras e folha; no imposto a diferença
+          (juros, multa, desconto) é rotina e fica registrada nas observações da guia. */}
+      {pago > 0 && (
         <div className="pay-diff" aria-live="polite">
           {!temDiferenca ? (
             <span className="pay-diff-equal">Sem diferença em relação ao valor original</span>

@@ -33,12 +33,13 @@ vi.mock("../../../api/client", async (importOriginal) => ({
   getTaxDreCategories: vi.fn(async () => [{ id: "cat-simples", name: "Simples Nacional", dreGroup: "IMPOSTOS" }, { id: "cat-outra", name: "Taxas Municipais", dreGroup: "DESPESAS_GERAIS" }]),
   // Tipos com regra devolvem categoria; IPTU não tem categoria automática.
   getTaxCategorySuggestion: vi.fn(async (tipo: string) => (tipo === "IPTU" ? { dreCategoryId: null, nome: null } : { dreCategoryId: "cat-simples", nome: "Simples Nacional" })),
+  updateTaxCode: vi.fn(async (_tipo: string, code: string, description: string) => ({ code, description })),
   getTaxCodes: vi.fn(async (tipo: string) => (tipo === "Simples Nacional / DAS" ? CODIGOS_DAS : tipo === "DAS MEI" ? CODIGOS_MEI : tipo === "DARF" ? CODIGOS_DARF : [])),
   getTaxPayments: vi.fn(async () => ({ data: [], pagination: { page: 1, pageSize: 10, total: 0, totalPages: 1 }, summary: {} })),
   getTaxPayment: vi.fn(),
 }));
 
-import { createTaxPayment, getCompanies, getEmployees, getTaxCategorySuggestion, getTaxCodes, getTaxDreCategories, getTaxPayment, getTaxPayments } from "../../../api/client";
+import { createTaxPayment, getCompanies, getEmployees, getTaxCategorySuggestion, getTaxCodes, getTaxDreCategories, getTaxPayment, getTaxPayments, updateTaxCode } from "../../../api/client";
 import { EVENTO_SESSAO_EXPIRADA } from "../../../api/client";
 import { FORM_VAZIO } from "../formularioGuia";
 import { ModalGuia } from "../ModalGuia";
@@ -539,6 +540,63 @@ describe("ModalGuia: lançamento repetível e rascunho da sessão", () => {
     abrir({ editId: "g1" });
     await screen.findByLabelText("Principal da linha 1");
     expect(screen.queryByText(/Recuperei o que você estava lançando/)).toBeNull();
+  });
+});
+
+describe("ModalGuia: corrigir a denominação de um código do catálogo", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(getCompanies).mockResolvedValue([]);
+    vi.mocked(getTaxCategorySuggestion).mockImplementation(async (tipo: string) => (tipo === "IPTU" ? { dreCategoryId: null, nome: null } : { dreCategoryId: "cat-simples", nome: "Simples Nacional" }));
+  });
+
+  async function abrirDarf() {
+    abrir();
+    fireEvent.click(screen.getByRole("radio", { name: "DARF" }));
+    return await screen.findByRole("button", { name: "Corrigir a denominação do código 1082" });
+  }
+
+  test("o lápis corrige o texto no catálogo e já atualiza a linha da guia", async () => {
+    const lapis = await abrirDarf();
+    fireEvent.click(lapis);
+    expect(await screen.findByText("Corrigir o código 1082")).toBeTruthy();
+    expect(screen.getByText(/As guias já lançadas guardam o texto que tinham/)).toBeTruthy();
+    const campo = screen.getByLabelText(/^Denominação\s*\*?$/) as HTMLInputElement;
+    expect(campo.value).toBe("CONTR PREV DESCONTA SEGURADO-EMPREGADO/AVULSO");
+    const salvar = screen.getByRole("button", { name: "Salvar correção" }) as HTMLButtonElement;
+    expect(salvar.disabled).toBe(true); // sem mudança, nada a salvar
+    fireEvent.change(campo, { target: { value: "  CP SEGURADOS - EMPREGADOS  " } });
+    expect(salvar.disabled).toBe(false);
+    fireEvent.click(salvar);
+    await waitFor(() => expect(updateTaxCode).toHaveBeenCalledWith("DARF", "1082", "CP SEGURADOS - EMPREGADOS"));
+    await waitFor(() => expect(screen.queryByText("Corrigir o código 1082")).toBeNull());
+    expect((screen.getByLabelText("Denominação da linha 1") as HTMLInputElement).value).toBe("CP SEGURADOS - EMPREGADOS");
+    // a linha 2 (outro código) não mudou
+    expect((screen.getByLabelText("Denominação da linha 2") as HTMLInputElement).value).toBe("CP DESCONTADA SEGURADO - CONTRIB INDIVIDUAL");
+  });
+
+  test("falha ao gravar: mostra o motivo e mantém o diálogo aberto", async () => {
+    vi.mocked(updateTaxCode).mockRejectedValueOnce(new Error("Esse código não está no catálogo deste tipo de guia."));
+    fireEvent.click(await abrirDarf());
+    fireEvent.change(await screen.findByLabelText(/^Denominação\s*\*?$/), { target: { value: "outro texto" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar correção" }));
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.getByText(/não está no catálogo/)).toBeTruthy();
+    expect(screen.getByText("Corrigir o código 1082")).toBeTruthy();
+  });
+
+  test("cancelar não grava nada", async () => {
+    fireEvent.click(await abrirDarf());
+    fireEvent.click(await screen.findByRole("button", { name: "Cancelar" }));
+    expect(updateTaxCode).not.toHaveBeenCalled();
+    expect(screen.queryByText("Corrigir o código 1082")).toBeNull();
+  });
+
+  test("código novo (que ainda não está no catálogo) não tem o lápis", async () => {
+    await abrirDarf();
+    fireEvent.click(screen.getByRole("button", { name: "Adicionar linha" }));
+    fireEvent.change(screen.getByLabelText("Código da linha 3"), { target: { value: "9999" } });
+    expect(screen.queryByRole("button", { name: "Corrigir a denominação do código 9999" })).toBeNull();
   });
 });
 

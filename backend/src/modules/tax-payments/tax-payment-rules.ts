@@ -54,6 +54,56 @@ export function statusDeGuiaEmAberto(dueDate: Date | null, hoje: Date = new Date
   return dueDate ? (statusDaGuia(null, dueDate, false, hoje) as "PENDING" | "OVERDUE") : "PENDING";
 }
 
+// Data de pagamento plausível: de 2015 até 60 dias à frente de hoje. Pega o ano digitado errado (1900, 2999) sem atrapalhar
+// baixa antiga de verdade (há baixa de 2022 em produção) nem pagamento agendado para os próximos dias.
+const PRIMEIRO_ANO_PLAUSIVEL = 2015;
+const DIAS_A_FRENTE_PLAUSIVEIS = 60;
+
+export function dataDePagamentoPlausivel(data: Date, hoje: Date = new Date()): boolean {
+  if (Number.isNaN(data.getTime())) return false;
+  const limite = hoje.getTime() + DIAS_A_FRENTE_PLAUSIVEIS * 86_400_000;
+  return data.getUTCFullYear() >= PRIMEIRO_ANO_PLAUSIVEL && data.getTime() <= limite;
+}
+
+// Observações da guia depois de uma baixa: a nota da baixa e a diferença entre o pago e o valor da guia entram DEPOIS do que
+// já estava (ex.: "Nº Recibo Declaração"), em vez de apagá-lo. Sem nota e sem diferença, devolve null (nada a mudar).
+// toLocaleString põe um espaço inseparável depois do "R$": troca por espaço comum (busca e cópia do texto casam).
+const REAL = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }).replace(/\u00a0/g, " ");
+const LIMITE_DAS_OBSERVACOES = 2000;
+const DIA_BR = (d: Date) => { const iso = diaIso(d) ?? ""; return `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`; };
+
+// Acrescenta uma linha às observações SEM apagar o que já estava: o começo (ex.: "Nº Recibo Declaração") é o que mais
+// importa. Se não couber inteira, entra cortada; se nem couber, as observações ficam como estão (devolve null).
+function acrescentarLinha(atuais: string | null | undefined, linha: string): string | null {
+  const base = atuais?.trim() ?? "";
+  if (!base) return linha.slice(0, LIMITE_DAS_OBSERVACOES);
+  const sobra = LIMITE_DAS_OBSERVACOES - base.length - 1;
+  if (sobra <= 0) return null;
+  return `${base}\n${linha.length > sobra ? `${linha.slice(0, Math.max(0, sobra - 1))}…` : linha}`;
+}
+
+export function observacoesDaBaixa(
+  atuais: string | null | undefined,
+  nota: string | undefined,
+  valorDaGuia: number,
+  valorPago: number,
+  dataDaBaixa: Date,
+): string | null {
+  const diferenca = Math.round((valorPago - valorDaGuia) * 100) / 100;
+  const partes = [
+    nota?.trim() || null,
+    Math.abs(diferenca) > 0.009 ? `Pago ${REAL(valorPago)} (${diferenca > 0 ? "+" : "-"}${REAL(Math.abs(diferenca))} em relação ao valor da guia)` : null,
+  ].filter((p): p is string => Boolean(p));
+  if (partes.length === 0) return null;
+  // Com a data na frente, uma baixa estornada e refeita não deixa dúvida sobre qual linha é de qual baixa.
+  return acrescentarLinha(atuais, `Baixa de ${DIA_BR(dataDaBaixa)}: ${partes.join(" · ")}`);
+}
+
+// O estorno também deixa rastro nas observações, para que a nota de uma baixa desfeita não pareça ainda valer.
+export function observacoesDoEstorno(atuais: string | null | undefined, motivo: string, hoje: string = hojeBrasilia()): string | null {
+  return acrescentarLinha(atuais, `Estorno de ${hoje.slice(8, 10)}/${hoje.slice(5, 7)}/${hoje.slice(0, 4)}: ${motivo.trim()}`);
+}
+
 export type DataLida = { ok: true; data: Date | null } | { ok: false };
 
 // Ausente/vazio vira null; texto que não é data devolve ok:false (antes virava 500 do Prisma).

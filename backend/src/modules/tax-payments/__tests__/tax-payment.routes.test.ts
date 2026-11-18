@@ -14,7 +14,7 @@ vi.mock("../../../config/database.js", () => {
     $transaction: vi.fn(),
     $queryRawUnsafe: vi.fn(),
     $queryRaw: vi.fn(),
-    taxCodeCatalog: { findMany: vi.fn(), createMany: vi.fn() },
+    taxCodeCatalog: { findMany: vi.fn(), createMany: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
   };
   return { prisma };
 });
@@ -297,6 +297,54 @@ describe("lançamento repetível (idempotência pelo identificador do modal)", (
     const r = await request(app).post("/tax-payments").send({ ...guia, clientId: undefined });
     expect(r.status).toBe(201);
     expect(db.taxPayment.findFirst).not.toHaveBeenCalled();
+  });
+});
+
+describe("corrigir a denominação de um código do catálogo", () => {
+  const atual = { id: "k1", documentType: "DARF", code: "1506", description: "Multa por Atraso na Entrega da DASN-SIMEI" };
+
+  test("corrige o texto, registra na auditoria e devolve o novo", async () => {
+    db.taxCodeCatalog.findUnique.mockResolvedValue(atual);
+    db.taxCodeCatalog.update.mockResolvedValue({ ...atual, description: "MULTA POR ATRASO NA ENTREGA DA DASN-SIMEI" });
+    const r = await request(app).put("/tax-payments/codigos").send({ documentType: "DARF", code: "1506", description: "  MULTA POR ATRASO NA ENTREGA DA DASN-SIMEI  " });
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ code: "1506", description: "MULTA POR ATRASO NA ENTREGA DA DASN-SIMEI" });
+    expect(db.taxCodeCatalog.findUnique).toHaveBeenCalledWith({ where: { documentType_code: { documentType: "DARF", code: "1506" } } });
+    expect(db.taxCodeCatalog.update).toHaveBeenCalledWith({ where: { id: "k1" }, data: { description: "MULTA POR ATRASO NA ENTREGA DA DASN-SIMEI" } });
+    expect(auditLog).toHaveBeenCalledWith(expect.objectContaining({ action: "UPDATE_TAX_CODE", entityId: "k1" }));
+  });
+
+  test("não responde como /:id (a rota vem antes) e não mexe em guia", async () => {
+    db.taxCodeCatalog.findUnique.mockResolvedValue(atual);
+    db.taxCodeCatalog.update.mockResolvedValue(atual);
+    await request(app).put("/tax-payments/codigos").send({ documentType: "DARF", code: "1506", description: "outro" });
+    expect(db.taxPayment.findFirst).not.toHaveBeenCalled();
+  });
+
+  test("mesmo texto: nada a gravar", async () => {
+    db.taxCodeCatalog.findUnique.mockResolvedValue(atual);
+    const r = await request(app).put("/tax-payments/codigos").send({ documentType: "DARF", code: "1506", description: atual.description });
+    expect(r.status).toBe(200);
+    expect(db.taxCodeCatalog.update).not.toHaveBeenCalled();
+  });
+
+  test("código que não está no catálogo: 404", async () => {
+    db.taxCodeCatalog.findUnique.mockResolvedValue(null);
+    const r = await request(app).put("/tax-payments/codigos").send({ documentType: "DARF", code: "9999", description: "x" });
+    expect(r.status).toBe(404);
+    expect(db.taxCodeCatalog.update).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    [{ documentType: "DARF", code: "1506", description: "   " }, /Informe a denominação/],
+    [{ documentType: "DARF", code: "1506", description: "x".repeat(201) }, /mais de 200/],
+    [{ documentType: "", code: "1506", description: "x" }, /tipo e o código/],
+    [{ documentType: "DARF", code: 1506, description: "x" }, /tipo e o código/],
+  ])("entrada inválida %j é recusada com 400", async (corpo, mensagem) => {
+    const r = await request(app).put("/tax-payments/codigos").send(corpo);
+    expect(r.status).toBe(400);
+    expect(r.body.message).toMatch(mensagem);
+    expect(db.taxCodeCatalog.update).not.toHaveBeenCalled();
   });
 });
 
@@ -923,6 +971,40 @@ describe("pagar e excluir", () => {
     competenceDate: new Date("2026-09-01T00:00:00Z"), dueDate: new Date("2099-12-20T00:00:00Z"),
   };
 
+  test.each(["1900-01-01", "2999-12-31", "2014-06-01"])("baixa com data %s (ano digitado errado) é recusada", async (paymentDate) => {
+    db.taxPayment.findFirst.mockResolvedValue(base);
+    const r = await request(app).patch("/tax-payments/g1/pay").send({ paymentDate, paidAmount: 1500 });
+    expect(r.status).toBe(400);
+    expect(r.body.message).toMatch(/intervalo plausível/);
+    expect(db.taxPayment.update).not.toHaveBeenCalled();
+  });
+
+  test("baixa de 2022 (histórico real) continua aceita", async () => {
+    db.taxPayment.findFirst.mockResolvedValue(base);
+    db.taxPayment.update.mockResolvedValueOnce({ id: "g1", status: "PAID" });
+    const r = await request(app).patch("/tax-payments/g1/pay").send({ paymentDate: "2022-05-19", paidAmount: 1500 });
+    expect(r.status).toBe(200);
+  });
+
+  test("a baixa não apaga as observações da guia: a nota entra depois (e o pago diferente fica registrado)", async () => {
+    db.taxPayment.findFirst.mockResolvedValue({ ...base, comments: "Nº Recibo Declaração: 50000525960371" });
+    db.taxPayment.update.mockResolvedValue({ id: "g1", status: "PAID" });
+    await request(app).patch("/tax-payments/g1/pay").send({ paymentDate: "2026-10-10", paidAmount: 1500, comments: "pago no app" });
+    expect(db.taxPayment.update.mock.calls[0][0].data.comments).toBe("Nº Recibo Declaração: 50000525960371\nBaixa de 10/10/2026: pago no app");
+
+    await request(app).patch("/tax-payments/g1/pay").send({ paymentDate: "2026-10-10", paidAmount: 1600 });
+    const c = db.taxPayment.update.mock.calls[1][0].data.comments as string;
+    expect(c.startsWith("Nº Recibo Declaração: 50000525960371\nBaixa de 10/10/2026: ")).toBe(true);
+    expect(c).toContain("Pago R$ 1.600,00 (+R$ 100,00 em relação ao valor da guia)");
+  });
+
+  test("baixa sem nota e sem diferença deixa as observações como estão (nem manda o campo)", async () => {
+    db.taxPayment.findFirst.mockResolvedValue({ ...base, comments: "recibo" });
+    db.taxPayment.update.mockResolvedValue({ id: "g1", status: "PAID" });
+    await request(app).patch("/tax-payments/g1/pay").send({ paymentDate: "2026-10-10", paidAmount: 1500, comments: null });
+    expect(db.taxPayment.update.mock.calls[0][0].data).not.toHaveProperty("comments");
+  });
+
   test("a baixa só grava se a guia ainda está em aberto: segunda baixa simultânea recebe 409", async () => {
     db.taxPayment.findFirst.mockResolvedValue(base);
     db.taxPayment.update.mockResolvedValueOnce({ id: "g1", status: "PAID" });
@@ -949,6 +1031,15 @@ describe("pagar e excluir", () => {
     const segundo = await request(app).patch("/tax-payments/g1/reverse").send({ reason: "valor errado" });
     expect(segundo.status).toBe(409);
     expect(segundo.body.code).toBe("TAX_PAYMENT_CHANGED");
+  });
+
+  test("o estorno acrescenta o rastro nas observações (a nota da baixa desfeita não fica parecendo valer)", async () => {
+    db.taxPayment.findFirst.mockResolvedValue({ ...base, status: "PAID", paymentDate: new Date("2026-10-10T00:00:00Z"), paidAmount: 1600, comments: "Baixa de 10/10/2026: Pago R$ 1.600,00 (+R$ 100,00 em relação ao valor da guia)" });
+    db.taxPayment.update.mockResolvedValue({ id: "g1", status: "PENDING" });
+    await request(app).patch("/tax-payments/g1/reverse").send({ reason: "valor errado" });
+    const c = db.taxPayment.update.mock.calls[0][0].data.comments as string;
+    expect(c.startsWith("Baixa de 10/10/2026: Pago R$ 1.600,00")).toBe(true);
+    expect(c).toMatch(/\nEstorno de \d{2}\/\d{2}\/\d{4}: valor errado$/);
   });
 
   test("o histórico não devolve IP, navegador nem e-mail", async () => {

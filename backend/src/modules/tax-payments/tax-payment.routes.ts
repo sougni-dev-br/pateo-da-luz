@@ -15,7 +15,7 @@ import { descricaoDosItens, lerNumeroDoDocumento, lerQuantidadeDeTrabalhadores, 
 import { aplicarCatalogoDeCodigos, guardarCodigosNovos } from "./tax-code-catalog.js";
 import { limparUploadsAntigos, PASTA_UPLOADS_IMPOSTOS } from "./tax-payment-uploads.js";
 import { lerFuncionarioDaGuia } from "./tax-payment-employee.js";
-import { diaIso, hojeBrasilia, lerData, parseValorGuia, resolverUploadImportacao, statusDaGuia, statusDeGuiaEmAberto } from "./tax-payment-rules.js";
+import { dataDePagamentoPlausivel, diaIso, hojeBrasilia, lerData, observacoesDaBaixa, observacoesDoEstorno, parseValorGuia, resolverUploadImportacao, statusDaGuia, statusDeGuiaEmAberto } from "./tax-payment-rules.js";
 
 export const taxPaymentRouter = Router();
 
@@ -281,6 +281,38 @@ taxPaymentRouter.get("/codigos", async (request, response) => {
   response.json(codigos ?? []);
 });
 
+// Corrige a denominação de um código do catálogo. O primeiro texto digitado para um código vira o oficial e não havia como
+// consertar um erro de digitação. Vale para as próximas guias: as já lançadas guardam o texto que tinham. Antes de "/:id".
+taxPaymentRouter.put("/codigos", async (request, response) => {
+  const user = await getSessionUser(request);
+  if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
+
+  const { documentType, code, description } = request.body as Record<string, unknown>;
+  if (typeof documentType !== "string" || !documentType.trim() || typeof code !== "string" || !code.trim()) {
+    return response.status(400).json({ message: "Informe o tipo e o código." });
+  }
+  const texto = typeof description === "string" ? description.trim() : "";
+  if (!texto) return response.status(400).json({ message: "Informe a denominação." });
+  if (texto.length > 200) return response.status(400).json({ message: "Denominação com mais de 200 caracteres." });
+
+  const atual = await prisma.taxCodeCatalog.findUnique({ where: { documentType_code: { documentType: documentType.trim(), code: code.trim() } } });
+  if (!atual) return response.status(404).json({ message: "Esse código não está no catálogo deste tipo de guia." });
+  if (atual.description === texto) return response.json({ code: atual.code, description: atual.description });
+
+  const atualizado = await prisma.taxCodeCatalog.update({ where: { id: atual.id }, data: { description: texto } });
+  await auditLog({
+    userId: user.id,
+    action: "UPDATE_TAX_CODE",
+    entity: "TaxCodeCatalog",
+    entityId: atual.id,
+    previousValue: { documentType: atual.documentType, code: atual.code, description: atual.description },
+    newValue: { documentType: atual.documentType, code: atual.code, description: atualizado.description },
+    ipAddress: requestIp(request),
+    userAgent: String(request.headers["user-agent"] ?? ""),
+  });
+  return response.json({ code: atualizado.code, description: atualizado.description });
+});
+
 // Painel da tela: a pagar por faixa de vencimento, guias por situação e meses já lançados.
 // Antes de "/:id" pelo mesmo motivo das categorias.
 taxPaymentRouter.get("/panorama", async (_request, response) => {
@@ -495,7 +527,7 @@ taxPaymentRouter.post("/", async (request, response) => {
   }
 
   const pagamento = lerData(paymentDate);
-  if (!pagamento.ok) return response.status(400).json({ message: "Data de pagamento inválida." });
+  if (!pagamento.ok || (pagamento.data && !dataDePagamentoPlausivel(pagamento.data))) return response.status(400).json({ message: "Data de pagamento inválida." });
   const valorPago = pagamento.data ? (paidAmount == null || paidAmount === "" ? valor : parseValorGuia(paidAmount)) : null;
   if (pagamento.data && valorPago == null) return response.status(400).json({ message: "Valor pago deve ser maior que zero." });
   if (!pagamento.data && paidAmount != null && paidAmount !== "") {
@@ -841,6 +873,10 @@ taxPaymentRouter.patch("/:id/pay", async (request, response) => {
   if (!paymentDate || isNaN(paymentDate.getTime()) || !Number.isFinite(paidAmount) || paidAmount <= 0) {
     return response.status(400).json({ message: "Data do pagamento e valor pago (> 0) são obrigatórios." });
   }
+  // Ano digitado errado (1900, 2999) moveria o desembolso para um mês que não é o do pagamento.
+  if (!dataDePagamentoPlausivel(paymentDate)) {
+    return response.status(400).json({ message: "Data do pagamento fora do intervalo plausível (de 2015 até 60 dias à frente). Confira o ano." });
+  }
 
   const existing = await prisma.taxPayment.findFirst({ where: { id, deletedAt: null } });
   if (!existing) return response.status(404).json({ message: "Lançamento não encontrado." });
@@ -892,6 +928,8 @@ taxPaymentRouter.patch("/:id/pay", async (request, response) => {
   if (await competenciaBloqueada(existing.competenceDate, "Baixa de imposto", response)) return;
   if (await competenciaBloqueada(paymentDate, "Baixa de imposto (data do pagamento)", response)) return;
 
+  const observacoes = observacoesDaBaixa(existing.comments, comments, tituloOriginal, paidAmount, paymentDate);
+
   // Duas baixas quase juntas (toque duplo, duas abas) passam pela checagem acima: só a primeira grava. A segunda não
   // encontra a guia "em aberto" e recebe 409, em vez de sobrescrever data e valor da primeira.
   const updated = await gravar(response, () => prisma.taxPayment.update({
@@ -900,7 +938,8 @@ taxPaymentRouter.patch("/:id/pay", async (request, response) => {
       paymentDate,
       paidAmount,
       status: "PAID",
-      ...(comments !== undefined ? { comments } : {}),
+      // A nota da baixa e a diferença entre o pago e a guia entram depois das observações que a guia já tinha.
+      ...(observacoes !== null ? { comments: observacoes } : {}),
       updatedById: user.id,
     },
   }), "Esta guia mudou enquanto era baixada (já foi paga, cancelada ou excluída por outra pessoa). Atualize a tela e confira antes de baixar de novo.");
@@ -946,6 +985,7 @@ taxPaymentRouter.patch("/:id/reverse", async (request, response) => {
   if (await competenciaBloqueada(existing.paymentDate, "Estorno de imposto (data do pagamento)", response)) return;
 
   const reversedStatus = statusDeGuiaEmAberto(existing.dueDate);
+  const observacoesDoEstornoDaGuia = observacoesDoEstorno(existing.comments, reason);
 
   const updated = await gravar(response, () => prisma.taxPayment.update({
     where: { id, deletedAt: null, paymentDate: { not: null }, status: { not: "CANCELED" } },
@@ -953,6 +993,7 @@ taxPaymentRouter.patch("/:id/reverse", async (request, response) => {
       paymentDate: null,
       paidAmount: null,
       status: reversedStatus,
+      ...(observacoesDoEstornoDaGuia !== null ? { comments: observacoesDoEstornoDaGuia } : {}),
       updatedById: user.id,
     },
   }), "Esta guia mudou enquanto era estornada (já foi estornada, cancelada ou excluída por outra pessoa). Atualize a tela e confira.");
