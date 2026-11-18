@@ -8,6 +8,8 @@ import { naoEncontrado, parseCorpo } from "./validacao.js";
 import { MAX_FUTURE_DAYS, MAX_PAST_DAYS, isRealDate, todayInSaoPaulo } from "./buffet-prints.routes.js";
 import { addDays } from "./buffet-usage.js";
 import { summarizeDay } from "./buffet-weighing-summary.js";
+import { valorizarDia } from "./buffet-costs.js";
+import { custoVisivel, custosDosPratos, semValores } from "./buffet-costs.service.js";
 
 // Pesagem do buffet: panelas (com o peso vazio) e as pesagens de produção e sobra por prato.
 // Fica sob /buffet-plates, então usa a mesma permissão das plaquinhas.
@@ -127,7 +129,13 @@ buffetWeighingsRouter.get("/weighings", async (request, response) => {
     where: { servedOn: new Date(`${date.data}T00:00:00Z`), kind }, include: INCLUDE, orderBy: { createdAt: "asc" }, take: 1000,
   });
   const summary = summarizeDay(rows.map((r) => ({ itemId: r.itemId, phase: r.phase === "SOBRA" ? "SOBRA" : "PRODUCAO", netG: r.netG })));
-  response.json({ date: date.data, kind, rows: rows.map(weighingView), summary });
+  // Custo por kg pela ficha ligada a cada prato (R$ de hoje); prato sem ficha pronta fica sem custo e fora do total.
+  const [custos, verCusto] = await Promise.all([custosDosPratos(summary.items.map((i) => i.itemId)), custoVisivel(request)]);
+  response.json({
+    date: date.data, kind, rows: rows.map(weighingView), summary, costVisible: verCusto,
+    costs: Object.fromEntries([...custos].map(([id, c]) => [id, verCusto ? c : semValores(c)])),
+    value: verCusto ? valorizarDia(summary.items, custos) : null,
+  });
 });
 
 // O líquido é calculado AQUI (bruto − panela): o que vem do navegador não define o líquido.

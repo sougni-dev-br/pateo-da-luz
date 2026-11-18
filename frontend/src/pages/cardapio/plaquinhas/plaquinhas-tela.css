@@ -436,6 +436,16 @@
 .pes-tabela th, .pes-tabela td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: right; }
 .pes-tabela th:first-child, .pes-tabela td:first-child { text-align: left; }
 .pes-tabela th:not(:first-child), .pes-tabela td:not(:first-child) { white-space: nowrap; }
+.pes-fichas { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.pes-fichas > li { display: flex; flex-direction: column; gap: 4px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.pes-ficha-linha { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; align-items: baseline; }
+.pes-ficha-estado { font-size: 0.82rem; color: var(--muted); }
+.pes-ficha-estado[data-estado="OK"] { color: #1d6b3a; font-weight: 600; }
+.pes-ficha-nome, .pes-ficha-motivo { color: var(--muted); font-size: 0.8rem; }
+.pes-ficha-acoes { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.pes-ficha-busca { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.pes-busca small { color: var(--muted); }
+.pes-custo-total { margin: 0; font-size: 0.9rem; color: var(--muted); }
 .pes-alerta td { background: rgba(176, 58, 46, 0.08); }
 .pes-alerta small { color: #b03a2e; }
 .pes-lancamentos summary { cursor: pointer; font-size: 0.85rem; color: var(--muted); }

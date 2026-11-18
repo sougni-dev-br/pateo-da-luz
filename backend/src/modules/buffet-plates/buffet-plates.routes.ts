@@ -8,6 +8,7 @@ import { naoEncontrado, parseCorpo } from "./validacao.js";
 import { buffetMenusRouter } from "./buffet-menus.routes.js";
 import { buffetPrintsRouter } from "./buffet-prints.routes.js";
 import { buffetWeighingsRouter } from "./buffet-weighings.routes.js";
+import { buffetCostsRouter } from "./buffet-costs.routes.js";
 
 // Plaquinhas do buffet: a cozinha monta a lista do dia (ou do coffee break) a partir
 // do catálogo e imprime. Toda plaquinha sai em português e inglês, então o catálogo
@@ -19,6 +20,7 @@ buffetPlatesRouter.use("/menus", buffetMenusRouter);
 // Impressões e o acompanhamento de pratos mais feitos, repetidos e esquecidos.
 buffetPlatesRouter.use(buffetPrintsRouter);
 buffetPlatesRouter.use(buffetWeighingsRouter);
+buffetPlatesRouter.use(buffetCostsRouter);
 
 export const PLATE_CATEGORIES = [
   "Arroz e grãos", "Massas", "Risotos", "Carnes", "Aves", "Peixes e frutos do mar", "Guarnições",
@@ -85,7 +87,7 @@ buffetPlatesRouter.get("/items", async (request, response) => {
   const items = await prisma.buffetPlateItem.findMany({
     where: includeInactive ? {} : { isActive: true },
     orderBy: { namePt: "asc" },
-    select: { id: true, namePt: true, nameEn: true, category: true, isActive: true },
+    select: { id: true, namePt: true, nameEn: true, category: true, isActive: true, dishId: true },
   });
   response.json(items);
 });

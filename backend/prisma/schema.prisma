@@ -1912,6 +1912,7 @@ model Dish {
   revisions            DishRevision[]
   wasteEntries         WasteEntry[]
   pdvProducts          AgileProdutoPrato[]
+  buffetPlateItems     BuffetPlateItem[]    @relation("BuffetPlateDish")
   createdAt            DateTime            @default(now())
   updatedAt            DateTime            @updatedAt
 
@@ -2021,11 +2022,16 @@ model BuffetPlateItem {
   nameEn    String
   category  String
   isActive  Boolean  @default(true)
+  // Ficha técnica (Dish) que dá o custo deste prato na pesagem do buffet. Sem ficha, o prato é pesado mas fica sem custo.
+  // SetNull: apagar a ficha não pode apagar nem impedir o prato da plaquinha.
+  dishId    String?
+  dish      Dish?    @relation("BuffetPlateDish", fields: [dishId], references: [id], onDelete: SetNull)
   weighings BuffetWeighing[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([isActive, category])
+  @@index([dishId])
 }
 
 // Lista montada para um dia ou evento. `items` guarda [{ itemId, qty }] na ordem da folha.
