@@ -419,6 +419,15 @@ describe("computeTipCommission com quem está em teste", () => {
     expect(comp.warnings).toContain("Teste Novo está em teste (fora da gorjeta desde a admissão em 23/09). Para incluir, preencha 'Entra na gorjeta em' no cadastro.");
   });
 
+  test("a situação traz os mesmos textos, com a pessoa citada (para ir até a linha)", async () => {
+    periodo("OPEN", [participante(), emTeste()]);
+    const comp = await computeTipCommission(2026, 9, { incluirDadosPessoais: true });
+    const aviso = comp.situacao.find((i) => i.texto.startsWith("Teste Novo está em teste"));
+    expect(aviso).toEqual({ gravidade: "AVISO", texto: expect.any(String), employeeIds: ["e9"] });
+    expect(comp.situacao.filter((i) => i.gravidade === "AVISO").map((i) => i.texto)).toEqual(comp.warnings);
+    expect(comp.situacao.filter((i) => i.gravidade === "PENDENCIA").map((i) => i.texto)).toEqual(comp.pendencias);
+  });
+
   test("entrada depois do ciclo também avisa, com a data", async () => {
     periodo("OPEN", [emTeste({ foraDaGorjeta: true, basePoints: 0 }, { inicioGorjeta: d("2026-09-28") })]);
     const comp = await computeTipCommission(2026, 9);

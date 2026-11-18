@@ -13,6 +13,7 @@ import { BarraFiltro, opcoesDe, useFiltro } from "./filtro";
 import { NomePessoa, textoPessoa } from "./NomePessoa";
 import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
 import { explicarPontos } from "./explicacaoPontos";
+import { idLinhaDaPessoa } from "./irParaPessoa";
 import {
   type LocalRow, type RowPatch, fmtDate, money, mutedStyle, numInputStyle, ordenar, panelStyle, pts,
 } from "./gorjetaUtils";
@@ -280,7 +281,7 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
     const explicacao = explicarPontos(p, diasDoCiclo);
     const saldoVales = p.creditos - p.descontos;
     return (
-      <Table.Row key={p.employeeId} style={fora ? { opacity: 0.55 } : undefined}>
+      <Table.Row key={p.employeeId} id={idLinhaDaPessoa(p.employeeId)} style={fora ? { opacity: 0.55 } : undefined}>
         <Table.Td>
           <NomePessoa nome={p.employeeName} apelido={p.apelido}>
             {p.functionName && <span style={mutedStyle}>{p.functionName}</span>}

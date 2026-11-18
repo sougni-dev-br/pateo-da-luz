@@ -27,7 +27,8 @@ describe("pendências agrupadas", () => {
       "Paulo Henrique: saiu em 14/09 e falta o valor da rescisão. Em \"Rescisões do período\", digite…",
       "As cotas fixas passam do líquido.",
     ]);
-    expect(r.saidas).toEqual([{ nome: "Fulana de Jesus Lima", dia: "16/09" }, { nome: "Paulo Henrique", dia: "14/09" }]);
+    expect(r.saidas.map(({ nome, dia }) => ({ nome, dia }))).toEqual([{ nome: "Fulana de Jesus Lima", dia: "16/09" }, { nome: "Paulo Henrique", dia: "14/09" }]);
+    expect(r.saidas[0].texto).toContain("Fulana de Jesus Lima: saiu em 16/09");
     expect(r.outras).toEqual(["As cotas fixas passam do líquido."]);
   });
 });

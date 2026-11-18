@@ -8094,7 +8094,11 @@ export type TipComputation = {
   check: { expectedNetPool: number; sumRateios: number; ok: boolean; diff: number };
   pendencias: string[];
   warnings: string[];
+  /** Os mesmos textos, com as pessoas citadas (ausente em respostas antigas). */
+  situacao?: TipItemSituacao[];
 };
+
+export type TipItemSituacao = { gravidade: "PENDENCIA" | "AVISO"; texto: string; employeeIds: string[] };
 
 export type TipPeriod = {
   id: string;
