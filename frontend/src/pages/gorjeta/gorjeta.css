@@ -485,6 +485,14 @@
 .extra-motivo { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .extra-lapis { color: var(--muted); }
 .linha-em-edicao > td { background: color-mix(in srgb, var(--ink) 3%, transparent); }
+.linha-destacada > td { background: color-mix(in srgb, var(--warning) 22%, transparent); transition: background 0.4s; }
+.linha-destacada:focus { outline: none; }
+.pendencia-pessoas { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-left: 6px; vertical-align: middle; }
+.pendencia-pessoa {
+  border: 1px solid var(--border); border-radius: 999px; background: var(--surface, #fff); color: var(--ink);
+  padding: 1px 9px; cursor: pointer; font: inherit; font-size: 12px;
+}
+.pendencia-pessoa:hover, .pendencia-pessoa:focus-visible { background: color-mix(in srgb, var(--warning) 14%, var(--surface, #fff)); }
 .linha-editor-extra > td { background: color-mix(in srgb, var(--ink) 3%, transparent); text-align: left !important; }
 .editor-extra { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 16px; padding: 4px 4px 2px; }
 .editor-extra-conta { display: flex; align-items: baseline; gap: 8px; flex-basis: 100%; font-size: 13px; }

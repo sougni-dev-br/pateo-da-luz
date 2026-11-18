@@ -283,7 +283,11 @@ export type TipComputation = {
   check: { expectedNetPool: number; sumRateios: number; ok: boolean; diff: number };
   pendencias: string[];
   warnings: string[];
+  // Os mesmos textos de pendencias/warnings, com as pessoas citadas (para ir até a linha).
+  situacao: ItemDeSituacao[];
 };
+
+export type ItemDeSituacao = { gravidade: "PENDENCIA" | "AVISO"; texto: string; employeeIds: string[] };
 
 export type FolgasEscala = { total: number; folga: number; feriado: number; bancoHoras: number };
 type ScheduleCounts = { faltas: number; atestados: number; ferias: number; afastamento: number; folgas: FolgasEscala };
@@ -890,6 +894,16 @@ export async function computeTipCommission(
 
   const pendencias: string[] = [];
   const warnings: string[] = [];
+  // Os mesmos textos, com quem eles citam: a tela leva até a linha da pessoa.
+  const itens: ItemDeSituacao[] = [];
+  const pendencia = (texto: string, pessoas: Array<{ employeeId: string }> = []) => {
+    pendencias.push(texto);
+    itens.push({ gravidade: "PENDENCIA", texto, employeeIds: pessoas.map((p) => p.employeeId) });
+  };
+  const aviso = (texto: string, pessoas: Array<{ employeeId: string }> = []) => {
+    warnings.push(texto);
+    itens.push({ gravidade: "AVISO", texto, employeeIds: pessoas.map((p) => p.employeeId) });
+  };
   const noPeriodo = participants.filter((p) => p.tipoCalculo !== "FORA_DO_PERIODO");
   // Avisos da gorjeta (pontos, rescisão, gorjeta real) não valem para quem só recebe salário.
   const naGorjeta = noPeriodo.filter((p) => !p.foraDaGorjeta);
@@ -897,16 +911,16 @@ export async function computeTipCommission(
   const listar = (lista: ComputedParticipant[]) => lista.map((p) => p.employeeName).join(", ");
 
   for (const p of noPeriodo.filter((x) => x.rescisaoPendente)) {
-    pendencias.push(`${p.employeeName}: saiu em ${fmtIso(p.terminationDate)} e falta o valor da rescisão. Em "Rescisões do período", digite a gorjeta paga (ou leia o termo da contabilidade) ou o serviço até a saída.`);
+    pendencia(`${p.employeeName}: saiu em ${fmtIso(p.terminationDate)} e falta o valor da rescisão. Em "Rescisões do período", digite a gorjeta paga (ou leia o termo da contabilidade) ou o serviço até a saída.`, [p]);
   }
   if (pointsPool < 0) {
-    pendencias.push(`As cotas fixas (${brl(rateio.totalCotasFixas)}) passam do líquido do período (${brl(netPool)}).`);
+    pendencia(`As cotas fixas (${brl(rateio.totalCotasFixas)}) passam do líquido do período (${brl(netPool)}).`, participants.filter((p) => p.kind === "FIXO"));
   } else if (saldo < -0.005) {
     const extraRescisoes = round2(participants.reduce((a, p) => a + (p.extraRescisao ?? 0), 0));
-    pendencias.push(`A distribuição (${brl(distribuido)}) passa do líquido (${brl(netPool)}) em ${brl(Math.abs(saldo))}.`
+    pendencia(`A distribuição (${brl(distribuido)}) passa do líquido (${brl(netPool)}) em ${brl(Math.abs(saldo))}.`
       + (extraRescisoes > 0
         ? ` Parte vem da gorjeta paga acima do direito nas rescisões (+${extraRescisoes.toLocaleString("pt-BR")} pts de extra automático). Reduza pontos ou ajustes da equipe, ou confira o valor pago.`
-        : " Reduza pontos ou ajustes."));
+        : " Reduza pontos ou ajustes."), participants.filter((p) => (p.extraRescisao ?? 0) > 0));
   }
 
   // Teto do IR sem salário registrado no mês: não dá para calcular a gorjeta informada.
@@ -915,13 +929,13 @@ export async function computeTipCommission(
     return !p.semRegistro && vigenteDe(rows[i]).tetoIrGorjeta != null && entradas[i].salarioBase == null;
   });
   if (tetoSemSalario.length) {
-    warnings.push(`${listar(tetoSemSalario)}: tem teto do IR para a gorjeta, mas está sem salário registrado no mês. O envio à contabilidade leva a gorjeta do rateio; preencha o salário no cadastro.`);
+    aviso(`${listar(tetoSemSalario)}: tem teto do IR para a gorjeta, mas está sem salário registrado no mês. O envio à contabilidade leva a gorjeta do rateio; preencha o salário no cadastro.`, tetoSemSalario);
   }
   const semBase = naGorjeta.filter((p) => p.kind === "PONTOS" && p.basePoints <= 0);
-  if (semBase.length) warnings.push(`Sem pontos-base (defina a função em "Equipe e funções"): ${listar(semBase)}.`);
+  if (semBase.length) aviso(`Sem pontos-base (defina a função em "Equipe e funções"): ${listar(semBase)}.`, semBase);
   const semSalario = participants.filter((p, i) =>
     p.semRegistro && p.tipoCalculo !== "FORA_DO_PERIODO" && entradas[i].salarioBase == null);
-  if (semSalario.length) warnings.push(`Sem registro e sem salário no cadastro (a lista de pagamento sai só com a gorjeta): ${listar(semSalario)}.`);
+  if (semSalario.length) aviso(`Sem registro e sem salário no cadastro (a lista de pagamento sai só com a gorjeta): ${listar(semSalario)}.`, semSalario);
   // Adiantamento do sem registro: a lista desconta o título lançado (o pago). Sem baixa ou sem
   // título o valor é estimado — quem fecha precisa ver. Fechado: vale o retrato, sem aviso.
   if (!closed) {
@@ -930,36 +944,36 @@ export async function computeTipCommission(
       .filter(({ p }) => p.semRegistro && p.tipoCalculo !== "FORA_DO_PERIODO" && !p.pagoNaRescisao);
     // Quinzena prevalece: o título lançado para quem recebe por quinzena não é descontado.
     const quinzenaComTitulo = naLista.filter(({ e }) => e.pagamentoQuinzenal && e.adiantamentoLancado).map(({ p }) => p);
-    if (quinzenaComTitulo.length) warnings.push(`Recebem por quinzena, mas têm adiantamento de ${competencia} lançado em Contas a Pagar — a lista não desconta esse título (desconta a 1ª quinzena). Cancele o título ou corrija o cadastro: ${listar(quinzenaComTitulo)}.`);
+    if (quinzenaComTitulo.length) aviso(`Recebem por quinzena, mas têm adiantamento de ${competencia} lançado em Contas a Pagar — a lista não desconta esse título (desconta a 1ª quinzena). Cancele o título ou corrija o cadastro: ${listar(quinzenaComTitulo)}.`, quinzenaComTitulo);
     // 1ª quinzena: a lista desconta o título "1ª quinzena" (o pago). Sem baixa ou sem título, o estimado.
     const quinzenaEmAberto = naLista.filter(({ p }) => quinzenasLancadas.get(p.employeeId)?.emAberto).map(({ p }) => p);
-    if (quinzenaEmAberto.length) warnings.push(`1ª quinzena de ${competencia} lançada mas ainda sem baixa em Contas a Pagar (a lista desconta o valor previsto; dê a baixa com o valor pago): ${listar(quinzenaEmAberto)}.`);
+    if (quinzenaEmAberto.length) aviso(`1ª quinzena de ${competencia} lançada mas ainda sem baixa em Contas a Pagar (a lista desconta o valor previsto; dê a baixa com o valor pago): ${listar(quinzenaEmAberto)}.`, quinzenaEmAberto);
     // O cálculo (c) decide, não o valor exibido: sem a permissão ele vem oculto, e o aviso sai igual.
     const quinzenaSemTitulo = naLista.filter(({ e, c }) => e.pagamentoQuinzenal && !e.quinzenaLancada && c.primeiraQuinzena > 0).map(({ p }) => p);
-    if (quinzenaSemTitulo.length) warnings.push(`Recebem por quinzena, mas falta lançar a 1ª quinzena de ${competencia} em Contas a Pagar — a lista desconta a metade do salário do cadastro, não o que foi pago. Lance na Folha, na lista de pagamento "1ª quinzena (dia 15)", e dê a baixa com o valor pago: ${listar(quinzenaSemTitulo)}.`);
+    if (quinzenaSemTitulo.length) aviso(`Recebem por quinzena, mas falta lançar a 1ª quinzena de ${competencia} em Contas a Pagar — a lista desconta a metade do salário do cadastro, não o que foi pago. Lance na Folha, na lista de pagamento "1ª quinzena (dia 15)", e dê a baixa com o valor pago: ${listar(quinzenaSemTitulo)}.`, quinzenaSemTitulo);
     const emAberto = naLista.filter(({ p, e }) => !e.pagamentoQuinzenal && adiantamentosLancados.get(p.employeeId)?.emAberto).map(({ p }) => p);
-    if (emAberto.length) warnings.push(`Adiantamento de ${competencia} lançado mas ainda sem baixa em Contas a Pagar (a lista desconta o valor previsto; dê a baixa com o valor pago): ${listar(emAberto)}.`);
+    if (emAberto.length) aviso(`Adiantamento de ${competencia} lançado mas ainda sem baixa em Contas a Pagar (a lista desconta o valor previsto; dê a baixa com o valor pago): ${listar(emAberto)}.`, emAberto);
     // Sem a permissão de Funcionários o valor vem null (oculto): o aviso sai do mesmo jeito, sem valor.
     const semTitulo = naLista.filter(({ p, e }) => e.recebeAdiantamento && !e.pagamentoQuinzenal && !e.adiantamentoLancado
       && (p.adiantamentoSalarial == null || p.adiantamentoSalarial > 0)).map(({ p }) => p);
-    if (semTitulo.length) warnings.push(`Recebem adiantamento, mas o de ${competencia} não está lançado em Contas a Pagar — a lista desconta os ${regras.adiantamentoPercent ?? 0}% do cadastro, não o que foi pago. Lance em Folha → Adiantamento (dia 20) ou 1ª quinzena (dia 15) e dê a baixa com o valor pago: ${listar(semTitulo)}.`);
+    if (semTitulo.length) aviso(`Recebem adiantamento, mas o de ${competencia} não está lançado em Contas a Pagar — a lista desconta os ${regras.adiantamentoPercent ?? 0}% do cadastro, não o que foi pago. Lance em Folha → Adiantamento (dia 20) ou 1ª quinzena (dia 15) e dê a baixa com o valor pago: ${listar(semTitulo)}.`, semTitulo);
   }
   // Texto de horas que a conta não entende vira zero: quem fecha precisa ver.
   const ilegivel = (t: string | null) => t != null && t.trim() !== "" && (parseHoras(t) == null || parseHoras(t)! < 0);
   const horasIlegiveis = noPeriodo.filter((p) => ilegivel(p.horaExtra) || ilegivel(p.adicionalNoturno));
-  if (horasIlegiveis.length) warnings.push(`Hora extra ou adicional noturno ilegível (use h:mm, ex.: 7:30): ${listar(horasIlegiveis)}. Contado como zero.`);
+  if (horasIlegiveis.length) aviso(`Hora extra ou adicional noturno ilegível (use h:mm, ex.: 7:30): ${listar(horasIlegiveis)}. Contado como zero.`, horasIlegiveis);
   // Sem registro com rescisão lançada sai da lista: a hora extra é paga na rescisão.
   const heNaRescisao = noPeriodo.filter((p) => p.semRegistro && p.pagoNaRescisao
     && (minutosValidos(p.horaExtra) > 0 || minutosValidos(p.adicionalNoturno) > 0));
-  if (heNaRescisao.length) warnings.push(`Hora extra ou adicional noturno de quem tem a rescisão lançada não entra na lista (é paga na rescisão; confira lá): ${listar(heNaRescisao)}.`);
+  if (heNaRescisao.length) aviso(`Hora extra ou adicional noturno de quem tem a rescisão lançada não entra na lista (é paga na rescisão; confira lá): ${listar(heNaRescisao)}.`, heNaRescisao);
   // Quem só recebe salário também: sem a rescisão lançada, o salário sai na lista.
   const saiuNoCiclo = (p: ComputedParticipant) => p.terminationDate != null && new Date(p.terminationDate) <= end;
   const saiuSemRescisao = noPeriodo.filter((p) => !p.rescisaoContasPagar && (p.foraDaGorjeta
     ? saiuNoCiclo(p)
     : p.tipoCalculo === "RESCISAO" || p.tipoCalculo === "RESCISAO_QUITADA"));
   if (saiuSemRescisao.length) {
-    warnings.push(`Saíram no período sem rescisão lançada em Contas a Pagar (lance em Folha → Rescisão): ${listar(saiuSemRescisao)}.`
-      + (saiuSemRescisao.some((p) => p.semRegistro) ? " Sem registro sem rescisão lançada recebe salário e gorjeta na lista do mês." : ""));
+    aviso(`Saíram no período sem rescisão lançada em Contas a Pagar (lance em Folha → Rescisão): ${listar(saiuSemRescisao)}.`
+      + (saiuSemRescisao.some((p) => p.semRegistro) ? " Sem registro sem rescisão lançada recebe salário e gorjeta na lista do mês." : ""), saiuSemRescisao);
   }
   // Saiu depois do ciclo com o termo importado aqui: a lista não paga; o termo deve bater
   // com a gorjeta do mês menos os vales.
@@ -967,35 +981,36 @@ export async function computeTipCommission(
   for (const p of termoDoMes) {
     const termo = p.rescisaoValorFixo ?? 0;
     if (Math.abs(termo - p.netCommission) > 0.05) {
-      warnings.push(`${p.employeeName}: o termo de rescisão pagou ${brl(termo)} de gorjeta, mas a gorjeta do mês menos os vales dá ${brl(p.netCommission)}. A lista não paga nada a ele; confira a diferença com a contabilidade.`);
+      aviso(`${p.employeeName}: o termo de rescisão pagou ${brl(termo)} de gorjeta, mas a gorjeta do mês menos os vales dá ${brl(p.netCommission)}. A lista não paga nada a ele; confira a diferença com a contabilidade.`, [p]);
     }
   }
   // Sem registro que saiu depois do ciclo, no mês do salário, com a rescisão lançada: a
   // rescisão paga o mês inteiro (decisão do Eli, "tudo na rescisão"); a lista não paga nada.
   const mesNaRescisao = noPeriodo.filter((p) => p.semRegistro && p.tipoCalculo === "MES" && p.pagoNaRescisao);
   if (mesNaRescisao.length) {
-    warnings.push(`Saíram depois do fim do ciclo, ainda no mês do salário, com a rescisão lançada: salário, gorjeta do ciclo, vales e hora extra do mês vão na rescisão, não nesta lista: ${listar(mesNaRescisao)}.`);
+    aviso(`Saíram depois do fim do ciclo, ainda no mês do salário, com a rescisão lançada: salário, gorjeta do ciclo, vales e hora extra do mês vão na rescisão, não nesta lista: ${listar(mesNaRescisao)}.`, mesNaRescisao);
   }
-  const diasForaDaRescisao = rows.filter((r) => parteForaDaRescisao(r)).map((r) => nomeCompleto(r.employee));
+  const linhasForaDaRescisao = rows.filter((r) => parteForaDaRescisao(r));
+  const diasForaDaRescisao = linhasForaDaRescisao.map((r) => nomeCompleto(r.employee));
   if (diasForaDaRescisao.length) {
-    warnings.push(`A gorjeta dos dias depois do ciclo não entrou na rescisão ("tudo na rescisão" lançada sem este período): esta lista paga esses dias a ${diasForaDaRescisao.join(", ")}.`);
+    aviso(`A gorjeta dos dias depois do ciclo não entrou na rescisão ("tudo na rescisão" lançada sem este período): esta lista paga esses dias a ${diasForaDaRescisao.join(", ")}.`, linhasForaDaRescisao);
   }
   const comReal = naGorjeta.filter((p) => p.gorjetaReal != null && p.tipoCalculo === "MES");
   if (comReal.length) {
     const diferenca = round2(comReal.reduce((a, p) => a + (p.gorjetaCalculada - p.rateioAmount), 0));
-    warnings.push(`Gorjeta real no lugar da calculada: ${listar(comReal)}. ${diferenca >= 0 ? "Sobram" : "Faltam"} ${brl(Math.abs(diferenca))} no livre para distribuir por isso.`);
+    aviso(`Gorjeta real no lugar da calculada: ${listar(comReal)}. ${diferenca >= 0 ? "Sobram" : "Faltam"} ${brl(Math.abs(diferenca))} no livre para distribuir por isso.`, comReal);
   }
   // Gorjeta real gravada que o cálculo não usa mais: ninguém vê o valor, mas ele
   // volta a valer se a situação mudar de novo. Quem fecha precisa rever.
   rows.forEach((r, i) => {
     if (r.gorjetaReal == null || rateio.linhas[i].gorjetaRealAplicada) return;
     const motivo = motivoGorjetaRealSemEfeito(rateio.linhas[i].tipoCalculo, r.kind, foraDe(r));
-    warnings.push(`A gorjeta real de ${nomeCompleto(r.employee)} (${brl(Number(r.gorjetaReal))}) não vale mais porque ${motivo}. Reveja: apague-a ou ajuste o cadastro.`);
+    aviso(`A gorjeta real de ${nomeCompleto(r.employee)} (${brl(Number(r.gorjetaReal))}) não vale mais porque ${motivo}. Reveja: apague-a ou ajuste o cadastro.`, [r]);
   });
   const semAdmissao = noPeriodo.filter((p) => !p.admissionDate);
-  if (semAdmissao.length) warnings.push(`Sem data de admissão (considerados no período inteiro): ${listar(semAdmissao)}.`);
+  if (semAdmissao.length) aviso(`Sem data de admissão (considerados no período inteiro): ${listar(semAdmissao)}.`, semAdmissao);
   const valesDemais = naGorjeta.filter((p) => p.descontos > 0 && p.netCommission < 0);
-  if (valesDemais.length) warnings.push(`Vales maiores que a gorjeta: ${listar(valesDemais)}.`);
+  if (valesDemais.length) aviso(`Vales maiores que a gorjeta: ${listar(valesDemais)}.`, valesDemais);
   // Fora da gorjeta os vales descontam do salário: avisa quando passam do que há a pagar.
   const valesAlemDoSalario = noPeriodo.filter((p) => p.foraDaGorjeta && !p.pagoNaRescisao && p.descontos > 0 && p.totalAPagar < 0);
   // Estava só pelo salário e deixou de ser sem registro: o vale lançado o segura no período.
@@ -1004,11 +1019,11 @@ export async function computeTipCommission(
   for (const r of rows.filter(emTeste)) {
     const adm = r.employee.admissionDate ? `desde a admissão em ${fmtIso(r.employee.admissionDate.toISOString())}` : "sem data de admissão no cadastro";
     const depois = r.employee.inicioGorjeta ? `; a entrada na gorjeta (${fmtIso(r.employee.inicioGorjeta.toISOString())}) é depois deste ciclo` : "";
-    warnings.push(`${nomeCompleto(r.employee)} está em teste (fora da gorjeta ${adm}${depois}). Para incluir, preencha 'Entra na gorjeta em' no cadastro.`);
+    aviso(`${nomeCompleto(r.employee)} está em teste (fora da gorjeta ${adm}${depois}). Para incluir, preencha 'Entra na gorjeta em' no cadastro.`, [r]);
   }
   const foraSemDireito = participants.filter((p) => p.foraDaGorjeta && !emTesteIds.has(p.employeeId) && (!p.semRegistro || p.tipoCalculo === "FORA_DO_PERIODO"));
-  if (foraSemDireito.length) warnings.push(`Não participam da gorjeta e não têm salário a receber neste mês, mas seguem no período por causa de vale lançado: ${listar(foraSemDireito)}. Cancele o vale (ou lance no mês certo) e recarregue os participantes.`);
-  if (valesAlemDoSalario.length) warnings.push(`Vales maiores que o salário a pagar (não participam da gorjeta): ${listar(valesAlemDoSalario)}.`);
+  if (foraSemDireito.length) aviso(`Não participam da gorjeta e não têm salário a receber neste mês, mas seguem no período por causa de vale lançado: ${listar(foraSemDireito)}. Cancele o vale (ou lance no mês certo) e recarregue os participantes.`, foraSemDireito);
+  if (valesAlemDoSalario.length) aviso(`Vales maiores que o salário a pagar (não participam da gorjeta): ${listar(valesAlemDoSalario)}.`, valesAlemDoSalario);
   for (const r of rows) {
     const fn = r.employee.tipFunction;
     if (foraDe(r)) continue;
@@ -1018,12 +1033,12 @@ export async function computeTipCommission(
     const max = num(fn.maxPoints);
     if ((min != null && pontos < min) || (max != null && pontos > max)) {
       const nome = nomeCompleto(r.employee);
-      warnings.push(`${nome}: ${pontos} pontos com o extra, fora da faixa de "${fn.name}" (${min ?? "—"} a ${max ?? "—"}).`);
+      aviso(`${nome}: ${pontos} pontos com o extra, fora da faixa de "${fn.name}" (${min ?? "—"} a ${max ?? "—"}).`, [r]);
     }
   }
 
   // Fechado: os avisos servem para editar, e não há mais o que editar.
-  if (closed) { pendencias.length = 0; warnings.length = 0; }
+  if (closed) { pendencias.length = 0; warnings.length = 0; itens.length = 0; }
   const ok = pendencias.length === 0 && pointsPool >= 0;
 
   return {
@@ -1099,6 +1114,7 @@ export async function computeTipCommission(
     check: { expectedNetPool: netPool, sumRateios: distribuido, ok, diff: round2(distribuido - netPool) },
     pendencias,
     warnings,
+    situacao: itens,
   };
 }
 

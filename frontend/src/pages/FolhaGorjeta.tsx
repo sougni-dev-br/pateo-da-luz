@@ -1,11 +1,12 @@
 import { Check, ChevronLeft, ChevronRight, Lock, Maximize2, Minimize2, Plus, RefreshCw, Save, Unlock, UserPlus } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   type DestinoSobra, type TipComputation, type TipComputedParticipant, type TipRosterEmployee,
   closeTipPeriodApi, getTipCommission, getTipRoster, openTipPeriod,
   refreshTipService, removeTipParticipant, setTipGorjetaReal, reopenTipPeriodApi, saveTipParticipants, syncTipParticipants, updateTipPeriod,
 } from "../api/client";
 import { AjusteServico } from "./gorjeta/AjusteServico";
+import { irParaLinhaQuandoPronta } from "./gorjeta/irParaPessoa";
 import { Notice, useNotice } from "../components/Notice";
 import { useSession } from "../context/SessionContext";
 import { Button, FormField, FormGrid, StatusBadge, Tabs } from "../design-system";
@@ -81,6 +82,15 @@ export function FolhaGorjeta() {
   const [busy, setBusy] = useState(false);
   const [autoSaving, setAutoSaving] = useState(false);
   const [ajustandoServico, setAjustandoServico] = useState(false);
+  const nomesDosParticipantes = useMemo(
+    () => new Map((comp?.participants ?? []).map((p) => [p.employeeId, p.apelido ?? p.employeeName] as const)),
+    [comp],
+  );
+  // Do painel de pendências até a linha da pessoa: a tabela está na aba Apuração.
+  function irParaPessoa(employeeId: string) {
+    trocarAba("apuracao");
+    irParaLinhaQuandoPronta(employeeId, () => setNotice({ tone: "warning", message: "Não achei a linha dessa pessoa na tabela. Limpe os filtros da Apuração e tente de novo." }));
+  }
   // Autosave: a edição agenda um salvamento; qualquer outra ação salva antes o que
   // estiver pendente (flush), para não sobrescrever um sync nem bater num período já fechado.
   const rowsRef = useRef<LocalRow[]>([]);
@@ -440,6 +450,7 @@ export function FolhaGorjeta() {
           ) : (
             <>
               <Pendencias pendencias={comp.pendencias} avisos={comp.warnings} fechado={closed} compacto={telaCheia || aba === "pagamento"}
+                situacao={comp.situacao} nomes={nomesDosParticipantes} onIrPessoa={irParaPessoa}
                 onIrRescisoes={() => {
                   trocarAba("apuracao");
                   // Espera a aba desenhar; rola até o bloco e leva o foco para ele.
