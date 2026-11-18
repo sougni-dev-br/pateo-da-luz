@@ -501,7 +501,7 @@ export function FolhaGorjeta() {
               )}
 
               {aba === "apuracao" && !readonly && !telaCheia && comp.periodId != null && (
-                <AvisoCadastro periodId={comp.periodId} versao={comp} ocupado={busy} podeAtualizar={canEdit} onAtualizar={() => void sincronizar()} />
+                <AvisoCadastro periodId={comp.periodId} versao={comp} ocupado={busy} podeAtualizar={canEdit} onAtualizar={() => void sincronizar()} onNotice={(tone, message) => setNotice({ tone, message })} />
               )}
 
               {aba === "apuracao" && !readonly && !telaCheia && (

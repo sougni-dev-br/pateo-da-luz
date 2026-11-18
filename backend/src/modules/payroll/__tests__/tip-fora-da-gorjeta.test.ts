@@ -296,6 +296,14 @@ describe("syncParticipantsFromCadastro com quem não participa", () => {
     expect(db.tipParticipant.update).toHaveBeenCalledWith({ where: { id: "tp9" }, data: { foraDaGorjeta: true } });
   });
 
+  test("saiu neste ciclo e já está no rateio: limpar o \"Participa\" não o rebaixa para só salário (ciclo reaberto)", async () => {
+    cadastro([{ id: "saiu", participaGorjeta: false, modality: "NAO_CLT", isActive: false, admissionDate: d("2025-01-01"), terminationDate: d("2026-09-10") }]);
+    noPeriodo([{ id: "tp7", employeeId: "saiu", foraDaGorjeta: false }]);
+    await syncParticipantsFromCadastro("per1");
+    expect(db.tipParticipant.update).not.toHaveBeenCalled();
+    expect(db.tipParticipant.deleteMany).not.toHaveBeenCalled();
+  });
+
   test("CLT que deixou de participar continua como estava (regra de antes)", async () => {
     cadastro([{ id: "clt", participaGorjeta: false, modality: "CLT", admissionDate: d("2025-01-01"), terminationDate: null }]);
     noPeriodo([{ id: "tp1", employeeId: "clt", foraDaGorjeta: false }]);

@@ -15,6 +15,7 @@ import {
   getServicePool, getServicePoolByRange, pontosBaseDoCadastro, reopenTipPeriod, syncParticipantsFromCadastro, tipPeriodBounds,
 } from "./tip-commission.service.js";
 import { previaSyncCadastro } from "./tip-sync-previa.service.js";
+import { limparParticipaDeDesligados } from "./tip-desligados.service.js";
 import { contarLancamentosExistentes, extrairTextoPdf, importExtrato, preverImportacao, lerTextoExtrato, onlyDigits, type ImportExtratoResult } from "./rh-extract.service.js";
 import { lerDetalhesExtrato } from "./rh-extract-detalhes.js";
 import { avisosDoExtrato } from "./rh-extract-store.service.js";
@@ -607,8 +608,29 @@ tipCommissionRouter.get("/periods/:id/sync-preview", async (request, response) =
   if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
   const period = await prisma.tipPeriod.findUnique({ where: { id: request.params.id }, select: { id: true, status: true } });
   if (!period) return response.status(404).json({ message: "Período não encontrado." });
-  if (period.status === "CLOSED") return response.json({ diferencas: [], foraDoRateio: [], desligadosComParticipaMarcado: 0 });
+  if (period.status === "CLOSED") return response.json({ diferencas: [], foraDoRateio: [], desligadosComParticipaMarcado: 0, desligadosParaLimpar: [] });
   response.json(await previaSyncCadastro(period.id));
+});
+
+// Tira "Participa da gorjeta" de quem já saiu e cujo ciclo da saída já fechou. Grava histórico e
+// auditoria; o ciclo aberto não é afetado (a prévia só lista quem não precisa mais dele).
+tipCommissionRouter.post("/periods/:id/limpar-desligados", async (request, response) => {
+  const user = await getSessionUser(request);
+  if (!user) return response.status(401).json({ message: "Sessão obrigatória." });
+  const period = await prisma.tipPeriod.findUnique({ where: { id: request.params.id }, select: { id: true } });
+  if (!period) return response.status(404).json({ message: "Período não encontrado." });
+  if (await barrouPorFechamento(period.id, response, "Limpar o cadastro")) return;
+  const ids = (request.body as { employeeIds?: unknown } | undefined)?.employeeIds;
+  const employeeIds = Array.isArray(ids) ? ids.filter((x): x is string => typeof x === "string") : undefined;
+  const limpos = await limparParticipaDeDesligados(user, employeeIds);
+  if (limpos.length > 0) {
+    await auditLog({
+      userId: user.id, action: "CLEAR_TIP_PARTICIPA_DESLIGADOS", entity: "Employee", entityId: limpos.map((l) => l.employeeId).join(","),
+      newValue: limpos.map((l) => ({ employeeId: l.employeeId, nome: l.nome, saida: l.terminationDate })),
+      ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? ""),
+    });
+  }
+  response.json({ limpos: limpos.length, nomes: limpos.map((l) => l.nome) });
 });
 
 // Remover um participante do período.

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 vi.mock("../../../config/database.js", () => ({
-  prisma: { employee: { findMany: vi.fn(), count: vi.fn() } },
+  prisma: { employee: { findMany: vi.fn() }, tipPeriod: { findMany: vi.fn() } },
 }));
 vi.mock("../tip-commission.service.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../tip-commission.service.js")>()),
@@ -26,7 +26,7 @@ const pessoa = (id: string, nome: string, over: Record<string, unknown> = {}) =>
 beforeEach(() => {
   vi.clearAllMocks();
   db.employee.findMany.mockResolvedValue([]);
-  db.employee.count.mockResolvedValue(0);
+  db.tipPeriod.findMany.mockResolvedValue([]);
 });
 
 describe("previaSyncCadastro", () => {
@@ -47,15 +47,19 @@ describe("previaSyncCadastro", () => {
       periodo, elegiveis: [], emTeste: [], soSalario: [],
       existing: [{ id: "p2", employeeId: "r", kind: "PONTOS", basePoints: 0, functionName: null, foraDaGorjeta: true, _count: { vales: 0 } }],
     } as never);
-    db.employee.findMany.mockResolvedValue([
+    // 1ª chamada: quem tem vínculo no ciclo; 2ª: desligados ainda marcados (ciclo da saída fechado).
+    db.employee.findMany.mockResolvedValueOnce([
       { id: "r", firstName: "Rafa", lastName: "Teste", displayName: null, modality: "NAO_CLT", participaGorjeta: false, inicioGorjeta: null, tipoGorjeta: "PONTOS", pontosExtra: null, tipFunction: null },
       { id: "z", firstName: "Zeca", lastName: "Teste", displayName: null, modality: "CLT", participaGorjeta: true, inicioGorjeta: d("2026-01-01"), tipoGorjeta: "PONTOS", pontosExtra: null, tipFunction: funcao("Pia 1", 2.5) },
+    ]).mockResolvedValueOnce([
+      { id: "x", firstName: "Analia", lastName: "Teste", displayName: null, terminationDate: d("2026-09-17") },
     ]);
-    db.employee.count.mockResolvedValue(7);
+    db.tipPeriod.findMany.mockResolvedValue([{ periodStart: d("2026-08-26"), periodEnd: d("2026-09-25"), status: "CLOSED" }]);
     const r = await previaSyncCadastro("per");
     expect(r.foraDoRateio).toHaveLength(1);
     expect(r.foraDoRateio[0]).toMatchObject({ employeeId: "r", soSalario: true });
     expect(r.foraDoRateio[0].motivo).toContain("desmarcado");
-    expect(r.desligadosComParticipaMarcado).toBe(7);
+    expect(r.desligadosComParticipaMarcado).toBe(1);
+    expect(r.desligadosParaLimpar).toEqual([{ employeeId: "x", nome: "Analia Teste", saida: "2026-09-17T00:00:00.000Z" }]);
   });
 });

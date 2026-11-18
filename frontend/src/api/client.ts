@@ -8563,12 +8563,21 @@ export type TipForaDoRateio = { employeeId: string; nome: string; motivo: string
 export type TipPreviaCadastro = {
   diferencas: TipDiferencaCadastro[];
   foraDoRateio: TipForaDoRateio[];
+  /** Desligados cujo ciclo da saída já fechou e que ainda estão com "Participa" marcado. */
   desligadosComParticipaMarcado: number;
+  desligadosParaLimpar?: Array<{ employeeId: string; nome: string; saida: string }>;
 };
 
 // Só leitura: o que "Atualizar do cadastro" faria no período aberto e quem está fora do rateio.
 export function getTipSyncPreview(periodId: string) {
   return request<TipPreviaCadastro>(`/payroll/tip/periods/${periodId}/sync-preview`);
+}
+
+// Tira "Participa da gorjeta" de quem saiu e já fechou o ciclo da saída (grava histórico).
+export function limparTipDesligados(periodId: string, employeeIds: string[]) {
+  return request<{ limpos: number; nomes: string[] }>(`/payroll/tip/periods/${periodId}/limpar-desligados`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ employeeIds }),
+  });
 }
 
 export type ExtratoPreviewItem = {
