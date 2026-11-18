@@ -13,6 +13,7 @@ import { hasPermission } from "../lib/permissions";
 import "./gorjeta/gorjeta.css";
 import { AbaApuracao } from "./gorjeta/AbaApuracao";
 import { AbaEquipe } from "./gorjeta/AbaEquipe";
+import { AvisoCadastro } from "./gorjeta/AvisoCadastro";
 import { AbaFuncoes } from "./gorjeta/AbaFuncoes";
 import { AbaContabilidade } from "./gorjeta/AbaContabilidade";
 import { AbaVales } from "./gorjeta/AbaVales";
@@ -497,6 +498,10 @@ export function FolhaGorjeta() {
                   {!readonly && <div><Button onClick={() => void salvarParametros()} disabled={busy} leadingIcon={<Save size={14} />}>Salvar parâmetros</Button></div>}
                   </div>
                 </details>
+              )}
+
+              {aba === "apuracao" && !readonly && !telaCheia && comp.periodId != null && (
+                <AvisoCadastro periodId={comp.periodId} versao={comp} ocupado={busy} podeAtualizar={canEdit} onAtualizar={() => void sincronizar()} />
               )}
 
               {aba === "apuracao" && !readonly && !telaCheia && (

@@ -8554,6 +8554,23 @@ export function syncTipParticipants(periodId: string) {
   return request<{ added: number; elegiveis: number; atualizados: number; removidos?: number; computation: TipComputation }>(`/payroll/tip/periods/${periodId}/sync`, { method: "POST" });
 }
 
+export type TipDiferencaCadastro = {
+  employeeId: string; nome: string;
+  tipo: "INCLUIR" | "PASSA_A_PARTICIPAR" | "PONTOS" | "FUNCAO" | "SAI_DO_RATEIO" | "SAI_DO_PERIODO";
+  detalhe: string;
+};
+export type TipForaDoRateio = { employeeId: string; nome: string; motivo: string; soSalario: boolean };
+export type TipPreviaCadastro = {
+  diferencas: TipDiferencaCadastro[];
+  foraDoRateio: TipForaDoRateio[];
+  desligadosComParticipaMarcado: number;
+};
+
+// Só leitura: o que "Atualizar do cadastro" faria no período aberto e quem está fora do rateio.
+export function getTipSyncPreview(periodId: string) {
+  return request<TipPreviaCadastro>(`/payroll/tip/periods/${periodId}/sync-preview`);
+}
+
 export type ExtratoPreviewItem = {
   nome: string; cpf: string; liquido: number; gorjeta: number | null;
   matched: boolean; employeeId: string | null; employeeName: string | null; isActive: boolean | null;

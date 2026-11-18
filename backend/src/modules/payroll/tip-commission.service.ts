@@ -1153,7 +1153,7 @@ export function mesDoSalario(year: number, month: number): { start: Date; end: D
 }
 
 type CandidatoSoSalario = {
-  id: string; modality: unknown; terminationDate: Date | null; admissionDate?: Date | null; isActive?: boolean;
+  id: string; firstName?: string; lastName?: string; displayName?: string | null; modality: unknown; terminationDate: Date | null; admissionDate?: Date | null; isActive?: boolean;
   tipFunction: { name: string } | null;
 };
 
@@ -1170,7 +1170,7 @@ function vinculadoNoMes(c: CandidatoSoSalario, mes: { start: Date; end: Date }):
 // participa mas está em teste (sem a entrada na gorjeta neste ciclo): vem em emTeste.
 async function semRegistroSoSalario(
   year: number, month: number, emTeste: CandidatoSoSalario[] = [],
-): Promise<Array<{ id: string; tipFunction: { name: string } | null }>> {
+): Promise<CandidatoSoSalario[]> {
   const mes = mesDoSalario(year, month);
   const candidatos: CandidatoSoSalario[] = await prisma.employee.findMany({
     where: {
@@ -1183,7 +1183,7 @@ async function semRegistroSoSalario(
         { OR: [{ isActive: true }, { terminationDate: { not: null } }] },
       ],
     },
-    select: { id: true, modality: true, terminationDate: true, tipFunction: { select: { name: true } } },
+    select: { id: true, firstName: true, lastName: true, displayName: true, modality: true, terminationDate: true, tipFunction: { select: { name: true } } },
   });
   candidatos.push(...emTeste.filter((c) => vinculadoNoMes(c, mes)));
   // Vínculo vigente no mês (como o cálculo faz): quem virou CLT depois ainda era sem registro.
@@ -1194,16 +1194,9 @@ async function semRegistroSoSalario(
   return candidatos.filter((c) => vigentes.get(c.id)?.modality === "NAO_CLT");
 }
 
-// Traz para o período quem participa da gorjeta no cadastro e ainda não está nele
-// (inclusive desligados, que recebem pela rescisão). Também atualiza os pontos-base
-// de quem já está, porque a base vem sempre do cadastro — o ajuste do mês é que se
-// edita no período. Não remove quem participa.
-//
-// Sem registro que não participa entra como "fora da gorjeta" (só salário). Se passar a
-// participar, vira participante normal com os pontos da função; se deixar de participar,
-// vira fora da gorjeta. Quem estava só pelo salário e deixou de ter direito (virou CLT,
-// saiu antes do mês) sai do período — a não ser que tenha vale lançado.
-export async function syncParticipantsFromCadastro(periodId: string): Promise<{ added: number; elegiveis: number; atualizados: number; removidos: number }> {
+// Lê o que o "Atualizar do cadastro" decide: quem participa (e quem está em teste), quem fica
+// só pelo salário e o que já está no período. Compartilhado com a prévia, que não grava.
+export async function carregarParaSync(periodId: string) {
   const periodo = await prisma.tipPeriod.findUniqueOrThrow({
     where: { id: periodId }, select: { periodStart: true, periodEnd: true, competenceYear: true, competenceMonth: true },
   });
@@ -1214,7 +1207,7 @@ export async function syncParticipantsFromCadastro(periodId: string): Promise<{ 
       OR: [{ terminationDate: null }, { terminationDate: { gte: periodo.periodStart } }],
     },
     select: {
-      id: true, tipoGorjeta: true, pontosExtra: true, cotaFixaGorjeta: true, tipFunction: { select: { points: true, name: true } },
+      id: true, firstName: true, lastName: true, displayName: true, tipoGorjeta: true, pontosExtra: true, cotaFixaGorjeta: true, tipFunction: { select: { points: true, name: true } },
       participaGorjeta: true, inicioGorjeta: true, modality: true, admissionDate: true, terminationDate: true, isActive: true,
     },
   });
@@ -1229,6 +1222,20 @@ export async function syncParticipantsFromCadastro(periodId: string): Promise<{ 
     where: { periodId },
     select: { id: true, employeeId: true, kind: true, basePoints: true, functionName: true, foraDaGorjeta: true, _count: { select: { vales: true } } },
   });
+  return { periodo, elegiveis, emTeste, soSalario, existing };
+}
+
+// Traz para o período quem participa da gorjeta no cadastro e ainda não está nele
+// (inclusive desligados, que recebem pela rescisão). Também atualiza os pontos-base
+// de quem já está, porque a base vem sempre do cadastro — o ajuste do mês é que se
+// edita no período. Não remove quem participa.
+//
+// Sem registro que não participa entra como "fora da gorjeta" (só salário). Se passar a
+// participar, vira participante normal com os pontos da função; se deixar de participar,
+// vira fora da gorjeta. Quem estava só pelo salário e deixou de ter direito (virou CLT,
+// saiu antes do mês) sai do período — a não ser que tenha vale lançado.
+export async function syncParticipantsFromCadastro(periodId: string): Promise<{ added: number; elegiveis: number; atualizados: number; removidos: number }> {
+  const { elegiveis, emTeste, soSalario, existing } = await carregarParaSync(periodId);
   const byEmp = new Map(existing.map((e) => [e.employeeId, e]));
   const toAdd = elegiveis.filter((e) => !byEmp.has(e.id));
   const soSalarioNovos = soSalario.filter((e) => !byEmp.has(e.id));
