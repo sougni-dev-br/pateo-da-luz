@@ -3,7 +3,7 @@ import type { TaxPaymentDetail } from "../../../api/client";
 import {
   FORM_VAZIO, codigoDaDenominacao, descricaoDasLinhas, formDaGuia, formDuplicado, linhasComValor, linhasDoModelo, mesSugerido, novaLinha,
   payloadDaGuia, totalDaGuia, totalDaLinha, type FormGuia,
-  chaveDoNumero, descricaoDoCodigo, diferencaComOPapel, estadoDaDenominacao, pendenciasDaGuia, temVerbaDeRescisao, tipoDoGrupo, tipoSemCatalogo, valorColado,
+  chaveDoNumero, descricaoDoCodigo, diferencaComOPapel, estadoDaDenominacao, fotoDoFormulario, pendenciasDaGuia, temVerbaDeRescisao, tipoDoGrupo, tipoSemCatalogo, valorColado,
   type ContextoDasPendencias,
 } from "../formularioGuia";
 import { modeloDoTipo, sugestoesDoTipo } from "../modelosDeGuia";
@@ -236,6 +236,26 @@ describe("denominação travada pelo código (o sistema guarda os códigos)", ()
     expect(estadoDaDenominacao(novaLinha(), "IPTU", [])).toBe("livre");
   });
 
+  test("ISS/IPTU: depois que um código entra no catálogo, a linha sem código continua livre", () => {
+    const catalogo = [{ code: "1234", description: "ISS - SERVIÇOS" }];
+    expect(tipoSemCatalogo("ISS", catalogo)).toBe(false);
+    expect(estadoDaDenominacao(novaLinha(), "ISS", catalogo)).toBe("livre");
+    // tipo que tem códigos no documento segue esperando o código
+    expect(estadoDaDenominacao(novaLinha(), "Simples Nacional / DAS", CATALOGO_DAS)).toBe("aguardaCodigo");
+  });
+
+  test("foto do formulário: só o que a pessoa digitou conta (linhas do modelo e categoria não)", () => {
+    const f = { ...FORM_VAZIO, documentType: "DARF", linhas: linhasDoModelo("DARF") };
+    expect(fotoDoFormulario({ ...f, dreCategoryId: "cat-inss", mes: "2026-09" })).toBe(fotoDoFormulario(f));
+    expect(fotoDoFormulario({ ...f, linhas: f.linhas.map((l, i) => (i === 0 ? { ...l, principal: "4.428,51" } : l)) })).not.toBe(fotoDoFormulario(f));
+    expect(fotoDoFormulario({ ...f, documentNumber: "07.16.26253.0501136-1" })).not.toBe(fotoDoFormulario(f));
+    expect(fotoDoFormulario({ ...f, linhas: [...f.linhas, novaLinha({ code: "1506" })] })).not.toBe(fotoDoFormulario(f));
+    // na edição, competência, tipo e categoria também contam
+    expect(fotoDoFormulario({ ...f, mes: "2026-08" }, true)).not.toBe(fotoDoFormulario(f, true));
+    expect(fotoDoFormulario({ ...f, documentType: "FGTS" }, true)).not.toBe(fotoDoFormulario(f, true));
+    expect(fotoDoFormulario({ ...f, dreCategoryId: "cat-x" }, true)).not.toBe(fotoDoFormulario(f, true));
+  });
+
   test("FGTS não tem códigos: as colunas do modelo travam, linha extra é livre", () => {
     const [mensal] = linhasDoModelo("FGTS");
     expect(estadoDaDenominacao(mensal, "FGTS", [])).toBe("travada");
@@ -383,6 +403,8 @@ describe("chaveDoNumero e tipoDoGrupo", () => {
     expect(tipoDoGrupo("Simples Nacional")).toBe("Simples Nacional / DAS");
     expect(tipoDoGrupo("FGTS")).toBe("FGTS");
     expect(tipoDoGrupo("IRRF / DARF")).toBe("DARF");
+    // o INSS da empresa vem no DARF previdenciário, não na GPS
+    expect(tipoDoGrupo("INSS")).toBe("DARF");
     expect(tipoDoGrupo("Grupo qualquer")).toBeNull();
   });
 });

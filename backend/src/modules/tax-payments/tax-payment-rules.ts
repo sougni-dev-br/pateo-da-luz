@@ -31,12 +31,27 @@ export function statusDaGuia(
   return vencimento && vencimento < hojeBrasilia(hoje) ? "OVERDUE" : "PENDING";
 }
 
-// Valor de guia: número finito e maior que zero. Number("1.234,56") é NaN e NaN <= 0 é falso,
-// então a checagem precisa ser explícita.
+export const MAXIMO_DE_VALOR_DA_GUIA = 9_999_999_999.99; // Decimal(12,2)
+
+// Só número ou texto no formato canônico ("1234.56"): "1.234" (milhar), "1e3", "0x1F", true ou [7] seriam aceitos por
+// Number() e sairiam com outro valor em silêncio.
+const VALOR_CANONICO = /^\d+(\.\d{1,2})?$/;
+
+// Valor de guia ou de pagamento: maior que zero, até o limite do banco, arredondado em centavos.
 export function parseValorGuia(valor: unknown): number | null {
   if (valor == null || valor === "") return null;
-  const n = typeof valor === "number" ? valor : Number(valor);
-  return Number.isFinite(n) && n > 0 ? n : null;
+  let n: number;
+  if (typeof valor === "number") n = valor;
+  else if (typeof valor === "string" && VALOR_CANONICO.test(valor.trim())) n = Number(valor.trim());
+  else return null;
+  if (!Number.isFinite(n) || n <= 0 || n > MAXIMO_DE_VALOR_DA_GUIA) return null;
+  const centavos = Math.round(n * 100) / 100;
+  return centavos > 0 ? centavos : null;
+}
+
+// Status de uma guia que volta a ficar em aberto (estorno, restauração): vencida só depois do dia do vencimento, em Brasília.
+export function statusDeGuiaEmAberto(dueDate: Date | null, hoje: Date = new Date()): "PENDING" | "OVERDUE" {
+  return dueDate ? (statusDaGuia(null, dueDate, false, hoje) as "PENDING" | "OVERDUE") : "PENDING";
 }
 
 export type DataLida = { ok: true; data: Date | null } | { ok: false };

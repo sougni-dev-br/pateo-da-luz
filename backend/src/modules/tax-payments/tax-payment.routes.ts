@@ -14,7 +14,7 @@ import { montarPanorama } from "./tax-payment-panorama.js";
 import { descricaoDosItens, lerNumeroDoDocumento, lerQuantidadeDeTrabalhadores, normalizarItens, type ItemGuia } from "./tax-payment-items.js";
 import { aplicarCatalogoDeCodigos, guardarCodigosNovos } from "./tax-code-catalog.js";
 import { lerFuncionarioDaGuia } from "./tax-payment-employee.js";
-import { diaIso, hojeBrasilia, lerData, parseValorGuia, resolverUploadImportacao, statusDaGuia } from "./tax-payment-rules.js";
+import { diaIso, hojeBrasilia, lerData, parseValorGuia, resolverUploadImportacao, statusDaGuia, statusDeGuiaEmAberto } from "./tax-payment-rules.js";
 
 export const taxPaymentRouter = Router();
 
@@ -87,26 +87,43 @@ type TaxPaymentRow = {
 // ─── GET /tax-payments ────────────────────────────────────────────────────────
 // Ordem por urgência: o que ainda falta pagar vem primeiro (vencimento mais próximo no topo);
 // pagas e canceladas vão depois, da mais recente para a mais antiga.
-taxPaymentRouter.get("/", async (request, response) => {
-  const {
-    companyId,
-    cnpj,
-    documentType,
-    status,
-    competenceStart,
-    competenceEnd,
-    dueStart,
-    dueEnd,
-    paymentStart,
-    paymentEnd,
-    search,
-    dreCategoryId,
-    withoutCompetence,
-    page = "1",
-    pageSize = "50",
-  } = request.query as Record<string, string>;
+const SITUACOES_ACEITAS = new Set(["PENDING", "PAID", "OVERDUE", "CANCELED", "WITHOUT_RECEIPT"]);
+const DIA_DO_FILTRO = /^\d{4}-\d{2}-\d{2}$/;
+const PAGINA_MAXIMA = 100_000;
 
-  const pageNum = Math.max(1, parseInt(page, 10) || 1);
+// Filtro vindo da URL: só texto simples vale (`?a=1&a=2` chega como lista e `?a[x]=1` como objeto).
+function textoDoFiltro(valor: unknown): string {
+  return typeof valor === "string" ? valor.trim() : "";
+}
+
+taxPaymentRouter.get("/", async (request, response) => {
+  const q = request.query as Record<string, unknown>;
+  const companyId = textoDoFiltro(q.companyId);
+  const cnpj = textoDoFiltro(q.cnpj);
+  const documentType = textoDoFiltro(q.documentType);
+  const status = textoDoFiltro(q.status);
+  const competenceStart = textoDoFiltro(q.competenceStart);
+  const competenceEnd = textoDoFiltro(q.competenceEnd);
+  const dueStart = textoDoFiltro(q.dueStart);
+  const dueEnd = textoDoFiltro(q.dueEnd);
+  const paymentStart = textoDoFiltro(q.paymentStart);
+  const paymentEnd = textoDoFiltro(q.paymentEnd);
+  const search = textoDoFiltro(q.search);
+  const dreCategoryId = textoDoFiltro(q.dreCategoryId);
+  const withoutCompetence = textoDoFiltro(q.withoutCompetence);
+  const excludeCanceled = textoDoFiltro(q.excludeCanceled);
+  const page = textoDoFiltro(q.page) || "1";
+  const pageSize = textoDoFiltro(q.pageSize) || "50";
+
+  if (status && !SITUACOES_ACEITAS.has(status)) return response.status(400).json({ message: "Situação inválida." });
+  const datas = { competenceStart, competenceEnd, dueStart, dueEnd, paymentStart, paymentEnd };
+  for (const [campo, valor] of Object.entries(datas)) {
+    if (valor && (!DIA_DO_FILTRO.test(valor) || Number.isNaN(new Date(valor).getTime()))) {
+      return response.status(400).json({ message: `Data inválida em ${campo} (use AAAA-MM-DD).` });
+    }
+  }
+
+  const pageNum = Math.min(PAGINA_MAXIMA, Math.max(1, parseInt(page, 10) || 1));
   const size = Math.min(200, Math.max(1, parseInt(pageSize, 10) || 50));
   const offset = (pageNum - 1) * size;
 
@@ -147,6 +164,8 @@ taxPaymentRouter.get("/", async (request, response) => {
     conditions.push(`tp."competenceDate" IS NULL`);
     if (status !== "CANCELED") conditions.push(`tp."status" <> 'CANCELED'`);
   }
+  // Clique numa célula da grade de cobertura: a grade não conta guia cancelada, a lista também não pode trazer.
+  if (excludeCanceled === "true" && status !== "CANCELED" && withoutCompetence !== "true") conditions.push(`tp."status" <> 'CANCELED'`);
   if (competenceStart) conditions.push(`tp."competenceDate" >= ${addParam(new Date(competenceStart))}`);
   if (competenceEnd) conditions.push(`tp."competenceDate" <= ${addParam(new Date(competenceEnd + "T23:59:59.999Z"))}`);
   if (dueStart) conditions.push(`tp."dueDate" >= ${addParam(new Date(dueStart))}`);
@@ -155,7 +174,8 @@ taxPaymentRouter.get("/", async (request, response) => {
   if (paymentEnd) conditions.push(`tp."paymentDate" <= ${addParam(new Date(paymentEnd + "T23:59:59.999Z"))}`);
 
   if (search) {
-    const like = addParam(`%${search}%`);
+    // % e _ digitados são texto comum, não curinga.
+    const like = addParam(`%${search.replace(/[\\%_]/g, "\\$&")}%`);
     conditions.push(`(tp."legalName" ILIKE ${like} OR tp."tradeName" ILIKE ${like} OR tp."description" ILIKE ${like} OR tp."cnpj" ILIKE ${like} OR tp."documentNumber" ILIKE ${like})`);
   }
 
@@ -541,6 +561,18 @@ taxPaymentRouter.put("/:id", async (request, response) => {
   if (await competenciaBloqueada(existing.competenceDate, "Edicao de imposto", response)) return;
   if (await competenciaBloqueada(competencia.data, "Edicao de imposto", response)) return;
 
+  const descricaoFinal = itens && !(typeof description === "string" && description.trim())
+    ? descricaoDosItens(itens)
+    : description !== undefined ? ((description as string) || null) : existing.description;
+
+  // Categoria ausente no corpo: segue a guia, a não ser que o tipo tenha mudado (a antiga não vale mais) ou que a guia
+  // não tivesse categoria; nesses casos o servidor sugere pelo tipo e pelas linhas, como no lançamento.
+  const categoriaFinal = dreCategoryId !== undefined
+    ? ((dreCategoryId as string) || null)
+    : tipoFinal !== existing.documentType || !existing.dreCategoryId
+      ? categoriaSugerida(await categoriasAtivas(), tipoFinal, descricaoFinal).dreCategoryId
+      : existing.dreCategoryId;
+
   // Dentro da função da gravação o TypeScript perde o estreitamento feito acima, então o vencimento é fixado antes.
   const dataDeVencimento: Date = vencimento.data;
   const updated = await gravar(response, () => prisma.taxPayment.update({
@@ -551,9 +583,7 @@ taxPaymentRouter.put("/:id", async (request, response) => {
       legalName: legalName !== undefined ? ((legalName as string) || null) : existing.legalName,
       tradeName: tradeName !== undefined ? ((tradeName as string) || null) : existing.tradeName,
       documentType: documentType ? String(documentType).trim() : existing.documentType,
-      description: itens && !(typeof description === "string" && description.trim())
-        ? descricaoDosItens(itens)
-        : description !== undefined ? ((description as string) || null) : existing.description,
+      description: descricaoFinal,
       documentNumber: numeroDoDocumento,
       workersCount: tipoFinal === "FGTS" ? trabalhadoresDaGuia : null,
       employeeId: funcionarioDaGuia,
@@ -562,7 +592,7 @@ taxPaymentRouter.put("/:id", async (request, response) => {
       amount: valor,
       status: statusDaGuia(existing.paymentDate, dataDeVencimento, cancelada),
       comments: comments !== undefined ? ((comments as string) || null) : existing.comments,
-      dreCategoryId: dreCategoryId !== undefined ? ((dreCategoryId as string) || null) : existing.dreCategoryId,
+      dreCategoryId: categoriaFinal,
       updatedById: user.id,
       // As linhas são regravadas por inteiro, na mesma operação que atualiza a guia.
       ...(itens ? { items: { deleteMany: {}, create: itensParaGravar(itens) } } : {}),
@@ -645,11 +675,8 @@ taxPaymentRouter.patch("/:id/restore", async (request, response) => {
 
   // So recalcula o vencido de quem voltou em aberto. Pago continua pago, e
   // WITHOUT_RECEIPT/CANCELED sao estados deliberados que a restauracao nao decide.
-  const now = new Date();
   const recalcula = !existing.paymentDate && (existing.status === "PENDING" || existing.status === "OVERDUE");
-  const status = recalcula
-    ? (existing.dueDate && existing.dueDate < now ? "OVERDUE" : "PENDING")
-    : existing.status;
+  const status = recalcula ? statusDeGuiaEmAberto(existing.dueDate) : existing.status;
 
   const updated = await gravar(response, () => prisma.taxPayment.update({
     where: { id },
@@ -677,7 +704,7 @@ taxPaymentRouter.patch("/:id/pay", async (request, response) => {
 
   const { id } = request.params;
   const paymentDate = request.body.paymentDate ? new Date(String(request.body.paymentDate)) : null;
-  const paidAmount = Number(request.body.paidAmount ?? 0);
+  const paidAmount = parseValorGuia(request.body.paidAmount) ?? 0;
   const comments = request.body.comments != null ? String(request.body.comments) : undefined;
 
   // Number.isFinite, nao so "<= 0": Number("1.234,56") e NaN, e NaN <= 0 e FALSO,
@@ -786,8 +813,7 @@ taxPaymentRouter.patch("/:id/reverse", async (request, response) => {
   if (await competenciaBloqueada(existing.competenceDate, "Estorno de imposto", response)) return;
   if (await competenciaBloqueada(existing.paymentDate, "Estorno de imposto (data do pagamento)", response)) return;
 
-  const now = new Date();
-  const reversedStatus = existing.dueDate && existing.dueDate < now ? "OVERDUE" : "PENDING";
+  const reversedStatus = statusDeGuiaEmAberto(existing.dueDate);
 
   const updated = await prisma.taxPayment.update({
     where: { id },

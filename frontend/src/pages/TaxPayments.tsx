@@ -76,6 +76,8 @@ export function TaxPayments({ user }: Props) {
     competenceEnd: mes && !semCompetencia ? ultimoDiaDoMes(mes) : undefined,
     withoutCompetence: semCompetencia ? "true" : undefined,
     dreCategoryId: categoria?.id,
+    // Veio de uma célula da grade: ela não conta guia cancelada, então a lista também não pode trazer.
+    excludeCanceled: categoria ? "true" : undefined,
     companyId: empresaId || undefined,
     page: pagina,
     pageSize: TAMANHO_PAGINA,
@@ -162,7 +164,8 @@ export function TaxPayments({ user }: Props) {
   }
 
   function verMes(m: string, cat?: { id: string; nome: string }) {
-    filtrar({ mes: m, situacao: "", tipo: "" });
+    // A grade é de todas as empresas: um filtro de empresa esquecido faria a lista mostrar menos guias que a célula.
+    filtrar({ mes: m, situacao: "", tipo: "", empresa: "" });
     setCategoria(cat ?? null);
     topoDaLista.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }

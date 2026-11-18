@@ -108,13 +108,16 @@ function normalizeCnpj(value: unknown): string | null {
 
 export function parseAmount(value: unknown): number | null {
   if (value == null) return null;
-  if (typeof value === "number") return isNaN(value) ? null : Math.abs(value);
+  // Valor negativo (estorno, restituição) não é despesa: vira linha inválida em vez de entrar com o sinal trocado.
+  if (typeof value === "number") return isNaN(value) || value < 0 ? null : value;
   const bruto = String(value).trim();
+  // Sinal antes do número, parêntese ou sinal à direita ("1.250,00-", comum em extrato).
+  if (/^[^\d(\-−]*[-−(]/.test(bruto) || /[-−]\s*$/.test(bruto)) return null;
   // "12.50" (ponto decimal, sem vírgula) é 12,50; antes o ponto era tratado como milhar e virava 1250.
   const pontoDecimal = !bruto.includes(",") && /^\D*\d+\.\d{1,2}\D*$/.test(bruto);
   const text = (pontoDecimal ? bruto : bruto.replace(/\./g, "").replace(",", ".")).replace(/[^\d.]/g, "");
   const num = parseFloat(text);
-  return isNaN(num) ? null : Math.abs(num);
+  return isNaN(num) ? null : num;
 }
 
 function cleanText(value: unknown): string | null {

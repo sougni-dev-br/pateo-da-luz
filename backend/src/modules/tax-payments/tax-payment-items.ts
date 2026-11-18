@@ -98,5 +98,6 @@ export function lerNumeroDoDocumento(bruto: unknown): NumeroDoDocumento {
   if (typeof bruto !== "string" && typeof bruto !== "number") return { ok: false };
   const texto = String(bruto).trim();
   if (texto.length > 60) return { ok: false };
-  return { ok: true, valor: texto || null };
+  // Só pontuação ("-", "."): para o índice único é um número vazio, e a segunda guia levaria 409 sem ser repetida.
+  return { ok: true, valor: /[A-Za-z0-9]/.test(texto) ? texto : null };
 }

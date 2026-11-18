@@ -40,6 +40,11 @@ describe("valor da planilha", () => {
   ])("%s vira %s", (entrada, esperado) => {
     expect(parseAmount(entrada)).toBe(esperado);
   });
+
+  // Estorno ou restituição não é despesa: o sinal não pode ser descartado em silêncio.
+  test.each(["-1.250,00", "R$ -1.250,00", "(1.250,00)", "−1.250,00", "1.250,00-", -50])("%s é recusado (valor negativo)", (entrada) => {
+    expect(parseAmount(entrada)).toBeNull();
+  });
 });
 
 describe("prévia", () => {

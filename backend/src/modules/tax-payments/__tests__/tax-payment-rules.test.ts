@@ -1,6 +1,6 @@
 import path from "node:path";
 import { describe, expect, test } from "vitest";
-import { diaIso, hojeBrasilia, lerData, parseValorGuia, resolverUploadImportacao, statusDaGuia } from "../tax-payment-rules.js";
+import { diaIso, hojeBrasilia, lerData, parseValorGuia, resolverUploadImportacao, statusDaGuia, statusDeGuiaEmAberto } from "../tax-payment-rules.js";
 
 describe("statusDaGuia", () => {
   const hoje = new Date("2026-10-20T15:00:00Z");
@@ -34,6 +34,24 @@ describe("parseValorGuia", () => {
 
   test.each([0, -10, "", null, undefined, "abc", "1.234,56", NaN, Infinity])("rejeita %s", (valor) => {
     expect(parseValorGuia(valor)).toBeNull();
+  });
+
+  test.each([true, [7], "1e3", "0x1F", " ", 1e12, "10.005", {}])("rejeita formato solto ou acima do limite do banco: %s", (valor) => {
+    expect(parseValorGuia(valor)).toBeNull();
+  });
+
+  test("arredonda em centavos", () => {
+    expect(parseValorGuia(10.005)).toBe(10.01);
+    expect(parseValorGuia(0.001)).toBeNull();
+  });
+});
+
+describe("statusDeGuiaEmAberto (estorno e restauração)", () => {
+  const hoje = new Date("2026-10-20T15:00:00Z");
+  test("vence hoje continua em aberto; só depois do dia vira vencida", () => {
+    expect(statusDeGuiaEmAberto(new Date("2026-10-20T00:00:00Z"), hoje)).toBe("PENDING");
+    expect(statusDeGuiaEmAberto(new Date("2026-10-19T00:00:00Z"), hoje)).toBe("OVERDUE");
+    expect(statusDeGuiaEmAberto(null, hoje)).toBe("PENDING");
   });
 });
 

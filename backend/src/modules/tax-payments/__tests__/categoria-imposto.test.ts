@@ -39,6 +39,13 @@ describe("categoria do DRE sugerida pelo tipo da guia", () => {
     expect(sugerirCategoriaImposto("RECEITA FEDERAL", "CP SEGURADOS")).toBe("INSS");
   });
 
+  test("DARF só com a linha 1099 (contribuinte individual) também é INSS", () => {
+    expect(sugerirCategoriaImposto("DARF", "CP DESCONTADA SEGURADO - CONTRIB INDIVIDUAL")).toBe("INSS");
+    expect(sugerirCategoriaImposto("DARF", "CONTR PREV DESCONTA SEGURADO-EMPREGADO/AVULSO · CP DESCONTADA SEGURADO - CONTRIB INDIVIDUAL")).toBe("INSS");
+    // com a 0561 na mesma guia continua IRRF / DARF (uma categoria por guia)
+    expect(sugerirCategoriaImposto("DARF", "CP DESCONTADA SEGURADO - CONTRIB INDIVIDUAL · IRRF - RENDIMENTO DO TRABALHO ASSALARIADO")).toBe("IRRF / DARF");
+  });
+
   test("DARF da Receita que tem imposto de renda vai para IRRF / DARF, mesmo com INSS junto", () => {
     expect(sugerirCategoriaImposto("RECEITA FEDERAL", "CONTR PREV - IRRF - RENDIMENTO TRABALHO ASSALARIADO")).toBe("IRRF / DARF");
     expect(sugerirCategoriaImposto("RECEITA FEDERAL", "IMPOSTO SOBRE RENDA DA PESSOA FISICA")).toBe("IRRF / DARF");

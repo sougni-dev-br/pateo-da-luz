@@ -151,7 +151,9 @@ export type EstadoDaDenominacao = "travada" | "aguardaCodigo" | "livre";
 export function estadoDaDenominacao(l: LinhaForm, tipo: string, catalogo: ReadonlyArray<TaxCode>): EstadoDaDenominacao {
   if (l.doModelo) return "travada";
   if (l.code.trim()) return descricaoDoCodigo(catalogo, l.code) != null ? "travada" : "livre";
-  return tipoSemCatalogo(tipo, catalogo) ? "livre" : "aguardaCodigo";
+  // Tipo cujo documento não traz código (ISS, IPTU, FGTS...): a denominação é livre mesmo que alguém já tenha guardado um
+  // código no catálogo dele; senão a linha sem código ficaria esperando um código que o papel não tem.
+  return tipoSemCatalogo(tipo, catalogo) || modeloDoTipo(tipo).linhas.every((m) => !m.code) ? "livre" : "aguardaCodigo";
 }
 
 // FGTS com valor em "Rescisório" ou "Indenização compensatória": a guia é de um funcionário que saiu.
@@ -272,6 +274,21 @@ export function valorColado(texto: string): string {
   return numero > 0 ? moneyToMasked(numero) : "";
 }
 
+// O que a pessoa digitou (valores, número, observações...), sem o que o sistema preenche sozinho (linhas do modelo, categoria,
+// competência sugerida, empresa lembrada): serve para saber se fechar o modal perde trabalho.
+export function fotoDoFormulario(f: FormGuia, emEdicao = false): string {
+  return JSON.stringify({
+    // Linha do modelo só conta com valor; linha livre, com qualquer coisa digitada. Linha vazia não é trabalho.
+    linhas: f.linhas
+      .filter((l) => l.principal || l.fine || l.interest || (!l.doModelo && (l.code || l.description)))
+      .map((l) => (l.doModelo ? [l.code, l.principal, l.fine, l.interest] : [l.code, l.description, l.principal, l.fine, l.interest])),
+    numero: f.documentNumber.trim(), papel: f.totalDoPapel, obs: f.comments.trim(), trabalhadores: f.workersCount, vencimento: f.dueDate, funcionario: f.employeeId,
+    // Guia já gravada: tudo o que a tela mostra é dado dela, então mudar tipo, competência, empresa, categoria ou situação
+    // também é trabalho a perder. Na guia nova esses campos são preenchidos pelo sistema e ficam de fora.
+    ...(emEdicao ? { tipo: f.documentType, mes: f.mes, empresa: f.companyId || f.cnpj || f.legalName, categoria: f.dreCategoryId, cancelada: f.cancelada } : {}),
+  });
+}
+
 // Número do documento comparado só por letras e dígitos, como no servidor.
 export function chaveDoNumero(numero: string): string {
   return numero.toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -282,7 +299,8 @@ export function tipoDoGrupo(grupo: string): string | null {
   switch (grupo) {
     case "Simples Nacional": return "Simples Nacional / DAS";
     case "FGTS": return "FGTS";
-    case "INSS": return "GPS / INSS";
+    // O INSS da empresa vem no DARF previdenciário (códigos 1082 e 1099), não na GPS.
+    case "INSS": return "DARF";
     case "IRRF / DARF": return "DARF";
     case "GARE / ICMS": return "GARE ICMS";
     case "IPTU": return "IPTU";
