@@ -7,6 +7,7 @@ import { auditLog, getSessionUser, requestIp } from "../security/security-utils.
 import { naoEncontrado, parseCorpo } from "./validacao.js";
 import { buffetMenusRouter } from "./buffet-menus.routes.js";
 import { buffetPrintsRouter } from "./buffet-prints.routes.js";
+import { buffetWeighingsRouter } from "./buffet-weighings.routes.js";
 
 // Plaquinhas do buffet: a cozinha monta a lista do dia (ou do coffee break) a partir
 // do catálogo e imprime. Toda plaquinha sai em português e inglês, então o catálogo
@@ -17,6 +18,7 @@ export const buffetPlatesRouter = Router();
 buffetPlatesRouter.use("/menus", buffetMenusRouter);
 // Impressões e o acompanhamento de pratos mais feitos, repetidos e esquecidos.
 buffetPlatesRouter.use(buffetPrintsRouter);
+buffetPlatesRouter.use(buffetWeighingsRouter);
 
 export const PLATE_CATEGORIES = [
   "Arroz e grãos", "Massas", "Risotos", "Carnes", "Aves", "Peixes e frutos do mar", "Guarnições",

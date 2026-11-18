@@ -2021,6 +2021,7 @@ model BuffetPlateItem {
   nameEn    String
   category  String
   isActive  Boolean  @default(true)
+  weighings BuffetWeighing[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -2056,6 +2057,44 @@ model BuffetPlatePrint {
   createdAt   DateTime @default(now())
 
   @@index([kind, servedOn])
+}
+
+// Panela do buffet com o peso dela vazia (tara, em gramas): quem pesa anota o peso bruto e o sistema abate a panela,
+// sem precisar tarar a balança. O peso da panela é cadastrado uma vez.
+model BuffetPot {
+  id         String            @id @default(cuid())
+  code       String            @unique
+  name       String?
+  tareG      Int
+  isActive   Boolean           @default(true)
+  weighings  BuffetWeighing[]
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+}
+
+// Uma pesagem de panela de um prato do buffet. `phase` PRODUCAO = o que foi para o buffet (inclui reposição:
+// várias linhas do mesmo prato somam); SOBRA = o que voltou no fim do serviço. `tareG` guarda o peso da panela
+// NA HORA, porque a panela pode ser re-pesada depois sem mudar o histórico. netG = grossG - tareG.
+model BuffetWeighing {
+  id          String          @id @default(cuid())
+  servedOn    DateTime        @db.Date
+  kind        String          @default("BUFFET")
+  itemId      String
+  item        BuffetPlateItem @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  potId       String
+  pot         BuffetPot       @relation(fields: [potId], references: [id], onDelete: Restrict)
+  phase       String          @default("PRODUCAO")
+  grossG      Int
+  tareG       Int
+  netG        Int
+  notes       String?
+  createdById String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@index([servedOn, kind])
+  @@index([itemId, servedOn])
+  @@index([potId])
 }
 
 // Cardápio do evento impresso para o display de acrílico (frente e verso).

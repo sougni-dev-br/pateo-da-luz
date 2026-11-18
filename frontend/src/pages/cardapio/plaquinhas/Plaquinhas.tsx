@@ -15,6 +15,7 @@ import { AcompanhamentoPratos } from "./AcompanhamentoPratos";
 import { CardapioAcrilico } from "./CardapioAcrilico";
 import { CatalogoPlaquinhas } from "./CatalogoPlaquinhas";
 import { MontarFolha } from "./MontarFolha";
+import { PesagemBuffet } from "./PesagemBuffet";
 import "./plaquinhas-tela.css";
 
 const MODULO = "buffet-plates";
@@ -22,6 +23,7 @@ const MODULO = "buffet-plates";
 const rotulo = (longo: string, curto: string) => <><span className="plq-aba-longa">{longo}</span><span className="plq-aba-curta" aria-hidden="true">{curto}</span></>;
 const ABAS = [
   { value: "montar", label: "Plaquinhas" },
+  { value: "pesagem", label: "Pesagem" },
   { value: "acompanhamento", label: "Acompanhamento" },
   { value: "cardapio", label: rotulo("Cardápio do evento", "Cardápio") },
   { value: "catalogo", label: rotulo("Catálogo de pratos", "Catálogo") },
@@ -94,6 +96,9 @@ export function Plaquinhas() {
         <MontarFolha ativa={aba === "montar"} catalogo={catalogo} listas={listas} podeCriar={podeCriar} podeEditar={podeEditar} podeExcluir={podeExcluir}
           aoMudarListas={carregarListas} aoCadastrarPrato={guardarPrato} aoMudarPendencia={setFolhaPendente}
           aoRegistrarImpressao={acompanhamentoMudou} versaoAcompanhamento={versaoAcompanhamento} />
+      </div>
+      <div hidden={aba !== "pesagem"}>
+        <PesagemBuffet ativa={aba === "pesagem"} catalogo={catalogo} listas={listas} podeCriar={podeCriar} podeEditar={podeEditar} podeExcluir={podeExcluir} />
       </div>
       <div hidden={aba !== "acompanhamento"}>
         <AcompanhamentoPratos ativa={aba === "acompanhamento"} catalogo={catalogo} podeExcluir={podeExcluir} versao={versaoAcompanhamento} aoMudar={acompanhamentoMudou} />

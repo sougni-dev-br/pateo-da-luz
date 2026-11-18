@@ -15,10 +15,10 @@ const KINDS = ["BUFFET", "COFFEE_BREAK", "EVENTO"] as const;
 const WINDOWS = [7, 30, 90] as const;
 const MAX_ITEMS = 300;
 const RECENT_PRINTS = 15;
-const MAX_PAST_DAYS = 400;
-const MAX_FUTURE_DAYS = 60;
+export const MAX_PAST_DAYS = 400;
+export const MAX_FUTURE_DAYS = 60;
 
-const isRealDate = (s: string) => {
+export const isRealDate = (s: string) => {
   const time = Date.parse(`${s}T00:00:00Z`);
   return !Number.isNaN(time) && new Date(time).toISOString().slice(0, 10) === s;
 };

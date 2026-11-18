@@ -414,3 +414,60 @@
 /* Prato que sai em outro formato (ex.: molho numa lista de plaquinhas) */
 .plq-entrada-formato { align-self: flex-start; margin-top: 2px; padding: 1px 7px; border-radius: 999px; background: #f4ecd9; color: #6f5523; font-size: 0.72rem; font-weight: 600; }
 .plq-entrada-acoes .plq-formato-ativo { color: #8a650f; background: #f7eccf; }
+
+/* ── Pesagem do buffet ── */
+.pes { display: flex; flex-direction: column; gap: 14px; max-width: 880px; }
+.pes-filtros { grid-template-columns: 1fr 1fr 2fr; }
+.pes-filtros > :first-child { grid-column: auto; }
+.pes-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.pes-chip {
+  border: 1px solid var(--line-strong); border-radius: 999px; background: var(--paper); padding: 8px 14px; min-height: 40px;
+  font: inherit; font-size: 0.85rem; color: inherit; cursor: pointer;
+}
+.pes-chip[aria-pressed="true"] { background: var(--gold); border-color: var(--gold); color: #fff; font-weight: 600; }
+.pes-busca { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.pes-busca button { width: 100%; text-align: left; border: 0; background: var(--paper); padding: 10px 12px; font: inherit; cursor: pointer; }
+.pes-busca li + li button { border-top: 1px solid var(--line); }
+.pes-escolhido { margin: 0; font-size: 0.9rem; }
+.pes .plq-bloco-titulo { gap: 16px; }
+.pes-total { margin: 0; font-size: 0.95rem; }
+.pes-tabela-rolagem { overflow-x: auto; }
+.pes-tabela { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+.pes-tabela th, .pes-tabela td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: right; }
+.pes-tabela th:first-child, .pes-tabela td:first-child { text-align: left; }
+.pes-tabela th:not(:first-child), .pes-tabela td:not(:first-child) { white-space: nowrap; }
+.pes-alerta td { background: rgba(176, 58, 46, 0.08); }
+.pes-alerta small { color: #b03a2e; }
+.pes-lancamentos summary { cursor: pointer; font-size: 0.85rem; color: var(--muted); }
+.pes-lancamentos ul { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.pes-lancamentos li { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px 12px; font-size: 0.85rem; }
+.pes-nova-panela { grid-template-columns: 1fr 1fr; align-items: end; }
+.pes-nova-panela > :first-child { grid-column: auto; }
+.pes-panelas { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.pes-panelas li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.pes-panela-nome { flex: 1; color: var(--muted); font-size: 0.85rem; min-width: 80px; }
+.pes-inativa { opacity: 0.55; }
+.pes-peso-campo { width: 90px; height: 36px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 8px; font: inherit; }
+@media (max-width: 640px) {
+  .pes-filtros, .pes-nova-panela { grid-template-columns: 1fr; }
+  .pes-peso-campo { font-size: 16px; }
+}
+
+/* Folha impressa (A4 deitado): fica fora da tela e só aparece ao imprimir. */
+.pes-area-impressao { position: fixed; top: 0; left: -20000px; visibility: hidden; pointer-events: none; }
+.pes-folha { font-family: Arial, sans-serif; color: #000; }
+.pes-folha-topo h1 { margin: 0; font-size: 16pt; }
+.pes-folha-topo p { margin: 2mm 0 4mm; font-size: 10pt; }
+.pes-folha table { width: 100%; border-collapse: collapse; }
+.pes-folha-panelas { margin-bottom: 4mm; font-size: 8pt; }
+.pes-folha-panelas caption { text-align: left; font-size: 8pt; margin-bottom: 1mm; }
+.pes-folha-panelas th, .pes-folha-panelas td { border: 0.3mm solid #000; padding: 1mm 2mm; text-align: center; }
+.pes-folha-tabela { font-size: 10pt; }
+.pes-folha-tabela th, .pes-folha-tabela td { border: 0.3mm solid #000; padding: 0 2mm; height: 8.5mm; text-align: center; }
+.pes-folha-tabela .pes-col-prato { text-align: left; width: 34%; }
+@media print {
+  body.imprimindo-pesagem > *:not(.pes-area-impressao) { display: none !important; }
+  body.imprimindo-pesagem { margin: 0 !important; background: #fff !important; }
+  body.imprimindo-pesagem .pes-area-impressao { position: static; left: auto; visibility: visible; }
+  body.imprimindo-pesagem .pes-folha-tabela tr { break-inside: avoid; }
+}
