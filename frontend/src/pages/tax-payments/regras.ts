@@ -108,6 +108,16 @@ function posicaoDoGrupo(grupo: string): number {
 // conta como lacuna (IPTU e taxas anuais não têm guia todo mês).
 const MESES_PARA_SER_MENSAL = 3;
 
+const semAcento = (t: string) => t.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+
+// Sem guia todo mês por natureza: o parcelamento acaba, o IPTU e as taxas são anuais ou parceladas. Para eles a falta de um
+// mês não é lacuna (senão "falta lançar" ficaria aceso para sempre depois da última parcela).
+const SEM_REGRA_MENSAL = new Set(["parcelamentos tributarios", "iptu", "taxas municipais"]);
+
+// O DARF da Receita junta INSS e IRRF num documento só e a categoria é uma por guia: no mês sem IRRF a guia fica em INSS,
+// e no mês em que só a linha do IRRF mudou a guia inteira cai em IRRF / DARF. Um lado cobre o outro.
+const PAR_DO_DARF: Record<string, string> = { "inss": "irrf / darf", "irrf / darf": "inss" };
+
 export function montarGrade(cobertura: LinhaCobertura[], meses: string[], hoje: string): LinhaGrade[] {
   const ultimoEsperado = mesAnterior(mesDaData(hoje));
   const grupos = [...new Set(cobertura.map((c) => c.grupo))].sort(
@@ -118,13 +128,15 @@ export function montarGrade(cobertura: LinhaCobertura[], meses: string[], hoje: 
     const doGrupo = cobertura.filter((c) => c.grupo === grupo);
     const porMes = new Map(doGrupo.map((c) => [c.mes, c]));
     // "Sem categoria" junta guias de naturezas diferentes: não vale como imposto mensal.
-    const mensal = grupo !== "Sem categoria" && porMes.size >= MESES_PARA_SER_MENSAL;
+    const mensal = grupo !== "Sem categoria" && !SEM_REGRA_MENSAL.has(semAcento(grupo)) && porMes.size >= MESES_PARA_SER_MENSAL;
+    const par = PAR_DO_DARF[semAcento(grupo)];
+    const mesesDoPar = new Set(par ? cobertura.filter((c) => semAcento(c.grupo) === par && c.qtd > 0).map((c) => c.mes) : []);
     const primeiro = [...porMes.keys()].sort()[0];
 
     const celulas = meses.map<CelulaGrade>((mes) => {
       const c = porMes.get(mes);
       if (!c || c.qtd === 0) {
-        const lacuna = mensal && mes >= primeiro && mes <= ultimoEsperado;
+        const lacuna = mensal && mes >= primeiro && mes <= ultimoEsperado && !mesesDoPar.has(mes);
         return { mes, estado: "vazio", qtd: 0, valor: 0, lacuna };
       }
       const estado: EstadoCelula = c.vencidas > 0 ? "vencido" : c.pagas < c.qtd ? "aberto" : "pago";

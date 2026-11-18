@@ -27,6 +27,9 @@ type Props = {
 
 type Campo = "code" | "description" | "principal" | "fine" | "interest";
 
+// maskMoney devolve "0,00" quando só sobram zeros: sem tratar, Backspace nunca esvaziaria o campo.
+const mascarar = (bruto: string) => { const m = maskMoney(bruto); return m === "0,00" ? "" : m; };
+
 const ROTULO: Record<"principal" | "fine" | "interest", string> = { principal: "Principal", fine: "Multa", interest: "Juros" };
 
 // A composição da guia como no documento oficial: uma linha por código. A pessoa digita o código e a denominação vem
@@ -127,7 +130,7 @@ export function LinhasDaGuia({
                   ref={campo === "principal" ? (el) => { if (el) principais.current.set(l.chave, el); else principais.current.delete(l.chave); } : undefined}
                   className="ds-text-field-input ip-in-valor" inputMode="decimal" placeholder="0,00" aria-label={`${ROTULO[campo]} da linha ${n}`}
                   value={l[campo]} disabled={somenteLeitura}
-                  onChange={(e) => mudar(l.chave, campo, maskMoney(e.target.value))}
+                  onChange={(e) => mudar(l.chave, campo, mascarar(e.target.value))}
                   onPaste={(e) => colar(e, l.chave, campo)}
                   onKeyDown={(e) => teclar(e, i, false)}
                 />
@@ -171,7 +174,7 @@ export function LinhasDaGuia({
                 <span className="ip-rotulo">Total no papel (conferir)</span>
                 <input
                   className="ds-text-field-input ip-in-valor" inputMode="decimal" placeholder="0,00" aria-label="Total impresso no documento, para conferir"
-                  value={totalDoPapel} onChange={(e) => onTotalDoPapel(maskMoney(e.target.value))}
+                  value={totalDoPapel} onChange={(e) => onTotalDoPapel(mascarar(e.target.value))}
                   onPaste={(e) => { const t = e.clipboardData.getData("text"); if (t) { e.preventDefault(); onTotalDoPapel(valorColado(t)); } }}
                   onKeyDown={(e) => { if (e.key === "Enter" && !e.ctrlKey && !e.metaKey) e.preventDefault(); }}
                 />

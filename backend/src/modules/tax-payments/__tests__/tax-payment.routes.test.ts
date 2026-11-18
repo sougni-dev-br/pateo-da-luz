@@ -520,6 +520,33 @@ describe("discriminação da guia (linhas) e total somado", () => {
       expect(data.workersCount).toBeNull();
     });
 
+    test("trocar o tipo sem enviar categoria: o servidor sugere pelo novo tipo, não mantém a antiga", async () => {
+      db.taxPayment.findFirst.mockResolvedValue({ ...existente, documentType: "FGTS", dreCategoryId: "cat-fgts" });
+      const r = await request(app).put("/tax-payments/g1").send({ documentType: "Simples Nacional / DAS" });
+      expect(r.status).toBe(200);
+      expect(db.taxPayment.update.mock.calls[0][0].data.dreCategoryId).toBe("cat-simples");
+    });
+
+    test("trocar para um tipo sem regra deixa sem categoria (a antiga não vale mais)", async () => {
+      db.taxPayment.findFirst.mockResolvedValue({ ...existente, documentType: "FGTS", dreCategoryId: "cat-fgts" });
+      await request(app).put("/tax-payments/g1").send({ documentType: "ISS" });
+      expect(db.taxPayment.update.mock.calls[0][0].data.dreCategoryId).toBeNull();
+    });
+
+    test("sem trocar o tipo, a categoria da guia é mantida; com categoria enviada, vale a enviada", async () => {
+      db.taxPayment.findFirst.mockResolvedValue({ ...existente, documentType: "FGTS", dreCategoryId: "cat-fgts" });
+      await request(app).put("/tax-payments/g1").send({ comments: "x" });
+      expect(db.taxPayment.update.mock.calls[0][0].data.dreCategoryId).toBe("cat-fgts");
+      await request(app).put("/tax-payments/g1").send({ documentType: "ISS", dreCategoryId: "cat-irrf" });
+      expect(db.taxPayment.update.mock.calls[1][0].data.dreCategoryId).toBe("cat-irrf");
+    });
+
+    test("guia sem categoria, editada sem enviar categoria, recebe a sugerida", async () => {
+      db.taxPayment.findFirst.mockResolvedValue({ ...existente, documentType: "FGTS", dreCategoryId: null });
+      await request(app).put("/tax-payments/g1").send({ comments: "x" });
+      expect(db.taxPayment.update.mock.calls[0][0].data.dreCategoryId).toBe("cat-fgts");
+    });
+
     test("restaurar com o índice único violado na corrida devolve 409, não 500", async () => {
       db.taxPayment.findFirst.mockResolvedValue({ ...existente, deletedAt: new Date("2099-12-01T00:00:00Z") });
       db.taxPayment.update.mockRejectedValueOnce(Object.assign(new Error("unique"), { code: "P2002" }));
@@ -658,6 +685,37 @@ describe("lista e totais da tela de impostos", () => {
     expect(filtroCancel).not.toContain(`<> 'CANCELED'`);
   });
 
+  test("clique numa célula da grade (excludeCanceled): a lista não traz guia cancelada", async () => {
+    await request(app).get("/tax-payments").query({ dreCategoryId: "cat-inss", competenceStart: "2026-08-01", excludeCanceled: "true" });
+    const lista = consultas().find((q: string) => q.includes("ORDER BY")) as string;
+    expect(lista).toContain(`tp."status" <> 'CANCELED'`);
+    db.$queryRawUnsafe.mockClear();
+    await request(app).get("/tax-payments").query({ excludeCanceled: "true", status: "CANCELED" });
+    const canceladas = consultas().find((q: string) => q.includes("ORDER BY")) as string;
+    expect(canceladas.slice(canceladas.indexOf("WHERE"), canceladas.indexOf("ORDER BY"))).not.toContain(`<> 'CANCELED'`);
+  });
+
+  test.each([
+    [{ status: "XYZ" }, /Situação inválida/],
+    [{ competenceStart: "abc" }, /Data inválida em competenceStart/],
+    [{ dueEnd: "2026-13-45" }, /Data inválida em dueEnd/],
+    [{ paymentStart: "20/10/2026" }, /Data inválida em paymentStart/],
+  ])("filtro inválido %j devolve 400, não 500", async (query, mensagem) => {
+    const r = await request(app).get("/tax-payments").query(query);
+    expect(r.status).toBe(400);
+    expect(r.body.message).toMatch(mensagem);
+    expect(db.$queryRawUnsafe).not.toHaveBeenCalled();
+  });
+
+  test("filtro repetido na URL e página gigante não derrubam a lista; % e _ da busca são texto", async () => {
+    const r = await request(app).get("/tax-payments?companyId=a&companyId=b&page=999999999&search=50%25_x");
+    expect(r.status).toBe(200);
+    const chamada = db.$queryRawUnsafe.mock.calls.find((c: unknown[]) => String(c[0]).includes("ORDER BY")) as unknown[];
+    expect(String(chamada[0])).not.toContain('"companyId" =');
+    expect(chamada.slice(1)).toContain("%50\\%\\_x%");
+    expect(String(chamada[0])).toContain("OFFSET 4999950"); // página limitada a 100.000, nunca 1e+21
+  });
+
   test("a lista vem por urgência: o que falta pagar primeiro, pagas e canceladas depois", async () => {
     await request(app).get("/tax-payments");
     const lista = consultas().find((q: string) => q.includes("ORDER BY")) as string;
@@ -694,6 +752,13 @@ describe("pagar e excluir", () => {
     id: "g1", amount: 1500, status: "PENDING", paymentDate: null,
     competenceDate: new Date("2026-09-01T00:00:00Z"), dueDate: new Date("2099-12-20T00:00:00Z"),
   };
+
+  test.each([true, "1e3", "0x1F", [7], 1e12])("baixa com valor pago fora do formato (%s) é recusada", async (paidAmount) => {
+    db.taxPayment.findFirst.mockResolvedValue(base);
+    const r = await request(app).patch("/tax-payments/g1/pay").send({ paymentDate: "2026-10-10", paidAmount });
+    expect(r.status).toBe(400);
+    expect(db.taxPayment.update).not.toHaveBeenCalled();
+  });
 
   test("guia cancelada não pode ser paga", async () => {
     db.taxPayment.findFirst.mockResolvedValue({ ...base, status: "CANCELED" });

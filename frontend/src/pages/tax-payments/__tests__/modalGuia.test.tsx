@@ -18,6 +18,12 @@ const CODIGOS_MEI = [
   { code: "0083", description: "ICMS - MEI" },
 ];
 
+const CODIGOS_DARF = [
+  { code: "1082", description: "CONTR PREV DESCONTA SEGURADO-EMPREGADO/AVULSO" },
+  { code: "1099", description: "CP DESCONTADA SEGURADO - CONTRIB INDIVIDUAL" },
+  { code: "0561", description: "IRRF - RENDIMENTO DO TRABALHO ASSALARIADO" },
+];
+
 vi.mock("../../../api/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../../api/client")>()),
   createTaxPayment: vi.fn(async () => ({ id: "novo" })),
@@ -27,12 +33,12 @@ vi.mock("../../../api/client", async (importOriginal) => ({
   getTaxDreCategories: vi.fn(async () => [{ id: "cat-simples", name: "Simples Nacional", dreGroup: "IMPOSTOS" }, { id: "cat-outra", name: "Taxas Municipais", dreGroup: "DESPESAS_GERAIS" }]),
   // Tipos com regra devolvem categoria; IPTU não tem categoria automática.
   getTaxCategorySuggestion: vi.fn(async (tipo: string) => (tipo === "IPTU" ? { dreCategoryId: null, nome: null } : { dreCategoryId: "cat-simples", nome: "Simples Nacional" })),
-  getTaxCodes: vi.fn(async (tipo: string) => (tipo === "Simples Nacional / DAS" ? CODIGOS_DAS : tipo === "DAS MEI" ? CODIGOS_MEI : [])),
+  getTaxCodes: vi.fn(async (tipo: string) => (tipo === "Simples Nacional / DAS" ? CODIGOS_DAS : tipo === "DAS MEI" ? CODIGOS_MEI : tipo === "DARF" ? CODIGOS_DARF : [])),
   getTaxPayments: vi.fn(async () => ({ data: [], pagination: { page: 1, pageSize: 10, total: 0, totalPages: 1 }, summary: {} })),
   getTaxPayment: vi.fn(),
 }));
 
-import { createTaxPayment, getCompanies, getEmployees, getTaxCategorySuggestion, getTaxPayment, getTaxPayments } from "../../../api/client";
+import { createTaxPayment, getCompanies, getEmployees, getTaxCategorySuggestion, getTaxCodes, getTaxPayment, getTaxPayments } from "../../../api/client";
 import { ModalGuia } from "../ModalGuia";
 
 const VALORES_DAS = ["46971", "29890", "108803", "23571", "358689", "206087"];
@@ -207,6 +213,19 @@ describe("ModalGuia: código traz a denominação e a categoria do DRE é autom�
     expect(nome.readOnly).toBe(true);
     fireEvent.change(screen.getByLabelText("Código da linha 7"), { target: { value: "1007" } });
     expect(nome.value).toBe("ICMS - SIMPLES NACIONAL SP");
+  });
+
+  test("DARF com código fora do catálogo (1506): a denominação se abre para digitar", async () => {
+    abrir();
+    fireEvent.click(screen.getByRole("radio", { name: "DARF" }));
+    await waitFor(() => expect(screen.getByLabelText("Código da linha 1")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Adicionar linha" }));
+    const nome = screen.getByLabelText("Denominação da linha 3") as HTMLInputElement;
+    fireEvent.change(screen.getByLabelText("Código da linha 3"), { target: { value: "1506" } });
+    expect(nome.readOnly).toBe(false);
+    expect(nome.placeholder).toMatch(/Código novo/);
+    fireEvent.change(nome, { target: { value: "CP SEGURADOS" } });
+    expect(nome.value).toBe("CP SEGURADOS");
   });
 
   test("categoria automática: vem sozinha e o campo fica travado", async () => {
@@ -404,5 +423,82 @@ describe("ModalGuia: editar guia", () => {
     const select = await screen.findByLabelText(/Categoria no DRE/) as HTMLSelectElement;
     await waitFor(() => expect(select.disabled).toBe(true));
     expect(select.value).toBe("cat-simples");
+  });
+});
+
+
+describe("ModalGuia: robustez do lançamento", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(getCompanies).mockResolvedValue([]);
+  });
+
+  const ultimoFechar = () => { const todos = screen.getAllByRole("button", { name: "Fechar" }); return todos[todos.length - 1]; };
+
+  test("fechar sem ter digitado nada fecha direto", () => {
+    const onFechar = vi.fn();
+    abrir({ onFechar });
+    fireEvent.click(ultimoFechar());
+    expect(onFechar).toHaveBeenCalledTimes(1);
+  });
+
+  test("fechar com valor digitado pergunta antes de descartar; só a confirmação fecha", async () => {
+    const onFechar = vi.fn();
+    abrir({ onFechar });
+    fireEvent.click(screen.getByRole("radio", { name: "DARF" }));
+    fireEvent.change(await screen.findByLabelText("Principal da linha 1"), { target: { value: "442851" } });
+    fireEvent.click(ultimoFechar());
+    expect(onFechar).not.toHaveBeenCalled();
+    expect(await screen.findByText("Descartar o que foi digitado?")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Descartar e fechar" }));
+    expect(onFechar).toHaveBeenCalledTimes(1);
+  });
+
+  test("escolher só o tipo (sem digitar nada) não conta como trabalho a perder", async () => {
+    const onFechar = vi.fn();
+    abrir({ onFechar });
+    fireEvent.click(screen.getByRole("radio", { name: "Simples Nacional / DAS" }));
+    await waitFor(() => expect(screen.getByLabelText("Código da linha 1")).toBeTruthy());
+    fireEvent.click(ultimoFechar());
+    expect(onFechar).toHaveBeenCalledTimes(1);
+  });
+
+  test("trocar o tipo sem valores digitados traz as linhas do novo tipo, não as do anterior", async () => {
+    abrir();
+    fireEvent.click(screen.getByRole("radio", { name: "Simples Nacional / DAS" }));
+    await waitFor(() => expect(screen.getAllByLabelText(/^Principal da linha/)).toHaveLength(6));
+    // mexer nas linhas (linha nova) sem digitar valor
+    fireEvent.click(screen.getByRole("button", { name: "Adicionar linha" }));
+    fireEvent.click(screen.getByRole("radio", { name: "DARF" }));
+    await waitFor(() => expect(screen.getAllByLabelText(/^Principal da linha/)).toHaveLength(2));
+    expect((screen.getByLabelText("Código da linha 1") as HTMLInputElement).value).toBe("1082");
+  });
+
+  test("código digitado antes de o catálogo chegar recebe a denominação quando ele chega", async () => {
+    let entregar: (c: { code: string; description: string }[]) => void = () => undefined;
+    vi.mocked(getTaxCodes).mockImplementationOnce(() => new Promise((resolve) => { entregar = resolve; }));
+    abrir();
+    fireEvent.click(screen.getByRole("radio", { name: "DARF" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Adicionar linha" }));
+    fireEvent.change(screen.getByLabelText("Código da linha 3"), { target: { value: "9001" } });
+    expect((screen.getByLabelText("Denominação da linha 3") as HTMLInputElement).value).toBe("");
+    entregar([{ code: "9001", description: "CODIGO DE TESTE" }]);
+    await waitFor(() => expect((screen.getByLabelText("Denominação da linha 3") as HTMLInputElement).value).toBe("CODIGO DE TESTE"));
+  });
+
+  test("falha na consulta da categoria: avisa e deixa escolher (vira pendência), em vez de seguir sem categoria", async () => {
+    vi.mocked(getTaxCategorySuggestion).mockRejectedValueOnce(new Error("rede"));
+    abrir();
+    fireEvent.click(screen.getByRole("radio", { name: "Simples Nacional / DAS" }));
+    expect(await screen.findByText(/Não consegui sugerir a categoria do DRE/)).toBeTruthy();
+    expect((screen.getByLabelText(/Categoria no DRE/) as HTMLSelectElement).disabled).toBe(false);
+    expect(screen.getByRole("button", { name: /Escolha a categoria do DRE/ })).toBeTruthy();
+  });
+
+  test("Ctrl+Enter com pendências leva ao campo que falta e não grava", async () => {
+    abrir();
+    fireEvent.keyDown(screen.getByLabelText(/Número do documento|Identificador/, { selector: "input" }) ?? document.body, { key: "Enter", ctrlKey: true });
+    expect(createTaxPayment).not.toHaveBeenCalled();
+    expect(document.activeElement?.getAttribute("role")).toBe("radio");
   });
 });

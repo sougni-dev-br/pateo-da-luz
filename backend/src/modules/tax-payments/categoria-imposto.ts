@@ -20,7 +20,8 @@ const RECEITA = /DARF|RECEITA FEDERAL|\bIRRF\b/;
 // No DARF da Receita (DCTFWeb) vêm juntos INSS e IRRF. Havendo imposto de renda,
 // fica em IRRF / DARF; só contribuição previdenciária, vai para INSS.
 const RENDA = /\bIRRF\b|\bIRPJ\b|IMPOSTO SOBRE RENDA|\bIR\b/;
-const CONTRIBUICAO = /CONTR PREV|\bCP SEGURADO|\bINSS\b|PREVID/;
+// "CP DESCONTADA SEGURADO - CONTRIB INDIVIDUAL" é o código 1099 do mesmo DARF previdenciário.
+const CONTRIBUICAO = /CONTR PREV|\bCP (DESCONTADA )?SEGURADO|CONTRIB INDIVIDUAL|\bINSS\b|PREVID/;
 
 export function sugerirCategoriaImposto(
   documentType: string | null | undefined,

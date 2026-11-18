@@ -95,6 +95,28 @@ describe("grade de cobertura", () => {
     expect(g[0].celulas.find((c) => c.mes === "2026-10")?.lacuna).toBe(false);
   });
 
+  test("DARF: mês sem IRRF não é lacuna quando a guia está lançada em INSS (e vice-versa)", () => {
+    const g = montarGrade([
+      ...["2026-05", "2026-06", "2026-07", "2026-08", "2026-09"].map((m) => linha(m, "INSS", { qtd: 2 })),
+      linha("2026-05", "IRRF / DARF"), linha("2026-06", "IRRF / DARF"), linha("2026-07", "IRRF / DARF"),
+    ], meses, hoje);
+    const irrf = g.find((x) => x.grupo === "IRRF / DARF")!;
+    expect(irrf.celulas.filter((c) => c.lacuna).map((c) => c.mes)).toEqual([]);
+    // mês sem nenhuma das duas: continua lacuna nas duas linhas
+    const sem = montarGrade([
+      ...["2026-05", "2026-06", "2026-07"].map((m) => linha(m, "INSS")),
+      ...["2026-05", "2026-06", "2026-07"].map((m) => linha(m, "IRRF / DARF")),
+    ], meses, hoje);
+    expect(sem.find((x) => x.grupo === "INSS")!.celulas.filter((c) => c.lacuna).map((c) => c.mes)).toEqual(["2026-08", "2026-09"]);
+    expect(sem.find((x) => x.grupo === "IRRF / DARF")!.celulas.filter((c) => c.lacuna).map((c) => c.mes)).toEqual(["2026-08", "2026-09"]);
+  });
+
+  test.each(["Parcelamentos Tributarios", "Parcelamentos Tributários", "IPTU", "Taxas Municipais"])("%s termina ou é anual: não gera 'falta lançar'", (grupo) => {
+    const g = montarGrade(["2026-05", "2026-06", "2026-07"].map((m) => linha(m, grupo)), meses, hoje);
+    expect(g[0].mensal).toBe(false);
+    expect(g[0].celulas.some((c) => c.lacuna)).toBe(false);
+  });
+
   test("imposto que não é mensal (poucos meses) não gera lacuna", () => {
     const g = montarGrade([linha("2026-05", "IPTU"), linha("2026-08", "IPTU")], meses, hoje);
     expect(g[0].mensal).toBe(false);

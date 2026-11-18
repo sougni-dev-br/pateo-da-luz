@@ -5932,6 +5932,8 @@ export type TaxPaymentFilters = {
   dreCategoryId?: string;
   /** "true": só as guias sem competência (ficam fora do DRE). */
   withoutCompetence?: string;
+  /** "true": não traz guia cancelada (a grade de cobertura também não conta). */
+  excludeCanceled?: string;
   page?: number;
   pageSize?: number;
 };

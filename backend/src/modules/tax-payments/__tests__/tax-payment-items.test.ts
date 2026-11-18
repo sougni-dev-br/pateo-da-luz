@@ -107,6 +107,9 @@ describe("lerNumeroDoDocumento", () => {
   test("texto limpo, vazio vira null", () => {
     expect(lerNumeroDoDocumento(" 07.20.26290.7165263-2 ")).toEqual({ ok: true, valor: "07.20.26290.7165263-2" });
     expect(lerNumeroDoDocumento("  ")).toEqual({ ok: true, valor: null });
+    // só pontuação não é número: para o índice único seria vazio
+    expect(lerNumeroDoDocumento("-")).toEqual({ ok: true, valor: null });
+    expect(lerNumeroDoDocumento(" . - ")).toEqual({ ok: true, valor: null });
     expect(lerNumeroDoDocumento(undefined)).toEqual({ ok: true, valor: null });
   });
 

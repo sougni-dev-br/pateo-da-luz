@@ -10,7 +10,7 @@ import { Button, FormField, FormGrid, FormSection, Money, Select, Switch, TextFi
 import { formatarDiaDaGuia, resumoDaGuia } from "../../lib/guia-imposto";
 import { Janela } from "../payables/Janela";
 import {
-  FORM_VAZIO, TIPOS_DE_GUIA, TIPOS_EM_DESTAQUE, chaveDoNumero, descricaoDasLinhas, diferencaComOPapel, formDaGuia, formDuplicado,
+  FORM_VAZIO, TIPOS_DE_GUIA, TIPOS_EM_DESTAQUE, chaveDoNumero, descricaoDasLinhas, descricaoDoCodigo, diferencaComOPapel, fotoDoFormulario, formDaGuia, formDuplicado,
   linhasComValor, linhasDoModelo, mesSugerido, payloadDaGuia, pendenciasDaGuia, temVerbaDeRescisao, totalDaGuia, type FormGuia, type LinhaForm,
 } from "./formularioGuia";
 import { LinhasDaGuia } from "./LinhasDaGuia";
@@ -87,6 +87,10 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
   const [repetida, setRepetida] = useState<TaxPayment | null>(null);
   const [confirmarModelo, setConfirmarModelo] = useState(false);
   const [tipoPendente, setTipoPendente] = useState<string | null>(null);
+  const [confirmarDescarte, setConfirmarDescarte] = useState(false);
+  // Foto do formulário como foi aberto (ou carregado): Esc, X ou Fechar com algo digitado pedem confirmação.
+  const formOriginal = useRef<string | null>(null);
+  if (formOriginal.current === null) formOriginal.current = fotoDoFormulario(form, emEdicao);
   const erroRef = useRef<HTMLParagraphElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
 
@@ -120,6 +124,7 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
         setDetalhe(d);
         const f = emEdicao ? formDaGuia(d) : formDuplicado(d);
         setForm(f);
+        formOriginal.current = fotoDoFormulario(f, emEdicao);
         // Guia que já tem multa ou juros mostra as colunas; as demais começam recolhidas.
         setMostrarMultaJuros(f.linhas.some((l) => l.fine.trim() !== "" || l.interest.trim() !== ""));
         // Duplicar começa sem categoria "escolhida": ela é recalculada pelo tipo e pelas linhas da cópia.
@@ -135,7 +140,17 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
   useEffect(() => {
     if (!form.documentType) { setCatalogo([]); return; }
     let descartada = false;
-    getTaxCodes(form.documentType).then((c) => { if (!descartada) setCatalogo(c); }).catch(() => { if (!descartada) setCatalogo([]); });
+    setCatalogo([]); // os códigos de outro tipo não valem para este
+    getTaxCodes(form.documentType)
+      .then((c) => {
+        if (descartada) return;
+        setCatalogo(c);
+        // Código digitado antes de o catálogo chegar: a denominação vem agora (senão a linha ficaria travada e vazia).
+        setForm((f) => (f.linhas.some((l) => l.code.trim() && !l.description.trim() && descricaoDoCodigo(c, l.code))
+          ? { ...f, linhas: f.linhas.map((l) => (l.code.trim() && !l.description.trim() ? { ...l, description: descricaoDoCodigo(c, l.code) ?? "" } : l)) }
+          : f));
+      })
+      .catch(() => { if (!descartada) setCatalogo([]); });
     return () => { descartada = true; };
   }, [form.documentType]);
 
@@ -160,7 +175,12 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
           setCategoriaAuto(s.dreCategoryId != null);
           setForm((f) => ({ ...f, dreCategoryId: s.dreCategoryId ?? "" }));
         })
-        .catch(() => undefined);
+        .catch(() => {
+          if (descartada) return;
+          // Sem a sugestão a pessoa escolhe a categoria (vira pendência), em vez de lançar sem categoria sem perceber.
+          setCategoriaAuto(false);
+          setErroApi("Não consegui sugerir a categoria do DRE. Escolha a categoria na lista.");
+        });
     }, 300);
     return () => { descartada = true; clearTimeout(t); };
   }, [emEdicao, tipoAlterado, form.documentType, descricaoDasLinhasAtual, categoriaEscolhida]);
@@ -211,7 +231,8 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
     if (tipo === form.documentType) return;
     // Trocar o tipo depois de digitar valores apagaria o que foi digitado: confirma antes.
     if (linhasMexidas && !emEdicao && linhasComValor(form.linhas).length > 0) { setTipoPendente(tipo); return; }
-    aplicarTipo(tipo, !linhasMexidas);
+    // Sem valor digitado, as linhas do tipo anterior não servem: voltam ao modelo do novo tipo.
+    aplicarTipo(tipo, emEdicao ? !linhasMexidas : linhasComValor(form.linhas).length === 0);
   }
 
   function mudarLinhas(linhas: LinhaForm[]) {
@@ -232,7 +253,10 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
   function teclarNoFormulario(e: KeyboardEvent<HTMLFormElement>) {
     if (e.key !== "Enter" || (e.target as HTMLElement).tagName !== "INPUT") return;
     e.preventDefault();
-    if (e.ctrlKey || e.metaKey) void salvar();
+    if (!(e.ctrlKey || e.metaKey)) return;
+    // Com pendência, o atalho leva ao campo que falta, em vez de não fazer nada.
+    if (pendencias.length > 0) irParaPendencia(pendencias[0].campo);
+    else void salvar();
   }
 
   // Clicar numa pendência leva ao campo que a resolve.
@@ -249,6 +273,7 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
   }
 
   async function salvar() {
+    if (salvando) return; // Ctrl+Enter repetido não pode lançar a guia duas vezes
     setErroApi(null);
     if (pendencias.length > 0) return;
     setSalvando(true);
@@ -270,6 +295,12 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
       setSalvando(false);
       requestAnimationFrame(() => erroRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }));
     }
+  }
+
+  // Esc, X ou Fechar com algo digitado: pergunta antes de descartar.
+  function tentarFechar() {
+    if (podeEditar && !salvando && fotoDoFormulario(form, emEdicao) !== formOriginal.current) setConfirmarDescarte(true);
+    else onFechar();
   }
 
   const categoria = categorias.find((c) => c.id === form.dreCategoryId);
@@ -294,7 +325,7 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
   }
 
   return (
-    <Janela eyebrow="Impostos e guias" titulo={titulo} onFechar={onFechar} ocupado={salvando} largura="larga">
+    <Janela eyebrow="Impostos e guias" titulo={titulo} onFechar={tentarFechar} ocupado={salvando} largura="larga">
       <form ref={formRef} onSubmit={(e) => { e.preventDefault(); void salvar(); }} onKeyDown={teclarNoFormulario} noValidate className="ip-form">
         <FormSection eyebrow="Passo 1" title="A guia" description="Os dados do cabeçalho do documento de arrecadação.">
           <div className="ip-tipos" role="radiogroup" aria-label="Tipo da guia" data-pend="tipo">
@@ -486,7 +517,7 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
               {pendencias.length === 1 ? "1 pendência" : `${pendencias.length} pendências`}: resolva para {emEdicao ? "salvar" : "lançar"}
             </button>
           )}
-          <Button variant="secondary" onClick={onFechar} disabled={salvando}>Fechar</Button>
+          <Button variant="secondary" onClick={tentarFechar} disabled={salvando}>Fechar</Button>
           {podeEditar && (
             <Button type="submit" disabled={salvando || pendencias.length > 0} title={pendencias.length > 0 ? "Resolva as pendências para concluir" : undefined}>
               {salvando ? "Salvando…" : emEdicao ? "Salvar alterações" : "Lançar guia"}
@@ -503,6 +534,15 @@ export function ModalGuia({ editId, duplicarDe = null, inicial, podeEditar, pode
         confirmLabel="Refazer linhas"
         onConfirm={() => { setConfirmarModelo(false); setLinhasMexidas(false); setForm((f) => ({ ...f, linhas: linhasDoModelo(f.documentType), totalDoPapel: "" })); }}
         onCancel={() => setConfirmarModelo(false)}
+      />
+      <ConfirmDialog
+        open={confirmarDescarte}
+        tone="warning"
+        title="Descartar o que foi digitado?"
+        description="A guia ainda não foi salva: fechar agora perde o que você preencheu."
+        confirmLabel="Descartar e fechar"
+        onConfirm={() => { setConfirmarDescarte(false); onFechar(); }}
+        onCancel={() => setConfirmarDescarte(false)}
       />
       <ConfirmDialog
         open={tipoPendente != null}
