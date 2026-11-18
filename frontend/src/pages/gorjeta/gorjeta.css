@@ -892,3 +892,6 @@
   .pagamento-meio { padding: 10px; }
   .pagamento-meio-acoes .folha-pdf-acao { margin-left: 0; }
 }
+
+.nome-pessoa-cadastro { font-size: 11px; color: var(--muted); text-decoration: underline; text-underline-offset: 2px; }
+.nome-pessoa-cadastro:hover, .nome-pessoa-cadastro:focus-visible { color: var(--ink); }

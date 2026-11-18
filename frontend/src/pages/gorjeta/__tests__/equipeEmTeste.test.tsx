@@ -46,4 +46,16 @@ describe("Equipe da gorjeta: quem está em teste", () => {
     const antiga = screen.getByText("Antiga Ficticia").closest("tr")!;
     expect(antiga.textContent).not.toContain("em teste");
   });
+
+  test("cada linha leva ao cadastro do funcionário e mostra desde quando está na gorjeta", async () => {
+    vi.mocked(getTipTeam).mockResolvedValue([
+      membro({ id: "emp-9", firstName: "Antiga", inicioGorjeta: "2025-03-01T00:00:00.000Z" }),
+    ]);
+    render(<AbaEquipe canEdit onNotice={vi.fn()} onChanged={vi.fn()} />);
+    const antiga = (await screen.findByText("Antiga Ficticia")).closest("tr")!;
+    const link = antiga.querySelector("a")!;
+    expect(link.getAttribute("href")).toBe("/rh/funcionarios?funcionario=emp-9");
+    expect(antiga.textContent).toContain("na gorjeta desde 01/03/2025");
+    expect(screen.getByText(/Quem manda em quê/)).toBeTruthy();
+  });
 });

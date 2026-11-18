@@ -12,6 +12,7 @@ import { DialogoGorjetaReal } from "./GorjetaReal";
 import { BarraFiltro, opcoesDe, useFiltro } from "./filtro";
 import { NomePessoa, textoPessoa } from "./NomePessoa";
 import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
+import { explicarPontos } from "./explicacaoPontos";
 import {
   type LocalRow, type RowPatch, fmtDate, money, mutedStyle, numInputStyle, ordenar, panelStyle, pts,
 } from "./gorjetaUtils";
@@ -266,11 +267,17 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
   ] : [{ chave: "todos", titulo: "Todos", nota: null as string | null, lista: ordenados }];
   const totalVales = filtrados.reduce((a, p) => a + p.creditos - p.descontos, 0);
 
+  const diasDoCiclo = (() => {
+    const dias = Math.round((Date.parse(comp.periodEnd) - Date.parse(comp.periodStart)) / 86_400_000) + 1;
+    return Number.isFinite(dias) && dias > 0 ? dias : null;
+  })();
+
   function linha(p: TipComputedParticipant) {
     const r = rowPorFuncionario.get(p.employeeId);
     if (!r) return null;
     const fora = p.tipoCalculo === "FORA_DO_PERIODO";
     const set = (patch: Partial<LocalRow>) => onRow(p.employeeId, patch);
+    const explicacao = explicarPontos(p, diasDoCiclo);
     const saldoVales = p.creditos - p.descontos;
     return (
       <Table.Row key={p.employeeId} style={fora ? { opacity: 0.55 } : undefined}>
@@ -332,10 +339,10 @@ export function AbaApuracao({ comp, rows, readonly, onRow, onRemove, onVerVales,
 )}
 {v("pontos") && (
         <Table.Td align="center" style={{ ...num, fontWeight: 700 }}
-          title={p.kind === "PONTOS" ? `${pts(p.basePoints)} × ${p.diasComputados}/${p.diasPrevistos} = ${pts(p.pontosApurados)}${p.pointsAdjustment ? ` ${p.pointsAdjustment > 0 ? "+" : "−"} ${pts(Math.abs(p.pointsAdjustment))}` : ""}` : undefined}>
+          title={p.kind === "PONTOS" ? (explicacao?.longa ?? `${pts(p.basePoints)} pts, mês cheio${p.pointsAdjustment ? ` ${p.pointsAdjustment > 0 ? "+" : "−"} ${pts(Math.abs(p.pointsAdjustment))} de ajuste` : ""}`) : undefined}>
           {p.kind === "PONTOS" ? pts(p.points) : "—"}
           {p.kind === "PONTOS" && p.pontosApurados !== p.basePoints && (
-            <div style={{ ...mutedStyle, fontSize: 11, fontWeight: 400 }}>de {pts(p.basePoints)}</div>
+            <div style={{ ...mutedStyle, fontSize: 11, fontWeight: 400 }}>de {pts(p.basePoints)}{explicacao ? ` · ${explicacao.curta}` : ""}</div>
           )}
         </Table.Td>
 )}

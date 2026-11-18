@@ -1,4 +1,6 @@
 import { History, X } from "lucide-react";
+import { Link } from "react-router-dom";
+import { ROTAS_RH } from "../rh/rotasRh";
 import { EditorExtra, ExtraCelula } from "./PontoExtra";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -193,6 +195,8 @@ export function AbaEquipe({ canEdit, onNotice, onChanged, inicioDoCiclo }: Props
         <span style={mutedStyle}>
           Total = pontos da função + ponto extra. O extra é da pessoa (sobe ou desce) e sempre tem justificativa; a função não muda.
           Os pontos de cada função se editam na aba “Funções e pontos”. Sem registro recebe salário + gorjeta na lista de pagamento.
+          {" "}<strong>Quem manda em quê:</strong> admissão, vínculo (CLT ou sem registro), desligamento e “Entra na gorjeta em” são do
+          cadastro de funcionários (use “cadastro” na linha da pessoa); participa, função, ponto extra e empresa se definem aqui.
         </span>
         <BarraFiltro filtro={filtro} listas={listasFiltro} total={visiveis.length} visiveis={filtrados.length} />
         {filtrados.length === 0 && visiveis.length > 0 && <span style={mutedStyle}>Ninguém bate com o filtro.</span>}
@@ -225,6 +229,16 @@ export function AbaEquipe({ canEdit, onNotice, onChanged, inicioDoCiclo }: Props
                     <NomePessoa nome={nome(m)} apelido={apelidoDe(m)} employeeId={m.id}>
                       {m.modality === "NAO_CLT" && <StatusBadge tone="warning">Sem registro</StatusBadge>}
                       {!m.isActive && <StatusBadge tone="neutral">Desligado</StatusBadge>}
+                      <Link to={`${ROTAS_RH.funcionarios}?funcionario=${m.id}`} className="nome-pessoa-cadastro"
+                        title="Abrir o cadastro: admissão, vínculo, desligamento e “Entra na gorjeta em” são editados lá"
+                        aria-label={`Abrir o cadastro de ${nome(m)}`}>
+                        cadastro
+                      </Link>
+                      {m.inicioGorjeta && !emTesteNaGorjeta(m, hojeLocal()) && (
+                        <span style={{ ...mutedStyle, fontSize: 11 }} title="Data do cadastro de funcionários (“Entra na gorjeta em”)">
+                          na gorjeta desde {dataBr(m.inicioGorjeta)}
+                        </span>
+                      )}
                       {emTesteNaGorjeta(m, hojeLocal()) && (
                         <StatusBadge tone="info" title="Participa, mas ainda não entrou na gorjeta. A data 'Entra na gorjeta em' vem do cadastro do funcionário.">
                           {m.inicioGorjeta ? `entra na gorjeta em ${dataBr(m.inicioGorjeta)}` : "em teste (fora da gorjeta)"}
