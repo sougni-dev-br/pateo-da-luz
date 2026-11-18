@@ -8632,11 +8632,12 @@ export function getPayroll(year: number, month: number) {
   return request<PayrollList>(`/payroll?year=${year}&month=${month}`);
 }
 
-export function previewPayroll(year: number, month: number) {
+/** ajudaProporcional: a ajuda de custo sai proporcional aos dias de férias (padrão: cheia). */
+export function previewPayroll(year: number, month: number, opcoes: { ajudaProporcional?: boolean } = {}) {
   return request<PayrollPreview>("/payroll/preview", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ year, month })
+    body: JSON.stringify({ year, month, ...(opcoes.ajudaProporcional ? { ajudaProporcional: true } : {}) })
   });
 }
 
@@ -8649,11 +8650,11 @@ export type PayrollKind = "ALL" | "VT" | "VT_Q1" | "VT_Q2" | "FOLHA" | "ADIANTAM
 // Valor ajustado à mão na prévia, quando o cálculo não bate com a realidade.
 export type PayrollOverride = { employeeId: string; type: PayrollItemType; periodLabel: string; amount: number };
 
-export function generatePayroll(year: number, month: number, kind: PayrollKind = "ALL", overrides: PayrollOverride[] = []) {
+export function generatePayroll(year: number, month: number, kind: PayrollKind = "ALL", overrides: PayrollOverride[] = [], opcoes: { ajudaProporcional?: boolean } = {}) {
   return request<{ year: number; month: number; kind: PayrollKind; created: number; atualizados?: number; skipped: number; ajustados: number; avisos?: string[] }>("/payroll/generate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ year, month, kind, overrides })
+    body: JSON.stringify({ year, month, kind, overrides, ...(opcoes.ajudaProporcional ? { ajudaProporcional: true } : {}) })
   });
 }
 

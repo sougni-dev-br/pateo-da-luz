@@ -217,3 +217,49 @@ describe("ajuda de custo (AUXILIO_COMBUSTIVEL) com férias no mês — decisão 
     expect(aviso).toContain("não foi proporcionalizada");
   });
 });
+
+describe("ajuda de custo proporcional — opção escolhida ao gerar", () => {
+  const ajuda = () => emp({ baseSalary: null, vtType: "AUXILIO_COMBUSTIVEL", vtFixedAmount: 300 });
+  const tresDias = () => [14, 15, 16].map((dia) => ({ employeeId: "e1", date: d(`2026-09-${dia}`), type: "FERIAS" }));
+  const valor = async (opcoes?: { ajudaProporcional?: boolean }) =>
+    (await computePayroll(2026, 9, null, opcoes)).items.find((i) => i.type === "VALE_TRANSPORTE");
+
+  test("opção desligada (padrão): sai cheia, como antes", async () => {
+    db.employee.findMany.mockResolvedValue([ajuda()]);
+    escala = tresDias();
+    expect((await valor())?.amount).toBe(300);
+    expect((await valor({ ajudaProporcional: false }))?.amount).toBe(300);
+  });
+
+  test("opção ligada: valor × (dias do período − dias de férias) ÷ dias do período (3 de 30 → 270)", async () => {
+    db.employee.findMany.mockResolvedValue([ajuda()]);
+    escala = tresDias();
+    const item = await valor({ ajudaProporcional: true });
+    expect(item?.amount).toBe(270);
+    expect(item?.details).toMatchObject({ auxilioCombustivel: true, proporcionalFerias: { diasDeFerias: 3, diasDoPeriodo: 30 } });
+  });
+
+  test("opção ligada sem férias no mês: valor cheio e sem marca", async () => {
+    db.employee.findMany.mockResolvedValue([ajuda()]);
+    const item = await valor({ ajudaProporcional: true });
+    expect(item?.amount).toBe(300);
+    expect(item?.details).not.toHaveProperty("proporcionalFerias");
+  });
+
+  test("opção ligada com o mês inteiro de férias: ajuda zero (item não é gerado)", async () => {
+    db.employee.findMany.mockResolvedValue([ajuda()]);
+    escala = Array.from({ length: 30 }, (_, i) => ({ employeeId: "e1", date: d(`2026-09-${String(i + 1).padStart(2, "0")}`), type: "FERIAS" }));
+    expect(await valor({ ajudaProporcional: true })).toBeUndefined();
+  });
+
+  test("com a opção ligada o aviso diz que foi proporcionalizada; desligada, ensina a opção", async () => {
+    db.employee.findMany.mockResolvedValue([ajuda()]);
+    escala = tresDias();
+    const ligada = (await computePayroll(2026, 9, null, { ajudaProporcional: true })).warnings.find((w) => w.includes("ajuda de custo"));
+    expect(ligada).toContain("proporcional");
+    expect(ligada).not.toContain("não foi proporcionalizada");
+    const desligada = (await computePayroll(2026, 9)).warnings.find((w) => w.includes("ajuda de custo"));
+    expect(desligada).toContain("não foi proporcionalizada");
+    expect(desligada).toContain("opção");
+  });
+});
