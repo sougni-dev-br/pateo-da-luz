@@ -62,7 +62,7 @@ describe("ficha: Entra na gorjeta em", () => {
     const campo = screen.getByLabelText("Entra na gorjeta em") as HTMLInputElement;
     expect(campo.type).toBe("date");
     expect(campo.value).toBe("");
-    expect(screen.getByText("Vazio = em teste ou fora da gorjeta. Os dias de teste do sem registro são pagos como salário.")).toBeInTheDocument();
+    expect(screen.getByText("Vazio = em teste ou fora da gorjeta. Os dias de teste do sem registro são pagos como salário. Participa, função e pontos ficam em Folha › Apuração de gorjeta › Equipe.")).toBeInTheDocument();
   });
 
   test("preencher envia a data; o histórico pede \"vale a partir de\"", async () => {

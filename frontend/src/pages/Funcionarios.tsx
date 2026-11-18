@@ -745,7 +745,7 @@ export function Funcionarios() {
                   <TextField type="date" value={form.decimoTerceiroInicio} min={form.admissionDate || undefined} aria-label="Início do 13º"
                     onChange={(e) => setForm({ ...form, decimoTerceiroInicio: e.target.value })} />
                 </FormField>
-                <FormField label="Entra na gorjeta em" hint="Vazio = em teste ou fora da gorjeta. Os dias de teste do sem registro são pagos como salário.">
+                <FormField label="Entra na gorjeta em" hint="Vazio = em teste ou fora da gorjeta. Os dias de teste do sem registro são pagos como salário. Participa, função e pontos ficam em Folha › Apuração de gorjeta › Equipe.">
                   <TextField type="date" value={form.inicioGorjeta} min={form.admissionDate || undefined} aria-label="Entra na gorjeta em"
                     onChange={(e) => setForm({ ...form, inicioGorjeta: e.target.value })} />
                 </FormField>
