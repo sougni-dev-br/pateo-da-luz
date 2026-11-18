@@ -13,6 +13,7 @@ import { type DadosDoPedido, PedidoDoColaborador } from "./ferias/PedidoDoColabo
 import { ImpressaoIndividual } from "./ferias/ImpressaoIndividual";
 import { ImpressaoFerias } from "./ferias/ImpressaoFerias";
 import { ImportarRecibos } from "./ferias/ImportarRecibos";
+import { SomarCombinado } from "./ferias/SomarCombinado";
 import { ImpressaoTela } from "./ferias/ImpressaoTela";
 import { LinhaDoTempo } from "./ferias/LinhaDoTempo";
 import { LinhaPeriodo } from "./ferias/LinhaPeriodo";
@@ -56,7 +57,14 @@ export function Ferias() {
   const gatilho = useRef<HTMLElement | null>(null);
   const [imprimindo, setImprimindo] = useState(false);
   const [importando, setImportando] = useState(false);
+  // Título de férias (do recibo) que vai receber o salário combinado + gorjeta integral.
+  const [somandoCombinado, setSomandoCombinado] = useState<{ pagamentoId: string; nome: string } | null>(null);
   const [fichaDe, setFichaDe] = useState<PessoaFerias | null>(null);
+  const somarCombinado = (pessoa: PessoaFerias, g: ProgramacaoFerias) => {
+    if (!g.pagamento) return;
+    gatilho.current = document.activeElement as HTMLElement | null;
+    setSomandoCombinado({ pagamentoId: g.pagamento.id, nome: pessoa.nome });
+  };
   const imprimirPessoa = (pessoa: PessoaFerias) => { gatilho.current = document.activeElement as HTMLElement | null; setFichaDe(pessoa); };
   const [imprimindoTela, setImprimindoTela] = useState(false);
   const [previa, setPrevia] = useState<Previa | null>(null);
@@ -372,7 +380,7 @@ export function Ferias() {
           formularioDe={formularioDaPessoa}
           onProgramar={programarPelaLinha}
           onEditar={(pessoa, periodo, g) => abrir({ chave: `${pessoa.employeeId}|${periodo.aquisitivoInicio}`, programacao: g })}
-          onCancelar={cancelar} onConfirmar={(l, g) => void confirmarGozo(l, g)} onDesfazer={desfazer} onMover={moverBarra} onPedido={abrirPedido} onImprimir={imprimirPessoa} />
+          onCancelar={cancelar} onConfirmar={(l, g) => void confirmarGozo(l, g)} onDesfazer={desfazer} onMover={moverBarra} onPedido={abrirPedido} onImprimir={imprimirPessoa} onSomarCombinado={somarCombinado} />
       )}
       {visiveis.length > 0 && visao === "lista" && (
         <ul className="fe-lista" role="list" aria-label="Períodos de férias">
@@ -386,6 +394,7 @@ export function Ferias() {
                 onCancelar={(g) => cancelar(l, g)}
                 onConfirmar={(g) => void confirmarGozo(l, g)}
                 onDesfazer={(g) => desfazer(l, g)}
+                onSomarCombinado={(g) => somarCombinado(l.pessoa, g)}
                 formulario={aberto?.chave === chave && formulario(l, aberto)} />
             );
           })}
@@ -400,6 +409,10 @@ export function Ferias() {
       )}
       {importando && (
         <ImportarRecibos onLancou={() => void carregar()} onClose={() => { setImportando(false); devolverFoco(); }} />
+      )}
+      {somandoCombinado && (
+        <SomarCombinado pagamentoId={somandoCombinado.pagamentoId} nome={somandoCombinado.nome} onAplicou={() => void carregar()}
+          onClose={() => { setSomandoCombinado(null); devolverFoco(); }} />
       )}
       {imprimindo && lista && (
         <ImpressaoFerias lista={lista} onClose={() => { setImprimindo(false); devolverFoco(); }} />

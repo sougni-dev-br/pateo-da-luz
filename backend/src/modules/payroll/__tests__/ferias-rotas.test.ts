@@ -88,8 +88,21 @@ describe("GET /payroll/ferias — pagamento lançado", () => {
     db.payrollItem.findMany.mockResolvedValue([titulo(), titulo({ id: "t2", periodStart: d("2027-02-01") })]);
     const r = await request(app).get("/payroll/ferias");
     const g = r.body.pessoas[0].periodos.flatMap((p: { programacoes: unknown[] }) => p.programacoes)[0];
-    expect(g.pagamento).toEqual({ id: "t1", valor: 4633.68, vencimento: "2026-11-30", pago: false });
+    expect(g.pagamento).toEqual({ id: "t1", valor: 4633.68, vencimento: "2026-11-30", pago: false, doRecibo: false, combinadoSomado: false });
     expect(db.payrollItem.findMany.mock.calls[0][0].where).toMatchObject({ type: "FERIAS", deletedAt: null, employeeId: { in: ["e1"] } });
+  });
+
+  test("marca se o título veio do recibo da contabilidade e se já recebeu o complemento do combinado (sem expor os detalhes)", async () => {
+    db.employee.findMany.mockResolvedValue([eliana({ feriasProgramadas: [prog] })]);
+    const pagamento = async (details: unknown) => {
+      db.payrollItem.findMany.mockResolvedValue([titulo({ details })]);
+      const r = await request(app).get("/payroll/ferias");
+      return r.body.pessoas[0].periodos.flatMap((p: { programacoes: Array<{ pagamento: Record<string, unknown> }> }) => p.programacoes)[0].pagamento;
+    };
+    expect(await pagamento({ recibo: { hash: "h", liquido: 4633.68 } })).toMatchObject({ doRecibo: true, combinadoSomado: false });
+    expect(await pagamento({ recibo: { liquido: 1 }, origemValor: "FERIAS_COMBINADO", complemento: 10 })).toMatchObject({ doRecibo: true, combinadoSomado: true });
+    expect(await pagamento({ recibo: { liquido: 1 } })).not.toHaveProperty("complemento");
+    expect(await pagamento(null)).toMatchObject({ doRecibo: false, combinadoSomado: false });
   });
 
   test("pago quando o título tem data de pagamento; sem título, nulo; sem programação, nem consulta", async () => {

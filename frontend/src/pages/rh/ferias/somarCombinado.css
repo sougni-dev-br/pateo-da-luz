@@ -1,0 +1,22 @@
+/* ═══════════════════════════════════════════════════════════════════
+   RH → Férias → Somar o salário combinado ao título. Prefixo fe-comb-.
+═══════════════════════════════════════════════════════════════════ */
+.panel.modal-panel.fe-comb { width: min(760px, 100%); }
+.fe-comb-corpo { display: grid; gap: 12px; padding: 18px 24px; overflow: auto; min-height: 0; flex: 1; }
+.fe-comb-quem { margin: 0; font-size: var(--fs-md); }
+.fe-comb-resumo { display: grid; gap: 0; margin: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.fe-comb-resumo > div { display: flex; justify-content: space-between; gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.fe-comb-resumo > div:last-child { border-bottom: 0; }
+.fe-comb-resumo dt { color: var(--muted); }
+.fe-comb-resumo dd { margin: 0; text-align: right; }
+.fe-comb-resumo dd small { display: block; color: var(--muted); font-size: var(--fs-xs); }
+.fe-comb-total { background: var(--tint-success); font-size: var(--fs-md); }
+.fe-comb-formula { margin: 0; color: var(--muted); font-size: var(--fs-sm); }
+.fe-comb-rolagem { max-height: 280px; overflow: auto; }
+.fe-comb-tabela { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+.fe-comb-tabela caption { text-align: left; padding: 0 0 6px; color: var(--muted); font-size: var(--fs-xs); }
+.fe-comb-tabela th { text-align: left; padding: 6px 10px; font-size: var(--fs-2xs); text-transform: uppercase; letter-spacing: var(--ls-eyebrow); color: var(--muted); border-bottom: 1px solid var(--line-strong); }
+.fe-comb-tabela td { padding: 6px 10px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.fe-comb-ausente { background: var(--tint-warning); }
+.fe-comb-campo { width: 120px; padding: 4px 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: inherit; font: inherit; text-align: right; }
+.fe-comb-campo:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }

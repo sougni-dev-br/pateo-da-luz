@@ -1,4 +1,4 @@
-import { CalendarPlus, Check, MessageSquareText, Pencil, Printer, Sparkles, Trash2, Undo2 } from "lucide-react";
+import { Calculator, CalendarPlus, Check, MessageSquareText, Pencil, Printer, Sparkles, Trash2, Undo2 } from "lucide-react";
 import { Fragment, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ListaFerias, PeriodoFerias, PessoaFerias, ProgramacaoFerias } from "../../../api/client";
 import { Button } from "../../../design-system";
@@ -33,6 +33,8 @@ export type AcoesDaLinha = {
   onPedido: (pessoa: PessoaFerias, periodo: PeriodoFerias) => void;
   /** Imprimir a ficha de férias da pessoa. */
   onImprimir?: (pessoa: PessoaFerias) => void;
+  /** Somar o salário combinado e a gorjeta integral ao título de férias (do recibo) ainda em aberto. */
+  onSomarCombinado?: (pessoa: PessoaFerias, g: ProgramacaoFerias) => void;
 };
 
 type Props = AcoesDaLinha & {
@@ -265,6 +267,13 @@ function LinhaDaPessoa({ eixo, lista, pessoa, ausencias, ocupado, aberto, previa
                 })()}
               </p>
               <span className="fe-botoes">
+                {acoes.onSomarCombinado && escolhida.g.pagamento?.doRecibo && !escolhida.g.pagamento.pago && (
+                  <Button size="sm" variant="secondary" leadingIcon={<Calculator size={14} />} aria-disabled={ocupado}
+                    aria-label={`${escolhida.g.pagamento.combinadoSomado ? "Refazer a soma do combinado" : "Somar combinado"} nas férias de ${pessoa.nome} (${resumoProgramacao(escolhida.g)})`}
+                    onClick={guarda(() => { acoes.onSomarCombinado?.(pessoa, escolhida.g); fechar(); })}>
+                    {escolhida.g.pagamento.combinadoSomado ? "Refazer combinado" : "Somar combinado"}
+                  </Button>
+                )}
                 {escolhida.g.status === "PROGRAMADA" && escolhida.g.passouDaData && (
                   <Button size="sm" variant="secondary" leadingIcon={<Check size={14} />} aria-disabled={ocupado}
                     aria-label={`Confirmar que gozou, férias de ${pessoa.nome} (${resumoProgramacao(escolhida.g)})`}

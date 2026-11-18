@@ -3,11 +3,13 @@ import request from "supertest";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 vi.mock("../../security/security-utils.js", () => ({ getSessionUser: vi.fn() }));
+vi.mock("../../security/menu-permissions.js", () => ({ userHasPermission: vi.fn(async () => true) }));
 vi.mock("../ferias-combinado.service.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../ferias-combinado.service.js")>()),
   somarCombinadoAFerias: vi.fn(),
 }));
 
+import { userHasPermission } from "../../security/menu-permissions.js";
 import { getSessionUser } from "../../security/security-utils.js";
 import { RecusaFerias, somarCombinadoAFerias } from "../ferias-combinado.service.js";
 import { feriasCombinadoRouter } from "../ferias-combinado.routes.js";
@@ -20,6 +22,7 @@ const enviar = (corpo: Record<string, unknown>) => request(app).post("/payroll/f
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(getSessionUser).mockResolvedValue({ id: "u1", name: "Eli" } as never);
+  vi.mocked(userHasPermission).mockResolvedValue(true);
   vi.mocked(somarCombinadoAFerias).mockResolvedValue({ aplicado: false, previa: {} } as never);
 });
 
@@ -27,6 +30,14 @@ describe("POST /payroll/ferias/combinado", () => {
   test("sem sessão: 401", async () => {
     vi.mocked(getSessionUser).mockResolvedValue(null as never);
     expect((await enviar({ payrollItemId: "f1" })).status).toBe(401);
+  });
+
+  test("sem permissão de ver Funcionários: 403 e nada é calculado (combinado e gorjeta são dado de salário)", async () => {
+    vi.mocked(userHasPermission).mockResolvedValue(false);
+    const r = await enviar({ payrollItemId: "f1", aplicar: true });
+    expect(r.status).toBe(403);
+    expect(somarCombinadoAFerias).not.toHaveBeenCalled();
+    expect(vi.mocked(userHasPermission).mock.calls[0].slice(1)).toEqual(["employees", "view"]);
   });
 
   test("sem título: 400", async () => {
