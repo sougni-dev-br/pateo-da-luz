@@ -75,6 +75,9 @@ export function destinoSobraValido(v: unknown): DestinoSobra {
 export type ValeEntrada = { type: string; amount: number };
 
 export type ParticipanteEntrada = {
+  // Acerto de centavo do arredondamento (só o rateio calculado por pontos do mês). Vem de
+  // calcularRateio, nunca de quem digita. Ausente = 0.
+  ajusteCentavo?: number;
   kind: "FIXO" | "PONTOS";
   basePoints: number;
   ajuste: number;
@@ -516,7 +519,7 @@ export function calcularParticipante(regras: RegrasPeriodo, p: ParticipanteEntra
       rateio = round2(pontosFinais * valorPonto);
     }
   } else {
-    rateio = round2(pontosFinais * valorPontoDoMes);
+    rateio = round2(round2(pontosFinais * valorPontoDoMes) + (p.ajusteCentavo ?? 0));
   }
   const gorjetaCalculada = rateio;
 
@@ -618,6 +621,40 @@ function redistribuirSobra(
   return { valorPonto: Math.max(0, valorPonto + sobra / divisor), divisor };
 }
 
+const CENTAVO = 0.01;
+
+// Cada gorjeta é arredondada sozinha, então a soma dos centavos pode passar do líquido sem que
+// haja excesso de verdade (19 pessoas: +R$ 0,0074 virava R$ 0,01 e travava o fechamento). Tira o
+// centavo de quem mais ganhou no arredondamento, um por vez, até a soma caber no líquido.
+// Só corrige o que o arredondamento explica: se a conta exata já passa do líquido (pontos ou
+// ajustes a mais), nada é escondido; a checagem é aproximada em alguns décimos de centavo
+// quando há rescisão ou cota fixa, que já entram arredondadas. Rescisão, cota fixa, gorjeta real
+// e quem teve o mês pago pelo termo de rescisão não são mexidas.
+function corrigirCentavos(
+  regras: RegrasPeriodo, participantes: ParticipanteEntrada[], linhas: ParticipanteCalculado[], valorPonto: number,
+): ParticipanteCalculado[] {
+  const reservaExata = Math.max(0, regras.reservaPontos ?? 0) * valorPonto;
+  const reserva = round2(reservaExata);
+  const excessoCentavos = Math.round((linhas.reduce((a, l) => a + l.rateio, 0) + reserva - regras.netPool) / CENTAVO);
+  if (excessoCentavos <= 0) return linhas;
+  const candidatos = linhas
+    .map((l, i) => ({ i, erro: l.rateio - l.pontosFinais * valorPonto }))
+    .filter(({ i }) => {
+      const l = linhas[i];
+      return l.tipoCalculo === "MES" && !l.foraDaGorjeta && !l.gorjetaRealAplicada && participantes[i].kind === "PONTOS" && participantes[i].rescisaoValorFixo == null && l.rateio > 0;
+    });
+  if (candidatos.length === 0) return linhas;
+  const deArredondamento = candidatos.reduce((a, c) => a + c.erro, 0);
+  const contaExata = linhas.reduce((a, l) => a + l.rateio, 0) - deArredondamento + reservaExata;
+  if (contaExata - regras.netPool > CENTAVO / 2) return linhas;
+  const escolhidos = new Set(
+    [...candidatos].sort((a, b) => b.erro - a.erro || a.i - b.i).slice(0, excessoCentavos).map((c) => c.i),
+  );
+  return linhas.map((l, i) => (escolhidos.has(i)
+    ? calcularParticipante(regras, { ...participantes[i], ajusteCentavo: -CENTAVO }, valorPonto)
+    : l));
+}
+
 export function calcularRateio(regras: RegrasPeriodo, participantes: ParticipanteEntrada[]): ResumoRateio {
   const totalCotasFixas = round2(
     participantes.filter((p) => p.kind === "FIXO" && !p.foraDaGorjeta).reduce((a, p) => a + (p.fixedAmount ?? 0), 0),
@@ -647,6 +684,7 @@ export function calcularRateio(regras: RegrasPeriodo, participantes: Participant
       linhas = participantes.map((p) => calcularParticipante(regras, p, valorPonto));
     }
   }
+  linhas = corrigirCentavos(regras, participantes, linhas, valorPonto);
   const ehRescisao = (t: string) => t === "RESCISAO" || t === "RESCISAO_QUITADA";
   const rescisoes = {
     valor: round2(linhas.reduce((a, l) => a + (ehRescisao(l.tipoCalculo) ? l.rateio : 0), 0)),

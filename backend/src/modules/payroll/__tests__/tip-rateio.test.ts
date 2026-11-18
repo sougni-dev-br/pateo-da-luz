@@ -672,3 +672,76 @@ describe("sem registro que saiu depois do fim do ciclo, no mês do salário: tud
     expect(r.salarioProporcional).toBe(2126.57);
   });
 });
+
+// Centavos do arredondamento: cada gorjeta é arredondada sozinha e a soma pode passar do líquido.
+describe("rateio: centavo de arredondamento nunca passa do líquido", () => {
+  const NOVEMBRO: RegrasPeriodo = {
+    start: d("2026-10-26"), end: d("2026-11-25"), diasPadrao: 26,
+    descontaFalta: true, descontaAtestado: true, descontaFerias: true, descontaOutros: false,
+    proporcionalEntrada: true, pointsTotal: 100, deductionPercent: 20, netPool: 11513.86,
+    destinoSobra: "REDISTRIBUIR",
+  };
+  // Pontos de novembro/2026 (19 pessoas, 77,76 pts): o líquido exato fecha, mas a soma dos arredondados dá +0,01.
+  const PONTOS = [3.5, 2.5, 2.83, 4, 10, 10, 3, 2, 4, 4, 3.5, 4, 3.5, 4, 4, 3.5, 2.56, 3.37, 3.5];
+
+  test("sem a correção a soma passaria do líquido; com ela, fecha em até o líquido", () => {
+    const r = calcularRateio(NOVEMBRO, PONTOS.map((basePoints) => pessoa({ basePoints })));
+    expect(r.distribuido).toBeLessThanOrEqual(NOVEMBRO.netPool);
+    expect(r.saldo).toBeGreaterThanOrEqual(0);
+    expect(r.saldo).toBeLessThan(0.02);
+  });
+
+  test("tira o centavo de quem mais ganhou no arredondamento (Bruno, 2,83 pts)", () => {
+    const r = calcularRateio(NOVEMBRO, PONTOS.map((basePoints) => pessoa({ basePoints })));
+    expect(r.linhas[2].rateio).toBe(419.03); // exato 419,0358; arredondado seria 419,04
+    expect(r.linhas.filter((l, i) => i !== 2).map((l) => l.rateio)).toContain(592.28);
+  });
+
+  test("a correção chega ao que se paga (comissão líquida acompanha o rateio)", () => {
+    const r = calcularRateio(NOVEMBRO, PONTOS.map((basePoints) => pessoa({ basePoints })));
+    expect(r.linhas[2].comissaoLiquida).toBe(r.linhas[2].rateio);
+  });
+
+  test("excesso real (pontos a mais, não arredondamento) não é escondido", () => {
+    const regras = { ...NOVEMBRO, destinoSobra: undefined, pointsTotal: 70, netPool: 11513.86 };
+    const r = calcularRateio(regras, PONTOS.map((basePoints) => pessoa({ basePoints })));
+    const exato = r.linhas.reduce((a, l) => a + l.pontosFinais * r.valorPontoBruto, 0);
+    expect(exato).toBeGreaterThan(regras.netPool + 0.5);
+    expect(r.distribuido).toBeGreaterThan(regras.netPool);
+  });
+
+  test("sem a correção a conta arredondada passaria do líquido (contraste)", () => {
+    const r = calcularRateio(NOVEMBRO, PONTOS.map((basePoints) => pessoa({ basePoints })));
+    const semCorrecao = round2(r.linhas.reduce((a, l) => a + round2(l.pontosFinais * r.valorPontoBruto), 0));
+    expect(semCorrecao).toBeGreaterThan(NOVEMBRO.netPool);
+  });
+
+  test("os pontos não mudam com a correção", () => {
+    const r = calcularRateio(NOVEMBRO, PONTOS.map((basePoints) => pessoa({ basePoints })));
+    expect(r.linhas.map((l) => l.pontosFinais)).toEqual(PONTOS);
+  });
+
+  test("cota fixa e rescisão ficam como estão e a soma não passa do líquido", () => {
+    const r = calcularRateio({ ...NOVEMBRO, netPool: 12000 }, [
+      ...PONTOS.map((basePoints) => pessoa({ basePoints })),
+      pessoa({ kind: "FIXO", fixedAmount: 123.45 }),
+      pessoa({ basePoints: 3, desligamento: d("2026-11-10"), rescisaoServicoBruto: 5000 }),
+    ]);
+    expect(r.linhas[PONTOS.length].rateio).toBe(123.45);
+    expect(r.distribuido).toBeLessThanOrEqual(12000);
+  });
+
+  test("com reserva da casa a soma pessoas + reserva não passa do líquido", () => {
+    const regras = { ...NOVEMBRO, reservaPontos: 2 };
+    const r = calcularRateio(regras, PONTOS.map((basePoints) => pessoa({ basePoints })));
+    expect(round2(r.distribuido + round2(2 * r.valorPontoBruto))).toBeLessThanOrEqual(regras.netPool);
+  });
+
+  test("não mexe em quem tem gorjeta real nem em cota fixa", () => {
+    const r = calcularRateio(NOVEMBRO, [
+      ...PONTOS.map((basePoints) => pessoa({ basePoints })),
+      pessoa({ basePoints: 3, gorjetaReal: 100 }),
+    ]);
+    expect(r.linhas[PONTOS.length].rateio).toBe(100);
+  });
+});
