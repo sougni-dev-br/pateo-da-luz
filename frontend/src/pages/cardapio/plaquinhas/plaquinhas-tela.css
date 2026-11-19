@@ -481,3 +481,19 @@
   body.imprimindo-pesagem .pes-area-impressao { position: static; left: auto; visibility: visible; }
   body.imprimindo-pesagem .pes-folha-tabela tr { break-inside: avoid; }
 }
+
+/* ── Resultado do buffet ── */
+.res { max-width: 980px; }
+.res-cartoes { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin: 0; }
+.res-cartoes > div { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--paper); }
+.res-cartoes dt { font-size: 0.72rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.res-cartoes dd { margin: 4px 0 0; font-size: 1.15rem; font-weight: 600; }
+.res-cartoes .res-destaque { border-color: var(--gold); background: rgba(185, 154, 88, 0.1); }
+.res-sinal { font-size: 0.78rem; }
+.res-sinal--alerta { color: #b03a2e; font-weight: 600; }
+.res-sinal--atencao { color: #9a6b00; }
+.res-sinal--neutro { color: var(--muted); }
+.res-dias > summary { cursor: pointer; }
+@media (max-width: 640px) { .res-cartoes { grid-template-columns: 1fr 1fr; } }
+.pes-tabela input[type="checkbox"] { width: 18px; height: 18px; }
+.pes-tabela td:first-child:has(input[type="checkbox"]) { text-align: center; }

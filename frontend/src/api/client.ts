@@ -5363,6 +5363,33 @@ export function getBuffetWeighings(date: string, kind: PlateListKind) {
   return request<BuffetWeighingDay>(`/buffet-plates/weighings${toQueryString({ date, kind })}`);
 }
 
+export type BuffetAnalysisSignal = "SOBRA_ALTA" | "PODE_FALTAR" | "POUCOS_DIAS";
+export type BuffetAnalysisDay = {
+  date: string; people: number | null; revenue: number | null; producedG: number; leftoverG: number; consumedG: number;
+  itemsProduced: number; itemsWithLeftover: number; producedCost: number | null; leftoverCost: number | null; consumedCost: number | null;
+  itemsWithCost: number; gPerPerson: number | null; costPerPerson: number | null; revenuePerPerson: number | null; marginPerPerson: number | null;
+};
+export type BuffetAnalysisItem = {
+  itemId: string; name: string; category: string | null; days: number; daysWithLeftover: number; daysForPerPerson: number; producedG: number; leftoverG: number; consumedG: number;
+  leftoverPct: number | null; gPerPerson: number | null; costPerKg: number | null; leftoverCost: number | null; consumedCost: number | null;
+  costPerPerson: number | null; signals: BuffetAnalysisSignal[];
+};
+export type BuffetAnalysisSummary = {
+  days: number; daysWithPeople: number; daysWithFullCost: number; people: number; producedG: number; leftoverG: number; consumedG: number; leftoverPct: number | null;
+  producedCost: number | null; leftoverCost: number | null; consumedCost: number | null; revenue: number | null;
+  costPerPerson: number | null; revenuePerPerson: number | null; marginPerPerson: number | null; gPerPerson: number | null;
+};
+export type BuffetAnalysis = {
+  from: string; to: string; kind: PlateListKind; costVisible: boolean;
+  days: BuffetAnalysisDay[]; items: BuffetAnalysisItem[]; summary: BuffetAnalysisSummary;
+  /** Pratos do dia pesado mais recente: o cardápio atual, ponto de partida do planejamento. */
+  lastDayItemIds: string[];
+};
+
+export function getBuffetAnalysis(from: string, to: string, kind: PlateListKind) {
+  return request<BuffetAnalysis>(`/buffet-plates/analysis${toQueryString({ from, to, kind })}`);
+}
+
 export function getBuffetItemCosts(ids: string[]) {
   return request<Record<string, BuffetDishCost>>(`/buffet-plates/item-costs${toQueryString({ ids: ids.join(",") })}`);
 }
