@@ -26,13 +26,21 @@ const gramas = (nome: string) => z.number({ invalid_type_error: `${nome}: valor 
 const dataSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "data inválida").refine(isRealDate, "data inválida")
   .refine((d) => d >= addDays(todayInSaoPaulo(), -MAX_PAST_DAYS) && d <= addDays(todayInSaoPaulo(), MAX_FUTURE_DAYS), "data fora do intervalo aceito");
 
+// O código (P01, P02…) é gerado pelo servidor: quem cadastra descreve a panela e o sistema numera.
 const potCreateSchema = z.object({
-  // Maiúscula sempre: "p01" e "P01" seriam duas panelas diferentes no índice e confundiriam a folha.
-  code: z.string().trim().min(1, "informe o código da panela").max(20, "código: no máximo 20 caracteres").transform((c) => c.toUpperCase()),
-  name: z.string().trim().max(80).nullable().optional(),
+  name: z.string().trim().min(1, "informe a descrição da panela").max(80, "descrição: no máximo 80 caracteres"),
   tareG: gramas("peso da panela"),
 });
 const potUpdateSchema = potCreateSchema.partial().extend({ isActive: z.boolean().optional() });
+
+const CODIGO_PANELA = /^P(\d+)$/;
+const MAX_TENTATIVAS_CODIGO = 5;
+/** Próximo código livre: um acima do maior P<número> existente (inclusive de panelas inativas), com 2 dígitos no mínimo. */
+async function proximoCodigoPanela(): Promise<string> {
+  const todas = await prisma.buffetPot.findMany({ select: { code: true } });
+  const maior = todas.reduce((m, p) => Math.max(m, Number(CODIGO_PANELA.exec(p.code)?.[1] ?? 0)), 0);
+  return `P${String(maior + 1).padStart(2, "0")}`;
+}
 
 const weighingCreateSchema = z.object({
   servedOn: dataSchema,
@@ -71,14 +79,18 @@ buffetWeighingsRouter.post("/pots", async (request, response) => {
   const data = parseCorpo(potCreateSchema, request.body, response);
   if (!data) return;
   if (await prisma.buffetPot.count() >= MAX_POTS) return response.status(400).json({ message: `Limite de ${MAX_POTS} panelas.` });
-  try {
-    const created = await prisma.buffetPot.create({ data: { id: crypto.randomUUID(), code: data.code, name: data.name || null, tareG: data.tareG } });
-    await auditLog({ userId: user.id, action: "CREATE_BUFFET_POT", entity: "BuffetPot", entityId: created.id, newValue: created, ...auditMeta(request) });
-    response.status(201).json(created);
-  } catch (e) {
-    if (codigoDuplicado(e)) return response.status(409).json({ message: `Já existe uma panela com o código ${data.code}.` });
-    throw e;
+  // Dois cadastros ao mesmo tempo podem sortear o mesmo número: o índice único barra um deles e ele tenta o próximo.
+  for (let tentativa = 1; tentativa <= MAX_TENTATIVAS_CODIGO; tentativa++) {
+    const code = await proximoCodigoPanela();
+    try {
+      const created = await prisma.buffetPot.create({ data: { id: crypto.randomUUID(), code, name: data.name, tareG: data.tareG } });
+      await auditLog({ userId: user.id, action: "CREATE_BUFFET_POT", entity: "BuffetPot", entityId: created.id, newValue: created, ...auditMeta(request) });
+      return response.status(201).json(created);
+    } catch (e) {
+      if (!codigoDuplicado(e)) throw e;
+    }
   }
+  return response.status(409).json({ message: "Não foi possível gerar o código da panela agora. Tente de novo." });
 });
 
 // Mudar o peso da panela NÃO mexe nas pesagens antigas: cada uma guarda o peso da panela na hora.
@@ -93,8 +105,7 @@ buffetWeighingsRouter.put("/pots/:id", async (request, response) => {
     const updated = await prisma.buffetPot.update({
       where: { id: existing.id },
       data: {
-        ...(data.code !== undefined ? { code: data.code } : {}),
-        ...(data.name !== undefined ? { name: data.name || null } : {}),
+        ...(data.name !== undefined ? { name: data.name } : {}),
         ...(data.tareG !== undefined ? { tareG: data.tareG } : {}),
         ...(data.isActive !== undefined ? { isActive: data.isActive } : {}),
       },
@@ -103,7 +114,6 @@ buffetWeighingsRouter.put("/pots/:id", async (request, response) => {
     response.json(updated);
   } catch (e) {
     if (naoEncontrado(e)) return response.status(404).json({ message: "Panela não encontrada." });
-    if (codigoDuplicado(e)) return response.status(409).json({ message: `Já existe uma panela com o código ${data.code}.` });
     throw e;
   }
 });

@@ -11,29 +11,31 @@ type Props = {
   aoMudar: () => void;
 };
 
-// Cadastro das panelas: código (o que está escrito nela) e o peso vazio. O sistema abate esse peso
-// do que a balança mostrou, então ninguém precisa tarar. Mudar o peso não altera pesagens antigas.
+// Cadastro das panelas: descrição e peso vazio. O código (P01, P02…) o sistema numera e a pessoa escreve na panela.
+// O sistema abate o peso vazio do que a balança mostrou, então ninguém precisa tarar. Mudar o peso não altera pesagens antigas.
 export function PanelasBuffet({ panelas, podeCriar, podeEditar, aoMudar }: Props) {
-  const [codigo, setCodigo] = useState("");
   const [nome, setNome] = useState("");
   const [peso, setPeso] = useState("");
   const [editando, setEditando] = useState<{ id: string; peso: string } | null>(null);
   const [ocupado, setOcupado] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  const [aviso, setAviso] = useState<string | null>(null);
 
   const executar = async (acao: () => Promise<unknown>) => {
     setOcupado(true);
     setErro(null);
+    setAviso(null);
     try { await acao(); aoMudar(); } catch (x) { setErro(x instanceof Error ? x.message : "Não foi possível salvar a panela."); } finally { setOcupado(false); }
   };
 
   const cadastrar = () => {
     const tareG = lerKg(peso);
-    if (!codigo.trim()) return setErro("Informe o código da panela (o que está escrito nela).");
+    if (!nome.trim()) return setErro("Informe a descrição da panela, por exemplo \"inox 10 L\".");
     if (!tareG) return setErro("Informe o peso da panela vazia em kg, por exemplo 2,35.");
     void executar(async () => {
-      await saveBuffetPot({ code: codigo.trim(), name: nome.trim() || null, tareG });
-      setCodigo(""); setNome(""); setPeso("");
+      const criada = await saveBuffetPot({ name: nome.trim(), tareG });
+      setNome(""); setPeso("");
+      setAviso(`Panela cadastrada com o código ${criada.code}. Escreva esse código nela.`);
     });
   };
   const salvarPeso = (p: BuffetPot) => {
@@ -45,14 +47,14 @@ export function PanelasBuffet({ panelas, podeCriar, podeEditar, aoMudar }: Props
   return (
     <section className="plq-bloco" aria-labelledby="pes-panelas">
       <h3 className="plq-bloco-titulo" id="pes-panelas">Panelas e peso vazio</h3>
-      <p className="plq-contagem">Pese cada panela vazia uma vez e escreva o código nela. Na pesagem, o sistema abate esse peso sozinho.</p>
+      <p className="plq-contagem">Pese cada panela vazia uma vez. O sistema dá o código (P01, P02…): escreva-o na panela. Na pesagem, ele abate esse peso sozinho.</p>
       {erro && <Alert tone="error">{erro}</Alert>}
+      {aviso && <Alert tone="success">{aviso}</Alert>}
       {podeCriar && (
         <div className="plq-campos pes-nova-panela">
-          <TextField label="Código" value={codigo} maxLength={20} placeholder="P01" onChange={(e) => { setCodigo(e.target.value); setErro(null); }} />
+          <TextField label="Descrição" required value={nome} maxLength={80} placeholder="Ex.: inox 10 L" onChange={(e) => { setNome(e.target.value); setErro(null); }} />
           <TextField label="Peso vazia (kg)" inputMode="decimal" value={peso} placeholder="2,35" onChange={(e) => { setPeso(e.target.value); setErro(null); }}
             onKeyDown={(e) => { if (e.key === "Enter") cadastrar(); }} />
-          <TextField label="Descrição (opcional)" value={nome} maxLength={80} placeholder="Ex.: inox 10 L" onChange={(e) => setNome(e.target.value)} />
           <Button disabled={ocupado} onClick={cadastrar}>Cadastrar panela</Button>
         </div>
       )}
