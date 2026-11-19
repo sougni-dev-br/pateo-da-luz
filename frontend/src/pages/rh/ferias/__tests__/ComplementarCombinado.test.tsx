@@ -79,6 +79,22 @@ describe("ComplementarCombinado", () => {
     expect(mock.mock.calls[1]).toEqual(["pi1", false, { "2026-01": 1234.5 }]);
   });
 
+  test("mês com apuração zero é digitável; apuração maior que zero não; informado sobre zero mostra a origem", async () => {
+    mock.mockResolvedValue({
+      aplicado: false,
+      previa: previa({ meses: [
+        { chave: mes(2), valor: 1500, origem: "APURACAO" }, { chave: mes(3), valor: 0, origem: "APURACAO" },
+        { chave: mes(4), valor: 1392.45, origem: "INFORMADA", apuracaoZero: true },
+      ] }),
+    });
+    abrir();
+    expect(await screen.findByLabelText("Gorjeta de 03/2026")).toBeInTheDocument();
+    expect(screen.getByLabelText("Gorjeta de 04/2026")).toHaveValue("1392.45");
+    expect(screen.queryByLabelText("Gorjeta de 02/2026")).not.toBeInTheDocument();
+    expect(screen.getByText("apuração zero, valeu o informado")).toBeInTheDocument();
+    expect(screen.getByText(/apuração zero; mês com apuração maior que zero usa sempre a apuração/)).toBeInTheDocument();
+  });
+
   test("Gerar PDF sai como prévia antes de confirmar e como gravado depois", async () => {
     const pdf = vi.mocked(gerarPdfComplementoFerias);
     pdf.mockClear();

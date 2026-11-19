@@ -232,3 +232,27 @@ describe("tabela única de gorjeta informada", () => {
     expect(db.gorjetaIntegralInformada.upsert).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("apuração zero aceita o informado (regra do Eli, 19/11/2026)", () => {
+  test("mês com apuração 0,00 e informado 1.392,45: vale o informado, marcado como apuração zero", async () => {
+    vi.mocked(gorjetasDaCompetencia).mockImplementation(async (_a, m) => (m === 5 ? apuracaoDe(0) : apuracaoDe(1500)));
+    db.gorjetaIntegralInformada.findMany.mockResolvedValue([{ competencia: "2026-05", valor: 1392.45 }]);
+    const r = await somarCombinadoAFerias({ payrollItemId: "f1", aplicar: false, usuario });
+    expect(r.previa.meses.find((m) => m.chave === "2026-05")).toMatchObject({ valor: 1392.45, origem: "INFORMADA", apuracaoZero: true });
+    expect(r.previa.mediaGorjeta).toBe(1491.04); // (11 × 1.500 + 1.392,45) ÷ 12 (arredondado)
+    expect(r.previa.avisos.join(" ")).toContain("apuração zero, valeu o valor informado");
+  });
+
+  test("apuração 0,00 sem informado: continua zero da apuração (sem aviso de zero)", async () => {
+    vi.mocked(gorjetasDaCompetencia).mockImplementation(async (_a, m) => (m === 5 ? apuracaoDe(0) : apuracaoDe(1500)));
+    const r = await somarCombinadoAFerias({ payrollItemId: "f1", aplicar: false, usuario });
+    expect(r.previa.meses.find((m) => m.chave === "2026-05")).toMatchObject({ valor: 0, origem: "APURACAO" });
+  });
+
+  test("ao aplicar, grava na tabela o informado que valeu sobre apuração zero", async () => {
+    vi.mocked(gorjetasDaCompetencia).mockImplementation(async (_a, m) => (m === 5 ? apuracaoDe(0) : apuracaoDe(1500)));
+    await somarCombinadoAFerias({ payrollItemId: "f1", aplicar: true, usuario, informadas: { "2026-05": 1392.45 } });
+    expect(db.gorjetaIntegralInformada.upsert).toHaveBeenCalledTimes(1);
+  });
+});
+

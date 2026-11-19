@@ -87,7 +87,7 @@ export async function gerarPdfComplementoFerias(p: PreviaFeriasCombinado, gravad
     headStyles: { fillColor: [...MARROM], textColor: 255, fontStyle: "bold", fontSize: 8 },
     alternateRowStyles: { fillColor: [...LISTRA] },
     head: [["Mês", "Gorjeta", "Origem"]],
-    body: p.meses.map((m) => [mesBr(m.chave), m.valor == null ? "-" : reais(m.valor), textoPdf(ORIGEM[m.origem])]),
+    body: p.meses.map((m) => [mesBr(m.chave), m.valor == null ? "-" : reais(m.valor), textoPdf(m.origem === "INFORMADA" && m.apuracaoZero ? "apuração zero, valeu o informado" : ORIGEM[m.origem])]),
     columnStyles: { 0: { cellWidth: 28 }, 1: { cellWidth: 38, halign: "right" }, 2: { cellWidth: "auto" } },
     didParseCell: (d: { section: string; column: { index: number }; cell: { styles: Record<string, unknown> } }) => {
       if (d.section === "head" && d.column.index === 1) d.cell.styles.halign = "right";

@@ -15,6 +15,10 @@ type Props = {
 };
 
 const ROTULO_ORIGEM: Record<MesDaGorjetaFerias["origem"], string> = { APURACAO: "apuração", INFORMADA: "informada à mão", AUSENTE: "sem apuração" };
+const ROTULO_APURACAO_ZERO = "apuração zero, valeu o informado";
+const rotuloDaOrigem = (m: MesDaGorjetaFerias) => (m.origem === "INFORMADA" && m.apuracaoZero ? ROTULO_APURACAO_ZERO : ROTULO_ORIGEM[m.origem]);
+// Digitável: mês sem apuração, ou com apuração ZERO (apuração > 0 vale sempre).
+const ehEditavel = (m: MesDaGorjetaFerias) => m.origem !== "APURACAO" || m.valor === 0;
 const TOM_ORIGEM: Record<MesDaGorjetaFerias["origem"], StatusTone> = { APURACAO: "success", INFORMADA: "info", AUSENTE: "warning" };
 const mesBr = (chave: string) => `${chave.slice(5, 7)}/${chave.slice(0, 4)}`;
 // Aceita "1.234,56" e "1234.56"; vazio ou inválido = não informado.
@@ -165,7 +169,7 @@ export function ComplementarCombinado({ payrollItemId, nome, onClose, onAplicou 
               <FormSection
                 title="Gorjeta dos 12 meses da média"
                 eyebrow="Meses"
-                description={`${contagem("APURACAO")} com apuração · ${contagem("INFORMADA")} informada${contagem("INFORMADA") === 1 ? "" : "s"} à mão · ${contagem("AUSENTE")} sem valor. Nos meses sem apuração você pode digitar a gorjeta; mês com apuração usa sempre a apuração.`}
+                description={`${contagem("APURACAO")} com apuração · ${contagem("INFORMADA")} informada${contagem("INFORMADA") === 1 ? "" : "s"} à mão · ${contagem("AUSENTE")} sem valor. Você pode digitar a gorjeta nos meses sem apuração ou com apuração zero; mês com apuração maior que zero usa sempre a apuração.`}
                 actions={!aplicado && (
                   <Button variant={desatualizado ? "primary" : "secondary"} size="sm" leadingIcon={<RefreshCw size={14} />} disabled={ocupado} onClick={() => void calcular(informadas())}>Recalcular prévia</Button>
                 )}
@@ -173,13 +177,13 @@ export function ComplementarCombinado({ payrollItemId, nome, onClose, onAplicou 
                 {desatualizado && !aplicado && <Alert tone="warning">Você mudou valores: recalcule a prévia para ver o novo complemento antes de confirmar.</Alert>}
                 <ul className="fe-comb-meses">
                   {meses.map((m) => {
-                    const editavel = m.origem !== "APURACAO" && !aplicado;
+                    const editavel = ehEditavel(m) && !aplicado;
                     return (
                       <li key={m.chave}>
                         <Card className="fe-comb-mes">
                           <div className="fe-comb-mes-topo">
                             <strong>{mesBr(m.chave)}</strong>
-                            <StatusBadge tone={TOM_ORIGEM[m.origem]}>{ROTULO_ORIGEM[m.origem]}</StatusBadge>
+                            <StatusBadge tone={TOM_ORIGEM[m.origem]}>{rotuloDaOrigem(m)}</StatusBadge>
                           </div>
                           {editavel ? (
                             <TextField type="text" inputMode="decimal" placeholder="0,00" aria-label={`Gorjeta de ${mesBr(m.chave)}`} disabled={ocupado}

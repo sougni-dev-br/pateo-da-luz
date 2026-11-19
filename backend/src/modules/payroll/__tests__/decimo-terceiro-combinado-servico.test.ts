@@ -382,6 +382,19 @@ describe("gorjeta informada na tabela única (férias) compõe o 13º", () => {
   });
 });
 
+describe("apuração zero aceita o informado no 13º", () => {
+  test("mês apurado com gorjeta 0 da pessoa recebe o valor da tabela; a apuração > 0 segue valendo", async () => {
+    monta([itemExtrato()]);
+    declarada(100);
+    apuracao({ 8: 1000, 9: 0, 10: 800 }); // set zerado
+    db.gorjetaIntegralInformada.findMany.mockResolvedValue([
+      { employeeId: "e1", competencia: "2026-09", valor: 1400 }, { employeeId: "e1", competencia: "2026-08", valor: 9999 },
+    ]);
+    const l = (await listarDecimoTerceiroSR(2026)).linhas.find((x) => x.origem === "COMBINADO")!;
+    expect(l.calculo!.mediaParcela1).toBe(866.67); // (800 + 1.200 + 600) ÷ 3
+  });
+});
+
 describe("diferença da gorjeta — salvaguardas", () => {
   test("sem rubrica e sem gorjeta integral (fora da gorjeta): não avisa para reimportar", async () => {
     monta([itemExtrato()]);

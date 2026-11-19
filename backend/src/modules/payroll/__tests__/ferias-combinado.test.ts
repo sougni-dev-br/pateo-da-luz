@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   combinadoProporcional, complementoDeFerias, janelaDeMeses, mediaDaGorjeta, semMarcasDoFeriasCombinado,
-  foiSomadoAFerias, valorFeriasComCombinado, type MesDaGorjeta,
+  foiSomadoAFerias, valorFeriasComCombinado, valorDoMesDaGorjeta, type MesDaGorjeta,
 } from "../ferias-combinado.js";
 
 // Valores fictícios: combinado 6.000, base 4.000, gorjeta média 1.500, recibo líquido 6.000.
@@ -115,5 +115,28 @@ describe("complementoDeFerias — férias fracionadas (dias do recibo)", () => {
 
   test("30 dias, ausente ou acima de 30: valor cheio", () => {
     for (const dias of [30, undefined, 33]) expect(complementoDeFerias({ combinado: 6000, mediaGorjeta: 1500, liquidoRecibo: 6000, dias }).remuneracao).toBe(10000);
+  });
+});
+
+// Regra (Eli, 19/11/2026): apuração do ERP MAIOR QUE ZERO vale mais que o digitado; apuração zero ou ausente aceita o informado.
+describe("valorDoMesDaGorjeta", () => {
+  test("apuração > 0: vale a apuração e o informado é ignorado", () => {
+    expect(valorDoMesDaGorjeta({ apuracao: 1500, informada: 900 })).toEqual({ valor: 1500, origem: "APURACAO", informadaIgnorada: true });
+  });
+  test("apuração > 0 sem informada: só a apuração", () => {
+    expect(valorDoMesDaGorjeta({ apuracao: 1500, informada: null })).toEqual({ valor: 1500, origem: "APURACAO", informadaIgnorada: false });
+  });
+  test("apuração zero + informada: vale o informado, marcado como apuração zero", () => {
+    expect(valorDoMesDaGorjeta({ apuracao: 0, informada: 1400 })).toEqual({ valor: 1400, origem: "INFORMADA", apuracaoZero: true });
+  });
+  test("apuração zero sem informada: zero da apuração", () => {
+    expect(valorDoMesDaGorjeta({ apuracao: 0, informada: null })).toEqual({ valor: 0, origem: "APURACAO", informadaIgnorada: false });
+  });
+  test("apuração zero + informada zero: continua zero, da apuração", () => {
+    expect(valorDoMesDaGorjeta({ apuracao: 0, informada: 0 }).valor).toBe(0);
+  });
+  test("sem apuração: informada preenche; sem nada, ausente", () => {
+    expect(valorDoMesDaGorjeta({ apuracao: null, informada: 800 })).toEqual({ valor: 800, origem: "INFORMADA" });
+    expect(valorDoMesDaGorjeta({ apuracao: null, informada: null })).toEqual({ valor: null, origem: "AUSENTE" });
   });
 });

@@ -9097,7 +9097,7 @@ export function importarReciboFerias(fileBase64: string, fileName: string, aplic
 }
 
 /** Um dos 12 meses da média da gorjeta integral; "INFORMADA" = valor digitado à mão, "AUSENTE" = sem apuração (fora da média). */
-export type MesDaGorjetaFerias = { chave: string; valor: number | null; origem: "APURACAO" | "INFORMADA" | "AUSENTE" };
+export type MesDaGorjetaFerias = { chave: string; valor: number | null; origem: "APURACAO" | "INFORMADA" | "AUSENTE"; apuracaoZero?: boolean };
 /** Prévia do complemento do salário combinado sobre o título de férias (POST /payroll/ferias/combinado). */
 export type PreviaFeriasCombinado = {
   payrollItemId: string; employeeId: string; nome: string;
