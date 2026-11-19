@@ -134,7 +134,7 @@ export function ComplementarCombinado({ payrollItemId, nome, onClose, onAplicou 
               {mesesEditaveis.length > 0 && !aplicado && (
                 <fieldset className="fe-comb-manual" disabled={ocupado}>
                   <legend>Informar a gorjeta de um mês à mão</legend>
-                  <p className="fe-sub">Use nos meses sem apuração no ERP. Depois de preencher, recalcule a prévia.</p>
+                  <p className="fe-sub">Vale só nos meses sem apuração no ERP: mês com apuração usa sempre a apuração. Depois de preencher, recalcule a prévia.</p>
                   {mesesEditaveis.map((m) => (
                     <label key={m.chave} className="fe-comb-campo">
                       <span>Gorjeta de {mesBr(m.chave)}</span>

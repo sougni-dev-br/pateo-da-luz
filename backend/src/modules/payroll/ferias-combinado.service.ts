@@ -13,6 +13,7 @@ import {
   chaveDoMes, complementoDeFerias, complementoSomadoAFerias, foiSomadoAFerias, diasDoRecibo, informadasGuardadas, janelaDeMeses,
   liquidoDoRecibo, mediaDaGorjeta, semMarcasDoFeriasCombinado, valorFeriasComCombinado, type MesDaGorjeta,
 } from "./ferias-combinado.js";
+import { gravarInformadas, informadasDaPessoa } from "./gorjeta-integral-informada.service.js";
 import { gorjetaDaPessoa } from "./salario-combinado-folha.js";
 import { gorjetasDaCompetencia, mapaCombinados } from "./salario-combinado.service.js";
 
@@ -46,23 +47,25 @@ function validarInformadas(informadas: Record<string, unknown> | undefined, jane
   return out;
 }
 
-// Gorjeta integral (a mesma da folha de líquidos) de cada mês da janela. Informado à mão prevalece; sem apuração = ausente.
+// Gorjeta integral (a mesma da folha de líquidos) de cada mês da janela. Decisão do Eli (19/11/2026): se o mês tem apuração
+// no sistema, vale a apuração; o valor informado à mão só PREENCHE mês sem apuração (ou com apuração indisponível).
 async function mesesDaGorjeta(
   janela: ReadonlyArray<{ ano: number; mes: number; chave: string }>, informadas: ReadonlyMap<string, number>, employeeId: string, avisos: string[],
 ): Promise<MesDaGorjeta[]> {
   // Em paralelo: são até 12 apurações da casa inteira.
   return Promise.all(janela.map(async (m): Promise<MesDaGorjeta> => {
     const info = informadas.get(m.chave);
-    if (info != null) return { chave: m.chave, valor: info, origem: "INFORMADA" };
+    const informado = (): MesDaGorjeta => (info != null ? { chave: m.chave, valor: info, origem: "INFORMADA" } : { chave: m.chave, valor: null, origem: "AUSENTE" });
     try {
       const g = gorjetaDaPessoa(await gorjetasDaCompetencia(m.ano, m.mes), employeeId);
-      if (g == null) return { chave: m.chave, valor: null, origem: "AUSENTE" };
+      if (g == null) return informado();
+      if (info != null) avisos.push(`${m.chave}: há apuração no sistema, então o valor informado à mão (${reais(info)}) foi ignorado.`);
       // Fora do período ou paga na rescisão conta como zero naquele mês (mesma regra da folha de líquidos).
       return { chave: m.chave, valor: g.noPeriodo && !g.pagoNaRescisao ? round2(g.gorjetaLiquida) : 0, origem: "APURACAO" };
     } catch (err) {
       console.error(`[ferias-combinado] apuração de ${chaveDoMes(m.ano, m.mes)} falhou`, err);
-      avisos.push(`Não foi possível calcular a gorjeta de ${chaveDoMes(m.ano, m.mes)} (apuração indisponível): faturamento indisponível ou erro interno; o mês ficou fora da média.`);
-      return { chave: m.chave, valor: null, origem: "AUSENTE" };
+      avisos.push(`Não foi possível calcular a gorjeta de ${chaveDoMes(m.ano, m.mes)} (apuração indisponível): faturamento indisponível ou erro interno; ${info != null ? "valeu o valor informado à mão" : "o mês ficou fora da média"}.`);
+      return informado();
     }
   }));
 }
@@ -92,8 +95,12 @@ export async function somarCombinadoAFerias(a: {
   const combinado = (await mapaCombinados(anoGozo, mesGozo, [i.employeeId])).get(i.employeeId) ?? null;
   const avisos: string[] = [];
   const janela = janelaDeMeses(anoGozo, mesGozo);
+  const chaves = janela.map((m) => m.chave);
+  // Ordem de prevalência (a última vence): legado do título < tabela única < digitado agora.
   const informadas = new Map<string, number>([
-    ...Object.entries(informadasGuardadas(i.details)), ...validarInformadas(a.informadas, new Set(janela.map((m) => m.chave))),
+    ...Object.entries(informadasGuardadas(i.details)),
+    ...(await informadasDaPessoa(i.employeeId, chaves)).map((x) => [x.competencia, x.valor] as const),
+    ...validarInformadas(a.informadas, new Set(chaves)),
   ]);
   const previaBase = { payrollItemId: i.id, employeeId: i.employeeId, nome, liquidoRecibo: liquido, valorAntes: atual };
 
@@ -137,6 +144,9 @@ export async function somarCombinadoAFerias(a: {
     data: { amount: novo.valor, details: novo.details as Prisma.InputJsonValue, updatedById: a.usuario.id },
   });
   if (r.count === 0) return { aplicado: false, previa, motivo: "O título mudou durante o cálculo (pago, excluído ou editado): nada foi gravado." };
+  // Guarda na tabela única só o que valeu como informado (mês sem apuração); migra o legado do título ao reaplicar.
+  await gravarInformadas(i.employeeId, new Map(previa.meses.filter((m) => m.origem === "INFORMADA" && m.valor != null).map((m) => [m.chave, m.valor as number])), a.usuario.id)
+    .catch((e) => console.error("[ferias-combinado] gravar gorjeta informada falhou", e));
   await auditLog({
     userId: a.usuario.id, action: "FERIAS_COMBINADO_SOMADO", entity: "PayrollItem", entityId: i.id,
     previousValue: { amount: atual }, newValue: { amount: novo.valor, complemento: previa.complemento, combinado, mediaGorjeta: previa.mediaGorjeta },

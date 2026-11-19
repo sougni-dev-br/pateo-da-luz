@@ -9,6 +9,7 @@ vi.mock("../../../config/database.js", () => ({
     employeeScheduleDay: { findMany: vi.fn() },
     tipPeriod: { findMany: vi.fn() },
     decimoTerceiroVariavel: { findMany: vi.fn() },
+    gorjetaIntegralInformada: { findMany: vi.fn(async () => []) },
     rhExtract: { findMany: vi.fn() },
     dRECategory: { findFirst: vi.fn() },
     $transaction: vi.fn(),
@@ -55,6 +56,7 @@ beforeEach(() => {
   db.employeeScheduleDay.findMany.mockResolvedValue([]);
   db.tipPeriod.findMany.mockResolvedValue([]);
   db.decimoTerceiroVariavel.findMany.mockResolvedValue([]);
+  db.gorjetaIntegralInformada.findMany.mockResolvedValue([]);
   db.rhExtract.findMany.mockResolvedValue([]);
   db.dRECategory.findFirst.mockResolvedValue({ id: "dre1" });
   db.payrollItem.createMany.mockResolvedValue({ count: 1 });
@@ -359,6 +361,23 @@ describe("diferença da gorjeta integral no 13º do combinado", () => {
     db.decimoTerceiroVariavel.findMany.mockResolvedValue([{ employeeId: "e1", mes: 8, valor: 1900, motivo: "gorjeta integral paga por fora" }]);
     const l = await comb();
     expect(l.calculo!.mediaParcela1).toBe(1100); // (1.700 + 1.000 + 600) ÷ 3
+  });
+});
+
+describe("gorjeta informada na tabela única (férias) compõe o 13º", () => {
+  test("mês sem apuração preenchido pela tabela entra na média; a apuração prevalece sobre a tabela", async () => {
+    monta([itemExtrato()]);
+    db.rhExtract.findMany.mockResolvedValue([{ texto: textoExtrato("100,00") }]);
+    apuracao({ 8: 1000, 9: 1200, 10: 800 });
+    // abr sem apuração (preenche: 1.700 − 200 = +1.500); ago tem apuração (a informada 9.999 é ignorada)
+    db.gorjetaIntegralInformada.findMany.mockResolvedValue([
+      { employeeId: "e1", competencia: "2026-04", valor: 1700 }, { employeeId: "e1", competencia: "2026-08", valor: 9999 },
+      { employeeId: "e1", competencia: "2026-12", valor: 5000 }, { employeeId: "e1", competencia: "2025-03", valor: 5000 },
+    ]);
+    const previa = await listarDecimoTerceiroSR(2026);
+    const l = previa.linhas.find((x) => x.origem === "COMBINADO")!;
+    expect(l.calculo!.mediaParcela1).toBe(975); // (1.500 + 800 + 1.000 + 600) ÷ 4
+    expect(previa.avisos.join(" ")).toContain("04/2026");
   });
 });
 

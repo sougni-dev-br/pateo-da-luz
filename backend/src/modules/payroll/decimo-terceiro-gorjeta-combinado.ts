@@ -8,6 +8,8 @@
 // (a declarada é a média mensal que o extrato já pagou, tirada da própria rubrica). A média dessas variáveis (nunca negativa)
 // entra como (diferença do combinado + média) ÷ 12 × avos ÷ 2, igual à regra da contabilidade.
 
+import { informadasGuardadas } from "./ferias-combinado.js";
+
 const round2 = (v: number) => Math.round(v * 100) / 100;
 
 export const DESCRICAO_COMBINADO_E_GORJETA = "diferença do salário combinado e da gorjeta integral";
@@ -37,4 +39,51 @@ export function variaveisDaDiferencaDaGorjeta(
   const out = new Map<number, number>();
   for (const mes of [...mesesApurados].sort((a, b) => a - b)) out.set(mes, round2((integralPorMes.get(mes) ?? 0) - declaradaMensal));
   return out;
+}
+
+// Gorjeta informada à mão no modal de férias ("Complementar pelo combinado") — guardada no título FERIAS
+// (details.feriasCombinado.meses, origem INFORMADA, chave AAAA-MM) — também compõe o 13º do ano-base.
+// `detalhesDosTitulos` em ordem do mais antigo ao mais novo: o último prevalece no mesmo mês. Só meses 1 a 11.
+export function informadasDasFerias(detalhesDosTitulos: ReadonlyArray<unknown>, ano: number): Map<number, number> {
+  const out = new Map<number, number>();
+  for (const d of detalhesDosTitulos) {
+    for (const [chave, valor] of Object.entries(informadasGuardadas(d))) {
+      const [a, m] = chave.split("-").map(Number);
+      if (a === ano && m >= 1 && m <= 11) out.set(m, round2(valor));
+    }
+  }
+  return out;
+}
+
+// Meses da tabela única de gorjeta informada (competência AAAA-MM) que valem para o ano-base: jan a nov. Dezembro e outros anos ficam de fora.
+export function informadasDaTabela(linhas: ReadonlyArray<{ competencia: string; valor: number }>, ano: number): Map<number, number> {
+  const out = new Map<number, number>();
+  for (const l of linhas) {
+    const m = /^(\d{4})-(\d{2})$/.exec(l.competencia);
+    if (!m || Number(m[1]) !== ano) continue;
+    const mes = Number(m[2]);
+    if (mes >= 1 && mes <= 11 && Number.isFinite(l.valor)) out.set(mes, round2(l.valor));
+  }
+  return out;
+}
+
+// Gorjeta integral de cada mês do ano-base para a diferença do combinado. Precedência: valor informado na tela do 13º >
+// apuração do ERP > informada nas férias (esta só PREENCHE mês sem apuração; vira "mês apurado" para entrar na média).
+export function gorjetaIntegralDoCombinado(a: {
+  apuracao: ReadonlyMap<number, number>; apurados: ReadonlySet<number>; doDecimo: ReadonlyMap<number, number>; dasFerias: ReadonlyMap<number, number>;
+}): { integralPorMes: Map<number, number>; mesesApurados: Set<number>; mesesDasFerias: number[] } {
+  const integralPorMes = new Map(a.apuracao);
+  const mesesApurados = new Set(a.apurados);
+  const mesesDasFerias: number[] = [];
+  for (const [mes, valor] of [...a.dasFerias].sort((x, y) => x[0] - y[0])) {
+    if (a.apurados.has(mes) || a.doDecimo.has(mes)) continue;
+    integralPorMes.set(mes, valor);
+    mesesApurados.add(mes);
+    mesesDasFerias.push(mes);
+  }
+  for (const [mes, valor] of a.doDecimo) {
+    integralPorMes.set(mes, valor);
+    mesesApurados.add(mes);
+  }
+  return { integralPorMes, mesesApurados, mesesDasFerias };
 }
