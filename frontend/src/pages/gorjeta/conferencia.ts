@@ -1,6 +1,7 @@
 import type { TipComputation, TipComputedParticipant } from "../../api/client";
 import { compararComAnterior } from "./comparacaoMesAnterior";
 import { MONTHS, fmtDate, money, ordenar, pts } from "./gorjetaUtils";
+import { classificarSaldo } from "./saldoPequeno";
 
 // O papel de conferência da apuração: de onde veio o valor do ponto, o que está pendente e o que
 // cada pessoa recebe, na ordem em que quem confere lê. Serve ao PDF e à planilha: os dois saem
@@ -52,8 +53,12 @@ function rescisoes(comp: TipComputation): Array<[string, string]> {
 
 // O que sobra (ou estoura) do líquido e para onde vai, como a tela de Apuração explica.
 function rotuloDoSaldo(comp: TipComputation): string {
-  if (comp.saldo < -0.005) return "Excesso (passa do líquido)";
+  const saldo = classificarSaldo(comp).tipo;
+  if (saldo === "estouro") return "Excesso (passa do líquido)";
   const destino = comp.destinoEfetivo ?? comp.destinoSobra ?? "FUNDO";
+  if (saldo === "arredondamento") {
+    return `Arredondamento (${destino === "LIVRE" ? "fica livre no período" : destino === "REDISTRIBUIR" ? "pontos redistribuídos" : "vai ao fundo"})`;
+  }
   if (destino === "LIVRE") return "Livre no período (não vai ao fundo)";
   if (destino === "REDISTRIBUIR") return "Arredondamento (pontos redistribuídos)";
   return "Sobra (vai ao fundo)";

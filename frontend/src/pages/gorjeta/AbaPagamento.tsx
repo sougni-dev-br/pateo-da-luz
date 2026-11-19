@@ -11,6 +11,7 @@ import { AvisoReciboImpresso, useImprimirRecibos } from "./ImprimirRecibos";
 import "./gorjeta.css";
 import { type ColunaOpcional, SeletorColunas, useColunas } from "./colunas";
 import { BarraFiltro, opcoesDe, useFiltro } from "./filtro";
+import { rotuloDoSaldoNaTela } from "./saldoPequeno";
 import { NomePessoa, textoPessoa } from "./NomePessoa";
 import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
 import {
@@ -640,7 +641,7 @@ export function AbaPagamento({ comp, rows, readonly, onRow, onError }: Props) {
         <strong>Fundo de reserva da gorjeta</strong>
         <div style={{ display: "flex", gap: 24, flexWrap: "wrap", alignItems: "baseline", fontVariantNumeric: "tabular-nums" }}>
           <span>Reserva deste período ({pts(comp.reservaPontos)} pts): <strong>{money(comp.reservaTotal)}</strong></span>
-          <span>Saldo não distribuído: <strong>{money(Math.max(0, comp.saldo))}</strong>{(comp.saldoAoFundo ?? Math.max(0, comp.saldo)) === 0 && comp.saldo > 0.005 && <> (fica livre; não vai ao fundo)</>}</span>
+          <span>{rotuloDoSaldoNaTela(comp)}: <strong>{money(Math.max(0, comp.saldo))}</strong>{(comp.saldoAoFundo ?? Math.max(0, comp.saldo)) === 0 && comp.saldo > 0.005 && <> (fica livre; não vai ao fundo)</>}</span>
           <span>Entra no fundo ao fechar: <strong>{money(comp.reservaTotal + (comp.saldoAoFundo ?? Math.max(0, comp.saldo)))}</strong></span>
           <span>Saldo atual do fundo: <strong>{money(comp.fundoReservaSaldo)}</strong></span>
         </div>
