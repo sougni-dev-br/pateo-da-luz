@@ -7,6 +7,7 @@ import {
 } from "../api/client";
 import { AjusteServico } from "./gorjeta/AjusteServico";
 import { irParaLinhaQuandoPronta } from "./gorjeta/irParaPessoa";
+import { MudancasDoCiclo } from "./gorjeta/MudancasDoCiclo";
 import { Notice, useNotice } from "../components/Notice";
 import { useSession } from "../context/SessionContext";
 import { Button, FormField, FormGrid, StatusBadge, Tabs } from "../design-system";
@@ -541,6 +542,7 @@ export function FolhaGorjeta() {
                 </div>
               )}
 
+              {aba === "apuracao" && <MudancasDoCiclo comp={comp} />}
               {aba === "apuracao" && (
                 <AbaApuracao comp={comp} rows={rows} readonly={readonly} onRow={setRow}
                   onRemove={(p) => void remover(p)} onGorjetaReal={gravarGorjetaReal} conferencia={{ obterCalculo: calculoAtual, onErro: (m) => setNotice({ tone: "error", message: m }) }} onVerVales={(id) => { pedidosVales.current += 1; setPedidoVales(id ? { pessoa: id, n: pedidosVales.current } : null); setAba("vales"); }}

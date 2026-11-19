@@ -89,15 +89,21 @@ export type Mudanca = {
   participa: boolean;
   motivo: string | null;
   registradoEm: string;
+  // Quem registrou a mudança (usuário que salvou); null se o usuário não existe mais.
+  registradoPor: string | null;
 };
 
 export async function listarMudancas(opts: { de?: Date; ate?: Date; employeeId?: string }): Promise<Mudanca[]> {
   // Traz tudo do(s) funcionário(s) para saber o "antes" de cada linha, e filtra a vigência no fim.
   const linhas = await prisma.employeeTipHistory.findMany({
-    where: { employeeId: opts.employeeId },
+    // O que vale depois do fim da janela não muda o "antes" de ninguém: não precisa vir.
+    where: { employeeId: opts.employeeId, ...(opts.ate ? { validFrom: { lte: opts.ate } } : {}) },
     orderBy: [{ employeeId: "asc" }, { validFrom: "asc" }, { createdAt: "asc" }],
     include: { employee: { select: { firstName: true, lastName: true, displayName: true } } },
   });
+  const idsDeQuem = [...new Set(linhas.map((l) => l.changedById))];
+  const usuarios = idsDeQuem.length ? await prisma.user.findMany({ where: { id: { in: idsDeQuem } }, select: { id: true, name: true } }) : [];
+  const nomeDeQuem = new Map(usuarios.map((u) => [u.id, u.name]));
   const resultado: Mudanca[] = [];
   let anterior: (typeof linhas)[number] | null = null;
   for (const l of linhas) {
@@ -127,6 +133,7 @@ export async function listarMudancas(opts: { de?: Date; ate?: Date; employeeId?:
         participa: l.participaGorjeta,
         motivo: l.reason,
         registradoEm: l.createdAt.toISOString(),
+        registradoPor: nomeDeQuem.get(l.changedById) ?? null,
       });
     }
     anterior = l;

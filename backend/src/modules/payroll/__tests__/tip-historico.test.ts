@@ -1,7 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 
 vi.mock("../../../config/database.js", () => ({
-  prisma: { employeeTipHistory: { findMany: vi.fn() }, tipPeriod: { findMany: vi.fn() }, tipReserveMovement: { findMany: vi.fn() } },
+  prisma: { employeeTipHistory: { findMany: vi.fn() }, tipPeriod: { findMany: vi.fn() }, tipReserveMovement: { findMany: vi.fn() }, user: { findMany: vi.fn(async () => []) } },
 }));
 
 import { prisma } from "../../../config/database.js";
@@ -44,12 +44,27 @@ describe("listarMudancas", () => {
     expect(promocao.motivo).toBe("Promoção");
   });
 
+  test("traz quem registrou cada mudança; usuário que não existe mais fica sem nome", async () => {
+    vi.mocked(prisma.user.findMany).mockClear();
+    vi.mocked(prisma.employeeTipHistory.findMany).mockResolvedValue([
+      linha("2026-01-10", { changedById: "u-eli" }),
+      linha("2026-05-01", { pontosExtra: 0.5, basePoints: 4, changedById: "u-sumiu" }),
+    ] as never);
+    vi.mocked(prisma.user.findMany).mockResolvedValueOnce([{ id: "u-eli", name: "Eli" }] as never);
+    const r = await listarMudancas({});
+    expect(r.find((m) => m.validFrom.startsWith("2026-01-10"))!.registradoPor).toBe("Eli");
+    expect(r.find((m) => m.validFrom.startsWith("2026-05-01"))!.registradoPor).toBeNull();
+    expect(prisma.user.findMany).toHaveBeenCalledTimes(1);
+  });
+
   test("filtro de datas usa a vigência, mas o 'antes' vem da linha anterior mesmo fora do filtro", async () => {
     vi.mocked(prisma.employeeTipHistory.findMany).mockResolvedValue([
       linha("2025-01-01", {}),
       linha("2026-09-10", { pontosExtra: 1.5, basePoints: 5 }),
     ] as never);
     const r = await listarMudancas({ de: d("2026-09-01"), ate: d("2026-09-30") });
+    // O banco não traz o que vale depois do fim da janela (não muda o "antes" de ninguém).
+    expect(vi.mocked(prisma.employeeTipHistory.findMany).mock.calls.at(-1)![0]!.where).toEqual({ employeeId: undefined, validFrom: { lte: d("2026-09-30") } });
     expect(r).toHaveLength(1);
     expect(r[0].tipo).toBe("PROMOCAO");
     expect(r[0].baseAntes).toBe(3.5);

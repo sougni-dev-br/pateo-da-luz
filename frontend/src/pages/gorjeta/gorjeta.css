@@ -485,6 +485,15 @@
 .extra-motivo { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .extra-lapis { color: var(--muted); }
 .linha-em-edicao > td { background: color-mix(in srgb, var(--ink) 3%, transparent); }
+.mudancas-ciclo { border: 1px solid var(--border); border-radius: 10px; background: var(--surface, #fff); padding: 6px 12px; font-size: 13px; }
+.mudancas-ciclo > summary { cursor: pointer; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-weight: 600; list-style: none; }
+.mudancas-ciclo > summary::-webkit-details-marker { display: none; }
+.mudancas-ciclo > summary::before { content: "▸"; color: var(--muted, #666); }
+.mudancas-ciclo[open] > summary::before { content: "▾"; }
+.mudancas-ciclo > ul { list-style: none; margin: 8px 0 2px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.mudancas-ciclo > ul > li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.mudancas-ciclo-meta { color: var(--muted, #666); font-size: 12px; }
+.mudancas-ciclo-aviso { margin: 0; font-size: 12px; color: var(--muted, #666); }
 .botoes-conferencia { display: inline-flex; flex-wrap: wrap; gap: 6px; }
 .comparacao { font-size: 11px; }
 .comparacao > summary { cursor: pointer; white-space: nowrap; list-style: none; }

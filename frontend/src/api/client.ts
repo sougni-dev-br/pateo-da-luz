@@ -8277,6 +8277,8 @@ export type TipMudanca = {
   id: string; employeeId: string; employeeName: string; validFrom: string; tipo: TipMudancaTipo;
   funcaoAntes: string | null; funcaoDepois: string | null; baseAntes: number | null; baseDepois: number | null;
   diferenca: number | null; participa: boolean; motivo: string | null; registradoEm: string;
+  /** Quem registrou a mudança (ausente em respostas antigas). */
+  registradoPor?: string | null;
   apelido?: string | null;
 };
 export type TipEvolucao = {

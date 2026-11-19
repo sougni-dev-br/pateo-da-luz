@@ -16,6 +16,11 @@ export function fmtDia(iso: string) {
   return new Date(iso).toLocaleDateString("pt-BR", { timeZone: "UTC" });
 }
 
+// Quando algo foi digitado: a hora vem em UTC, o dia é o de quem usa (Brasília).
+export function fmtDiaDigitado(iso: string) {
+  return new Date(iso).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
+}
+
 // Uma pessoa: do mais recente para o mais antigo, com função e pontos antes → depois.
 export function HistoricoLinhaDoTempo({ mudancas }: { mudancas: TipMudanca[] }) {
   if (mudancas.length === 0) return <span style={mutedStyle}>Sem registros no histórico.</span>;
@@ -43,6 +48,7 @@ export function HistoricoLinhaDoTempo({ mudancas }: { mudancas: TipMudanca[] }) 
               {!m.participa && <span style={mutedStyle}> · fora da gorjeta</span>}
             </div>
             {m.motivo && <div style={mutedStyle}>{m.motivo}</div>}
+            {m.registradoPor && <div style={mutedStyle}>Registrado por {m.registradoPor} em {fmtDiaDigitado(m.registradoEm)}</div>}
           </li>
         );
       })}
