@@ -94,6 +94,8 @@ export type FeriasAtual = {
   combinado: number | null; meses: ReadonlyArray<MesDaGorjeta>; liquidoRecibo: number | null; dias?: number;
   /** Competências da janela cuja apuração de gorjeta ainda não está FECHADA (a média delas pode mudar). */
   mesesAbertos: ReadonlyArray<string>;
+  /** Competências com valor da planilha (GorjetaIntegralInformada ou DecimoTerceiroVariavel): não são "zerados" nem "abertos". */
+  daPlanilha?: ReadonlySet<string>;
 };
 
 export function auditarFerias(pessoa: string, t: TituloAuditado, atual: FeriasAtual): Achado[] {
@@ -146,10 +148,10 @@ export function auditarFerias(pessoa: string, t: TituloAuditado, atual: FeriasAt
       + `${mudaram.length > 0 ? `Meses que mudaram: ${mudaram.map((m) => { const n = atual.meses.find((x) => x.chave === m.chave); return `${m.chave} ${reais(m.valor ?? 0)} → ${n?.valor == null ? "sem valor" : reais(n.valor)}`; }).join("; ")}. ` : ""}`
       + `${t.pago ? "O título JÁ FOI PAGO com a base antiga." : "Reaplique em RH > Férias para atualizar."}`));
   }
-  const abertos = atual.mesesAbertos;
+  const abertos = atual.mesesAbertos.filter((c) => !atual.daPlanilha?.has(c));
   if (abertos.length > 0 && !t.pago) out.push(achado("ATENCAO", "ferias-mes-aberto", pessoa, t, `Gorjeta ainda não fechada em ${abertos.join(", ")}: a média das férias pode mudar até o fechamento. Reaplique o complemento depois de fechar e antes de pagar.`));
   if (media.mesesAusentes.length > 0) out.push(achado("ATENCAO", "ferias-mes-ausente", pessoa, t, `Sem apuração nem valor informado em ${media.mesesAusentes.join(", ")}: ficaram fora da média (${media.mesesContados} mês(es) contados).`));
-  const zerados = atual.meses.filter((m) => m.origem === "APURACAO" && m.valor === 0).map((m) => m.chave);
+  const zerados = atual.meses.filter((m) => m.origem === "APURACAO" && m.valor === 0 && !atual.daPlanilha?.has(m.chave)).map((m) => m.chave);
   if (zerados.length > 0) out.push(achado("ATENCAO", "mes-apuracao-zero", pessoa, t, `Mês(es) com apuração zero e sem valor informado à mão: ${zerados.join(", ")} entram na média como R$ 0,00. Se houve gorjeta (planilha), informe o valor.`));
   const zeroInformado = atual.meses.filter((m) => m.apuracaoZero).map((m) => m.chave);
   if (zeroInformado.length > 0) out.push(achado("OK", "mes-apuracao-zero", pessoa, t, `Mês(es) com apuração zero em que valeu o valor informado à mão: ${zeroInformado.join(", ")}.`));
@@ -191,25 +193,32 @@ export function auditarGorjetaDeclarada(pessoa: string, a: {
   return [achado("OK", "declarada", pessoa, null, `Integral média ${reais(media)} ≥ declarada ${reais(a.declaradaMensal)} do extrato; só a diferença (${reais(round2(media - a.declaradaMensal))}) é somada${abaixo.length > 0 ? ` (em ${abaixo.length} mês(es) a integral ficou abaixo da declarada e abate a média)` : ""}.`)];
 }
 
-// ── 6. Férias e 13º usam a mesma gorjeta no mesmo mês ─────────────────────────────────────
-export function auditarCruzado(pessoa: string, a: {
-  ano: number; mesesFerias: ReadonlyArray<MesDaGorjeta>; decimoIntegralPorMes: ReadonlyMap<number, number>;
-}): Achado[] {
+// ── 6. Salário pago, férias e 13º usam a MESMA gorjeta em cada mês ───────────────────────
+/** Gorjeta integral que cada consumidor usou no mês. `planilha`: o valor veio da planilha (informado), não da apuração do ERP. */
+export type ConsumoDoMes = { chave: string; salario?: number | null; ferias?: number | null; decimo?: number | null; planilha?: boolean };
+
+export function auditarConsumidores(pessoa: string, meses: ReadonlyArray<ConsumoDoMes>): Achado[] {
   const out: Achado[] = [];
-  for (const m of a.mesesFerias) {
-    const [ano, mes] = m.chave.split("-").map(Number);
-    if (ano !== a.ano || mes > 11 || !a.decimoIntegralPorMes.has(mes)) continue;
-    const noDecimo = a.decimoIntegralPorMes.get(mes) as number;
-    if (m.valor == null || difere(m.valor, noDecimo)) {
-      out.push(achado("ATENCAO", "ferias-vs-13", pessoa, null,
-        `${m.chave}: as férias usam ${m.valor == null ? "nenhum valor" : reais(m.valor)} de gorjeta e o 13º usa ${reais(noDecimo)}. É a mesma gorjeta integral: informe o mesmo valor nos dois (a diferença muda o complemento em ${reais(round2(((noDecimo - (m.valor ?? 0)) / 12) * 4 / 3))} nas férias, na média de 12 meses).`));
-    }
+  const consistentesDaPlanilha: string[] = [];
+  for (const m of [...meses].sort((a, b) => a.chave.localeCompare(b.chave))) {
+    const usos = ([["salário pago", m.salario], ["férias", m.ferias], ["13º", m.decimo]] as const).filter(([, v]) => v !== undefined) as Array<[string, number | null]>;
+    if (usos.length < 2) continue;
+    const base = usos.find(([, v]) => v != null)?.[1] ?? null;
+    const diverge = usos.some(([, v]) => (v == null) !== (base == null) || (v != null && base != null && difere(v, base)));
+    if (!diverge) { if (m.planilha) consistentesDaPlanilha.push(m.chave); continue; }
+    const texto = usos.map(([nome, v]) => `${nome} ${v == null ? "sem valor" : reais(v)}`).join(" × ");
+    const ferias = usos.find(([n]) => n === "férias")?.[1];
+    const outro = usos.find(([n, v]) => n !== "férias" && v != null)?.[1];
+    const efeito = ferias !== undefined && outro != null ? ` Nas férias isso muda o complemento em ${reais(round2(((outro - (ferias ?? 0)) / 12) * 4 / 3))} (média de 12 meses).` : "";
+    out.push(achado("ATENCAO", "gorjeta-entre-titulos", pessoa, null, `${m.chave}${m.planilha ? " (gorjeta da planilha)" : ""}: ${texto}. É a mesma gorjeta integral: salário, férias e 13º devem usar o mesmo valor.${efeito}`));
   }
+  if (consistentesDaPlanilha.length > 0) out.push(achado("OK", "gorjeta-planilha", pessoa, null, `Meses com gorjeta da planilha usada igual em todos os títulos: ${consistentesDaPlanilha.join(", ")}.`));
   return out;
 }
 
 // ── 7. Salário do mês (combinado): recalculado ≈ gravado; dias de férias descontados ──────
-export type SalarioAtual = { valor: number; diasDeFerias: number; pendenteGorjeta: boolean };
+/** `daPlanilha`: o mês foi fechado pela planilha; o salário não é comparado com a apuração do ERP (só entre títulos, regra 6). */
+export type SalarioAtual = { valor: number; diasDeFerias: number; pendenteGorjeta: boolean; daPlanilha?: boolean };
 
 export function auditarSalario(pessoa: string, t: TituloAuditado, atual: SalarioAtual): Achado[] {
   const out: Achado[] = [];
@@ -220,11 +229,10 @@ export function auditarSalario(pessoa: string, t: TituloAuditado, atual: Salario
   }
   if (atual.pendenteGorjeta) {
     out.push(achado("ATENCAO", "salario-pendente", pessoa, t, "Gorjeta do mês ainda não apurada: o salário está só com o líquido do extrato."));
+  } else if (atual.daPlanilha || t.pago) {
+    out.push(achado("OK", "salario-planilha", pessoa, t, `Salário ${reais(t.amount)} ${t.pago ? "já pago" : "com a gorjeta da planilha"}: não comparado com a apuração do ERP (hoje daria ${reais(atual.valor)}); a conferência é entre salário, férias e 13º (gorjeta de cada mês).`));
   } else if (difere(t.amount, atual.valor)) {
-    const dif = round2(t.amount - atual.valor);
-    out.push(achado("ATENCAO", "salario-diferente", pessoa, t, t.pago
-      ? `Pago ${reais(t.amount)}, mas o cálculo de hoje dá ${reais(atual.valor)}: ${dif > 0 ? `pago a MAIS ${reais(dif)}` : `pago a MENOS ${reais(-dif)}`} (a apuração da gorjeta do mês mudou depois do pagamento).`
-      : `Título ${reais(t.amount)} ≠ cálculo de hoje ${reais(atual.valor)}: sincronize os salários combinados do mês.`));
+    out.push(achado("ATENCAO", "salario-diferente", pessoa, t, `Título ${reais(t.amount)} ≠ cálculo de hoje ${reais(atual.valor)}: sincronize os salários combinados do mês.`));
   } else out.push(achado("OK", "salario", pessoa, t, `Salário ${reais(t.amount)} confere com o cálculo de hoje.`));
   return out;
 }

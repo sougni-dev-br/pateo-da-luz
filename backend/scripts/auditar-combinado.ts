@@ -66,6 +66,13 @@ const informadas13 = await infSvc.informadasDoAno(empregados.map((e) => e.id), a
 for (const e of empregados) {
   const pessoa = e.displayName?.trim() || `${e.firstName} ${e.lastName}`.trim();
   const titulos = await titulosDe(e.id);
+  // Meses cuja gorjeta veio da planilha: valor informado (GorjetaIntegralInformada) ou digitado no 13º (DecimoTerceiroVariavel).
+  const planilha = new Set<string>([
+    ...(await prisma.gorjetaIntegralInformada.findMany({ where: { employeeId: e.id }, select: { competencia: true } })).map((x) => x.competencia),
+    ...(await prisma.decimoTerceiroVariavel.findMany({ where: { employeeId: e.id }, select: { ano: true, mes: true } })).map((x) => fc.chaveDoMes(x.ano, x.mes)),
+  ]);
+  const consumo = new Map<string, import("../src/modules/payroll/auditoria-combinado.js").ConsumoDoMes>();
+  const usar = (chave: string, campo: "salario" | "ferias" | "decimo", valor: number | null) => consumo.set(chave, { ...(consumo.get(chave) ?? { chave }), [campo]: valor, planilha: planilha.has(chave) });
   achados.push(...aud.auditarDuplicidade(pessoa, titulos));
   for (const t of titulos) achados.push(...aud.auditarTituloSomado(pessoa, t));
 
@@ -77,8 +84,9 @@ for (const e of empregados) {
       if (t.pago) continue; // título pago não é recalculado pelo serviço (nunca muda); a integridade dele já foi conferida acima
       const r = await ferias.somarCombinadoAFerias({ payrollItemId: t.id, aplicar: false, usuario: { id: "auditoria", name: "auditoria" } });
       mesesFerias = r.previa.meses;
+      for (const m of r.previa.meses) usar(m.chave, "ferias", m.valor);
       achados.push(...aud.auditarFerias(pessoa, t, {
-        combinado: r.previa.combinado, meses: r.previa.meses, liquidoRecibo: r.previa.liquidoRecibo, mesesAbertos: await abertoDe(r.previa.meses.map((m) => m.chave)),
+        combinado: r.previa.combinado, meses: r.previa.meses, liquidoRecibo: r.previa.liquidoRecibo, mesesAbertos: await abertoDe(r.previa.meses.map((m) => m.chave)), daPlanilha: planilha,
       }));
     } catch (err) {
       achados.push({ severidade: "ATENCAO", regra: "ferias-nao-recalculada", pessoa, titulo: `Férias ${t.rotulo}`, mensagem: `Não foi possível recalcular o complemento: ${(err as Error).message}` });
@@ -96,9 +104,13 @@ for (const e of empregados) {
   const dasTabela = dg.informadasDaTabela(informadas13.get(e.id) ?? [], ano);
   const g = dg.gorjetaIntegralDoCombinado({ apuracao: variaveis.gorjetaIntegral.get(e.id) ?? new Map(), apurados: variaveis.apurados, doDecimo, dasFerias: dasTabela });
   if (declaradaMensal != null) achados.push(...aud.auditarGorjetaDeclarada(pessoa, { declaradaMensal, integralPorMes: g.integralPorMes, mesesApurados: g.mesesApurados }));
-  if (mesesFerias.length > 0) achados.push(...aud.auditarCruzado(pessoa, { ano, mesesFerias, decimoIntegralPorMes: g.integralPorMes }));
+  for (const [mes, v] of g.integralPorMes) if (mes <= 11) usar(fc.chaveDoMes(ano, mes), "decimo", v);
 
   // Salário do mês: só o que já foi calculado como combinado (ou está pendente de gorjeta), dos últimos 4 meses em diante.
+  for (const t of titulos.filter((x) => x.tipo === "SALARIO" && objeto(x.details).origemValor === "SALARIO_COMBINADO")) {
+    const gi = num(objeto(t.details).gorjetaIntegral);
+    if (gi != null) usar(fc.chaveDoMes(t.ano, t.mes), "salario", gi);
+  }
   const recentes = titulos.filter((t) => t.tipo === "SALARIO" && (t.ano * 12 + t.mes) >= (ano * 12 + mesAtual - 4));
   for (const t of recentes) {
     const d = objeto(t.details);
@@ -109,8 +121,9 @@ for (const e of empregados) {
     const gorjeta = tit.gorjetaDaPessoa(await sal.gorjetasDaCompetencia(t.ano, t.mes), e.id);
     const f = (await sal.feriasNoMes(t.ano, t.mes, [e.id])).get(e.id) ?? null;
     const calc = tit.salarioDaFolha({ liquidoExtrato: liquido, adiantamento: num(d.adiantamento), combinado, gorjeta, ferias: f });
-    achados.push(...aud.auditarSalario(pessoa, t, { valor: calc.valor, diasDeFerias: calc.detalhes.diasDeFerias ?? 0, pendenteGorjeta: calc.pendenteGorjeta }));
+    achados.push(...aud.auditarSalario(pessoa, t, { valor: calc.valor, diasDeFerias: calc.detalhes.diasDeFerias ?? 0, pendenteGorjeta: calc.pendenteGorjeta, daPlanilha: planilha.has(fc.chaveDoMes(t.ano, t.mes)) }));
   }
+  achados.push(...aud.auditarConsumidores(pessoa, [...consumo.values()]));
 }
 
 console.log("");

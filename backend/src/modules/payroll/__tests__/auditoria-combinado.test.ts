@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  auditarCruzado, auditarDecimo, auditarDuplicidade, auditarFerias, auditarGorjetaDeclarada, auditarSalario, auditarTituloSomado,
+  auditarConsumidores, auditarDecimo, auditarDuplicidade, auditarFerias, auditarGorjetaDeclarada, auditarSalario, auditarTituloSomado,
   codigoDeSaida, formatarRelatorio, resumir, type Achado, type FeriasAtual, type TituloAuditado,
 } from "../auditoria-combinado.js";
 import type { MesDaGorjeta } from "../ferias-combinado.js";
@@ -93,6 +93,10 @@ describe("auditarFerias", () => {
     expect(r.find((x) => x.regra === "ferias-base-mudou")?.mensagem).toContain("2026-07 R$ 0,00 → R$ 1.392,45");
     expect(r.find((x) => x.regra === "ferias-base-mudou")?.mensagem).toContain("R$ 3.911,08");
   });
+  it("mês zerado ou aberto que veio da planilha não gera aviso de zerado/aberto", () => {
+    const r = auditarFerias(PESSOA, feriasTitulo(), feriasAtual({ mesesAbertos: ["2026-07"], daPlanilha: new Set(["2026-07"]) }));
+    expect(regras(r, "ATENCAO")).toEqual([]);
+  });
   it("acusa quando o recibo lido agora tem outro líquido", () => {
     expect(regras(auditarFerias(PESSOA, feriasTitulo(), feriasAtual({ liquidoRecibo: 5000 })), "ERRO")).toContain("ferias-recibo");
   });
@@ -179,15 +183,28 @@ describe("auditarGorjetaDeclarada", () => {
   });
 });
 
-describe("auditarCruzado (férias × 13º)", () => {
-  it("julho: férias com 0,00 e 13º com 1.392,45 é divergência, e diz o efeito nas férias", () => {
-    const r = auditarCruzado(PESSOA, { ano: 2026, mesesFerias: MESES_REAIS, decimoIntegralPorMes: new Map([[7, 1392.45], [8, 2016.17]]) });
+describe("auditarConsumidores (salário pago × férias × 13º)", () => {
+  it("julho: 13º com 1.392,45 (planilha) e férias com 0,00 é divergência, com o efeito nas férias", () => {
+    const r = auditarConsumidores(PESSOA, [{ chave: "2026-07", ferias: 0, decimo: 1392.45, planilha: true }]);
     expect(r).toHaveLength(1);
-    expect(r[0].mensagem).toContain("2026-07");
+    expect(r[0].severidade).toBe("ATENCAO");
+    expect(r[0].mensagem).toContain("2026-07 (gorjeta da planilha)");
     expect(r[0].mensagem).toContain("R$ 154,72");
   });
-  it("meses iguais nos dois não geram achado", () => {
-    expect(auditarCruzado(PESSOA, { ano: 2026, mesesFerias: MESES_REAIS, decimoIntegralPorMes: new Map([[8, 2016.17], [9, 2223.54]]) })).toEqual([]);
+  it("agosto: salário pago 2.593,97 × férias 2.016,17 é divergência entre títulos", () => {
+    const r = auditarConsumidores(PESSOA, [{ chave: "2026-08", salario: 2593.97, ferias: 2016.17, decimo: 2016.17 }]);
+    expect(regras(r, "ATENCAO")).toEqual(["gorjeta-entre-titulos"]);
+    expect(r[0].mensagem).toContain("salário pago R$ 2.593,97 × férias R$ 2.016,17");
+  });
+  it("mês da planilha igual em todos os títulos é OK informativo", () => {
+    const r = auditarConsumidores(PESSOA, [{ chave: "2026-08", salario: 2593.97, ferias: 2593.97, decimo: 2593.97, planilha: true }]);
+    expect(r.map((x) => x.severidade)).toEqual(["OK"]);
+  });
+  it("férias sem valor no mês contra 13º com valor diverge", () => {
+    expect(regras(auditarConsumidores(PESSOA, [{ chave: "2026-03", ferias: null, decimo: 1500 }]), "ATENCAO")).toEqual(["gorjeta-entre-titulos"]);
+  });
+  it("com um só consumidor não há o que comparar", () => {
+    expect(auditarConsumidores(PESSOA, [{ chave: "2026-12", ferias: 700 }])).toEqual([]);
   });
 });
 
@@ -196,10 +213,17 @@ describe("auditarSalario", () => {
     id: "s", tipo: "SALARIO", rotulo: "Extrato 08/2026", ano: 2026, mes: 8, periodStart: null, periodEnd: null, amount: 6325.17, paidAmount: 6325.17, pago: true,
     details: { origemValor: "SALARIO_COMBINADO", ...detalhes }, ...over,
   });
-  it("agosto/2026: pago 6.325,17, hoje 5.747,37 → pago a mais 577,80", () => {
+  it("salário já pago não é comparado com a apuração de hoje (quem confere é a regra entre títulos)", () => {
     const r = auditarSalario(PESSOA, sal(), { valor: 5747.37, diasDeFerias: 0, pendenteGorjeta: false });
+    expect(r.map((x) => x.severidade)).toEqual(["OK"]);
+  });
+  it("salário em aberto diferente do cálculo de hoje pede para sincronizar", () => {
+    const r = auditarSalario(PESSOA, sal({ pago: false, paidAmount: null }), { valor: 5747.37, diasDeFerias: 0, pendenteGorjeta: false });
     expect(regras(r, "ATENCAO")).toEqual(["salario-diferente"]);
-    expect(r[0].mensagem).toContain("pago a MAIS R$ 577,80");
+  });
+  it("agosto/2026 fechado pela planilha: pago 6.325,17 não é comparado com a apuração do ERP", () => {
+    const r = auditarSalario(PESSOA, sal(), { valor: 5747.37, diasDeFerias: 0, pendenteGorjeta: false, daPlanilha: true });
+    expect(r.map((x) => x.severidade)).toEqual(["OK"]);
   });
   it("setembro/2026 confere", () => {
     const r = auditarSalario(PESSOA, sal({ amount: 5954.74 }), { valor: 5954.74, diasDeFerias: 0, pendenteGorjeta: false });
