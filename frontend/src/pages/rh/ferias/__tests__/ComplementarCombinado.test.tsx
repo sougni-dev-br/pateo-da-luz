@@ -79,20 +79,38 @@ describe("ComplementarCombinado", () => {
     expect(mock.mock.calls[1]).toEqual(["pi1", false, { "2026-01": 1234.5 }]);
   });
 
-  test("mês com apuração zero é digitável; apuração maior que zero não; informado sobre zero mostra a origem", async () => {
+  test("qualquer mês é digitável, mostra a apuração do ERP como referência e o selo quando o informado vale", async () => {
     mock.mockResolvedValue({
       aplicado: false,
       previa: previa({ meses: [
-        { chave: mes(2), valor: 1500, origem: "APURACAO" }, { chave: mes(3), valor: 0, origem: "APURACAO" },
-        { chave: mes(4), valor: 1392.45, origem: "INFORMADA", apuracaoZero: true },
+        { chave: mes(2), valor: 1500, origem: "APURACAO", apuracaoErp: 1500 }, { chave: mes(3), valor: 0, origem: "APURACAO", apuracaoErp: 0 },
+        { chave: mes(4), valor: 2593.97, origem: "INFORMADA", apuracaoErp: 2016.17 }, { chave: mes(5), valor: 800, origem: "INFORMADA", apuracaoErp: null },
       ] }),
     });
     abrir();
-    expect(await screen.findByLabelText("Gorjeta de 03/2026")).toBeInTheDocument();
-    expect(screen.getByLabelText("Gorjeta de 04/2026")).toHaveValue("1392.45");
-    expect(screen.queryByLabelText("Gorjeta de 02/2026")).not.toBeInTheDocument();
-    expect(screen.getByText("apuração zero, valeu o informado")).toBeInTheDocument();
-    expect(screen.getByText(/apuração zero; mês com apuração maior que zero usa sempre a apuração/)).toBeInTheDocument();
+    expect(await screen.findByLabelText("Gorjeta de 02/2026")).toBeInTheDocument();
+    expect(screen.getByLabelText("Gorjeta de 03/2026")).toBeInTheDocument();
+    expect(screen.getByLabelText("Gorjeta de 04/2026")).toHaveValue("2593.97");
+    expect(Array.from(document.querySelectorAll(".fe-comb-mes-ref")).map((e) => e.textContent ?? "").some((t) => /ERP:.*2\.016,17/.test(t))).toBe(true);
+    expect(screen.getAllByText("informado vale sobre a apuração")).toHaveLength(1);
+    expect(screen.getByText("informada à mão")).toBeInTheDocument();
+    expect(screen.getAllByText("apuração")).toHaveLength(2);
+    expect(screen.getByText(/o valor informado vale sobre a apuração do ERP/)).toBeInTheDocument();
+  });
+
+  test("apagar o campo de um mês informado envia null (volta a usar a apuração); mês nunca informado não envia nada", async () => {
+    mock.mockResolvedValue({
+      aplicado: false,
+      previa: previa({ meses: [
+        { chave: mes(2), valor: 1500, origem: "APURACAO", apuracaoErp: 1500 }, { chave: mes(4), valor: 2593.97, origem: "INFORMADA", apuracaoErp: 2016.17 },
+      ] }),
+    });
+    abrir();
+    fireEvent.change(await screen.findByLabelText("Gorjeta de 04/2026"), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("Gorjeta de 02/2026"), { target: { value: "1.800,00" } });
+    fireEvent.click(screen.getByRole("button", { name: /Recalcular prévia/ }));
+    await waitFor(() => expect(mock).toHaveBeenCalledTimes(2));
+    expect(mock.mock.calls[1]).toEqual(["pi1", false, { "2026-02": 1800, "2026-04": null }]);
   });
 
   test("Gerar PDF sai como prévia antes de confirmar e como gravado depois", async () => {

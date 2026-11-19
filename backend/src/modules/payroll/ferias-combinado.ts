@@ -30,8 +30,8 @@ export function combinadoProporcional(a: { combinado: number; diasDeFerias: numb
 // ── Média da gorjeta (A) ────────────────────────────────────────────────────────────────
 export type MesDaJanela = { ano: number; mes: number; chave: string };
 export type OrigemDoMes = "APURACAO" | "INFORMADA" | "AUSENTE";
-/** `apuracaoZero`: a apuração do mês deu zero e valeu o informado à mão (a tela mostra isso). */
-export type MesDaGorjeta = { chave: string; valor: number | null; origem: OrigemDoMes; apuracaoZero?: boolean };
+/** `apuracaoErp`: a apuração do ERP do mês, como referência (null = sem apuração); pode diferir de `valor` quando o informado vale. */
+export type MesDaGorjeta = { chave: string; valor: number | null; origem: OrigemDoMes; apuracaoErp?: number | null };
 export type MediaDaGorjeta = { media: number; mesesContados: number; mesesAusentes: string[] };
 
 export const chaveDoMes = (ano: number, mes: number) => `${ano}-${String(mes).padStart(2, "0")}`;
@@ -46,19 +46,17 @@ export function janelaDeMeses(anoGozo: number, mesGozo: number, n: number = MESE
   });
 }
 
-export type ValorDoMes = { valor: number | null; origem: OrigemDoMes; apuracaoZero?: boolean; informadaIgnorada?: boolean };
+export type ValorDoMes = { valor: number | null; origem: OrigemDoMes; apuracaoErp: number | null };
 
 /**
- * Qual gorjeta vale no mês (decisão do Eli, 19/11/2026): apuração do ERP MAIOR QUE ZERO vale mais que o digitado; apuração
- * ZERO ou ausente (null) aceita o informado à mão. Regra única das férias e do 13º do combinado.
+ * Qual gorjeta vale no mês (decisão do Eli, 19/11/2026, revista): o valor INFORMADO (ex.: fechado pela planilha) vale sobre a
+ * apuração do ERP, seja ela zero, aberta ou parcial; a apuração só entra quando não há informado. Regra única das férias e do 13º.
  */
 export function valorDoMesDaGorjeta(a: { apuracao: number | null; informada: number | null }): ValorDoMes {
-  if (a.apuracao != null && a.apuracao > 0) return { valor: round2(a.apuracao), origem: "APURACAO", informadaIgnorada: a.informada != null };
-  if (a.informada != null && !(a.apuracao != null && a.informada === 0)) {
-    return a.apuracao != null ? { valor: a.informada, origem: "INFORMADA", apuracaoZero: true } : { valor: a.informada, origem: "INFORMADA" };
-  }
-  if (a.apuracao != null) return { valor: round2(a.apuracao), origem: "APURACAO", informadaIgnorada: false };
-  return { valor: null, origem: "AUSENTE" };
+  const apuracaoErp = a.apuracao == null ? null : round2(a.apuracao);
+  if (a.informada != null) return { valor: round2(a.informada), origem: "INFORMADA", apuracaoErp };
+  if (apuracaoErp != null) return { valor: apuracaoErp, origem: "APURACAO", apuracaoErp };
+  return { valor: null, origem: "AUSENTE", apuracaoErp: null };
 }
 
 /** Média dos meses com valor (apurado ou informado). Mês sem nada não entra na conta: é listado para conferência. */

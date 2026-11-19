@@ -105,18 +105,18 @@ describe("gorjetaIntegralDoCombinado", () => {
     expect(r.mesesApurados.has(3)).toBe(true);
     expect(r.mesesDasFerias).toEqual([3]);
   });
-  test("mês apurado com gorjeta > 0: a apuração prevalece sobre a informada das férias", () => {
-    const r = gorjetaIntegralDoCombinado({ apuracao, apurados: new Set([8, 9]), doDecimo: new Map(), dasFerias: new Map([[8, 100]]) });
+  test("informado vale sobre a apuração do ERP (> 0, zero ou mês ainda aberto)", () => {
+    const r = gorjetaIntegralDoCombinado({ apuracao: new Map([[7, 0], [8, 2000]]), apurados: new Set([7, 8]), doDecimo: new Map(), dasFerias: new Map([[7, 1392.45], [8, 2593.97], [3, 500]]) });
+    expect(r.integralPorMes.get(7)).toBe(1392.45);
+    expect(r.integralPorMes.get(8)).toBe(2593.97);
+    expect(r.integralPorMes.get(3)).toBe(500);
+    expect(r.mesesDasFerias).toEqual([3, 7, 8]);
+    expect(r.mesesApurados.has(3)).toBe(true);
+  });
+  test("sem informado a apuração segue valendo", () => {
+    const r = gorjetaIntegralDoCombinado({ apuracao, apurados: new Set([8, 9]), doDecimo: new Map(), dasFerias: new Map() });
     expect(r.integralPorMes.get(8)).toBe(2000);
     expect(r.mesesDasFerias).toEqual([]);
-  });
-  test("mês apurado com gorjeta ZERO (ou sem a pessoa na apuração): aceita a informada", () => {
-    const r = gorjetaIntegralDoCombinado({ apuracao: new Map([[7, 0], [8, 2000]]), apurados: new Set([6, 7, 8]), doDecimo: new Map(), dasFerias: new Map([[6, 500], [7, 1392.45]]) });
-    expect(r.integralPorMes.get(7)).toBe(1392.45);
-    expect(r.integralPorMes.get(6)).toBe(500);
-    expect(r.integralPorMes.get(8)).toBe(2000);
-    expect(r.mesesDasFerias).toEqual([6, 7]);
-    expect(r.mesesApurados.has(7)).toBe(true);
   });
   test("valor informado na tela do 13º vale mais que tudo", () => {
     const r = gorjetaIntegralDoCombinado({ apuracao, apurados: new Set([8, 9]), doDecimo: new Map([[8, 2500], [3, 1000]]), dasFerias: new Map([[3, 1800]]) });

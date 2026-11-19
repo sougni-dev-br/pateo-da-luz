@@ -109,7 +109,8 @@ export function informadasDaTabela(linhas: ReadonlyArray<{ competencia: string; 
 }
 
 // Gorjeta integral de cada mês do ano-base para a diferença do combinado. Precedência: valor informado na tela do 13º >
-// apuração do ERP com gorjeta > 0 > informada (esta PREENCHE mês sem apuração ou com apuração zero; vira "mês apurado" para entrar na média).
+// informada à mão (tabela/férias; vale sobre a apuração do ERP, seja ela zero, aberta ou parcial) > apuração do ERP.
+// O mês informado vira "mês apurado" para entrar na média.
 export function gorjetaIntegralDoCombinado(a: {
   apuracao: ReadonlyMap<number, number>; apurados: ReadonlySet<number>; doDecimo: ReadonlyMap<number, number>; dasFerias: ReadonlyMap<number, number>;
 }): { integralPorMes: Map<number, number>; mesesApurados: Set<number>; mesesDasFerias: number[] } {
@@ -118,10 +119,8 @@ export function gorjetaIntegralDoCombinado(a: {
   const mesesDasFerias: number[] = [];
   for (const [mes, valor] of [...a.dasFerias].sort((x, y) => x[0] - y[0])) {
     if (a.doDecimo.has(mes)) continue;
-    // Mês apurado sem a pessoa na apuração conta como zero (mesma leitura de variaveisDaDiferencaDaGorjeta).
-    const apuracao = a.apurados.has(mes) ? a.apuracao.get(mes) ?? 0 : null;
-    const v = valorDoMesDaGorjeta({ apuracao, informada: valor });
-    if (v.origem !== "INFORMADA" || v.valor == null) continue;
+    const v = valorDoMesDaGorjeta({ apuracao: a.apurados.has(mes) ? a.apuracao.get(mes) ?? 0 : null, informada: valor });
+    if (v.valor == null) continue;
     integralPorMes.set(mes, v.valor);
     mesesApurados.add(mes);
     mesesDasFerias.push(mes);

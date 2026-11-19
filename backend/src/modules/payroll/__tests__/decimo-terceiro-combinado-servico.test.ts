@@ -366,13 +366,13 @@ describe("diferença da gorjeta integral no 13º do combinado", () => {
 });
 
 describe("gorjeta informada na tabela única (férias) compõe o 13º", () => {
-  test("mês sem apuração preenchido pela tabela entra na média; a apuração prevalece sobre a tabela", async () => {
+  test("mês sem apuração preenchido pela tabela entra na média; dezembro e outro ano ficam de fora", async () => {
     monta([itemExtrato()]);
     declarada(100);
     apuracao({ 8: 1000, 9: 1200, 10: 800 });
-    // abr sem apuração (preenche: 1.700 − 200 = +1.500); ago tem apuração (a informada 9.999 é ignorada)
+    // abr sem apuração (preenche: 1.700 − 200 = +1.500); dez de 2026 e mar de 2025 ficam de fora
     db.gorjetaIntegralInformada.findMany.mockResolvedValue([
-      { employeeId: "e1", competencia: "2026-04", valor: 1700 }, { employeeId: "e1", competencia: "2026-08", valor: 9999 },
+      { employeeId: "e1", competencia: "2026-04", valor: 1700 },
       { employeeId: "e1", competencia: "2026-12", valor: 5000 }, { employeeId: "e1", competencia: "2025-03", valor: 5000 },
     ]);
     const previa = await listarDecimoTerceiroSR(2026);
@@ -382,16 +382,18 @@ describe("gorjeta informada na tabela única (férias) compõe o 13º", () => {
   });
 });
 
-describe("apuração zero aceita o informado no 13º", () => {
-  test("mês apurado com gorjeta 0 da pessoa recebe o valor da tabela; a apuração > 0 segue valendo", async () => {
+describe("informado vale sobre a apuração no 13º", () => {
+  test("a tabela vale sobre a apuração (zero ou > 0); a tela do 13º continua valendo mais que os dois", async () => {
     monta([itemExtrato()]);
     declarada(100);
-    apuracao({ 8: 1000, 9: 0, 10: 800 }); // set zerado
+    apuracao({ 8: 1000, 9: 0, 10: 800 });
     db.gorjetaIntegralInformada.findMany.mockResolvedValue([
-      { employeeId: "e1", competencia: "2026-09", valor: 1400 }, { employeeId: "e1", competencia: "2026-08", valor: 9999 },
+      { employeeId: "e1", competencia: "2026-09", valor: 1400 }, { employeeId: "e1", competencia: "2026-08", valor: 1600 },
+      { employeeId: "e1", competencia: "2026-10", valor: 9999 },
     ]);
+    db.decimoTerceiroVariavel.findMany.mockResolvedValue([{ employeeId: "e1", mes: 10, valor: 1000, motivo: "ajuste manual do 13º" }]);
     const l = (await listarDecimoTerceiroSR(2026)).linhas.find((x) => x.origem === "COMBINADO")!;
-    expect(l.calculo!.mediaParcela1).toBe(866.67); // (800 + 1.200 + 600) ÷ 3
+    expect(l.calculo!.mediaParcela1).toBe(1133.33); // (1.400 + 1.200 + 800) ÷ 3: ago 1.600−200, set 1.400−200, out 1.000−200 (tela do 13º)
   });
 });
 
