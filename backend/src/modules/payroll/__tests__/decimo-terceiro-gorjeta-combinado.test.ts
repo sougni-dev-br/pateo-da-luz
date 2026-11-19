@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
-  DESCRICAO_COMBINADO_E_GORJETA, lerMediaValor13, mediaDeclaradaMensal, variaveisDaDiferencaDaGorjeta,
+  DESCRICAO_COMBINADO_E_GORJETA, gorjetaIntegralDoCombinado, informadasDasFerias, lerMediaValor13, mediaDeclaradaMensal, variaveisDaDiferencaDaGorjeta,
 } from "../decimo-terceiro-gorjeta-combinado.js";
 import { lerTextoExtrato } from "../rh-extract.service.js";
 
@@ -65,5 +65,61 @@ describe("extrato do 13º lido pelo parser", () => {
   test("a folha mensal não ganha o campo (comportamento antigo intacto)", () => {
     const mensal = texto.replace("Cálculo: 13o Adiantamento", "Cálculo: Folha Mensal");
     expect(lerTextoExtrato(mensal).funcionarios.every((f) => !("mediaValor13" in f))).toBe(true);
+  });
+});
+
+// Gorjeta informada à mão no modal "Complementar pelo combinado" (férias) também compõe o 13º. Valores FICTÍCIOS.
+const feriasComInformadas = (...meses: Array<[string, number]>) => ({
+  feriasCombinado: { meses: meses.map(([chave, valor]) => ({ chave, valor, origem: "INFORMADA" })) },
+});
+
+describe("informadasDasFerias", () => {
+  test("pega só os meses 1 a 11 do ano-base; outros anos e dezembro ficam de fora", () => {
+    const r = informadasDasFerias([feriasComInformadas(["2025-12", 900], ["2026-03", 1800], ["2026-12", 700], ["2027-01", 5])], 2026);
+    expect([...r]).toEqual([[3, 1800]]);
+  });
+  test("mês apurado nas férias (não informado) não entra", () => {
+    const d = { feriasCombinado: { meses: [{ chave: "2026-04", valor: 1000, origem: "APURACAO" }] } };
+    expect(informadasDasFerias([d], 2026).size).toBe(0);
+  });
+  test("vários títulos: o último da lista prevalece no mesmo mês", () => {
+    const r = informadasDasFerias([feriasComInformadas(["2026-05", 1000]), feriasComInformadas(["2026-05", 1100], ["2026-06", 1200])], 2026);
+    expect([...r]).toEqual([[5, 1100], [6, 1200]]);
+  });
+  test("detalhes sem a marca ou inválidos: vazio", () => {
+    expect(informadasDasFerias([null, {}, "x", { feriasCombinado: { meses: 3 } }], 2026).size).toBe(0);
+  });
+});
+
+describe("gorjetaIntegralDoCombinado", () => {
+  const apuracao = new Map([[8, 2000], [9, 1500]]);
+  test("sem informadas: igual à apuração", () => {
+    const r = gorjetaIntegralDoCombinado({ apuracao, apurados: new Set([8, 9]), doDecimo: new Map(), dasFerias: new Map() });
+    expect([...r.integralPorMes]).toEqual([[8, 2000], [9, 1500]]);
+    expect([...r.mesesApurados].sort()).toEqual([8, 9]);
+    expect(r.mesesDasFerias).toEqual([]);
+  });
+  test("informada nas férias preenche mês sem apuração e passa a contar na média", () => {
+    const r = gorjetaIntegralDoCombinado({ apuracao, apurados: new Set([8, 9]), doDecimo: new Map(), dasFerias: new Map([[3, 1800]]) });
+    expect(r.integralPorMes.get(3)).toBe(1800);
+    expect(r.mesesApurados.has(3)).toBe(true);
+    expect(r.mesesDasFerias).toEqual([3]);
+  });
+  test("mês já apurado: a apuração prevalece sobre a informada das férias", () => {
+    const r = gorjetaIntegralDoCombinado({ apuracao, apurados: new Set([8, 9]), doDecimo: new Map(), dasFerias: new Map([[8, 100]]) });
+    expect(r.integralPorMes.get(8)).toBe(2000);
+    expect(r.mesesDasFerias).toEqual([]);
+  });
+  test("valor informado na tela do 13º vale mais que tudo", () => {
+    const r = gorjetaIntegralDoCombinado({ apuracao, apurados: new Set([8, 9]), doDecimo: new Map([[8, 2500], [3, 1000]]), dasFerias: new Map([[3, 1800]]) });
+    expect(r.integralPorMes.get(8)).toBe(2500);
+    expect(r.integralPorMes.get(3)).toBe(1000);
+    expect(r.mesesDasFerias).toEqual([]);
+    expect([...r.mesesApurados].sort((a, b) => a - b)).toEqual([3, 8, 9]);
+  });
+  test("não muda os mapas recebidos", () => {
+    const ap = new Map([[8, 2000]]);
+    gorjetaIntegralDoCombinado({ apuracao: ap, apurados: new Set([8]), doDecimo: new Map(), dasFerias: new Map([[3, 1]]) });
+    expect([...ap]).toEqual([[8, 2000]]);
   });
 });

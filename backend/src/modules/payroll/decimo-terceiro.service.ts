@@ -13,7 +13,7 @@ import { prisma } from "../../config/database.js";
 import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
 import { computeTipCommission } from "./tip-commission.service.js";
 import { cadastrosVigentes, carregarHistorico } from "./cadastro-historico.service.js";
-import { DESCRICAO_COMBINADO_E_GORJETA, mediaDeclaradaMensal, variaveisDaDiferencaDaGorjeta, type MediaValorExtrato } from "./decimo-terceiro-gorjeta-combinado.js";
+import { DESCRICAO_COMBINADO_E_GORJETA, gorjetaIntegralDoCombinado, informadasDasFerias, mediaDeclaradaMensal, variaveisDaDiferencaDaGorjeta, type MediaValorExtrato } from "./decimo-terceiro-gorjeta-combinado.js";
 import { complementoSomado, DESCRICAO_COMBINADO, diferencaDoCombinado, foiSomado, inicioDoCombinado, liquidoDoExtrato } from "./decimo-terceiro-combinado.js";
 import { type MesFaltando, mesesDoPeriodo13, mesesSemVariavel } from "./decimo-terceiro-meses-faltando.js";
 import { type ResultadoSoma, somarCombinadoAoExtrato } from "./decimo-terceiro-combinado.service.js";
@@ -379,6 +379,13 @@ export async function listarDecimoTerceiroSR(ano: number): Promise<PreviaDecimo1
   const comCombinado = emps.filter((e) => vigentes.get(e.id)?.modality === "CLT" && vigentes.get(e.id)?.salarioCombinado != null);
   const historicoCombinado = comCombinado.length > 0 ? await carregarHistorico(comCombinado.map((e) => e.id)) : new Map();
   const declaradas = comCombinado.length > 0 ? await mediaDeclaradaDoExtrato(ano) : new Map<string, MediaValorExtrato>();
+  // Gorjeta informada à mão no modal de férias (título FERIAS, do mais antigo ao mais novo) preenche meses sem apuração.
+  const titulosFerias = comCombinado.length > 0
+    ? await prisma.payrollItem.findMany({
+      where: { type: "FERIAS", employeeId: { in: comCombinado.map((e) => e.id) }, deletedAt: null, status: { not: "CANCELED" } },
+      select: { employeeId: true, details: true }, orderBy: { updatedAt: "asc" },
+    })
+    : [];
   for (const e of comCombinado) {
     const v = vigentes.get(e.id)!;
     const diferenca = diferencaDoCombinado(v.baseSalary, v.salarioCombinado);
@@ -389,9 +396,14 @@ export async function listarDecimoTerceiroSR(ano: number): Promise<PreviaDecimo1
     // integral tem a mais. Valor informado à mão no mês vale como gorjeta integral dele. Sem a média do extrato não há
     // como descontar a declarada: não soma e avisa (nunca paga a mais).
     const declarada = declaradas.get(String(e.cpf ?? "").replace(/\D/g, ""));
-    const mesesApuradosDif = new Set([...variaveis.apurados, ...(variaveis.informadas.get(e.id) ?? []).map((i) => i.mes)]);
-    const integralPorMes = new Map(variaveis.gorjetaIntegral.get(e.id) ?? []);
-    for (const i of variaveis.informadas.get(e.id) ?? []) integralPorMes.set(i.mes, i.valor);
+    const doDecimo = new Map((variaveis.informadas.get(e.id) ?? []).map((i) => [i.mes, i.valor] as const));
+    const dasFerias = informadasDasFerias(titulosFerias.filter((t) => t.employeeId === e.id).map((t) => t.details), ano);
+    const { integralPorMes, mesesApurados: mesesApuradosDif, mesesDasFerias } = gorjetaIntegralDoCombinado({
+      apuracao: variaveis.gorjetaIntegral.get(e.id) ?? new Map(), apurados: variaveis.apurados, doDecimo, dasFerias,
+    });
+    if (mesesDasFerias.length > 0) {
+      avisosCombinado.push(`${nomeDe(e)}: a gorjeta de ${mesesDasFerias.map((m) => mmaaaa(m, ano)).join(", ")} veio do valor informado à mão no complemento das férias (mês sem apuração). Confira.`);
+    }
     if (!declarada && extrato && [...integralPorMes.values()].some((v) => v > 0)) {
       avisosCombinado.push(`${nomeDe(e)}: o extrato do 13º não trouxe a média de valores (gorjeta declarada) dele; a diferença da gorjeta integral não foi somada. Reimporte o extrato do 13º.`);
     }
