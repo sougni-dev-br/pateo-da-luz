@@ -55,6 +55,18 @@ export function informadasDasFerias(detalhesDosTitulos: ReadonlyArray<unknown>, 
   return out;
 }
 
+// Meses da tabela única de gorjeta informada (competência AAAA-MM) que valem para o ano-base: jan a nov. Dezembro e outros anos ficam de fora.
+export function informadasDaTabela(linhas: ReadonlyArray<{ competencia: string; valor: number }>, ano: number): Map<number, number> {
+  const out = new Map<number, number>();
+  for (const l of linhas) {
+    const m = /^(\d{4})-(\d{2})$/.exec(l.competencia);
+    if (!m || Number(m[1]) !== ano) continue;
+    const mes = Number(m[2]);
+    if (mes >= 1 && mes <= 11 && Number.isFinite(l.valor)) out.set(mes, round2(l.valor));
+  }
+  return out;
+}
+
 // Gorjeta integral de cada mês do ano-base para a diferença do combinado. Precedência: valor informado na tela do 13º >
 // apuração do ERP > informada nas férias (esta só PREENCHE mês sem apuração; vira "mês apurado" para entrar na média).
 export function gorjetaIntegralDoCombinado(a: {

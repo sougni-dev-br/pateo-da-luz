@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
-  DESCRICAO_COMBINADO_E_GORJETA, gorjetaIntegralDoCombinado, informadasDasFerias, lerMediaValor13, mediaDeclaradaMensal, variaveisDaDiferencaDaGorjeta,
+  DESCRICAO_COMBINADO_E_GORJETA, gorjetaIntegralDoCombinado, informadasDaTabela, informadasDasFerias, lerMediaValor13, mediaDeclaradaMensal, variaveisDaDiferencaDaGorjeta,
 } from "../decimo-terceiro-gorjeta-combinado.js";
 import { lerTextoExtrato } from "../rh-extract.service.js";
 
@@ -121,5 +121,15 @@ describe("gorjetaIntegralDoCombinado", () => {
     const ap = new Map([[8, 2000]]);
     gorjetaIntegralDoCombinado({ apuracao: ap, apurados: new Set([8]), doDecimo: new Map(), dasFerias: new Map([[3, 1]]) });
     expect([...ap]).toEqual([[8, 2000]]);
+  });
+});
+
+describe("informadasDaTabela", () => {
+  test("só jan–nov do ano-base; dezembro, outro ano e competência inválida ficam de fora", () => {
+    const r = informadasDaTabela([
+      { competencia: "2026-01", valor: 10 }, { competencia: "2026-11", valor: 20 }, { competencia: "2026-12", valor: 30 },
+      { competencia: "2025-06", valor: 40 }, { competencia: "2026-6", valor: 50 }, { competencia: "x", valor: 60 },
+    ], 2026);
+    expect([...r]).toEqual([[1, 10], [11, 20]]);
   });
 });

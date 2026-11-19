@@ -13,6 +13,7 @@ import {
   chaveDoMes, complementoDeFerias, complementoSomadoAFerias, foiSomadoAFerias, diasDoRecibo, informadasGuardadas, janelaDeMeses,
   liquidoDoRecibo, mediaDaGorjeta, semMarcasDoFeriasCombinado, valorFeriasComCombinado, type MesDaGorjeta,
 } from "./ferias-combinado.js";
+import { gravarInformadas, informadasDaPessoa } from "./gorjeta-integral-informada.service.js";
 import { gorjetaDaPessoa } from "./salario-combinado-folha.js";
 import { gorjetasDaCompetencia, mapaCombinados } from "./salario-combinado.service.js";
 
@@ -94,8 +95,12 @@ export async function somarCombinadoAFerias(a: {
   const combinado = (await mapaCombinados(anoGozo, mesGozo, [i.employeeId])).get(i.employeeId) ?? null;
   const avisos: string[] = [];
   const janela = janelaDeMeses(anoGozo, mesGozo);
+  const chaves = janela.map((m) => m.chave);
+  // Ordem de prevalência (a última vence): legado do título < tabela única < digitado agora.
   const informadas = new Map<string, number>([
-    ...Object.entries(informadasGuardadas(i.details)), ...validarInformadas(a.informadas, new Set(janela.map((m) => m.chave))),
+    ...Object.entries(informadasGuardadas(i.details)),
+    ...(await informadasDaPessoa(i.employeeId, chaves)).map((x) => [x.competencia, x.valor] as const),
+    ...validarInformadas(a.informadas, new Set(chaves)),
   ]);
   const previaBase = { payrollItemId: i.id, employeeId: i.employeeId, nome, liquidoRecibo: liquido, valorAntes: atual };
 
@@ -139,6 +144,9 @@ export async function somarCombinadoAFerias(a: {
     data: { amount: novo.valor, details: novo.details as Prisma.InputJsonValue, updatedById: a.usuario.id },
   });
   if (r.count === 0) return { aplicado: false, previa, motivo: "O título mudou durante o cálculo (pago, excluído ou editado): nada foi gravado." };
+  // Guarda na tabela única só o que valeu como informado (mês sem apuração); migra o legado do título ao reaplicar.
+  await gravarInformadas(i.employeeId, new Map(previa.meses.filter((m) => m.origem === "INFORMADA" && m.valor != null).map((m) => [m.chave, m.valor as number])), a.usuario.id)
+    .catch((e) => console.error("[ferias-combinado] gravar gorjeta informada falhou", e));
   await auditLog({
     userId: a.usuario.id, action: "FERIAS_COMBINADO_SOMADO", entity: "PayrollItem", entityId: i.id,
     previousValue: { amount: atual }, newValue: { amount: novo.valor, complemento: previa.complemento, combinado, mediaGorjeta: previa.mediaGorjeta },

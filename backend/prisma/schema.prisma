@@ -3035,6 +3035,7 @@ model Employee {
   vtFixedAmount          Decimal?                   @db.Decimal(12, 2)
   vtLegs                 EmployeeVtLeg[]
   decimoVariaveis        DecimoTerceiroVariavel[]
+  gorjetasInformadas     GorjetaIntegralInformada[]
   vtFaltaDeductions     VtFaltaDeduction[]
   vtMonthlyFareId        String?
   vtMonthlyFare          VtFare?                    @relation("EmployeeMonthlyFare", fields: [vtMonthlyFareId], references: [id])
@@ -3484,6 +3485,24 @@ model DecimoTerceiroVariavel {
 
   @@unique([employeeId, ano, mes])
   @@index([ano])
+}
+
+// Gorjeta integral de um mês digitada à mão (uma por pessoa e competência AAAA-MM), usada pelas férias do salário
+// combinado (modal "Complementar pelo combinado") e pelo 13º. Só PREENCHE mês sem apuração no sistema: a apuração vale mais.
+model GorjetaIntegralInformada {
+  id              String   @id
+  employeeId      String
+  employee        Employee @relation(fields: [employeeId], references: [id])
+  competencia     String
+  valor           Decimal  @db.Decimal(12, 2)
+  origem          String   @default("INFORMADA")
+  criadoPorId     String?
+  atualizadoPorId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([employeeId, competencia])
+  @@index([competencia])
 }
 
 model EmployeeHistorico {

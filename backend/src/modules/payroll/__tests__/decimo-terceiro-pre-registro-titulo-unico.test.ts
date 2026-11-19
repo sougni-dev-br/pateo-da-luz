@@ -9,6 +9,7 @@ vi.mock("../../../config/database.js", () => ({
     employeeScheduleDay: { findMany: vi.fn() },
     tipPeriod: { findMany: vi.fn() },
     decimoTerceiroVariavel: { findMany: vi.fn() },
+    gorjetaIntegralInformada: { findMany: vi.fn(async () => []) },
     rhExtract: { findMany: vi.fn(async () => []) },
     dRECategory: { findFirst: vi.fn() },
     $transaction: vi.fn(),

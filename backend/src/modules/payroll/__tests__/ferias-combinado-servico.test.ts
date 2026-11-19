@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 
 // Complemento do combinado no título FERIAS (aberto): valores fictícios — combinado 6.000, recibo líquido 6.000,
 // gorjeta integral 1.500 por mês → remuneração (6.000 + 1.500) × 4/3 = 10.000; complemento 4.000.
-vi.mock("../../../config/database.js", () => ({ prisma: { payrollItem: { findFirst: vi.fn(), updateMany: vi.fn(), create: vi.fn() } } }));
+vi.mock("../../../config/database.js", () => ({ prisma: { payrollItem: { findFirst: vi.fn(), updateMany: vi.fn(), create: vi.fn() }, gorjetaIntegralInformada: { findMany: vi.fn(), upsert: vi.fn() } } }));
 vi.mock("../salario-combinado.service.js", () => ({ mapaCombinados: vi.fn(), gorjetasDaCompetencia: vi.fn() }));
 vi.mock("../../cmv-real/cmv-real.service.js", () => ({ assertPeriodWritableForDate: vi.fn(async () => undefined) }));
 vi.mock("../../security/security-utils.js", () => ({ auditLog: vi.fn(async () => undefined) }));
@@ -32,6 +32,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   db.payrollItem.findFirst.mockResolvedValue(titulo());
   db.payrollItem.updateMany.mockResolvedValue({ count: 1 });
+  db.gorjetaIntegralInformada.findMany.mockResolvedValue([]);
+  db.gorjetaIntegralInformada.upsert.mockResolvedValue({});
   vi.mocked(mapaCombinados).mockResolvedValue(new Map([["e1", 6000]]));
   vi.mocked(gorjetasDaCompetencia).mockResolvedValue(apuracaoDe(1500));
 });
@@ -202,5 +204,31 @@ describe("férias fracionadas", () => {
     expect(r.previa.remuneracao).toBe(4666.67);
     expect(r.previa.complemento).toBe(1866.67);
     expect(r.previa.avisos.join(" ")).toContain("14/30");
+  });
+});
+
+describe("tabela única de gorjeta informada", () => {
+  test("lê da tabela: mês sem apuração é preenchido pelo valor guardado", async () => {
+    vi.mocked(gorjetasDaCompetencia).mockResolvedValue(null);
+    db.gorjetaIntegralInformada.findMany.mockResolvedValue([{ competencia: "2026-05", valor: 2400 }]);
+    const r = await somarCombinadoAFerias({ payrollItemId: "f1", aplicar: false, usuario });
+    expect(r.previa.mediaGorjeta).toBe(2400);
+    expect(db.gorjetaIntegralInformada.upsert).not.toHaveBeenCalled(); // prévia não grava
+  });
+
+  test("ao aplicar, grava na tabela só os meses que valeram como informados", async () => {
+    vi.mocked(gorjetasDaCompetencia).mockImplementation(async (_a, m) => (m === 5 ? null : apuracaoDe(1500)));
+    await somarCombinadoAFerias({ payrollItemId: "f1", aplicar: true, usuario, informadas: { "2026-05": 2000, "2026-03": 7 } });
+    const chamadas = db.gorjetaIntegralInformada.upsert.mock.calls.map((c: Array<{ where: { employeeId_competencia: { competencia: string } }; create: { valor: number } }>) => [c[0].where.employeeId_competencia.competencia, c[0].create.valor]);
+    expect(chamadas).toEqual([["2026-05", 2000]]); // março tem apuração: ignorado e não gravado
+  });
+
+  test("legado em details do título é migrado para a tabela ao reaplicar", async () => {
+    vi.mocked(gorjetasDaCompetencia).mockResolvedValue(null);
+    db.payrollItem.findFirst.mockResolvedValue(titulo({
+      details: { ...baseDetails(), feriasCombinado: { meses: [{ chave: "2026-05", valor: 3000, origem: "INFORMADA" }] } },
+    }));
+    await somarCombinadoAFerias({ payrollItemId: "f1", aplicar: true, usuario });
+    expect(db.gorjetaIntegralInformada.upsert).toHaveBeenCalledTimes(1);
   });
 });
