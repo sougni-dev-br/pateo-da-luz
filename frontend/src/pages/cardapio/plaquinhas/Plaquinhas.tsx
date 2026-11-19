@@ -16,6 +16,7 @@ import { CardapioAcrilico } from "./CardapioAcrilico";
 import { CatalogoPlaquinhas } from "./CatalogoPlaquinhas";
 import { MontarFolha } from "./MontarFolha";
 import { PesagemBuffet } from "./PesagemBuffet";
+import { ResultadoBuffet } from "./ResultadoBuffet";
 import "./plaquinhas-tela.css";
 
 const MODULO = "buffet-plates";
@@ -24,6 +25,7 @@ const rotulo = (longo: string, curto: string) => <><span className="plq-aba-long
 const ABAS = [
   { value: "montar", label: "Plaquinhas" },
   { value: "pesagem", label: "Pesagem" },
+  { value: "resultado", label: "Resultado" },
   { value: "acompanhamento", label: "Acompanhamento" },
   { value: "cardapio", label: rotulo("Cardápio do evento", "Cardápio") },
   { value: "catalogo", label: rotulo("Catálogo de pratos", "Catálogo") },
@@ -99,6 +101,9 @@ export function Plaquinhas() {
       </div>
       <div hidden={aba !== "pesagem"}>
         <PesagemBuffet ativa={aba === "pesagem"} catalogo={catalogo} listas={listas} podeCriar={podeCriar} podeEditar={podeEditar} podeExcluir={podeExcluir} />
+      </div>
+      <div hidden={aba !== "resultado"}>
+        <ResultadoBuffet ativa={aba === "resultado"} />
       </div>
       <div hidden={aba !== "acompanhamento"}>
         <AcompanhamentoPratos ativa={aba === "acompanhamento"} catalogo={catalogo} podeExcluir={podeExcluir} versao={versaoAcompanhamento} aoMudar={acompanhamentoMudou} />
