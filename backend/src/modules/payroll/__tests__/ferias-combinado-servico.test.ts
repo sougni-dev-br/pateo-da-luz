@@ -134,10 +134,19 @@ describe("somarCombinadoAFerias", () => {
     expect(r.previa.meses.filter((m) => m.origem === "INFORMADA")).toHaveLength(2);
   });
 
-  test("valor informado à mão prevalece sobre a apuração do mês", async () => {
+  test("mês com apuração: vale a apuração e o valor informado à mão é ignorado (com aviso)", async () => {
     const r = await somarCombinadoAFerias({ payrollItemId: "f1", aplicar: false, usuario, informadas: { "2026-03": 0 } });
-    expect(r.previa.meses.find((m) => m.chave === "2026-03")).toMatchObject({ valor: 0, origem: "INFORMADA" });
-    expect(r.previa.mediaGorjeta).toBe(1375); // 11 × 1.500 + 0 = 16.500 / 12
+    expect(r.previa.meses.find((m) => m.chave === "2026-03")).toMatchObject({ valor: 1500, origem: "APURACAO" });
+    expect(r.previa.mediaGorjeta).toBe(1500);
+    expect(r.previa.avisos.join(" ")).toContain("2026-03: há apuração no sistema");
+  });
+
+  test("apuração indisponível (erro): o valor informado à mão preenche o mês", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.mocked(gorjetasDaCompetencia).mockRejectedValue(new Error("falha"));
+    const r = await somarCombinadoAFerias({ payrollItemId: "f1", aplicar: false, usuario, informadas: { "2026-03": 900 } });
+    expect(r.previa.meses.find((m) => m.chave === "2026-03")).toMatchObject({ valor: 900, origem: "INFORMADA" });
+    expect(r.previa.mediaGorjeta).toBe(900);
   });
 
   test("valores informados guardados na soma anterior são reaproveitados ao recalcular", async () => {

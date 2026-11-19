@@ -46,23 +46,25 @@ function validarInformadas(informadas: Record<string, unknown> | undefined, jane
   return out;
 }
 
-// Gorjeta integral (a mesma da folha de líquidos) de cada mês da janela. Informado à mão prevalece; sem apuração = ausente.
+// Gorjeta integral (a mesma da folha de líquidos) de cada mês da janela. Decisão do Eli (19/11/2026): se o mês tem apuração
+// no sistema, vale a apuração; o valor informado à mão só PREENCHE mês sem apuração (ou com apuração indisponível).
 async function mesesDaGorjeta(
   janela: ReadonlyArray<{ ano: number; mes: number; chave: string }>, informadas: ReadonlyMap<string, number>, employeeId: string, avisos: string[],
 ): Promise<MesDaGorjeta[]> {
   // Em paralelo: são até 12 apurações da casa inteira.
   return Promise.all(janela.map(async (m): Promise<MesDaGorjeta> => {
     const info = informadas.get(m.chave);
-    if (info != null) return { chave: m.chave, valor: info, origem: "INFORMADA" };
+    const informado = (): MesDaGorjeta => (info != null ? { chave: m.chave, valor: info, origem: "INFORMADA" } : { chave: m.chave, valor: null, origem: "AUSENTE" });
     try {
       const g = gorjetaDaPessoa(await gorjetasDaCompetencia(m.ano, m.mes), employeeId);
-      if (g == null) return { chave: m.chave, valor: null, origem: "AUSENTE" };
+      if (g == null) return informado();
+      if (info != null) avisos.push(`${m.chave}: há apuração no sistema, então o valor informado à mão (${reais(info)}) foi ignorado.`);
       // Fora do período ou paga na rescisão conta como zero naquele mês (mesma regra da folha de líquidos).
       return { chave: m.chave, valor: g.noPeriodo && !g.pagoNaRescisao ? round2(g.gorjetaLiquida) : 0, origem: "APURACAO" };
     } catch (err) {
       console.error(`[ferias-combinado] apuração de ${chaveDoMes(m.ano, m.mes)} falhou`, err);
-      avisos.push(`Não foi possível calcular a gorjeta de ${chaveDoMes(m.ano, m.mes)} (apuração indisponível): faturamento indisponível ou erro interno; o mês ficou fora da média.`);
-      return { chave: m.chave, valor: null, origem: "AUSENTE" };
+      avisos.push(`Não foi possível calcular a gorjeta de ${chaveDoMes(m.ano, m.mes)} (apuração indisponível): faturamento indisponível ou erro interno; ${info != null ? "valeu o valor informado à mão" : "o mês ficou fora da média"}.`);
+      return informado();
     }
   }));
 }
