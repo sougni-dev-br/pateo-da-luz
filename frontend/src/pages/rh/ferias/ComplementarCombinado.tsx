@@ -1,8 +1,9 @@
-import { Check, CircleDollarSign, Plus, RefreshCw, Wallet } from "lucide-react";
+import { Check, CircleDollarSign, FileText, Plus, RefreshCw, Wallet } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { type MesDaGorjetaFerias, type PreviaFeriasCombinado, complementarFeriasCombinado } from "../../../api/client";
 import { Dialog } from "../../../components/ui/Dialog";
 import { Alert, Button, Card, FormSection, KpiCard, Money, StatusBadge, Table, TextField, type StatusTone } from "../../../design-system";
+import { gerarPdfComplementoFerias } from "./pdfComplementoFerias";
 import "./complementarCombinado.css";
 
 type Props = {
@@ -32,6 +33,7 @@ export function ComplementarCombinado({ payrollItemId, nome, onClose, onAplicou 
   const [calculando, setCalculando] = useState(true);
   const [aplicando, setAplicando] = useState(false);
   const [aplicado, setAplicado] = useState(false);
+  const [gerandoPdf, setGerandoPdf] = useState(false);
   const [digitado, setDigitado] = useState<Record<string, string>>({});
   // Valores digitados com que a prévia exibida foi calculada ("{}" = nenhum).
   const [calculadoCom, setCalculadoCom] = useState("{}");
@@ -75,6 +77,20 @@ export function ComplementarCombinado({ payrollItemId, nome, onClose, onAplicou 
       setErro(e instanceof Error ? e.message : "Não consegui gravar o complemento.");
     } finally {
       setAplicando(false);
+    }
+  }
+
+  // Demonstrativo para acompanhar o título na hora de pagar. Sai "gravado" só depois de confirmar; antes é prévia.
+  async function gerarPdf() {
+    if (!previa) return;
+    setGerandoPdf(true);
+    setErro(null);
+    try {
+      await gerarPdfComplementoFerias(previa, aplicado);
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "Não consegui gerar o PDF.");
+    } finally {
+      setGerandoPdf(false);
     }
   }
 
@@ -184,6 +200,9 @@ export function ComplementarCombinado({ payrollItemId, nome, onClose, onAplicou 
 
         <div className="fe-comb-acoes">
           <Button variant="secondary" disabled={aplicando} onClick={sair}>{aplicado ? "Concluir" : "Cancelar"}</Button>
+          <Button variant="secondary" leadingIcon={<FileText size={16} />} disabled={!previa || ocupado || gerandoPdf || desatualizado} onClick={() => void gerarPdf()}>
+            {gerandoPdf ? "Gerando PDF…" : "Gerar PDF"}
+          </Button>
           {!aplicado && (
             <Button leadingIcon={<Check size={16} />} aria-disabled={!podeConfirmar} onClick={() => { if (podeConfirmar) void confirmar(); }}>
               {aplicando ? "Gravando…" : "Confirmar e somar ao título"}
