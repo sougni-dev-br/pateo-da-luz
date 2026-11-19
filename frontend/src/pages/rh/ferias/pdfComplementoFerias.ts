@@ -6,6 +6,12 @@ import { type AutoTable, BEGE, CINZA, type Doc, LINHA, LISTRA, M, MARROM, TINTA,
 
 const reais = (v: number) => textoPdf(v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }).replace(/ /g, " "));
 const mesBr = (chave: string) => `${chave.slice(5, 7)}/${chave.slice(0, 4)}`;
+export const ROTULO_INFORMADO_SOBRE_APURACAO = "informado vale sobre a apuração";
+const origemDoMes = (m: MesDaGorjetaFerias) => {
+  if (m.origem === "AUSENTE" && m.apuracaoErp != null) return `informar à mão (apuração do ERP não vale; ERP: ${reais(m.apuracaoErp)})`;
+  if (m.origem !== "INFORMADA") return ORIGEM[m.origem];
+  return m.apuracaoErp != null ? `${ROTULO_INFORMADO_SOBRE_APURACAO} (ERP: ${reais(m.apuracaoErp)})` : ORIGEM.INFORMADA;
+};
 const ORIGEM: Record<MesDaGorjetaFerias["origem"], string> = { APURACAO: "apuração", INFORMADA: "informada à mão", AUSENTE: "sem apuração" };
 
 /** Linhas da conta, na ordem do modal. `soma` marca as linhas de total parcial. */
@@ -87,7 +93,7 @@ export async function gerarPdfComplementoFerias(p: PreviaFeriasCombinado, gravad
     headStyles: { fillColor: [...MARROM], textColor: 255, fontStyle: "bold", fontSize: 8 },
     alternateRowStyles: { fillColor: [...LISTRA] },
     head: [["Mês", "Gorjeta", "Origem"]],
-    body: p.meses.map((m) => [mesBr(m.chave), m.valor == null ? "-" : reais(m.valor), textoPdf(ORIGEM[m.origem])]),
+    body: p.meses.map((m) => [mesBr(m.chave), m.valor == null ? "-" : reais(m.valor), textoPdf(origemDoMes(m))]),
     columnStyles: { 0: { cellWidth: 28 }, 1: { cellWidth: 38, halign: "right" }, 2: { cellWidth: "auto" } },
     didParseCell: (d: { section: string; column: { index: number }; cell: { styles: Record<string, unknown> } }) => {
       if (d.section === "head" && d.column.index === 1) d.cell.styles.halign = "right";

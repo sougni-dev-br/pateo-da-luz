@@ -10,16 +10,17 @@ import { prisma } from "../../config/database.js";
 import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
 import { auditLog } from "../security/security-utils.js";
 import {
-  chaveDoMes, complementoDeFerias, complementoSomadoAFerias, foiSomadoAFerias, diasDoRecibo, informadasGuardadas, janelaDeMeses,
-  liquidoDoRecibo, mediaDaGorjeta, semMarcasDoFeriasCombinado, valorFeriasComCombinado, type MesDaGorjeta,
+  chaveDoMes, complementoDeFerias, GORJETA_ERP_VALE_A_PARTIR_DE, complementoSomadoAFerias, foiSomadoAFerias, diasDoRecibo, informadasGuardadas, janelaDeMeses,
+  liquidoDoRecibo, mediaDaGorjeta, semMarcasDoFeriasCombinado, valorDoMesDaGorjeta, valorFeriasComCombinado, type MesDaGorjeta,
 } from "./ferias-combinado.js";
-import { gravarInformadas, informadasDaPessoa } from "./gorjeta-integral-informada.service.js";
+import { apagarInformadas, gravarInformadas, informadasDaPessoa } from "./gorjeta-integral-informada.service.js";
 import { gorjetaDaPessoa } from "./salario-combinado-folha.js";
 import { gorjetasDaCompetencia, mapaCombinados } from "./salario-combinado.service.js";
 
 const round2 = (v: number) => Math.round(v * 100) / 100;
 const reais = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const MAX_GORJETA_MES = 100_000;
+const mesBr = (chave: string) => `${chave.slice(5, 7)}/${chave.slice(0, 4)}`;
 const CHAVE_MES = /^\d{4}-(0[1-9]|1[0-2])$/;
 
 export class RecusaFerias extends Error {
@@ -34,11 +35,13 @@ export type PreviaFeriasCombinado = {
 };
 export type ResultadoFeriasCombinado = { aplicado: boolean; previa: PreviaFeriasCombinado; motivo?: string };
 
-function validarInformadas(informadas: Record<string, unknown> | undefined, janela: ReadonlySet<string>): Map<string, number> {
-  const out = new Map<string, number>();
+// `null` = apagar o valor informado do mês (volta a valer a apuração).
+function validarInformadas(informadas: Record<string, unknown> | undefined, janela: ReadonlySet<string>): Map<string, number | null> {
+  const out = new Map<string, number | null>();
   for (const [chave, v] of Object.entries(informadas ?? {})) {
     if (!CHAVE_MES.test(chave)) throw new RecusaFerias(400, `Competência "${chave}" inválida: use AAAA-MM.`);
     if (!janela.has(chave)) throw new RecusaFerias(400, `A competência ${chave} está fora dos 12 meses que entram na média.`);
+    if (v === null) { out.set(chave, null); continue; }
     if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > MAX_GORJETA_MES) {
       throw new RecusaFerias(400, `Gorjeta de ${chave} inválida: informe um valor entre 0 e ${MAX_GORJETA_MES}.`);
     }
@@ -47,26 +50,29 @@ function validarInformadas(informadas: Record<string, unknown> | undefined, jane
   return out;
 }
 
-// Gorjeta integral (a mesma da folha de líquidos) de cada mês da janela. Decisão do Eli (19/11/2026): se o mês tem apuração
-// no sistema, vale a apuração; o valor informado à mão só PREENCHE mês sem apuração (ou com apuração indisponível).
+// Gorjeta integral (a mesma da folha de líquidos) de cada mês da janela. Regra do Eli (19/11/2026): o valor informado vale
+// sobre a apuração do ERP (zero, aberta ou parcial); sem informado vale a apuração (valorDoMesDaGorjeta).
 async function mesesDaGorjeta(
   janela: ReadonlyArray<{ ano: number; mes: number; chave: string }>, informadas: ReadonlyMap<string, number>, employeeId: string, avisos: string[],
 ): Promise<MesDaGorjeta[]> {
   // Em paralelo: são até 12 apurações da casa inteira.
   return Promise.all(janela.map(async (m): Promise<MesDaGorjeta> => {
-    const info = informadas.get(m.chave);
-    const informado = (): MesDaGorjeta => (info != null ? { chave: m.chave, valor: info, origem: "INFORMADA" } : { chave: m.chave, valor: null, origem: "AUSENTE" });
+    const info = informadas.get(m.chave) ?? null;
+    let apuracao: number | null = null;
     try {
       const g = gorjetaDaPessoa(await gorjetasDaCompetencia(m.ano, m.mes), employeeId);
-      if (g == null) return informado();
-      if (info != null) avisos.push(`${m.chave}: há apuração no sistema, então o valor informado à mão (${reais(info)}) foi ignorado.`);
       // Fora do período ou paga na rescisão conta como zero naquele mês (mesma regra da folha de líquidos).
-      return { chave: m.chave, valor: g.noPeriodo && !g.pagoNaRescisao ? round2(g.gorjetaLiquida) : 0, origem: "APURACAO" };
+      if (g != null) apuracao = g.noPeriodo && !g.pagoNaRescisao ? round2(g.gorjetaLiquida) : 0;
     } catch (err) {
       console.error(`[ferias-combinado] apuração de ${chaveDoMes(m.ano, m.mes)} falhou`, err);
       avisos.push(`Não foi possível calcular a gorjeta de ${chaveDoMes(m.ano, m.mes)} (apuração indisponível): faturamento indisponível ou erro interno; ${info != null ? "valeu o valor informado à mão" : "o mês ficou fora da média"}.`);
-      return informado();
     }
+    const v = valorDoMesDaGorjeta({ chave: m.chave, apuracao, informada: info });
+    if (v.origem === "INFORMADA" && v.apuracaoErp != null && v.apuracaoErp !== v.valor) {
+      avisos.push(`${m.chave}: valeu o informado (${reais(v.valor ?? 0)}), não a apuração do ERP (${reais(v.apuracaoErp)}).`);
+    }
+    if (v.origem === "AUSENTE" && v.apuracaoErp != null) avisos.push(`${m.chave}: antes de ${mesBr(GORJETA_ERP_VALE_A_PARTIR_DE)} a apuração do ERP (${reais(v.apuracaoErp)}) não vale para a gorjeta do combinado: informe à mão.`);
+    return { chave: m.chave, valor: v.valor, origem: v.origem, apuracaoErp: v.apuracaoErp };
   }));
 }
 
@@ -97,11 +103,14 @@ export async function somarCombinadoAFerias(a: {
   const janela = janelaDeMeses(anoGozo, mesGozo);
   const chaves = janela.map((m) => m.chave);
   // Ordem de prevalência (a última vence): legado do título < tabela única < digitado agora.
+  const pedidas = validarInformadas(a.informadas, new Set(chaves));
+  const removidas = [...pedidas].filter(([, v]) => v === null).map(([k]) => k);
+  // Ordem de prevalência (a última vence): legado do título < tabela única < digitado agora; null apaga o mês.
   const informadas = new Map<string, number>([
     ...Object.entries(informadasGuardadas(i.details)),
     ...(await informadasDaPessoa(i.employeeId, chaves)).map((x) => [x.competencia, x.valor] as const),
-    ...validarInformadas(a.informadas, new Set(chaves)),
   ]);
+  for (const [chave, v] of pedidas) { if (v === null) informadas.delete(chave); else informadas.set(chave, v); }
   const previaBase = { payrollItemId: i.id, employeeId: i.employeeId, nome, liquidoRecibo: liquido, valorAntes: atual };
 
   let novo: { valor: number; details: Record<string, unknown> };
@@ -145,6 +154,7 @@ export async function somarCombinadoAFerias(a: {
   });
   if (r.count === 0) return { aplicado: false, previa, motivo: "O título mudou durante o cálculo (pago, excluído ou editado): nada foi gravado." };
   // Guarda na tabela única só o que valeu como informado (mês sem apuração); migra o legado do título ao reaplicar.
+  await apagarInformadas(i.employeeId, removidas).catch((e) => console.error("[ferias-combinado] apagar gorjeta informada falhou", e));
   await gravarInformadas(i.employeeId, new Map(previa.meses.filter((m) => m.origem === "INFORMADA" && m.valor != null).map((m) => [m.chave, m.valor as number])), a.usuario.id)
     .catch((e) => console.error("[ferias-combinado] gravar gorjeta informada falhou", e));
   await auditLog({

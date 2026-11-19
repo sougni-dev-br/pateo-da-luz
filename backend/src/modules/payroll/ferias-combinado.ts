@@ -30,7 +30,8 @@ export function combinadoProporcional(a: { combinado: number; diasDeFerias: numb
 // ── Média da gorjeta (A) ────────────────────────────────────────────────────────────────
 export type MesDaJanela = { ano: number; mes: number; chave: string };
 export type OrigemDoMes = "APURACAO" | "INFORMADA" | "AUSENTE";
-export type MesDaGorjeta = { chave: string; valor: number | null; origem: OrigemDoMes };
+/** `apuracaoErp`: a apuração do ERP do mês, como referência (null = sem apuração); pode diferir de `valor` quando o informado vale. */
+export type MesDaGorjeta = { chave: string; valor: number | null; origem: OrigemDoMes; apuracaoErp?: number | null };
 export type MediaDaGorjeta = { media: number; mesesContados: number; mesesAusentes: string[] };
 
 export const chaveDoMes = (ano: number, mes: number) => `${ano}-${String(mes).padStart(2, "0")}`;
@@ -43,6 +44,29 @@ export function janelaDeMeses(anoGozo: number, mesGozo: number, n: number = MESE
     const ano = Math.floor(t / 12), mes = (t % 12) + 1;
     return { ano, mes, chave: chaveDoMes(ano, mes) };
   });
+}
+
+export type ValorDoMes = { valor: number | null; origem: OrigemDoMes; apuracaoErp: number | null };
+
+/**
+ * Corte da apuração do ERP na gorjeta integral DO COMPLEMENTO DO COMBINADO (decisão do Eli, 19/11/2026): antes desta competência
+ * (AAAA-MM) a apuração do ERP não vale (julho e agosto de 2026 não existem de fato no ERP; serão ajustados e fechados lá à parte),
+ * então o mês só entra com valor informado à mão. Vale só para a gorjeta integral do complemento (férias e diferença do 13º do
+ * combinado): não muda a apuração de gorjeta em si nem o 13º das demais pessoas.
+ */
+export const GORJETA_ERP_VALE_A_PARTIR_DE = "2026-09";
+
+/**
+ * Qual gorjeta vale no mês: (1) o valor INFORMADO (ex.: fechado pela planilha) sempre vale, sobre a apuração (zero, aberta ou
+ * parcial); (2) sem informado, mês anterior ao corte = AUSENTE (a apuração fica só como referência); (3) a partir do corte vale a
+ * apuração do ERP. Regra única das férias e do 13º do combinado. `chave` = competência AAAA-MM.
+ */
+export function valorDoMesDaGorjeta(a: { chave: string; apuracao: number | null; informada: number | null }): ValorDoMes {
+  const apuracaoErp = a.apuracao == null ? null : round2(a.apuracao);
+  if (a.informada != null) return { valor: round2(a.informada), origem: "INFORMADA", apuracaoErp };
+  if (a.chave < GORJETA_ERP_VALE_A_PARTIR_DE) return { valor: null, origem: "AUSENTE", apuracaoErp };
+  if (apuracaoErp != null) return { valor: apuracaoErp, origem: "APURACAO", apuracaoErp };
+  return { valor: null, origem: "AUSENTE", apuracaoErp: null };
 }
 
 /** Média dos meses com valor (apurado ou informado). Mês sem nada não entra na conta: é listado para conferência. */

@@ -15,6 +15,14 @@ type Props = {
 };
 
 const ROTULO_ORIGEM: Record<MesDaGorjetaFerias["origem"], string> = { APURACAO: "apuração", INFORMADA: "informada à mão", AUSENTE: "sem apuração" };
+// Informado (ex.: fechado pela planilha) vale sobre a apuração do ERP; a apuração aparece só como referência.
+const ROTULO_INFORMADO_SOBRE_APURACAO = "informado vale sobre a apuração";
+// Antes de 09/2026 a apuração do ERP não vale para a gorjeta do combinado: mês ausente com apuração pede o valor à mão.
+const rotuloDaOrigem = (m: MesDaGorjetaFerias) => {
+  if (m.origem === "INFORMADA" && m.apuracaoErp != null) return ROTULO_INFORMADO_SOBRE_APURACAO;
+  if (m.origem === "AUSENTE" && m.apuracaoErp != null) return "informe à mão";
+  return ROTULO_ORIGEM[m.origem];
+};
 const TOM_ORIGEM: Record<MesDaGorjetaFerias["origem"], StatusTone> = { APURACAO: "success", INFORMADA: "info", AUSENTE: "warning" };
 const mesBr = (chave: string) => `${chave.slice(5, 7)}/${chave.slice(0, 4)}`;
 // Aceita "1.234,56" e "1234.56"; vazio ou inválido = não informado.
@@ -38,22 +46,27 @@ export function ComplementarCombinado({ payrollItemId, nome, onClose, onAplicou 
   // Valores digitados com que a prévia exibida foi calculada ("{}" = nenhum).
   const [calculadoCom, setCalculadoCom] = useState("{}");
 
-  const informadas = useCallback((): Record<string, number> => {
-    const out: Record<string, number> = {};
+  // Meses que já tinham valor informado quando a tela abriu: se o campo for apagado, mandamos null (volta a valer a apuração).
+  const [jaInformados, setJaInformados] = useState<ReadonlySet<string>>(new Set());
+
+  const informadas = useCallback((): Record<string, number | null> => {
+    const out: Record<string, number | null> = {};
     for (const [chave, texto] of Object.entries(digitado)) {
       const v = lerValor(texto);
       if (v != null) out[chave] = v;
+      else if (jaInformados.has(chave)) out[chave] = null;
     }
     return out;
-  }, [digitado]);
+  }, [digitado, jaInformados]);
 
-  const calcular = useCallback(async (gorjetas: Record<string, number>) => {
+  const calcular = useCallback(async (gorjetas: Record<string, number | null>, inicial = false) => {
     setCalculando(true);
     setErro(null);
     setMotivo(null);
     try {
       const r = await complementarFeriasCombinado(payrollItemId, false, gorjetas);
       setPrevia(r.previa);
+      if (inicial) setJaInformados(new Set(r.previa.meses.filter((m) => m.origem === "INFORMADA").map((m) => m.chave)));
       setCalculadoCom(JSON.stringify(gorjetas));
       setMotivo(r.motivo ?? null);
     } catch (e) {
@@ -63,7 +76,7 @@ export function ComplementarCombinado({ payrollItemId, nome, onClose, onAplicou 
     }
   }, [payrollItemId]);
 
-  useEffect(() => { void calcular({}); }, [calcular]);
+  useEffect(() => { void calcular({}, true); }, [calcular]);
 
   async function confirmar() {
     setAplicando(true);
@@ -165,7 +178,7 @@ export function ComplementarCombinado({ payrollItemId, nome, onClose, onAplicou 
               <FormSection
                 title="Gorjeta dos 12 meses da média"
                 eyebrow="Meses"
-                description={`${contagem("APURACAO")} com apuração · ${contagem("INFORMADA")} informada${contagem("INFORMADA") === 1 ? "" : "s"} à mão · ${contagem("AUSENTE")} sem valor. Nos meses sem apuração você pode digitar a gorjeta; mês com apuração usa sempre a apuração.`}
+                description={`${contagem("APURACAO")} com apuração · ${contagem("INFORMADA")} informada${contagem("INFORMADA") === 1 ? "" : "s"} à mão · ${contagem("AUSENTE")} sem valor. Você pode digitar a gorjeta de qualquer mês: o valor informado vale sobre a apuração do ERP (que fica como referência). Apague o campo para voltar a usar a apuração. Antes de 09/2026 a apuração do ERP não vale para a gorjeta do combinado: informe esses meses à mão.`}
                 actions={!aplicado && (
                   <Button variant={desatualizado ? "primary" : "secondary"} size="sm" leadingIcon={<RefreshCw size={14} />} disabled={ocupado} onClick={() => void calcular(informadas())}>Recalcular prévia</Button>
                 )}
@@ -173,14 +186,15 @@ export function ComplementarCombinado({ payrollItemId, nome, onClose, onAplicou 
                 {desatualizado && !aplicado && <Alert tone="warning">Você mudou valores: recalcule a prévia para ver o novo complemento antes de confirmar.</Alert>}
                 <ul className="fe-comb-meses">
                   {meses.map((m) => {
-                    const editavel = m.origem !== "APURACAO" && !aplicado;
+                    const editavel = !aplicado;
                     return (
                       <li key={m.chave}>
                         <Card className="fe-comb-mes">
                           <div className="fe-comb-mes-topo">
                             <strong>{mesBr(m.chave)}</strong>
-                            <StatusBadge tone={TOM_ORIGEM[m.origem]}>{ROTULO_ORIGEM[m.origem]}</StatusBadge>
+                            <StatusBadge tone={TOM_ORIGEM[m.origem]}>{rotuloDaOrigem(m)}</StatusBadge>
                           </div>
+                          {m.apuracaoErp != null && <span className="fe-comb-mes-ref">ERP: <Money value={m.apuracaoErp} /></span>}
                           {editavel ? (
                             <TextField type="text" inputMode="decimal" placeholder="0,00" aria-label={`Gorjeta de ${mesBr(m.chave)}`} disabled={ocupado}
                               value={digitado[m.chave] ?? (m.origem === "INFORMADA" && m.valor != null ? String(m.valor) : "")}

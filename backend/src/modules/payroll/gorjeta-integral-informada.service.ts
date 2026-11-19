@@ -36,3 +36,9 @@ export async function gravarInformadas(employeeId: string, meses: ReadonlyMap<st
     });
   }
 }
+
+// Apaga o valor informado dos meses (o mês volta a valer a apuração). Idempotente.
+export async function apagarInformadas(employeeId: string, competencias: ReadonlyArray<string>): Promise<void> {
+  if (competencias.length === 0) return;
+  await prisma.gorjetaIntegralInformada.deleteMany({ where: { employeeId, competencia: { in: [...competencias] } } });
+}
