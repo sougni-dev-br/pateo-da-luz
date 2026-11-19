@@ -5327,7 +5327,7 @@ export function getBuffetUsage(kind: PlateListKind, days: 7 | 30 | 90) {
 
 // ── Pesagem do buffet ──
 export type BuffetPot = { id: string; code: string; name: string | null; tareG: number; isActive: boolean };
-export type BuffetPotInput = { code: string; name?: string | null; tareG: number; isActive?: boolean };
+export type BuffetPotInput = { name: string; tareG: number; isActive?: boolean };
 export type WeighingPhase = "PRODUCAO" | "SOBRA";
 export type BuffetWeighing = {
   id: string; servedOn: string; kind: PlateListKind; itemId: string; itemName: string; potId: string; potCode: string;

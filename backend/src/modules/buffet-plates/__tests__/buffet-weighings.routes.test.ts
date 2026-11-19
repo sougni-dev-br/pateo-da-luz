@@ -169,33 +169,62 @@ describe("pesagem: ler, corrigir e apagar", () => {
 });
 
 describe("panelas", () => {
-  test("cadastra com o peso em gramas", async () => {
+  test("cadastra com o peso em gramas e a descrição; o código é gerado", async () => {
+    db.buffetPot.findMany.mockResolvedValueOnce([{ code: "P01" }, { code: "P02" }]);
     db.buffetPot.create.mockImplementation(async ({ data }: { data: object }) => data);
-    const r = await request(app).post("/buffet-plates/pots").send({ code: " P03 ", tareG: 2750 });
+    const r = await request(app).post("/buffet-plates/pots").send({ name: " Inox 10 L ", tareG: 2750 });
     expect(r.status).toBe(201);
-    expect(db.buffetPot.create.mock.calls[0][0].data).toMatchObject({ code: "P03", tareG: 2750 });
+    expect(db.buffetPot.create.mock.calls[0][0].data).toMatchObject({ code: "P03", name: "Inox 10 L", tareG: 2750 });
   });
 
-  test("grava o código sempre em maiúscula", async () => {
+  test("primeira panela vira P01 e o número passa de 99 sem quebrar", async () => {
+    db.buffetPot.findMany.mockResolvedValueOnce([]);
     db.buffetPot.create.mockImplementation(async ({ data }: { data: object }) => data);
-    await request(app).post("/buffet-plates/pots").send({ code: "p07", tareG: 2000 });
-    expect(db.buffetPot.create.mock.calls[0][0].data.code).toBe("P07");
+    await request(app).post("/buffet-plates/pots").send({ name: "Alumínio", tareG: 2000 });
+    expect(db.buffetPot.create.mock.calls[0][0].data.code).toBe("P01");
+    db.buffetPot.findMany.mockResolvedValueOnce([{ code: "P99" }, { code: "P07" }]);
+    await request(app).post("/buffet-plates/pots").send({ name: "Alumínio", tareG: 2000 });
+    expect(db.buffetPot.create.mock.calls[1][0].data.code).toBe("P100");
   });
 
-  test("código repetido vira 409 em português", async () => {
-    db.buffetPot.create.mockRejectedValueOnce(erroPrisma("P2002"));
-    const r = await request(app).post("/buffet-plates/pots").send({ code: "P01", tareG: 2400 });
+  test("ignora o código enviado pelo navegador e códigos fora do padrão não contam", async () => {
+    db.buffetPot.findMany.mockResolvedValueOnce([{ code: "VELHA" }, { code: "P04" }]);
+    db.buffetPot.create.mockImplementation(async ({ data }: { data: object }) => data);
+    await request(app).post("/buffet-plates/pots").send({ code: "P50", name: "Inox", tareG: 2000 });
+    expect(db.buffetPot.create.mock.calls[0][0].data.code).toBe("P05");
+  });
+
+  test("descrição é obrigatória", async () => {
+    const semNome = await request(app).post("/buffet-plates/pots").send({ tareG: 2400 });
+    expect(semNome.status).toBe(400);
+    expect(JSON.stringify(semNome.body)).toMatch(/obrigat/);
+    expect((await request(app).post("/buffet-plates/pots").send({ name: "   ", tareG: 2400 })).status).toBe(400);
+    expect(db.buffetPot.create).not.toHaveBeenCalled();
+  });
+
+  test("se outro cadastro pegou o mesmo número, tenta o próximo", async () => {
+    db.buffetPot.findMany.mockResolvedValueOnce([{ code: "P01" }]).mockResolvedValueOnce([{ code: "P01" }, { code: "P02" }]);
+    db.buffetPot.create.mockRejectedValueOnce(erroPrisma("P2002")).mockImplementation(async ({ data }: { data: object }) => data);
+    const r = await request(app).post("/buffet-plates/pots").send({ name: "Inox", tareG: 2400 });
+    expect(r.status).toBe(201);
+    expect(db.buffetPot.create.mock.calls[1][0].data.code).toBe("P03");
+  });
+
+  test("conflito persistente vira 409 em português", async () => {
+    db.buffetPot.findMany.mockResolvedValue([{ code: "P01" }]);
+    db.buffetPot.create.mockRejectedValue(erroPrisma("P2002"));
+    const r = await request(app).post("/buffet-plates/pots").send({ name: "Inox", tareG: 2400 });
     expect(r.status).toBe(409);
-    expect(r.body.message).toMatch(/Já existe uma panela com o código P01/);
+    expect(r.body.message).toMatch(/gerar o código da panela/);
   });
 
   test("peso da panela inválido e limite de panelas", async () => {
-    expect((await request(app).post("/buffet-plates/pots").send({ code: "P9", tareG: 0 })).status).toBe(400);
+    expect((await request(app).post("/buffet-plates/pots").send({ name: "Inox", tareG: 0 })).status).toBe(400);
     db.buffetPot.count.mockResolvedValueOnce(200);
-    expect((await request(app).post("/buffet-plates/pots").send({ code: "P9", tareG: 2000 })).status).toBe(400);
+    expect((await request(app).post("/buffet-plates/pots").send({ name: "Inox", tareG: 2000 })).status).toBe(400);
   });
 
-  test("atualiza o peso e inativa; panela inexistente é 404", async () => {
+  test("atualiza o peso e inativa; o código não muda; descrição vazia é recusada; panela inexistente é 404", async () => {
     db.buffetPot.findUnique.mockResolvedValueOnce(panela);
     db.buffetPot.update.mockImplementation(async ({ data }: { data: object }) => ({ ...panela, ...data }));
     const r = await request(app).put("/buffet-plates/pots/p1").send({ tareG: 2500, isActive: false });
