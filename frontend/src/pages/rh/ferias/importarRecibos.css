@@ -18,12 +18,5 @@
 .fe-rec-escolha { display: grid; gap: 2px; margin-top: 4px; font-size: var(--fs-xs); }
 .fe-rec-resumo { margin: 0; font-size: var(--fs-sm); }
 
-/* Complementar pelo combinado (fe-comb-) */
-.fe-comb-resumo { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px 20px; margin: 0; }
-.fe-comb-resumo dt { font-size: var(--fs-2xs); text-transform: uppercase; letter-spacing: var(--ls-eyebrow); color: var(--muted); }
-.fe-comb-resumo dd { margin: 2px 0 0; font-variant-numeric: tabular-nums; }
-.fe-comb-formula { margin: 0; font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
-.fe-comb-manual { display: grid; gap: 8px; border: 1px solid var(--line); padding: 10px 14px; }
-.fe-comb-manual legend { font-weight: 600; font-size: var(--fs-sm); }
-.fe-comb-campo { display: grid; grid-template-columns: 160px 140px; align-items: center; gap: 8px; font-size: var(--fs-sm); }
+/* O estilo do modal "Complementar pelo combinado" fica em complementarCombinado.css */
 p.fe-rec-aviso { margin: 0; color: var(--warning); font-size: var(--fs-sm); }

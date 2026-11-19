@@ -55,6 +55,19 @@ describe("ComplementarCombinado", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  test("depois de digitar um valor, só deixa confirmar quando a prévia for recalculada", async () => {
+    mock.mockResolvedValue({ aplicado: false, previa: previa() });
+    abrir();
+    const confirmar = await screen.findByRole("button", { name: "Confirmar e somar ao título" });
+    expect(confirmar).toHaveAttribute("aria-disabled", "false");
+    fireEvent.change(await screen.findByLabelText("Gorjeta de 01/2026"), { target: { value: "900" } });
+    expect(screen.getByText(/recalcule a prévia para ver o novo complemento/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirmar e somar ao título" })).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(screen.getByRole("button", { name: /Recalcular prévia/ }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Confirmar e somar ao título" })).toHaveAttribute("aria-disabled", "false"));
+    expect(screen.queryByText(/recalcule a prévia para ver o novo complemento/)).not.toBeInTheDocument();
+  });
+
   test("gorjeta informada à mão vai em gorjetasInformadas ao recalcular", async () => {
     mock.mockResolvedValue({ aplicado: false, previa: previa() });
     abrir();
