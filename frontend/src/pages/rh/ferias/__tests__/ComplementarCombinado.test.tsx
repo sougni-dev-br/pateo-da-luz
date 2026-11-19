@@ -4,6 +4,8 @@ import type { PreviaFeriasCombinado } from "../../../../api/client";
 
 vi.mock("../../../../api/client", async (original) => ({ ...(await original<typeof import("../../../../api/client")>()), complementarFeriasCombinado: vi.fn() }));
 import { complementarFeriasCombinado } from "../../../../api/client";
+vi.mock("../pdfComplementoFerias", () => ({ gerarPdfComplementoFerias: vi.fn(async () => undefined) }));
+import { gerarPdfComplementoFerias } from "../pdfComplementoFerias";
 import { SessionContext, type SessionContextValue } from "../../../../context/SessionContext";
 import { HideValuesProvider } from "../../../../design-system";
 import { ComplementarCombinado } from "../ComplementarCombinado";
@@ -75,6 +77,21 @@ describe("ComplementarCombinado", () => {
     fireEvent.click(screen.getByRole("button", { name: /Recalcular prévia/ }));
     await waitFor(() => expect(mock).toHaveBeenCalledTimes(2));
     expect(mock.mock.calls[1]).toEqual(["pi1", false, { "2026-01": 1234.5 }]);
+  });
+
+  test("Gerar PDF sai como prévia antes de confirmar e como gravado depois", async () => {
+    const pdf = vi.mocked(gerarPdfComplementoFerias);
+    pdf.mockClear();
+    mock.mockResolvedValueOnce({ aplicado: false, previa: previa() }).mockResolvedValueOnce({ aplicado: true, previa: previa() });
+    abrir();
+    fireEvent.click(await screen.findByRole("button", { name: "Gerar PDF" }));
+    await waitFor(() => expect(pdf).toHaveBeenCalledTimes(1));
+    expect(pdf.mock.calls[0][1]).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar e somar ao título" }));
+    await screen.findByText("Complemento gravado no título de férias.");
+    fireEvent.click(screen.getByRole("button", { name: "Gerar PDF" }));
+    await waitFor(() => expect(pdf).toHaveBeenCalledTimes(2));
+    expect(pdf.mock.calls[1][1]).toBe(true);
   });
 
   test("mostra a recusa da rota e não deixa confirmar", async () => {
