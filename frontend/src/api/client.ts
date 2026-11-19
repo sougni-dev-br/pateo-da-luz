@@ -5325,6 +5325,41 @@ export function getBuffetUsage(kind: PlateListKind, days: 7 | 30 | 90) {
   return request<BuffetUsageReport>(`/buffet-plates/usage${toQueryString({ kind, days: String(days) })}`);
 }
 
+// ── Pesagem do buffet ──
+export type BuffetPot = { id: string; code: string; name: string | null; tareG: number; isActive: boolean };
+export type BuffetPotInput = { code: string; name?: string | null; tareG: number; isActive?: boolean };
+export type WeighingPhase = "PRODUCAO" | "SOBRA";
+export type BuffetWeighing = {
+  id: string; servedOn: string; kind: PlateListKind; itemId: string; itemName: string; potId: string; potCode: string;
+  phase: WeighingPhase; grossG: number; tareG: number; netG: number; notes: string | null; createdAt: string;
+};
+export type BuffetWeighingInput = { servedOn: string; kind: PlateListKind; itemId: string; potId: string; phase: WeighingPhase; grossG: number };
+export type BuffetDayItemSummary = { itemId: string; producedG: number; leftoverG: number; consumedG: number | null; inconsistent: boolean };
+export type BuffetDaySummary = { items: BuffetDayItemSummary[]; producedG: number; leftoverG: number; consumedG: number };
+export type BuffetWeighingDay = { date: string; kind: PlateListKind; rows: BuffetWeighing[]; summary: BuffetDaySummary };
+
+export function getBuffetPots(all = false) {
+  return request<BuffetPot[]>(`/buffet-plates/pots${toQueryString({ all: all ? "1" : undefined })}`);
+}
+
+export function saveBuffetPot(payload: BuffetPotInput | Partial<BuffetPotInput>, id?: string) {
+  return request<BuffetPot>(id ? `/buffet-plates/pots/${id}` : "/buffet-plates/pots", {
+    method: id ? "PUT" : "POST", headers: JSON_HEADERS, body: JSON.stringify(payload),
+  });
+}
+
+export function getBuffetWeighings(date: string, kind: PlateListKind) {
+  return request<BuffetWeighingDay>(`/buffet-plates/weighings${toQueryString({ date, kind })}`);
+}
+
+export function createBuffetWeighing(payload: BuffetWeighingInput) {
+  return request<BuffetWeighing>("/buffet-plates/weighings", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(payload) });
+}
+
+export function deleteBuffetWeighing(id: string) {
+  return request<{ ok: boolean }>(`/buffet-plates/weighings/${id}`, { method: "DELETE" });
+}
+
 // ──────────────────────────────────────────────
 // DRE Gerencial
 // ──────────────────────────────────────────────

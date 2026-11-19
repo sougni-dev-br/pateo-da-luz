@@ -9,6 +9,7 @@ const CAMPOS: Record<string, string> = {
   items: "pratos", itemId: "prato", itemIds: "pratos", sections: "seções", titlePt: "título", titleEn: "título em inglês",
   copies: "displays", eventDate: "data", servedOn: "data", faceWidthMm: "largura", faceHeightMm: "altura",
   listId: "lista", listName: "nome da lista",
+  grossG: "peso bruto", tareG: "peso da panela", potId: "panela", code: "código", phase: "etapa",
 };
 
 function onde(path: (string | number)[]) {
@@ -28,6 +29,7 @@ export function mensagemDeValidacao(error: z.ZodError): string {
   let texto = issue.message;
   // Mensagem própria do schema (ex.: "categoria inválida") fica; só a padrão do zod, em inglês, é trocada.
   if (issue.code === "invalid_enum_value" && /^Invalid/.test(issue.message)) texto = `${nome}: opção inválida`;
+  else if (issue.code === "invalid_type" && issue.received === "float") texto = `${nome}: use gramas inteiras`;
   else if (issue.code === "invalid_type") texto = issue.received === "undefined" ? `${nome} obrigatório` : `${nome}: valor inválido`;
   const local = onde(issue.path);
   return local ? `${local}: ${texto}` : texto;
