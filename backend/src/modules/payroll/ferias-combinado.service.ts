@@ -10,7 +10,7 @@ import { prisma } from "../../config/database.js";
 import { assertPeriodWritableForDate } from "../cmv-real/cmv-real.service.js";
 import { auditLog } from "../security/security-utils.js";
 import {
-  chaveDoMes, complementoDeFerias, complementoSomadoAFerias, foiSomadoAFerias, diasDoRecibo, informadasGuardadas, janelaDeMeses,
+  chaveDoMes, complementoDeFerias, GORJETA_ERP_VALE_A_PARTIR_DE, complementoSomadoAFerias, foiSomadoAFerias, diasDoRecibo, informadasGuardadas, janelaDeMeses,
   liquidoDoRecibo, mediaDaGorjeta, semMarcasDoFeriasCombinado, valorDoMesDaGorjeta, valorFeriasComCombinado, type MesDaGorjeta,
 } from "./ferias-combinado.js";
 import { apagarInformadas, gravarInformadas, informadasDaPessoa } from "./gorjeta-integral-informada.service.js";
@@ -20,6 +20,7 @@ import { gorjetasDaCompetencia, mapaCombinados } from "./salario-combinado.servi
 const round2 = (v: number) => Math.round(v * 100) / 100;
 const reais = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const MAX_GORJETA_MES = 100_000;
+const mesBr = (chave: string) => `${chave.slice(5, 7)}/${chave.slice(0, 4)}`;
 const CHAVE_MES = /^\d{4}-(0[1-9]|1[0-2])$/;
 
 export class RecusaFerias extends Error {
@@ -66,10 +67,11 @@ async function mesesDaGorjeta(
       console.error(`[ferias-combinado] apuração de ${chaveDoMes(m.ano, m.mes)} falhou`, err);
       avisos.push(`Não foi possível calcular a gorjeta de ${chaveDoMes(m.ano, m.mes)} (apuração indisponível): faturamento indisponível ou erro interno; ${info != null ? "valeu o valor informado à mão" : "o mês ficou fora da média"}.`);
     }
-    const v = valorDoMesDaGorjeta({ apuracao, informada: info });
+    const v = valorDoMesDaGorjeta({ chave: m.chave, apuracao, informada: info });
     if (v.origem === "INFORMADA" && v.apuracaoErp != null && v.apuracaoErp !== v.valor) {
       avisos.push(`${m.chave}: valeu o informado (${reais(v.valor ?? 0)}), não a apuração do ERP (${reais(v.apuracaoErp)}).`);
     }
+    if (v.origem === "AUSENTE" && v.apuracaoErp != null) avisos.push(`${m.chave}: antes de ${mesBr(GORJETA_ERP_VALE_A_PARTIR_DE)} a apuração do ERP (${reais(v.apuracaoErp)}) não vale para a gorjeta do combinado: informe à mão.`);
     return { chave: m.chave, valor: v.valor, origem: v.origem, apuracaoErp: v.apuracaoErp };
   }));
 }

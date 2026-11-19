@@ -92,42 +92,40 @@ describe("informadasDasFerias", () => {
 });
 
 describe("gorjetaIntegralDoCombinado", () => {
-  const apuracao = new Map([[8, 2000], [9, 1500]]);
-  test("sem informadas: igual à apuração", () => {
-    const r = gorjetaIntegralDoCombinado({ apuracao, apurados: new Set([8, 9]), doDecimo: new Map(), dasFerias: new Map() });
-    expect([...r.integralPorMes]).toEqual([[8, 2000], [9, 1500]]);
-    expect([...r.mesesApurados].sort()).toEqual([8, 9]);
+  // Meses < 09/2026 só valem se informados (corte do Eli); do 13º/2026 em diante a apuração vale a partir de setembro.
+  const apuracao = new Map([[8, 2000], [9, 1500], [10, 800]]);
+  test("sem informadas: meses antes de setembro saem da média; setembro em diante vêm da apuração", () => {
+    const r = gorjetaIntegralDoCombinado({ ano: 2026, apuracao, apurados: new Set([8, 9, 10]), doDecimo: new Map(), dasFerias: new Map() });
+    expect([...r.integralPorMes].sort((x, y) => x[0] - y[0])).toEqual([[9, 1500], [10, 800]]);
+    expect([...r.mesesApurados].sort((x, y) => x - y)).toEqual([9, 10]);
     expect(r.mesesDasFerias).toEqual([]);
   });
-  test("informada nas férias preenche mês sem apuração e passa a contar na média", () => {
-    const r = gorjetaIntegralDoCombinado({ apuracao, apurados: new Set([8, 9]), doDecimo: new Map(), dasFerias: new Map([[3, 1800]]) });
-    expect(r.integralPorMes.get(3)).toBe(1800);
-    expect(r.mesesApurados.has(3)).toBe(true);
-    expect(r.mesesDasFerias).toEqual([3]);
-  });
-  test("informado vale sobre a apuração do ERP (> 0, zero ou mês ainda aberto)", () => {
-    const r = gorjetaIntegralDoCombinado({ apuracao: new Map([[7, 0], [8, 2000]]), apurados: new Set([7, 8]), doDecimo: new Map(), dasFerias: new Map([[7, 1392.45], [8, 2593.97], [3, 500]]) });
+  test("informado vale antes e depois do corte, sobre a apuração (> 0, zero ou aberta)", () => {
+    const r = gorjetaIntegralDoCombinado({
+      ano: 2026, apuracao: new Map([[7, 0], [8, 2016.17], [9, 1500]]), apurados: new Set([7, 8, 9]), doDecimo: new Map(),
+      dasFerias: new Map([[7, 1392.45], [8, 2593.97], [9, 1600], [3, 500]]),
+    });
     expect(r.integralPorMes.get(7)).toBe(1392.45);
     expect(r.integralPorMes.get(8)).toBe(2593.97);
+    expect(r.integralPorMes.get(9)).toBe(1600);
     expect(r.integralPorMes.get(3)).toBe(500);
-    expect(r.mesesDasFerias).toEqual([3, 7, 8]);
+    expect(r.mesesDasFerias).toEqual([3, 7, 8, 9]);
     expect(r.mesesApurados.has(3)).toBe(true);
   });
-  test("sem informado a apuração segue valendo", () => {
-    const r = gorjetaIntegralDoCombinado({ apuracao, apurados: new Set([8, 9]), doDecimo: new Map(), dasFerias: new Map() });
-    expect(r.integralPorMes.get(8)).toBe(2000);
-    expect(r.mesesDasFerias).toEqual([]);
-  });
-  test("valor informado na tela do 13º vale mais que tudo", () => {
-    const r = gorjetaIntegralDoCombinado({ apuracao, apurados: new Set([8, 9]), doDecimo: new Map([[8, 2500], [3, 1000]]), dasFerias: new Map([[3, 1800]]) });
+  test("a tela do 13º vale mais que tudo, inclusive antes do corte", () => {
+    const r = gorjetaIntegralDoCombinado({ ano: 2026, apuracao, apurados: new Set([8, 9]), doDecimo: new Map([[8, 2500], [3, 1000]]), dasFerias: new Map([[3, 1800], [8, 100]]) });
     expect(r.integralPorMes.get(8)).toBe(2500);
     expect(r.integralPorMes.get(3)).toBe(1000);
     expect(r.mesesDasFerias).toEqual([]);
-    expect([...r.mesesApurados].sort((a, b) => a - b)).toEqual([3, 8, 9]);
+    expect([...r.mesesApurados].sort((x, y) => x - y)).toEqual([3, 8, 9]);
+  });
+  test("anos seguintes: a apuração vale em todos os meses (o corte é só de 2026)", () => {
+    const r = gorjetaIntegralDoCombinado({ ano: 2027, apuracao: new Map([[2, 900]]), apurados: new Set([2]), doDecimo: new Map(), dasFerias: new Map() });
+    expect(r.integralPorMes.get(2)).toBe(900);
   });
   test("não muda os mapas recebidos", () => {
     const ap = new Map([[8, 2000]]);
-    gorjetaIntegralDoCombinado({ apuracao: ap, apurados: new Set([8]), doDecimo: new Map(), dasFerias: new Map([[3, 1]]) });
+    gorjetaIntegralDoCombinado({ ano: 2026, apuracao: ap, apurados: new Set([8]), doDecimo: new Map(), dasFerias: new Map([[3, 1]]) });
     expect([...ap]).toEqual([[8, 2000]]);
   });
 });

@@ -8,6 +8,7 @@ const reais = (v: number) => textoPdf(v.toLocaleString("pt-BR", { style: "curren
 const mesBr = (chave: string) => `${chave.slice(5, 7)}/${chave.slice(0, 4)}`;
 export const ROTULO_INFORMADO_SOBRE_APURACAO = "informado vale sobre a apuração";
 const origemDoMes = (m: MesDaGorjetaFerias) => {
+  if (m.origem === "AUSENTE" && m.apuracaoErp != null) return `informar à mão (apuração do ERP não vale; ERP: ${reais(m.apuracaoErp)})`;
   if (m.origem !== "INFORMADA") return ORIGEM[m.origem];
   return m.apuracaoErp != null ? `${ROTULO_INFORMADO_SOBRE_APURACAO} (ERP: ${reais(m.apuracaoErp)})` : ORIGEM.INFORMADA;
 };

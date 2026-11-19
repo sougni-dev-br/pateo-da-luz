@@ -17,7 +17,12 @@ type Props = {
 const ROTULO_ORIGEM: Record<MesDaGorjetaFerias["origem"], string> = { APURACAO: "apuração", INFORMADA: "informada à mão", AUSENTE: "sem apuração" };
 // Informado (ex.: fechado pela planilha) vale sobre a apuração do ERP; a apuração aparece só como referência.
 const ROTULO_INFORMADO_SOBRE_APURACAO = "informado vale sobre a apuração";
-const rotuloDaOrigem = (m: MesDaGorjetaFerias) => (m.origem === "INFORMADA" && m.apuracaoErp != null ? ROTULO_INFORMADO_SOBRE_APURACAO : ROTULO_ORIGEM[m.origem]);
+// Antes de 09/2026 a apuração do ERP não vale para a gorjeta do combinado: mês ausente com apuração pede o valor à mão.
+const rotuloDaOrigem = (m: MesDaGorjetaFerias) => {
+  if (m.origem === "INFORMADA" && m.apuracaoErp != null) return ROTULO_INFORMADO_SOBRE_APURACAO;
+  if (m.origem === "AUSENTE" && m.apuracaoErp != null) return "informe à mão";
+  return ROTULO_ORIGEM[m.origem];
+};
 const TOM_ORIGEM: Record<MesDaGorjetaFerias["origem"], StatusTone> = { APURACAO: "success", INFORMADA: "info", AUSENTE: "warning" };
 const mesBr = (chave: string) => `${chave.slice(5, 7)}/${chave.slice(0, 4)}`;
 // Aceita "1.234,56" e "1234.56"; vazio ou inválido = não informado.
@@ -173,7 +178,7 @@ export function ComplementarCombinado({ payrollItemId, nome, onClose, onAplicou 
               <FormSection
                 title="Gorjeta dos 12 meses da média"
                 eyebrow="Meses"
-                description={`${contagem("APURACAO")} com apuração · ${contagem("INFORMADA")} informada${contagem("INFORMADA") === 1 ? "" : "s"} à mão · ${contagem("AUSENTE")} sem valor. Você pode digitar a gorjeta de qualquer mês: o valor informado vale sobre a apuração do ERP (que fica como referência). Apague o campo para voltar a usar a apuração.`}
+                description={`${contagem("APURACAO")} com apuração · ${contagem("INFORMADA")} informada${contagem("INFORMADA") === 1 ? "" : "s"} à mão · ${contagem("AUSENTE")} sem valor. Você pode digitar a gorjeta de qualquer mês: o valor informado vale sobre a apuração do ERP (que fica como referência). Apague o campo para voltar a usar a apuração. Antes de 09/2026 a apuração do ERP não vale para a gorjeta do combinado: informe esses meses à mão.`}
                 actions={!aplicado && (
                   <Button variant={desatualizado ? "primary" : "secondary"} size="sm" leadingIcon={<RefreshCw size={14} />} disabled={ocupado} onClick={() => void calcular(informadas())}>Recalcular prévia</Button>
                 )}

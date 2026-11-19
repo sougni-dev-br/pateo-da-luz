@@ -98,6 +98,21 @@ describe("ComplementarCombinado", () => {
     expect(screen.getByText(/o valor informado vale sobre a apuração do ERP/)).toBeInTheDocument();
   });
 
+  test("mês antes de setembro sem informado pede para informar à mão e mostra a apuração do ERP só como referência", async () => {
+    mock.mockResolvedValue({
+      aplicado: false,
+      previa: previa({ meses: [
+        { chave: mes(7), valor: null, origem: "AUSENTE", apuracaoErp: 0 }, { chave: mes(8), valor: null, origem: "AUSENTE", apuracaoErp: 2016.17 },
+        { chave: mes(1), valor: null, origem: "AUSENTE", apuracaoErp: null },
+      ] }),
+    });
+    abrir();
+    expect(await screen.findByLabelText("Gorjeta de 08/2026")).toBeInTheDocument();
+    expect(screen.getAllByText("informe à mão")).toHaveLength(2);
+    expect(screen.getByText("sem apuração")).toBeInTheDocument();
+    expect(Array.from(document.querySelectorAll(".fe-comb-mes-ref")).map((e) => e.textContent ?? "").some((t) => /ERP:.*2\.016,17/.test(t))).toBe(true);
+  });
+
   test("apagar o campo de um mês informado envia null (volta a usar a apuração); mês nunca informado não envia nada", async () => {
     mock.mockResolvedValue({
       aplicado: false,

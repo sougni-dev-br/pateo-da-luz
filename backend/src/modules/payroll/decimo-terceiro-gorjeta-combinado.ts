@@ -10,7 +10,7 @@
 
 import { mesesDe13 } from "./rescisao-verbas-opcionais.js";
 import { avosEMedias, type Decimo13SR } from "./decimo-terceiro-sr.js";
-import { informadasGuardadas, valorDoMesDaGorjeta } from "./ferias-combinado.js";
+import { chaveDoMes, informadasGuardadas, valorDoMesDaGorjeta } from "./ferias-combinado.js";
 
 const round2 = (v: number) => Math.round(v * 100) / 100;
 
@@ -109,25 +109,33 @@ export function informadasDaTabela(linhas: ReadonlyArray<{ competencia: string; 
 }
 
 // Gorjeta integral de cada mês do ano-base para a diferença do combinado. Precedência: valor informado na tela do 13º >
-// informada à mão (tabela/férias; vale sobre a apuração do ERP, seja ela zero, aberta ou parcial) > apuração do ERP.
+// informada à mão (tabela/férias; vale sobre a apuração do ERP) > apuração do ERP, esta só a partir do corte
+// (GORJETA_ERP_VALE_A_PARTIR_DE): antes dele o mês sem informado sai da média (o aviso de "sem gorjeta em" do serviço já o lista).
 // O mês informado vira "mês apurado" para entrar na média.
 export function gorjetaIntegralDoCombinado(a: {
-  apuracao: ReadonlyMap<number, number>; apurados: ReadonlySet<number>; doDecimo: ReadonlyMap<number, number>; dasFerias: ReadonlyMap<number, number>;
+  ano: number; apuracao: ReadonlyMap<number, number>; apurados: ReadonlySet<number>; doDecimo: ReadonlyMap<number, number>; dasFerias: ReadonlyMap<number, number>;
 }): { integralPorMes: Map<number, number>; mesesApurados: Set<number>; mesesDasFerias: number[] } {
-  const integralPorMes = new Map(a.apuracao);
-  const mesesApurados = new Set(a.apurados);
+  const integralPorMes = new Map<number, number>();
+  const mesesApurados = new Set<number>();
   const mesesDasFerias: number[] = [];
-  for (const [mes, valor] of [...a.dasFerias].sort((x, y) => x[0] - y[0])) {
-    if (a.doDecimo.has(mes)) continue;
-    const v = valorDoMesDaGorjeta({ apuracao: a.apurados.has(mes) ? a.apuracao.get(mes) ?? 0 : null, informada: valor });
-    if (v.valor == null) continue;
-    integralPorMes.set(mes, v.valor);
-    mesesApurados.add(mes);
-    mesesDasFerias.push(mes);
-  }
-  for (const [mes, valor] of a.doDecimo) {
-    integralPorMes.set(mes, valor);
-    mesesApurados.add(mes);
+  const meses = new Set<number>([...a.apuracao.keys(), ...a.apurados, ...a.dasFerias.keys(), ...a.doDecimo.keys()]);
+  for (const mes of [...meses].sort((x, y) => x - y)) {
+    if (a.doDecimo.has(mes)) {
+      integralPorMes.set(mes, a.doDecimo.get(mes) as number);
+      mesesApurados.add(mes);
+      continue;
+    }
+    const v = valorDoMesDaGorjeta({
+      chave: chaveDoMes(a.ano, mes), apuracao: a.apurados.has(mes) ? a.apuracao.get(mes) ?? 0 : null, informada: a.dasFerias.get(mes) ?? null,
+    });
+    if (v.origem === "INFORMADA") {
+      integralPorMes.set(mes, v.valor as number);
+      mesesApurados.add(mes);
+      mesesDasFerias.push(mes);
+    } else if (v.origem === "APURACAO") {
+      integralPorMes.set(mes, v.valor as number);
+      mesesApurados.add(mes);
+    }
   }
   return { integralPorMes, mesesApurados, mesesDasFerias };
 }

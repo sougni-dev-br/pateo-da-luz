@@ -49,12 +49,22 @@ export function janelaDeMeses(anoGozo: number, mesGozo: number, n: number = MESE
 export type ValorDoMes = { valor: number | null; origem: OrigemDoMes; apuracaoErp: number | null };
 
 /**
- * Qual gorjeta vale no mês (decisão do Eli, 19/11/2026, revista): o valor INFORMADO (ex.: fechado pela planilha) vale sobre a
- * apuração do ERP, seja ela zero, aberta ou parcial; a apuração só entra quando não há informado. Regra única das férias e do 13º.
+ * Corte da apuração do ERP na gorjeta integral DO COMPLEMENTO DO COMBINADO (decisão do Eli, 19/11/2026): antes desta competência
+ * (AAAA-MM) a apuração do ERP não vale (julho e agosto de 2026 não existem de fato no ERP; serão ajustados e fechados lá à parte),
+ * então o mês só entra com valor informado à mão. Vale só para a gorjeta integral do complemento (férias e diferença do 13º do
+ * combinado): não muda a apuração de gorjeta em si nem o 13º das demais pessoas.
  */
-export function valorDoMesDaGorjeta(a: { apuracao: number | null; informada: number | null }): ValorDoMes {
+export const GORJETA_ERP_VALE_A_PARTIR_DE = "2026-09";
+
+/**
+ * Qual gorjeta vale no mês: (1) o valor INFORMADO (ex.: fechado pela planilha) sempre vale, sobre a apuração (zero, aberta ou
+ * parcial); (2) sem informado, mês anterior ao corte = AUSENTE (a apuração fica só como referência); (3) a partir do corte vale a
+ * apuração do ERP. Regra única das férias e do 13º do combinado. `chave` = competência AAAA-MM.
+ */
+export function valorDoMesDaGorjeta(a: { chave: string; apuracao: number | null; informada: number | null }): ValorDoMes {
   const apuracaoErp = a.apuracao == null ? null : round2(a.apuracao);
   if (a.informada != null) return { valor: round2(a.informada), origem: "INFORMADA", apuracaoErp };
+  if (a.chave < GORJETA_ERP_VALE_A_PARTIR_DE) return { valor: null, origem: "AUSENTE", apuracaoErp };
   if (apuracaoErp != null) return { valor: apuracaoErp, origem: "APURACAO", apuracaoErp };
   return { valor: null, origem: "AUSENTE", apuracaoErp: null };
 }

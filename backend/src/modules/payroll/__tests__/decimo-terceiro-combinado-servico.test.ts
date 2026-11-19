@@ -297,6 +297,8 @@ const declarada = (...valores: Array<number | null>) => db.rhExtractPessoa.findM
 
 // Gorjeta integral (netCommission) de ago, set e out: 1.000 / 1.200 / 800 → média 1.000.
 function apuracao(porMes: Record<number, number | null>) {
+  // Antes de 09/2026 a apuração do ERP não vale para a gorjeta do combinado: o valor desses meses chega como informado (planilha).
+  db.gorjetaIntegralInformada.findMany.mockResolvedValue(Object.entries(porMes).filter(([m, v]) => Number(m) < 9 && v != null).map(([m, v]) => ({ employeeId: "e1", competencia: `2026-${String(m).padStart(2, "0")}`, valor: v })));
   db.tipPeriod.findMany.mockResolvedValue(Object.keys(porMes).map((m) => ({ competenceMonth: Number(m), periodEnd: new Date("2026-01-01T00:00:00Z") })));
   vi.mocked(computeTipCommission).mockImplementation((async (_ano: number, mes: number) => ({
     status: "CLOSED",
@@ -372,7 +374,7 @@ describe("gorjeta informada na tabela única (férias) compõe o 13º", () => {
     apuracao({ 8: 1000, 9: 1200, 10: 800 });
     // abr sem apuração (preenche: 1.700 − 200 = +1.500); dez de 2026 e mar de 2025 ficam de fora
     db.gorjetaIntegralInformada.findMany.mockResolvedValue([
-      { employeeId: "e1", competencia: "2026-04", valor: 1700 },
+      { employeeId: "e1", competencia: "2026-04", valor: 1700 }, { employeeId: "e1", competencia: "2026-08", valor: 1000 },
       { employeeId: "e1", competencia: "2026-12", valor: 5000 }, { employeeId: "e1", competencia: "2025-03", valor: 5000 },
     ]);
     const previa = await listarDecimoTerceiroSR(2026);
@@ -445,12 +447,12 @@ describe("diferença da gorjeta — ano todo (jan a out)", () => {
     expect(l.calculo!.total).toBe(2050 - 800 + 640); // salário 1.250 + gorjeta 640 (nov ainda não conta)
   });
 
-  test("mês apurado em que ele não participou e sem valor informado conta como zero (por isso se informa)", async () => {
+  test("antes de 09/2026 mês sem valor informado sai da média (não conta zero); por isso se informa", async () => {
     monta([itemExtrato()]);
     declarada(100);
     apuracao({ 7: null, 8: 1000, 9: 1200, 10: 800 });
     informar([1, 200], [2, 200], [3, 1000], [4, 1100], [5, 900], [6, 1200]); // jul sem valor
-    expect((await comb()).calculo!.mediaParcela1).toBe(560); // 7.600 ÷ 10 − 200 (jul entra como zero)
+    expect((await comb()).calculo!.mediaParcela1).toBe(644.44); // 7.600 ÷ 9 − 200 (jul, antes do corte e sem informado, fica fora da média)
   });
 });
 
