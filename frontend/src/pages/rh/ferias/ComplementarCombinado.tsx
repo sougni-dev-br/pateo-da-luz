@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { type MesDaGorjetaFerias, type PreviaFeriasCombinado, complementarFeriasCombinado } from "../../../api/client";
 import { Alert, Button, Money } from "../../../design-system";
 import "./importarRecibos.css";
+import "./complementarCombinado.css";
 
 type Props = {
   payrollItemId: string;
@@ -31,6 +32,8 @@ export function ComplementarCombinado({ payrollItemId, nome, onClose, onAplicou 
   const [aplicando, setAplicando] = useState(false);
   const [aplicado, setAplicado] = useState(false);
   const [digitado, setDigitado] = useState<Record<string, string>>({});
+  // Valores digitados com que a prévia exibida foi calculada ("{}" = nenhum).
+  const [calculadoCom, setCalculadoCom] = useState("{}");
   const dialogo = useRef<HTMLElement>(null);
 
   const informadas = useCallback((): Record<string, number> => {
@@ -49,6 +52,7 @@ export function ComplementarCombinado({ payrollItemId, nome, onClose, onAplicou 
     try {
       const r = await complementarFeriasCombinado(payrollItemId, false, gorjetas);
       setPrevia(r.previa);
+      setCalculadoCom(JSON.stringify(gorjetas));
       setMotivo(r.motivo ?? null);
     } catch (e) {
       setErro(e instanceof Error ? e.message : "Não consegui calcular o complemento.");
@@ -76,24 +80,28 @@ export function ComplementarCombinado({ payrollItemId, nome, onClose, onAplicou 
   }
 
   const ocupado = calculando || aplicando;
-  const podeConfirmar = !!previa && !aplicado && !ocupado && (previa.complemento > 0 || previa.valorDepois !== previa.valorAntes);
+  // Valores digitados que a prévia na tela ainda não considerou: confirmar agora gravaria um número que ninguém viu.
+  const desatualizado = JSON.stringify(informadas()) !== calculadoCom;
+  const podeConfirmar = !!previa && !aplicado && !ocupado && !desatualizado && (previa.complemento > 0 || previa.valorDepois !== previa.valorAntes);
   const sair = () => { if (aplicado) onAplicou(); onClose(); };
-  // Meses que não vieram de apuração: é onde a gorjeta pode ser informada à mão.
-  const mesesEditaveis = previa?.meses.filter((m) => m.origem !== "APURACAO") ?? [];
+  const meses = previa?.meses ?? [];
+  const contagem = (o: MesDaGorjetaFerias["origem"]) => meses.filter((m) => m.origem === o).length;
+  const remuneracaoMensal = previa && previa.combinado != null ? previa.combinado + previa.mediaGorjeta : null;
 
   return (
     <div className="modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget && !ocupado) sair(); }}>
-      <section ref={dialogo} tabIndex={-1} className="panel modal-panel fe-imp fe-rec" role="dialog" aria-modal="true" aria-labelledby="fe-comb-titulo"
+      <section ref={dialogo} tabIndex={-1} className="panel modal-panel fe-imp fe-rec fe-comb" role="dialog" aria-modal="true" aria-labelledby="fe-comb-titulo"
         onKeyDown={(e) => { if (e.key === "Escape" && !ocupado) sair(); }}>
-        <header className="fe-imp-topo">
+        <header className="fe-imp-topo fe-comb-topo">
           <div>
+            <p className="fe-comb-eyebrow">Férias · salário combinado</p>
             <h2 id="fe-comb-titulo">Complementar pelo combinado — {nome}</h2>
             <p>Nas férias a pessoa leva para casa o mesmo que trabalhando, mais 1/3; a empresa absorve o IR e o INSS do recibo. Nada é gravado antes de você confirmar.</p>
           </div>
           <Button variant="secondary" size="sm" disabled={ocupado} onClick={sair}>Fechar (Esc)</Button>
         </header>
 
-        <div className="fe-rec-corpo">
+        <div className="fe-rec-corpo fe-comb-corpo">
           {calculando && !previa && <p className="fe-ajuda" role="status">Calculando a prévia…</p>}
           {erro && <Alert tone="error">{erro}</Alert>}
           {aplicado && <Alert tone="success">Complemento gravado no título de férias.</Alert>}
@@ -101,48 +109,75 @@ export function ComplementarCombinado({ payrollItemId, nome, onClose, onAplicou 
 
           {previa && (
             <>
-              <dl className="fe-comb-resumo">
-                <div><dt>Líquido do recibo</dt><dd><Money value={previa.liquidoRecibo} /></dd></div>
-                <div><dt>Salário combinado vigente</dt><dd>{previa.combinado == null ? "Sem combinado vigente" : <Money value={previa.combinado} />}</dd></div>
-                <div><dt>Média da gorjeta (12 meses)</dt><dd><Money value={previa.mediaGorjeta} /> <small>em {previa.mesesContados} {previa.mesesContados === 1 ? "mês" : "meses"}</small></dd></div>
-                <div><dt>Remuneração devida</dt><dd><Money value={previa.remuneracao} /></dd></div>
-                <div><dt>Complemento</dt><dd><strong><Money value={previa.complemento} /></strong></dd></div>
-                <div><dt>Título hoje</dt><dd><Money value={previa.valorAntes} /></dd></div>
-                <div><dt>Novo valor do título</dt><dd><strong><Money value={previa.valorDepois} /></strong></dd></div>
-              </dl>
-              {previa.formula && <p className="fe-comb-formula"><b>Fórmula:</b> {previa.formula}</p>}
-              {previa.avisos.map((a) => <p key={a} className="fe-rec-aviso">⚠ {a}</p>)}
-
-              {previa.meses.length > 0 && (
-                <div className="fe-rec-rolagem">
-                  <table className="fe-rec-tabela">
-                    <caption className="fe-sr">Gorjeta integral dos 12 meses da média</caption>
-                    <thead><tr><th scope="col">Mês</th><th scope="col">Gorjeta</th><th scope="col">Origem</th></tr></thead>
-                    <tbody>
-                      {previa.meses.map((m) => (
-                        <tr key={m.chave}>
-                          <td>{mesBr(m.chave)}</td>
-                          <td>{m.valor == null ? "—" : <Money value={m.valor} />}</td>
-                          <td>{ROTULO_ORIGEM[m.origem]}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+              <div className="fe-comb-destaque" aria-busy={calculando}>
+                <div className="fe-comb-valor">
+                  <span>Título hoje</span>
+                  <b><Money value={previa.valorAntes} /></b>
                 </div>
-              )}
+                <span className="fe-comb-sinal" aria-hidden="true">+</span>
+                <div className="fe-comb-valor">
+                  <span>Complemento</span>
+                  <b><Money value={previa.complemento} /></b>
+                </div>
+                <span className="fe-comb-sinal" aria-hidden="true">=</span>
+                <div className="fe-comb-valor fe-comb-valor--final">
+                  <span>Novo valor do título</span>
+                  <b><Money value={previa.valorDepois} /></b>
+                </div>
+              </div>
 
-              {mesesEditaveis.length > 0 && !aplicado && (
-                <fieldset className="fe-comb-manual" disabled={ocupado}>
-                  <legend>Informar a gorjeta de um mês à mão</legend>
-                  <p className="fe-sub">Vale só nos meses sem apuração no ERP: mês com apuração usa sempre a apuração. Depois de preencher, recalcule a prévia.</p>
-                  {mesesEditaveis.map((m) => (
-                    <label key={m.chave} className="fe-comb-campo">
-                      <span>Gorjeta de {mesBr(m.chave)}</span>
-                      <input type="text" inputMode="decimal" placeholder="0,00" value={digitado[m.chave] ?? (m.origem === "INFORMADA" && m.valor != null ? String(m.valor) : "")}
-                        onChange={(e) => setDigitado((d) => ({ ...d, [m.chave]: e.target.value }))} />
-                    </label>
-                  ))}
-                </fieldset>
+              <section className="fe-comb-bloco" aria-labelledby="fe-comb-conta">
+                <h3 id="fe-comb-conta">Como chegamos nesse valor</h3>
+                <ol className="fe-comb-conta">
+                  <li><span>Salário combinado vigente</span><b>{previa.combinado == null ? "Sem combinado vigente" : <Money value={previa.combinado} />}</b></li>
+                  <li>
+                    <span>Média da gorjeta <small>({previa.mesesContados} {previa.mesesContados === 1 ? "mês contado" : "meses contados"} de 12)</small></span>
+                    <b><Money value={previa.mediaGorjeta} /></b>
+                  </li>
+                  {remuneracaoMensal != null && <li className="fe-comb-conta-soma"><span>Remuneração mensal</span><b><Money value={remuneracaoMensal} /></b></li>}
+                  <li className="fe-comb-conta-soma"><span>Remuneração devida nas férias <small>(já com o 1/3)</small></span><b><Money value={previa.remuneracao} /></b></li>
+                  <li><span>Líquido do recibo da contabilidade <small>(já descontados IR e INSS)</small></span><b>− <Money value={previa.liquidoRecibo} /></b></li>
+                  <li className="fe-comb-conta-soma"><span>Complemento a pagar</span><b><Money value={previa.complemento} /></b></li>
+                </ol>
+                {previa.formula && <p className="fe-comb-formula"><b>Fórmula:</b> {previa.formula}</p>}
+              </section>
+
+              {previa.avisos.map((a) => <p key={a} className="fe-rec-aviso fe-comb-alerta">⚠ {a}</p>)}
+
+              {meses.length > 0 && (
+                <section className="fe-comb-bloco" aria-labelledby="fe-comb-meses">
+                  <div className="fe-comb-meses-topo">
+                    <div>
+                      <h3 id="fe-comb-meses">Gorjeta dos 12 meses da média</h3>
+                      <p className="fe-sub">
+                        {contagem("APURACAO")} com apuração · {contagem("INFORMADA")} informada{contagem("INFORMADA") === 1 ? "" : "s"} à mão · {contagem("AUSENTE")} sem valor.
+                        {" "}Nos meses sem apuração você pode digitar a gorjeta; mês com apuração usa sempre a apuração.
+                      </p>
+                    </div>
+                    {!aplicado && (
+                      <Button variant={desatualizado ? "primary" : "secondary"} size="sm" leadingIcon={<RefreshCw size={14} />} disabled={ocupado} onClick={() => void calcular(informadas())}>Recalcular prévia</Button>
+                    )}
+                  </div>
+                  {desatualizado && !aplicado && <p className="fe-comb-alerta fe-comb-pendente" role="status">Você mudou valores: recalcule a prévia para ver o novo complemento antes de confirmar.</p>}
+                  <ul className="fe-comb-meses">
+                    {meses.map((m) => {
+                      const editavel = m.origem !== "APURACAO" && !aplicado;
+                      return (
+                        <li key={m.chave} className={`fe-comb-mes fe-comb-mes--${m.origem.toLowerCase()}`}>
+                          <span className="fe-comb-mes-nome">{mesBr(m.chave)}</span>
+                          <span className="fe-comb-mes-origem">{ROTULO_ORIGEM[m.origem]}</span>
+                          {editavel ? (
+                            <input type="text" inputMode="decimal" placeholder="0,00" aria-label={`Gorjeta de ${mesBr(m.chave)}`} disabled={ocupado}
+                              value={digitado[m.chave] ?? (m.origem === "INFORMADA" && m.valor != null ? String(m.valor) : "")}
+                              onChange={(e) => setDigitado((d) => ({ ...d, [m.chave]: e.target.value }))} />
+                          ) : (
+                            <b className="fe-comb-mes-valor">{m.valor == null ? "—" : <Money value={m.valor} />}</b>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </section>
               )}
             </>
           )}
@@ -150,9 +185,6 @@ export function ComplementarCombinado({ payrollItemId, nome, onClose, onAplicou 
 
         <footer className="fe-imp-base">
           <Button variant="secondary" disabled={aplicando} onClick={sair}>{aplicado ? "Concluir" : "Cancelar"}</Button>
-          {!aplicado && (
-            <Button variant="secondary" leadingIcon={<RefreshCw size={14} />} disabled={ocupado} onClick={() => void calcular(informadas())}>Recalcular prévia</Button>
-          )}
           {!aplicado && (
             <Button leadingIcon={<Check size={16} />} aria-disabled={!podeConfirmar} onClick={() => { if (podeConfirmar) void confirmar(); }}>
               {aplicando ? "Gravando…" : "Confirmar e somar ao título"}

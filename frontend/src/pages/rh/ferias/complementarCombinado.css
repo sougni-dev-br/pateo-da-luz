@@ -1,0 +1,55 @@
+/* ═══════════════════════════════════════════════════════════════════
+   RH → Férias → Complementar pelo combinado. Prefixo fe-comb-.
+   Só tokens de styles/tokens (sem hex soltos).
+═══════════════════════════════════════════════════════════════════ */
+.fe-comb { width: min(880px, 100%); }
+.fe-comb-eyebrow { margin: 0 0 2px; font-size: var(--fs-2xs); text-transform: uppercase; letter-spacing: var(--ls-eyebrow); color: var(--muted); }
+.fe-comb-topo h2 { margin: 0; }
+.fe-comb-corpo { gap: 18px; }
+
+/* Destaque: título hoje + complemento = novo valor. O resultado leva o peso visual. */
+.fe-comb-destaque { display: grid; grid-template-columns: 1fr auto 1fr auto 1.3fr; align-items: stretch; gap: 10px; }
+.fe-comb-destaque[aria-busy="true"] { opacity: 0.55; transition: opacity 0.15s; }
+.fe-comb-valor { display: grid; align-content: center; gap: 4px; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); min-width: 0; }
+.fe-comb-valor span { font-size: var(--fs-2xs); text-transform: uppercase; letter-spacing: var(--ls-eyebrow); color: var(--muted); }
+.fe-comb-valor b { font-size: var(--fs-lg); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.fe-comb-valor--final { background: var(--ink); border-color: var(--ink); color: var(--surface); }
+.fe-comb-valor--final span { color: inherit; opacity: 0.75; }
+.fe-comb-valor--final b { font-size: var(--fs-kpi); }
+.fe-comb-sinal { align-self: center; font-size: var(--fs-lg); color: var(--muted); font-weight: 600; }
+
+/* Blocos com título */
+.fe-comb-bloco { display: grid; gap: 10px; }
+.fe-comb-bloco h3 { margin: 0; font-size: var(--fs-body); }
+
+/* A conta em passos, com as somas destacadas */
+.fe-comb-conta { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--radius-md); overflow: hidden; }
+.fe-comb-conta li { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 9px 14px; font-size: var(--fs-sm); border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.fe-comb-conta li:last-child { border-bottom: 0; }
+.fe-comb-conta small { color: var(--muted); font-size: var(--fs-xs); }
+.fe-comb-conta-soma { background: var(--tint-info); font-weight: 600; }
+.fe-comb-conta li:last-child.fe-comb-conta-soma { background: var(--tint-success); }
+.fe-comb-formula { margin: 0; font-size: var(--fs-xs); color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* Avisos */
+.fe-comb-alerta { margin: 0; padding: 9px 12px; border-radius: var(--radius-sm); background: var(--tint-warning); font-size: var(--fs-sm); color: var(--text); }
+.fe-comb-pendente { border: 1px solid var(--warning); }
+
+/* 12 meses em cartões */
+.fe-comb-meses-topo { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.fe-comb-meses-topo .fe-sub { margin: 2px 0 0; color: var(--muted); font-size: var(--fs-sm); max-width: 560px; }
+.fe-comb-meses { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.fe-comb-mes { display: grid; gap: 4px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); min-width: 0; }
+.fe-comb-mes-nome { font-weight: 600; font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+.fe-comb-mes-origem { font-size: var(--fs-2xs); text-transform: uppercase; letter-spacing: var(--ls-eyebrow); color: var(--muted); }
+.fe-comb-mes-valor { font-variant-numeric: tabular-nums; font-size: var(--fs-sm); }
+.fe-comb-mes--apuracao { background: var(--tint-success); border-color: transparent; }
+.fe-comb-mes--informada { background: var(--tint-info); border-color: transparent; }
+.fe-comb-mes--ausente { border-style: dashed; border-color: var(--warning); }
+.fe-comb-mes input { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface); font: inherit; font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+.fe-comb-mes input:focus-visible { outline: 2px solid var(--gold-dark); outline-offset: 1px; }
+
+@media (max-width: 720px) {
+  .fe-comb-destaque { grid-template-columns: 1fr; }
+  .fe-comb-sinal { display: none; }
+}
