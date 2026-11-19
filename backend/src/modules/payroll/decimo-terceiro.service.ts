@@ -91,7 +91,7 @@ const TODOS_OS_ROTULOS = [ROTULOS_SR.p1, ROTULOS_SR.p2, ROTULOS_COMBINADO.p1, RO
 // `apurados`: os meses que entram na média — fechados, ou abertos mas já encerrados (dados provisórios).
 // Mês em andamento (período que ainda não terminou) fica de fora até fechar: valor parcial puxaria a média para baixo.
 export type VariavelInformada = { mes: number; valor: number; motivo: string };
-type Variaveis = {
+export type Variaveis = {
   // Gorjeta integral (a mesma da folha de líquidos) de cada pessoa por mês: base da diferença somada ao 13º do combinado.
   gorjetaIntegral: Map<string, Map<number, number>>;
   porPessoa: Map<string, Map<number, number>>; status: Map<number, string>; apurados: Set<number>;
@@ -100,7 +100,7 @@ type Variaveis = {
 
 // Variáveis de cada pessoa por mês: gorjeta + hora extra + adicional noturno (o DSR sobre a hora
 // extra fica de fora, como na contabilidade). Só os meses 1 a 11 servem ao 13º.
-async function variaveisDoAno(ano: number): Promise<Variaveis> {
+export async function variaveisDoAno(ano: number): Promise<Variaveis> {
   const periodos = await prisma.tipPeriod.findMany({ where: { competenceYear: ano }, select: { competenceMonth: true, periodEnd: true } });
   const porPessoa = new Map<string, Map<number, number>>();
   const gorjetaIntegral = new Map<string, Map<number, number>>();
@@ -141,7 +141,7 @@ async function variaveisDoAno(ano: number): Promise<Variaveis> {
 
 // Gorjeta DECLARADA que o extrato do 13º já pagou a cada pessoa (rubrica "MEDIA VALOR 13o ADIANTADO": valor da 1ª parcela e avos).
 // Lê as rubricas guardadas por pessoa (RhExtractPessoa): o texto do extrato é guardado SEM o CPF, então não dá para casar por ele.
-async function mediaDeclaradaDoExtrato(ano: number, employeeIds: string[]): Promise<Map<string, MediaValorExtrato>> {
+export async function mediaDeclaradaDoExtrato(ano: number, employeeIds: string[]): Promise<Map<string, MediaValorExtrato>> {
   const out = new Map<string, MediaValorExtrato>();
   const pessoas = await prisma.rhExtractPessoa.findMany({
     where: { employeeId: { in: employeeIds }, rhExtract: { calculo: "DECIMO_TERCEIRO", competenceYear: ano } },
