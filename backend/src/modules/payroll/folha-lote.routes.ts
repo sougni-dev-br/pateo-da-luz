@@ -1,6 +1,7 @@
 // Ações do título do lote de pagamento da folha no Contas a Pagar: dar baixa, estornar,
 // retirar uma pessoa (vai para a folha à parte) e devolver. Montado em /payroll/folha-lotes:
-// vale a permissão da Folha, como a baixa individual (pay = editar, reverse = excluir).
+// pay vale a permissão do Contas a Pagar (onde se paga, inclusive em lote); reverse = excluir e retirar = editar
+// valem a da Folha.
 import { Router, type Request, type Response } from "express";
 import { getSessionUser, requestIp } from "../security/security-utils.js";
 import { RecusaFolha } from "./folha-lancamento.routes.js";

@@ -88,6 +88,15 @@ describe("resolvePermissionContext — extras", () => {
     expect(await ctx("PATCH", "/extras/payments/abc/pay")).toEqual({ menuId: "payables", action: "edit" });
     expect(await ctx("PATCH", "/EXTRAS/payments/abc/reverse")).toEqual({ menuId: "payables", action: "delete" });
   });
+
+  it("baixa de folha, lote da folha e imposto pede o Contas a Pagar; estorno segue no menu de origem", async () => {
+    expect(await ctx("PATCH", "/payroll/abc/pay")).toEqual({ menuId: "payables", action: "edit" });
+    expect(await ctx("PATCH", "/payroll/folha-lotes/abc/pay")).toEqual({ menuId: "payables", action: "edit" });
+    expect(await ctx("PATCH", "/tax-payments/abc/pay")).toEqual({ menuId: "payables", action: "edit" });
+    expect(await ctx("PATCH", "/payroll/abc/reverse")).toEqual({ menuId: "payroll", action: "delete" });
+    expect(await ctx("PATCH", "/tax-payments/abc/reverse")).toEqual({ menuId: "tax-payments", action: "delete" });
+    expect(await ctx("PATCH", "/payroll/abc")).toEqual({ menuId: "payroll", action: "edit" });
+  });
 });
 
 describe("menuDoFavorito — itens do menu que herdam permissão", () => {

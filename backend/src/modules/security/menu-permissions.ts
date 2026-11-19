@@ -423,6 +423,10 @@ function menuFromRequest(request: Request): MenuId | null {
   if (path.startsWith("/employees")) return "employees";
   if (path.startsWith("/employee-forms")) return "employee-forms";
   if (path.startsWith("/schedule")) return "schedule";
+  // Baixa (so a baixa) de folha, lote da folha e imposto acontece no Contas a Pagar, inclusive em
+  // lote: vale a permissao de quem paga. Sem isto, quem baixava varios titulos misturados recebia
+  // 403 nos de folha/imposto, mesmo com editar no Contas a Pagar. Estorno continua no menu de origem.
+  if (/^\/payroll\/(folha-lotes\/)?[^/]+\/pay$/.test(path) || /^\/tax-payments\/[^/]+\/pay$/.test(path)) return "payables";
   // Antes de /payroll: a gorjeta tem modulo proprio no controle de acesso.
   if (path.startsWith("/payroll/tip")) return "payroll-tips";
   if (path.startsWith("/payroll")) return "payroll";

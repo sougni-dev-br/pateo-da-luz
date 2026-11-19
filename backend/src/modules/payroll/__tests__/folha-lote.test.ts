@@ -61,10 +61,10 @@ test("todos pagos: só com lote vivo e todos PAGO", () => {
 });
 
 describe("permissão das rotas do lote (catálogo de menus)", () => {
-  test("ações do título no Contas a Pagar valem a permissão da Folha, como a baixa individual", async () => {
+  test("baixa vale o Contas a Pagar (onde se paga); estorno e retirar seguem na Folha", async () => {
     const { resolvePermissionContext } = await import("../../security/menu-permissions.js");
     const ctx = (method: string, path: string) => resolvePermissionContext({ method, path, body: {}, query: {} } as never);
-    expect(await ctx("PATCH", "/payroll/folha-lotes/l1/pay")).toEqual({ menuId: "payroll", action: "edit" });
+    expect(await ctx("PATCH", "/payroll/folha-lotes/l1/pay")).toEqual({ menuId: "payables", action: "edit" });
     expect(await ctx("PATCH", "/payroll/folha-lotes/l1/reverse")).toEqual({ menuId: "payroll", action: "delete" });
     expect(await ctx("PATCH", "/payroll/folha-lotes/l1/membros/p1/retirar")).toEqual({ menuId: "payroll", action: "edit" });
     expect(await ctx("POST", "/payroll/tip/periods/2026/9/folha-lotes/liberar")).toEqual({ menuId: "payroll-tips", action: "create" });
