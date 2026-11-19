@@ -4,10 +4,11 @@ import { Printer, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
-  createBuffetWeighing, deleteBuffetWeighing, getBuffetPlateList, getBuffetPots, getBuffetWeighings,
-  type BuffetPlateItem, type BuffetPlateListSummary, type BuffetPot, type BuffetWeighingDay, type PlateListKind, type WeighingPhase,
+  createBuffetWeighing, deleteBuffetWeighing, getBuffetItemCosts, getBuffetPlateList, getBuffetPots, getBuffetWeighings,
+  type BuffetDishCost, type BuffetPlateItem, type BuffetPlateListSummary, type BuffetPot, type BuffetWeighingDay, type PlateListKind, type WeighingPhase,
 } from "../../../api/client";
-import { Alert, Button, EmptyState, Select, TextField } from "../../../design-system";
+import { Alert, Button, EmptyState, Money, Select, TextField } from "../../../design-system";
+import { FichasDosPratos } from "./FichasDosPratos";
 import { FolhaPesagem } from "./FolhaPesagem";
 import { PanelasBuffet } from "./PanelasBuffet";
 import { kgTexto, lerKg } from "./pesagemFormato";
@@ -42,6 +43,9 @@ export function PesagemBuffet({ ativa, catalogo, listas, podeCriar, podeEditar, 
   const [erro, setErro] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState(false);
   const [imprimindo, setImprimindo] = useState(0);
+  const [custos, setCustos] = useState<Record<string, BuffetDishCost>>({});
+  // "carregando" e "erro" não podem aparecer como "sem ficha": a tela ofereceria criar ficha para prato que já tem.
+  const [custosStatus, setCustosStatus] = useState<"carregando" | "ok" | "erro">("carregando");
   // Trava síncrona: dois Enters seguidos chegam antes de o estado "ocupado" renderizar.
   const enviando = useRef(false);
 
@@ -88,6 +92,16 @@ export function PesagemBuffet({ ativa, catalogo, listas, podeCriar, podeEditar, 
     for (const r of dia?.rows ?? []) if (!ids.includes(r.itemId)) ids.push(r.itemId);
     return ids.map((id) => ({ id, nome: porId.get(id)?.namePt ?? dia?.rows.find((r) => r.itemId === id)?.itemName ?? "Prato removido" }));
   }, [idsDaLista, dia, porId]);
+  // Estado da ficha (e custo por kg, para quem pode ver) de cada prato do dia, inclusive os ainda sem pesagem.
+  const chaveDosPratos = pratosDoDia.map((p) => p.id).join(",");
+  useEffect(() => {
+    if (!ativa) return undefined;
+    if (!chaveDosPratos) { setCustos({}); setCustosStatus("ok"); return undefined; }
+    let ok = true;
+    setCustosStatus("carregando");
+    getBuffetItemCosts(chaveDosPratos.split(",")).then((c) => { if (ok) { setCustos(c); setCustosStatus("ok"); } }).catch(() => { if (ok) setCustosStatus("erro"); });
+    return () => { ok = false; };
+  }, [ativa, chaveDosPratos, versao]);
   const resultadoBusca = useMemo(() => {
     const t = busca.trim().toLowerCase();
     return t.length < 2 ? [] : catalogo.filter((p) => p.isActive && p.namePt.toLowerCase().includes(t)).slice(0, 8);
@@ -145,6 +159,7 @@ export function PesagemBuffet({ ativa, catalogo, listas, podeCriar, podeEditar, 
   }, [imprimindo]);
 
   const resumoPorPrato = useMemo(() => new Map((dia?.summary.items ?? []).map((i) => [i.itemId, i])), [dia]);
+  const valorPorPrato = useMemo(() => new Map((dia?.value?.items ?? []).map((i) => [i.itemId, i])), [dia]);
   const nomeTipo = TIPOS_LISTA.find((t) => t.value === tipo)?.label ?? "";
   const listaNome = listasDoTipo.find((l) => l.id === listaId)?.name ?? null;
   const podeLancar = podeCriar && panelasAtivas.length > 0;
@@ -208,9 +223,20 @@ export function PesagemBuffet({ ativa, catalogo, listas, podeCriar, podeEditar, 
             <p className="pes-total">
               Produzido <strong>{kgTexto(dia.summary.producedG)}</strong> · Sobra <strong>{kgTexto(dia.summary.leftoverG)}</strong> · Consumido <strong>{kgTexto(dia.summary.consumedG)}</strong>
             </p>
+            {dia.value && dia.value.itemsWithCost === 0 && (
+              <p className="pes-total pes-aviso-custo" data-testid="pes-valor-dia">Nenhum prato pesado tem ficha pronta, então ainda não há custo do dia. Ligue as fichas no bloco abaixo.</p>
+            )}
+            {dia.value && dia.value.itemsWithCost > 0 && (
+              <p className="pes-total" data-testid="pes-valor-dia">
+                Investido (produzido) <strong><Money value={dia.value.producedCost} /></strong> · Sobra <strong><Money value={dia.value.leftoverCost} /></strong> · Consumido <strong><Money value={dia.value.consumedCost} /></strong>
+                {dia.value.itemsWithCost < dia.value.itemsTotal && (
+                  <small className="pes-aviso-custo"> — só {dia.value.itemsWithCost} de {dia.value.itemsTotal} pratos têm custo; os demais ficam fora destes totais</small>
+                )}
+              </p>
+            )}
             <div className="pes-tabela-rolagem">
               <table className="pes-tabela">
-                <thead><tr><th>Prato</th><th>Produzido</th><th>Sobra</th><th>Consumido</th></tr></thead>
+                <thead><tr><th>Prato</th><th>Produzido</th><th>Sobra</th><th>Consumido</th>{dia.value && <th>Custo produzido</th>}</tr></thead>
                 <tbody>
                   {pratosDoDia.filter((p) => resumoPorPrato.has(p.id)).map((p) => {
                     const r = resumoPorPrato.get(p.id);
@@ -219,6 +245,7 @@ export function PesagemBuffet({ ativa, catalogo, listas, podeCriar, podeEditar, 
                       <tr key={p.id} className={r.inconsistent ? "pes-alerta" : ""}>
                         <td>{p.nome}{r.inconsistent && <small> — sobra maior que o produzido: confira as pesagens</small>}</td>
                         <td>{kgTexto(r.producedG)}</td><td>{kgTexto(r.leftoverG)}</td><td>{r.consumedG === null ? "—" : kgTexto(r.consumedG)}</td>
+                        {dia.value && <td>{valorPorPrato.get(p.id)?.producedCost == null ? <small title="Sem ficha pronta">sem custo</small> : <Money value={valorPorPrato.get(p.id)?.producedCost} />}</td>}
                       </tr>
                     );
                   })}
@@ -243,6 +270,8 @@ export function PesagemBuffet({ ativa, catalogo, listas, podeCriar, podeEditar, 
           </>
         )}
       </section>
+
+      <FichasDosPratos pratos={pratosDoDia} custos={custos} verCusto={dia?.costVisible ?? false} status={custosStatus} podeCriar={podeCriar} podeEditar={podeEditar} aoMudar={recarregar} />
 
       <PanelasBuffet panelas={panelas} podeCriar={podeCriar} podeEditar={podeEditar} aoMudar={recarregar} />
 

@@ -13,9 +13,14 @@ vi.mock("../../security/security-utils.js", () => ({
   getSessionUser: vi.fn(), auditLog: vi.fn(), requestIp: vi.fn(() => "127.0.0.1"),
 }));
 
+vi.mock("../buffet-costs.service.js", () => ({
+  custosDosPratos: vi.fn(async () => new Map()), custoVisivel: vi.fn(async () => true), semValores: (c: object) => ({ ...c, costPerKg: null }), MAX_PRATOS_NO_CUSTO: 300,
+}));
+
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../../config/database.js";
 import { auditLog, getSessionUser } from "../../security/security-utils.js";
+import { custoVisivel, custosDosPratos } from "../buffet-costs.service.js";
 import { todayInSaoPaulo } from "../buffet-prints.routes.js";
 import { buffetWeighingsRouter } from "../buffet-weighings.routes.js";
 
@@ -99,6 +104,26 @@ describe("pesagem: ler, corrigir e apagar", () => {
     expect(r.status).toBe(200);
     expect(r.body.rows).toHaveLength(2);
     expect(r.body.summary).toMatchObject({ producedG: 8000, leftoverG: 1500, consumedG: 6500 });
+  });
+
+  test("traz o valor do dia pelo custo por kg da ficha", async () => {
+    db.buffetWeighing.findMany.mockResolvedValue([linha()]);
+    vi.mocked(custosDosPratos).mockResolvedValueOnce(new Map([["i1", { state: "OK", dishId: "d1", dishName: "Arroz", costPerKg: 8, reason: null }]]));
+    const r = await request(app).get(`/buffet-plates/weighings?date=${hoje}`);
+    expect(r.body.costVisible).toBe(true);
+    expect(r.body.costs.i1.costPerKg).toBe(8);
+    expect(r.body.value).toMatchObject({ producedCost: 64, itemsWithCost: 1, itemsTotal: 1 });
+  });
+
+  test("sem permissão de custos não sai nenhum valor, só o estado da ficha", async () => {
+    db.buffetWeighing.findMany.mockResolvedValue([linha()]);
+    vi.mocked(custosDosPratos).mockResolvedValueOnce(new Map([["i1", { state: "OK", dishId: "d1", dishName: "Arroz", costPerKg: 8, reason: null }]]));
+    vi.mocked(custoVisivel).mockResolvedValueOnce(false);
+    const r = await request(app).get(`/buffet-plates/weighings?date=${hoje}`);
+    expect(r.body.costVisible).toBe(false);
+    expect(r.body.value).toBeNull();
+    expect(r.body.costs.i1).toMatchObject({ state: "OK", costPerKg: null });
+    expect(JSON.stringify(r.body)).not.toMatch(/"costPerKg":8|producedCost/);
   });
 
   test("a leitura aceita histórico antigo, além do limite de gravação", async () => {

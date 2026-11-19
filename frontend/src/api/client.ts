@@ -5202,7 +5202,7 @@ export type PlateFormat = "std" | "tent" | "sauce";
 export type PlateTheme = "wine" | "gold" | "white";
 export type PlateListKind = "BUFFET" | "COFFEE_BREAK" | "EVENTO";
 
-export type BuffetPlateItem = { id: string; namePt: string; nameEn: string; category: string; isActive: boolean };
+export type BuffetPlateItem = { id: string; namePt: string; nameEn: string; category: string; isActive: boolean; dishId?: string | null };
 export type BuffetPlateItemInput = { namePt: string; nameEn: string; category: string; isActive?: boolean };
 /** format: formato só deste prato (ex.: molho numa lista de plaquinhas); sem valor, vale o da lista. */
 export type BuffetPlateListEntry = { itemId: string; qty: number; format?: PlateFormat | null };
@@ -5336,7 +5336,18 @@ export type BuffetWeighing = {
 export type BuffetWeighingInput = { servedOn: string; kind: PlateListKind; itemId: string; potId: string; phase: WeighingPhase; grossG: number };
 export type BuffetDayItemSummary = { itemId: string; producedG: number; leftoverG: number; consumedG: number | null; inconsistent: boolean };
 export type BuffetDaySummary = { items: BuffetDayItemSummary[]; producedG: number; leftoverG: number; consumedG: number };
-export type BuffetWeighingDay = { date: string; kind: PlateListKind; rows: BuffetWeighing[]; summary: BuffetDaySummary };
+export type BuffetCostState = "SEM_FICHA" | "PENDENTE" | "INCOMPLETA" | "SEM_PESO" | "OK";
+export type BuffetDishCost = { state: BuffetCostState; dishId: string | null; dishName: string | null; costPerKg: number | null; reason: string | null };
+export type BuffetItemValue = { itemId: string; producedCost: number | null; leftoverCost: number | null; consumedCost: number | null };
+export type BuffetDayValue = { items: BuffetItemValue[]; producedCost: number; leftoverCost: number; consumedCost: number; itemsWithCost: number; itemsTotal: number };
+export type BuffetWeighingDay = {
+  date: string; kind: PlateListKind; rows: BuffetWeighing[]; summary: BuffetDaySummary;
+  costs: Record<string, BuffetDishCost>;
+  /** Falso quando o usuário não tem a permissão de custos: não vem nenhum valor em R$. */
+  costVisible: boolean;
+  value: BuffetDayValue | null;
+};
+export type BuffetDishHit = { id: string; name: string; unit: string; pending: boolean; production: boolean };
 
 export function getBuffetPots(all = false) {
   return request<BuffetPot[]>(`/buffet-plates/pots${toQueryString({ all: all ? "1" : undefined })}`);
@@ -5350,6 +5361,22 @@ export function saveBuffetPot(payload: BuffetPotInput | Partial<BuffetPotInput>,
 
 export function getBuffetWeighings(date: string, kind: PlateListKind) {
   return request<BuffetWeighingDay>(`/buffet-plates/weighings${toQueryString({ date, kind })}`);
+}
+
+export function getBuffetItemCosts(ids: string[]) {
+  return request<Record<string, BuffetDishCost>>(`/buffet-plates/item-costs${toQueryString({ ids: ids.join(",") })}`);
+}
+
+export function searchBuffetDishes(q: string) {
+  return request<BuffetDishHit[]>(`/buffet-plates/dish-search${toQueryString({ q })}`);
+}
+
+export function linkBuffetPlateDish(itemId: string, dishId: string | null) {
+  return request<{ id: string; dishId: string | null }>(`/buffet-plates/items/${itemId}/dish`, { method: "PUT", headers: JSON_HEADERS, body: JSON.stringify({ dishId }) });
+}
+
+export function createPendingBuffetDish(itemId: string) {
+  return request<{ dishId: string; reused: boolean }>(`/buffet-plates/items/${itemId}/dish/pending`, { method: "POST", headers: JSON_HEADERS, body: "{}" });
 }
 
 export function createBuffetWeighing(payload: BuffetWeighingInput) {
