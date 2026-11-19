@@ -11,7 +11,7 @@ import { type ItemDistribuicao, problemaDoItem, resumirDistribuicao, valorDoItem
 import "./gorjeta.css";
 import { ApelidosContext, NomePessoa, nomeComApelido, resolverApelido, textoPessoa } from "./NomePessoa";
 import { MONTHS, baixarCsv, hojeLocal, inputStyle, mesLocal, money, mutedStyle, numInputStyle, panelStyle, pts } from "./gorjetaUtils";
-import { TIPO_MUDANCA, fmtDia } from "./HistoricoLinhaDoTempo";
+import { TIPO_MUDANCA, fmtDia, fmtDiaDigitado } from "./HistoricoLinhaDoTempo";
 import { type Extratores, ThOrdenavel, aplicarOrdem, useOrdenacao } from "./ordenacao";
 import { RelatorioFechamentos } from "./RelatorioFechamentos";
 import { RelatorioVales } from "./RelatorioVales";
@@ -60,13 +60,13 @@ export function AbaRelatorios({ comp, canEdit, onNotice, onChanged }: Props) {
 // ─── Mudanças de função e pontos ────────────────────────────────────────────
 const COLUNAS_MUD: ColunaOpcional[] = [
   { chave: "data", rotulo: "Vigência" }, { chave: "tipo", rotulo: "Tipo" }, { chave: "funcao", rotulo: "Função" }, { chave: "antes", rotulo: "Pontos antes" },
-  { chave: "depois", rotulo: "Pontos depois" }, { chave: "dif", rotulo: "Diferença" }, { chave: "motivo", rotulo: "Motivo" },
+  { chave: "depois", rotulo: "Pontos depois" }, { chave: "dif", rotulo: "Diferença" }, { chave: "motivo", rotulo: "Motivo" }, { chave: "por", rotulo: "Registrado por" },
 ];
 const EXT_MUD: Extratores<TipMudanca> = {
   data: (m) => m.validFrom, nome: (m) => m.employeeName, tipo: (m) => TIPO_MUDANCA[m.tipo].rotulo,
-  funcao: (m) => m.funcaoDepois, antes: (m) => m.baseAntes, depois: (m) => m.baseDepois, dif: (m) => m.diferenca, motivo: (m) => m.motivo,
+  funcao: (m) => m.funcaoDepois, antes: (m) => m.baseAntes, depois: (m) => m.baseDepois, dif: (m) => m.diferenca, motivo: (m) => m.motivo, por: (m) => m.registradoPor ?? "",
 };
-const TEXTO_MUD = new Set(["nome", "tipo", "funcao", "motivo"]);
+const TEXTO_MUD = new Set(["nome", "tipo", "funcao", "motivo", "por"]);
 
 function RelatorioMudancas({ onErro }: { onErro: (e: unknown) => void }) {
   const [de, setDe] = useState(inicioDoAno());
@@ -102,8 +102,8 @@ function RelatorioMudancas({ onErro }: { onErro: (e: unknown) => void }) {
 
   function exportar() {
     baixarCsv(`gorjeta-mudancas-${de}-a-${ate}.csv`, [
-      ["Vigência", "Funcionário", "Tipo", "Função antes", "Função depois", "Pontos antes", "Pontos depois", "Diferença", "Motivo"],
-      ...aplicarOrdem(visiveis, ord.ordem, EXT_MUD).map((m) => [fmtDia(m.validFrom), m.employeeName, TIPO_MUDANCA[m.tipo].rotulo, m.funcaoAntes, m.funcaoDepois, m.baseAntes, m.baseDepois, m.diferenca, m.motivo]),
+      ["Vigência", "Funcionário", "Tipo", "Função antes", "Função depois", "Pontos antes", "Pontos depois", "Diferença", "Motivo", "Registrado por", "Registrado em"],
+      ...aplicarOrdem(visiveis, ord.ordem, EXT_MUD).map((m) => [fmtDia(m.validFrom), m.employeeName, TIPO_MUDANCA[m.tipo].rotulo, m.funcaoAntes, m.funcaoDepois, m.baseAntes, m.baseDepois, m.diferenca, m.motivo, m.registradoPor ?? "", fmtDiaDigitado(m.registradoEm)]),
     ]);
   }
 
@@ -149,6 +149,7 @@ function RelatorioMudancas({ onErro }: { onErro: (e: unknown) => void }) {
               {v("depois") && <ThOrdenavel {...th("depois")}>Pontos depois</ThOrdenavel>}
               {v("dif") && <ThOrdenavel {...th("dif")}>Diferença</ThOrdenavel>}
               {v("motivo") && <ThOrdenavel {...th("motivo")}>Motivo</ThOrdenavel>}
+              {v("por") && <ThOrdenavel {...th("por")}>Registrado por</ThOrdenavel>}
             </Table.Row>
           </Table.Head>
           <Table.Body>
@@ -171,6 +172,7 @@ function RelatorioMudancas({ onErro }: { onErro: (e: unknown) => void }) {
                   </Table.Td>
                 )}
                 {v("motivo") && <Table.Td style={{ ...mutedStyle, textAlign: "left" }}>{m.motivo ?? "—"}</Table.Td>}
+                {v("por") && <Table.Td style={{ ...mutedStyle, textAlign: "left" }}>{m.registradoPor ? `${m.registradoPor} · ${fmtDiaDigitado(m.registradoEm)}` : "—"}</Table.Td>}
               </Table.Row>
             ))}
           </Table.Body>
