@@ -8,6 +8,8 @@
 // (a declarada é a média mensal que o extrato já pagou, tirada da própria rubrica). A média dessas variáveis (nunca negativa)
 // entra como (diferença do combinado + média) ÷ 12 × avos ÷ 2, igual à regra da contabilidade.
 
+import { mesesDe13 } from "./rescisao-verbas-opcionais.js";
+import { avosEMedias, type Decimo13SR } from "./decimo-terceiro-sr.js";
 import { informadasGuardadas } from "./ferias-combinado.js";
 
 const round2 = (v: number) => Math.round(v * 100) / 100;
@@ -39,6 +41,45 @@ export function variaveisDaDiferencaDaGorjeta(
   const out = new Map<number, number>();
   for (const mes of [...mesesApurados].sort((a, b) => a - b)) out.set(mes, round2((integralPorMes.get(mes) ?? 0) - declaradaMensal));
   return out;
+}
+
+// Diferença da gorjeta no 13º do combinado. Os avos e a média são os do ANO TODO (desde a admissão), não os do combinado: o extrato
+// divide a gorjeta declarada por todos os meses até outubro e paga 12 avos, então a mesma base evita pagar a mais ou a menos.
+// Mês em que a pessoa não participava da gorjeta precisa ser INFORMADO com o valor que a contabilidade usou (diferença zero): mês sem valor
+// fica FORA da média, que então sai maior que a da contabilidade. O serviço avisa (mesesSemGorjetaInformada) quando falta algum.
+export type DiferencaDaGorjeta = { avos: number; avosParcela1: number; mediaParcela1: number; mediaFinal: number; parcela1: number; total: number };
+
+// Meses de janeiro a outubro em que a pessoa tem avo e a gorjeta não tem valor (nem apuração nem informado): ficam fora da média.
+export function mesesSemGorjetaInformada(e: { ano: number; inicio: Date | null; diasAfastados?: ReadonlySet<string>; mesesApurados: ReadonlySet<number> }): number[] {
+  if (!e.inicio) return [];
+  return mesesDe13(e.inicio, new Date(Date.UTC(e.ano, 9, 31)), e.diasAfastados).meses.filter((m) => !e.mesesApurados.has(m));
+}
+
+export function diferencaDaGorjeta(e: {
+  ano: number; inicio: Date | null; diasAfastados?: ReadonlySet<string>;
+  integralPorMes: ReadonlyMap<number, number>; declaradaMensal: number; mesesApurados: ReadonlySet<number>;
+}): DiferencaDaGorjeta | null {
+  const base = avosEMedias({
+    ano: e.ano, inicio: e.inicio, desligamento: null, diasAfastados: e.diasAfastados, mesesApurados: e.mesesApurados,
+    variaveis: variaveisDaDiferencaDaGorjeta(e.integralPorMes, e.declaradaMensal, e.mesesApurados),
+  });
+  if (!base) return null;
+  return {
+    avos: base.avos, avosParcela1: base.avosParcela1, mediaParcela1: round2(base.media1), mediaFinal: round2(base.mediaFinal),
+    parcela1: round2(base.media1 / 12 * base.avosParcela1 / 2), total: round2(base.mediaFinal / 12 * base.avos),
+  };
+}
+
+const br = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+// O 13º do combinado = diferença do salário (avos do combinado) + diferença da gorjeta (avos do ano). A 2ª parcela é o resto.
+export function somarGorjeta(doSalario: Decimo13SR, g: DiferencaDaGorjeta): Decimo13SR {
+  const parcela1 = round2(doSalario.parcela1 + g.parcela1);
+  const total = round2(doSalario.total + g.total);
+  return {
+    ...doSalario, mediaParcela1: g.mediaParcela1, mediaFinal: g.mediaFinal, parcela1, total, parcela2: round2(total - parcela1),
+    memoria: `${doSalario.memoria} · gorjeta acima da que o extrato já pagou: média ${br(g.mediaParcela1)} → 1ª + ${br(g.parcela1)} (${g.avosParcela1} avos), 13º + ${br(g.total)} (${g.avos} avos)`,
+  };
 }
 
 // Gorjeta informada à mão no modal de férias ("Complementar pelo combinado") — guardada no título FERIAS

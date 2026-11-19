@@ -84,8 +84,8 @@ export type VariaveisPorMes = ReadonlyMap<number, number>;
 // - 13º completo = (salário + média até novembro) ÷ 12 × avos do ano.
 // - 2ª parcela = 13º completo − o que a 1ª parcela pagou: assim ninguém recebe a mais nem a menos.
 // null = não há 13º a gerar (sem início, sem salário, saiu antes do ano, ou 0 avos).
-export function calcularDecimoTerceiroSR(e: {
-  ano: number; salarioBase: number | null; inicio: Date | null; desligamento: Date | null;
+type EntradaAvosEMedias = {
+  ano: number; inicio: Date | null; desligamento: Date | null;
   variaveis?: VariaveisPorMes;
   // Meses (1 a 12) com apuração de gorjeta no sistema. Ausente = todos os meses contam.
   mesesApurados?: ReadonlySet<number>;
@@ -95,8 +95,12 @@ export function calcularDecimoTerceiroSR(e: {
   // Dias (AAAA-MM-DD) de afastamento sem remuneração: não contam como trabalhados; mês que fica com
   // menos de 15 dias trabalhados perde o avo.
   diasAfastados?: ReadonlySet<string>;
-}): Decimo13SR | null {
-  if (!e.inicio || e.salarioBase == null || !(e.salarioBase > 0)) return null;
+};
+export type AvosEMedias = { avos: number; avosParcela1: number; media1: number; mediaFinal: number; desde: string };
+
+// Avos e médias SEM arredondar (a base de calcularDecimoTerceiroSR; a diferença da gorjeta do combinado usa a mesma regra).
+export function avosEMedias(e: EntradaAvosEMedias): AvosEMedias | null {
+  if (!e.inicio) return null;
   const fimDoAno = new Date(Date.UTC(e.ano, 11, 31));
   if (e.inicio.getTime() > fimDoAno.getTime()) return null;
   if (e.desligamento && e.desligamento.getUTCFullYear() < e.ano) return null;
@@ -125,13 +129,18 @@ export function calcularDecimoTerceiroSR(e: {
     }
     return Math.max(0, soma) / contam.length;
   };
-  const media1 = mediaAte(10);
-  const mediaFinal = mediaAte(11);
+  return { avos, avosParcela1: avosPrimeira, media1: mediaAte(10), mediaFinal: mediaAte(11), desde: avos13(e.inicio, ateMes(12), e.diasAfastados).desde };
+}
+
+export function calcularDecimoTerceiroSR(e: EntradaAvosEMedias & { salarioBase: number | null }): Decimo13SR | null {
+  if (e.salarioBase == null || !(e.salarioBase > 0)) return null;
+  const base = avosEMedias(e);
+  if (!base) return null;
+  const { avos, avosParcela1: avosPrimeira, media1, mediaFinal, desde } = base;
   const salario = round2(e.salarioBase);
   const parcela1 = round2(((salario + media1) / 12 * avosPrimeira) / 2);
   const total = round2((salario + mediaFinal) / 12 * avos);
   const parcela2 = round2(total - parcela1);
-  const desde = avos13(e.inicio, ateMes(12), e.diasAfastados).desde;
   const plural = (n: number) => `${n} ${n === 1 ? "avo" : "avos"}`;
   return {
     ano: e.ano, avos, avosParcela1: avosPrimeira, desde, salario, mediaParcela1: round2(media1), mediaFinal: round2(mediaFinal), parcela1, total, parcela2,
