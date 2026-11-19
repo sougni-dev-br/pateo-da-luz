@@ -52,3 +52,60 @@ describe("resumo da apuração: parte de quem saiu", () => {
     expect(screen.getByText("Ponto (÷ 90)")).toBeTruthy();
   });
 });
+
+describe("resumo da apuração: saldo de centavos", () => {
+  const comSaldo = (saldo: number, destino: "FUNDO" | "LIVRE" | "REDISTRIBUIR" = "FUNDO", pessoas = 19) => ({
+    ...comp(false), saldo, distribuido: 1000 - saldo, destinoEfetivo: destino, destinoSobra: destino,
+    participants: Array.from({ length: pessoas }, (_, i) => ({ employeeId: `e${i}`, foraDaGorjeta: false, tipoCalculo: "MES" })),
+  }) as unknown as TipComputation;
+
+  test("centavos viram arredondamento: sem chamada para distribuir, com o destino explicado", () => {
+    render(<ResumoApuracao comp={comSaldo(0.03)} />);
+    expect(screen.getByText("Arredondamento")).toBeTruthy();
+    expect(screen.queryByText("Saldo não distribuído")).toBeNull();
+    expect(screen.queryByText(/Livre para distribuir/)).toBeNull();
+    expect(screen.getByText(/Sobram R\$\s0,03 de arredondamento.*fundo de reserva/)).toBeTruthy();
+  });
+
+  test("saldo de verdade continua pedindo a decisão de quem distribui", () => {
+    render(<ResumoApuracao comp={comSaldo(40)} />);
+    expect(screen.getByText("Saldo não distribuído")).toBeTruthy();
+    expect(screen.getByText(/Livre para distribuir/)).toBeTruthy();
+    expect(screen.queryByText("Arredondamento")).toBeNull();
+  });
+
+  test("compacto: rótulo de arredondamento no lugar de Livre", () => {
+    render(<ResumoApuracao comp={comSaldo(0.03, "LIVRE")} compacto />);
+    expect(screen.getByText("Arredondamento")).toBeTruthy();
+    expect(screen.queryByText(/^Livre \(/)).toBeNull();
+  });
+
+  test("logo acima do limite volta a ser saldo livre, com o convite ao Ajuste", () => {
+    render(<ResumoApuracao comp={comSaldo(0.2)} />);
+    expect(screen.getByText(/Livre para distribuir/)).toBeTruthy();
+    expect(screen.queryByText("Arredondamento")).toBeNull();
+  });
+
+  test("centavos explicados por outra causa (sobra de quem saiu no livre) seguem como livre", () => {
+    render(<ResumoApuracao comp={{ ...comSaldo(0.04), sobraRescisaoParaSaldo: true } as TipComputation} />);
+    expect(screen.getByText(/Livre para distribuir/)).toBeTruthy();
+  });
+
+  test("o aviso de centavos é uma nota, e o compacto explica o destino na dica", () => {
+    const { unmount } = render(<ResumoApuracao comp={comSaldo(0.03)} />);
+    expect(screen.getByRole("note").textContent).toMatch(/arredondamento/);
+    unmount();
+    render(<ResumoApuracao comp={comSaldo(0.03, "LIVRE")} compacto />);
+    expect(screen.getByText("Arredondamento").closest("span[title]")?.getAttribute("title")).toMatch(/Ficam no período como saldo livre/);
+  });
+
+  test("estouro continua como estouro", () => {
+    render(<ResumoApuracao comp={comSaldo(-3)} />);
+    expect(screen.getByText("Estouro")).toBeTruthy();
+  });
+
+  test("fechado não mostra o aviso de centavos", () => {
+    render(<ResumoApuracao comp={{ ...comSaldo(0.03), status: "CLOSED" } as TipComputation} />);
+    expect(screen.queryByText(/Sobram/)).toBeNull();
+  });
+});

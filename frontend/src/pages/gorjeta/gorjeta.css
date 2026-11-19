@@ -861,6 +861,7 @@
   background: color-mix(in srgb, var(--warning, #b45309) 5%, transparent);
 }
 .livre-distribuir strong { color: var(--ink); }
+.livre-arredondamento { padding: 4px 2px; font-size: 12px; color: var(--muted); }
 
 /* Atalho da gorjeta para a rescisão da pessoa (Funcionários). */
 .resc-link-gorjeta { font-size: 12px; color: var(--accent, #2563eb); text-decoration: underline; }

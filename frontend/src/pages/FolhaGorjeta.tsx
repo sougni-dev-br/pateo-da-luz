@@ -7,6 +7,7 @@ import {
 } from "../api/client";
 import { AjusteServico } from "./gorjeta/AjusteServico";
 import { irParaLinhaQuandoPronta } from "./gorjeta/irParaPessoa";
+import { classificarSaldo } from "./gorjeta/saldoPequeno";
 import { Notice, useNotice } from "../components/Notice";
 import { useSession } from "../context/SessionContext";
 import { Button, FormField, FormGrid, StatusBadge, Tabs } from "../design-system";
@@ -310,7 +311,7 @@ export function FolhaGorjeta() {
       titulo: `Fechar a gorjeta de ${MONTHS[month - 1]}/${year}?`,
       texto: <>
         <p>Os valores ficam gravados no registro de fechamentos ({comp.code}) e não mudam mais sem reabrir, com motivo.</p>
-        <p>Distribuído <strong>{money(comp.distribuido)}</strong> · valor do ponto <strong>{money(comp.pointValue)}</strong>{comp.saldo > 0.005 && <> · saldo de <strong>{money(comp.saldo)}</strong> {(comp.saldoAoFundo ?? comp.saldo) > 0.005 ? "vai para o fundo de reserva" : "fica livre no período (não vai ao fundo de reserva)"}</>}.</p>
+        <p>Distribuído <strong>{money(comp.distribuido)}</strong> · valor do ponto <strong>{money(comp.pointValue)}</strong>{comp.saldo > 0.005 && <> · {classificarSaldo(comp).tipo === "arredondamento" ? "arredondamento" : "saldo"} de <strong>{money(comp.saldo)}</strong> {(comp.saldoAoFundo ?? comp.saldo) > 0.005 ? "vai para o fundo de reserva" : "fica livre no período (não vai ao fundo de reserva)"}</>}.</p>
       </>,
       confirmar: "Fechar período",
     });

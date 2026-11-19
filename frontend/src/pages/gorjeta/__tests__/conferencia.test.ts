@@ -124,6 +124,9 @@ describe("totais e rótulos", () => {
     expect(rotulo({ saldo: 12, destinoEfetivo: "FUNDO" })).toBe("Sobra (vai ao fundo)");
     expect(rotulo({ saldo: 12, destinoEfetivo: "LIVRE" })).toBe("Livre no período (não vai ao fundo)");
     expect(rotulo({ saldo: 0.01, destinoEfetivo: "REDISTRIBUIR" })).toBe("Arredondamento (pontos redistribuídos)");
+    expect(rotulo({ saldo: 0.01, destinoEfetivo: "FUNDO" })).toBe("Arredondamento (vai ao fundo)");
+    expect(rotulo({ saldo: 0.01, destinoEfetivo: "LIVRE" })).toBe("Arredondamento (fica livre no período)");
+    expect(rotulo({ saldo: 30, destinoEfetivo: "REDISTRIBUIR" })).toBe("Arredondamento (pontos redistribuídos)");
     expect(rotulo({ saldo: -3 })).toBe("Excesso (passa do líquido)");
     expect(rotulo({ saldo: -0.003 })).toBe("Sobra (vai ao fundo)");
   });

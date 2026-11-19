@@ -1,6 +1,7 @@
 import type { CSSProperties, ReactNode } from "react";
 import type { TipComputation } from "../../api/client";
 import { money, pts } from "./gorjetaUtils";
+import { classificarSaldo, rotuloDoSaldoNaTela, textoArredondamento } from "./saldoPequeno";
 
 // A conta inteira à vista: serviço − retenção = líquido − rescisões ÷ pontos que
 // sobram = valor do ponto (no modo "vai para o livre" as rescisões não entram na
@@ -41,6 +42,8 @@ export function ResumoApuracao({ comp, compacto = false, onAjustarServico }: Res
   const destino = comp.destinoEfetivo ?? comp.destinoSobra ?? "FUNDO";
   const c = comp.composicao;
   const estourou = comp.saldo < -0.005;
+  // Centavos da divisão entre as pessoas não são "livre para distribuir": ninguém precisa decidir nada.
+  const arredondamento = classificarSaldo(comp).tipo === "arredondamento";
   // Modo "vai para o livre": quem saiu é pago à parte e não mexe no ponto do mês.
   const paraLivre = comp.sobraRescisaoParaSaldo === true;
   const notaLivre = "a sobra de quem saiu (o que deixou de ganhar depois da saída) vai para o livre";
@@ -54,8 +57,8 @@ export function ResumoApuracao({ comp, compacto = false, onAjustarServico }: Res
       detalhe: `${c.rescisoes.pessoas} pessoas${c.rescisoes.pendentes ? ` · ${c.rescisoes.pendentes} pendente(s)` : ""}${paraLivre ? " · sobra vai ao livre" : ""}` },
     { chave: "fixo", label: "Cotas fixas", valor: c.fixos.valor, detalhe: `${c.fixos.pessoas} pessoas`, cor: "#8c7a5b" },
     { chave: "reserva", label: "Reserva da casa", valor: c.reserva.valor, detalhe: `${pts(c.reserva.pontos)} pts`, cor: "var(--gold)" },
-    { chave: "saldo", label: estourou ? "Estouro" : "Saldo não distribuído", valor: Math.abs(comp.saldo), cor: estourou ? "var(--danger)" : "var(--warning)",
-      detalhe: estourou ? "passa do líquido" : destino === "LIVRE" ? "livre no período; não vai ao fundo" : destino === "REDISTRIBUIR" ? "arredondamento; os pontos foram redistribuídos" : "livre; o que sobrar vai ao fundo", hachurado: true },
+    { chave: "saldo", label: rotuloDoSaldoNaTela(comp), valor: Math.abs(comp.saldo), cor: estourou ? "var(--danger)" : arredondamento ? "var(--muted)" : "var(--warning)",
+      detalhe: estourou ? "passa do líquido" : arredondamento ? "centavos da divisão entre as pessoas" : destino === "LIVRE" ? "livre no período; não vai ao fundo" : destino === "REDISTRIBUIR" ? "arredondamento; os pontos foram redistribuídos" : "livre; o que sobrar vai ao fundo", hachurado: true },
   ].filter((f) => f.valor > 0.004 || f.chave === "mes" || f.chave === "saldo" || (f.chave === "resc" && c.rescisoes.pessoas > 0));
 
   const base = Math.max(comp.netPool, comp.distribuido, 0.01);
@@ -71,8 +74,8 @@ export function ResumoApuracao({ comp, compacto = false, onAjustarServico }: Res
       ...(temRescisao ? [rescisaoCompacta] : []),
       [`Ponto (÷ ${pts(comp.pontosDisponiveis)})`, money(comp.pointValue), "var(--gold)"],
       ["Distribuído", money(comp.distribuido), undefined],
-      [estourou ? "Estouro" : `Livre (${pts(Math.max(0, pontosLivres))} pts)`, money(Math.abs(comp.saldo)), estourou ? "var(--danger)" : "var(--warning)",
-        paraLivre && temRescisao && !estourou ? `Inclui ${notaLivre}.` : undefined],
+      [arredondamento || estourou ? rotuloDoSaldoNaTela(comp) : `Livre (${pts(Math.max(0, pontosLivres))} pts)`, money(Math.abs(comp.saldo)), estourou ? "var(--danger)" : arredondamento ? undefined : "var(--warning)",
+        arredondamento ? textoArredondamento(comp) : paraLivre && temRescisao && !estourou ? `Inclui ${notaLivre}.` : undefined],
     ];
     return (
       <section aria-label="Resumo da apuração" className="resumo-compacto">
@@ -138,7 +141,8 @@ export function ResumoApuracao({ comp, compacto = false, onAjustarServico }: Res
               }} />
           ))}
         </div>
-        {!estourou && comp.saldo > 0.005 && comp.status !== "CLOSED" && (
+        {arredondamento && comp.status !== "CLOSED" && <div className="livre-arredondamento" role="note">{textoArredondamento(comp)}</div>}
+        {!estourou && !arredondamento && comp.saldo > 0.005 && comp.status !== "CLOSED" && (
           <div className="livre-distribuir">
             <span>
               <strong>Livre para distribuir: {pts(Math.max(0, pontosLivres))} pts ({money(comp.saldo)})</strong>
