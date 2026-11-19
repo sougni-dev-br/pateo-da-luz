@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
-  DESCRICAO_COMBINADO_E_GORJETA, gorjetaIntegralDoCombinado, informadasDaTabela, informadasDasFerias, lerMediaValor13, mediaDeclaradaMensal, variaveisDaDiferencaDaGorjeta,
+  DESCRICAO_COMBINADO_E_GORJETA, diferencaDaGorjeta, gorjetaIntegralDoCombinado, informadasDaTabela, informadasDasFerias, lerMediaValor13, mediaDeclaradaMensal, variaveisDaDiferencaDaGorjeta,
 } from "../decimo-terceiro-gorjeta-combinado.js";
 import { lerTextoExtrato } from "../rh-extract.service.js";
 
@@ -131,5 +131,53 @@ describe("informadasDaTabela", () => {
       { competencia: "2025-06", valor: 40 }, { competencia: "2026-6", valor: 50 }, { competencia: "x", valor: 60 },
     ], 2026);
     expect([...r]).toEqual([[1, 10], [11, 20]]);
+  });
+});
+
+// A gorjeta tem os avos do ANO TODO (desde a admissão), não os do combinado: o extrato da contabilidade divide a gorjeta declarada
+// por todos os meses até outubro e paga 12 avos, então a diferença precisa da mesma base para não pagar a mais nem a menos.
+describe("diferencaDaGorjeta", () => {
+  const D = (a: string) => new Date(`${a}T00:00:00Z`);
+  const declarada = 1000;
+  // jan e fev = o que a contabilidade usou (declarada, diferença zero); mar a out = gorjeta integral. Soma 12.500 ÷ 10 = 1.250.
+  const integral = new Map([[1, 800], [2, 800], [3, 1200], [4, 1500], [5, 1100], [6, 1300], [7, 1000], [8, 1600], [9, 1800], [10, 1400]]);
+  const apurados = new Set([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+
+  test("ano todo: média real 1.250 − declarada 1.000 = 250 → 1ª = 250 ÷ 12 × 12 ÷ 2", () => {
+    const r = diferencaDaGorjeta({ ano: 2026, inicio: D("2025-03-01"), integralPorMes: integral, declaradaMensal: declarada, mesesApurados: apurados })!;
+    expect(r).toMatchObject({ avos: 12, avosParcela1: 12, mediaParcela1: 250, mediaFinal: 250 });
+    expect(r.parcela1).toBe(125);
+    expect(r.total).toBe(250);
+  });
+
+  test("meses sem valor ficam de fora da média: quem não informa jan/fev paga a mais (por isso se informa o da contabilidade)", () => {
+    const so = new Set([3, 4, 5, 6, 7, 8, 9, 10]);
+    const r = diferencaDaGorjeta({ ano: 2026, inicio: D("2025-03-01"), integralPorMes: integral, declaradaMensal: declarada, mesesApurados: so })!;
+    expect(r.mediaParcela1).toBe(362.5); // 10.900 ÷ 8 − 1.000
+    expect(r.parcela1).toBe(181.25);
+  });
+
+  test("média abaixo da declarada: zero, nunca desconta do que o extrato pagou", () => {
+    const r = diferencaDaGorjeta({ ano: 2026, inicio: D("2025-03-01"), integralPorMes: new Map([[8, 100], [9, 100], [10, 100]]), declaradaMensal: declarada, mesesApurados: new Set([8, 9, 10]) })!;
+    expect(r.mediaParcela1).toBe(0);
+    expect(r.parcela1).toBe(0);
+    expect(r.total).toBe(0);
+  });
+
+  test("quem entrou em agosto: avos de agosto a dezembro (5), 4 na 1ª", () => {
+    const r = diferencaDaGorjeta({ ano: 2026, inicio: D("2026-08-01"), integralPorMes: new Map([[8, 1600], [9, 1800], [10, 1400]]), declaradaMensal: declarada, mesesApurados: new Set([8, 9, 10]) })!;
+    expect(r).toMatchObject({ avos: 5, avosParcela1: 4, mediaParcela1: 600 });
+    expect(r.parcela1).toBe(100); // 600 ÷ 12 × 4 ÷ 2
+    expect(r.total).toBe(250); // 600 ÷ 12 × 5
+  });
+
+  test("sem início: null", () => {
+    expect(diferencaDaGorjeta({ ano: 2026, inicio: null, integralPorMes: integral, declaradaMensal: declarada, mesesApurados: apurados })).toBeNull();
+  });
+
+  test("não muda o que recebe", () => {
+    const m = new Map(integral);
+    diferencaDaGorjeta({ ano: 2026, inicio: D("2025-03-01"), integralPorMes: m, declaradaMensal: declarada, mesesApurados: apurados });
+    expect([...m]).toEqual([...integral]);
   });
 });
