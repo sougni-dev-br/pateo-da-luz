@@ -1,7 +1,4 @@
-import { normalizeText } from "../../shared/utils/normalize-text.js";
-import { EMPLOYEE_SUPPLIER_CATEGORY } from "../suppliers/employee-supplier.js";
-
-// Regras do reembolso a funcionario sem banco, para poderem ser testadas sozinhas.
+// Regras do reembolso (a quem pagou do proprio bolso: funcionario, socio, terceiro) sem banco, para poderem ser testadas sozinhas.
 
 export const REIMBURSEMENT_SOURCE = "REIMBURSEMENT";
 export const REIMBURSEMENT_PAYMENT_TYPE = "REIMBURSEMENT";
@@ -12,11 +9,6 @@ export class ReimbursementError extends Error {
   constructor(message: string, public readonly status = 400) {
     super(message);
   }
-}
-
-/** So fornecedor da categoria Funcionario pode ser "quem pagou". */
-export function ehCategoriaFuncionario(mainCategory: string | null | undefined): boolean {
-  return normalizeText(mainCategory) === normalizeText(EMPLOYEE_SUPPLIER_CATEGORY);
 }
 
 const cents = (value: number) => Math.round(value * 100);

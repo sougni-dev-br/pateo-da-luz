@@ -25,7 +25,7 @@ import { hasPermission } from "../lib/permissions";
 import { formatDate } from "../utils/format";
 import { gerarPdfReembolso } from "./reembolso/pdfReembolso";
 
-// Reembolso a funcionário: as compras que a pessoa pagou do próprio bolso (cada uma com
+// Reembolso: as compras que a pessoa (funcionário, sócio, terceiro) pagou do próprio bolso (cada uma com
 // a loja e a data dela) e, ao fechar, um título só para a pessoa no Contas a Pagar.
 
 const STATUS: Record<ReimbursementStatus, { label: string; tone: StatusTone }> = {
@@ -195,7 +195,7 @@ export function Reimbursements() {
       <Notice notice={notice} />
 
       <p style={{ margin: "0 0 14px", color: "var(--ink-soft)", fontSize: 14, maxWidth: 760 }}>
-        Como lançar: em <strong>Compras</strong>, uma nota por comprovante, com a forma de pagamento <strong>REEMBOLSO FUNCIONARIO</strong> e
+        Como lançar: em <strong>Compras</strong>, uma nota por comprovante, com a forma de pagamento <strong>REEMBOLSO</strong> e
         quem pagou. Cada nota fica com a data e a loja dela; o título da pessoa só nasce quando o reembolso é fechado aqui.
       </p>
 

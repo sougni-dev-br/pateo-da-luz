@@ -1,4 +1,4 @@
-import type { ItemEmAberto } from "../lib/vinculoPedido";
+﻿import type { ItemEmAberto } from "../lib/vinculoPedido";
 export const API_BASE_URL = import.meta.env.VITE_API_URL ?? "/api";
 export const BACKEND_TARGET_URL = import.meta.env.VITE_BACKEND_TARGET_URL ?? "http://127.0.0.1:3334";
 const FALLBACK_BACKEND_URL = BACKEND_TARGET_URL;
@@ -1168,7 +1168,7 @@ export type Purchase = {
   paymentMethod: string | null;
   paymentMethodId: string | null;
   creditCardId?: string | null;
-  /** Funcionario que pagou do proprio bolso; a compra vai para o reembolso dele. */
+  /** Pessoa (funcionario, socio, terceiro) que pagou do proprio bolso; a compra vai para o reembolso dela. */
   reimbursementPayeeId?: string | null;
   smallExpenseTypeId?: string | null;
   isSmallExpense?: boolean;
@@ -10153,12 +10153,12 @@ export function saveEventSettings(input: EventSettings) {
   return request<EventSettings>("/events/settings", { method: "PUT", headers: JSON_HEADERS, body: JSON.stringify(input) });
 }
 
-// ── Reembolsos a funcionário ──────────────────────────────────────────────────
+// ── Reembolsos (a quem pagou do próprio bolso: funcionário, sócio, terceiro) ──────────────────────────────────────────────────
 
 export type ReimbursementStatus = "OPEN" | "CLOSED" | "PAID" | "CANCELLED";
 
 /** id = fornecedor da pessoa, ou "emp:<id do funcionário>" quando o fornecedor ainda não existe. */
-export type ReimbursementPayee = { id: string; name: string };
+export type ReimbursementPayee = { id: string; name: string; group?: "FUNCIONARIO" | "FORNECEDOR" };
 
 export type ReimbursementSummary = {
   id: string;

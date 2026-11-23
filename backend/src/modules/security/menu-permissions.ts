@@ -63,7 +63,7 @@ export const menuCatalog = [
   { id: "tax-payments", label: "Impostos e Guias", group: "Financeiro" },
   { id: "supplier-cycles", label: "Ciclos de fornecedor", group: "Financeiro" },
   // Compras pagas do bolso de um funcionario: conferir os comprovantes e fechar o titulo da pessoa.
-  { id: "reimbursements", label: "Reembolsos a funcionário", group: "Financeiro" },
+  { id: "reimbursements", label: "Reembolsos", group: "Financeiro" },
   // Parcelamento em lote de uma dívida com um fornecedor: cada parcela vira uma conta a pagar. Cancelar e renegociar pedem "excluir".
   { id: "installment-plans", label: "Parcelamentos", group: "Financeiro" },
   // Coleta de óleo de fritura (Retióleo): certificado de destino final e conferência do PIX. Cancelar pede "excluir".

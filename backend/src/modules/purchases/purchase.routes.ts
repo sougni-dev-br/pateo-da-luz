@@ -26,7 +26,7 @@ import { fatorSugeridoPeloPreco, linhasSuspeitas, pareceEmbalagem, precoDeRefere
 import { faturasTravadasDaCompra, mensagemDeFaturaTravada } from "./fatura-travada.js";
 import { DeslocamentoDeFaturaError, guardarSnapshotDasLinhas, reconstruirLinhasDaCompra, removeCardStatementItemsForPurchase, syncCardStatementItemForPurchase, syncCardStatementItemsForPurchase } from "../cards/cards.service.js";
 import { addPurchaseToCycle, findOrCreateOpenCycle, updatePurchaseInCycle } from "../suppliers/supplier-billing-cycle.service.js";
-import { REIMBURSEMENT_PAYMENT_TYPE, REIMBURSEMENT_SOURCE, ReimbursementError, ehCategoriaFuncionario } from "../reimbursements/reimbursement-rules.js";
+import { REIMBURSEMENT_PAYMENT_TYPE, REIMBURSEMENT_SOURCE, ReimbursementError } from "../reimbursements/reimbursement-rules.js";
 import { fornecedorDoFuncionario, reabrirReembolsoDoAgregador, retirarCompraCancelada, sincronizarCompraNoReembolso, validarQuemPagou } from "../reimbursements/reimbursement.service.js";
 import { vinculoPedidoRouter } from "./purchase-vinculo-pedido.routes.js";
 import { recalcularPedidosDaCompra } from "../purchase-orders/vinculo-nota.service.js";
@@ -1459,18 +1459,18 @@ purchaseRouter.get("/reimbursement-payees", async (request, response) => {
     FROM "Employee" e
     WHERE e."isActive" AND e."deletedAt" IS NULL
   `;
-  const fornecedores = await prisma.$queryRaw<Array<{ id: string; name: string; mainCategory: string | null }>>`
-    SELECT "id", "name", "mainCategory" FROM "Supplier"
-    WHERE "isActive" = true AND "mainCategory" IS NOT NULL
+  // Qualquer fornecedor ativo pode receber reembolso (socio, prestador, terceiro...).
+  const fornecedores = await prisma.$queryRaw<Array<{ id: string; name: string }>>`
+    SELECT "id", "name" FROM "Supplier" WHERE "isActive" = true
   `;
   const jaListados = new Set(funcionarios.map((f) => f.supplierId).filter(Boolean));
   const lista = [
     ...funcionarios
       .filter((f) => f.supplierId || podeCriar)
-      .map((f) => ({ id: f.supplierId ?? `emp:${f.employeeId}`, name: f.name })),
+      .map((f) => ({ id: f.supplierId ?? `emp:${f.employeeId}`, name: f.name, group: "FUNCIONARIO" as const })),
     ...fornecedores
-      .filter((f) => ehCategoriaFuncionario(f.mainCategory) && !jaListados.has(f.id))
-      .map(({ id, name }) => ({ id, name }))
+      .filter((f) => !jaListados.has(f.id))
+      .map(({ id, name }) => ({ id, name, group: "FORNECEDOR" as const }))
   ].sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
   response.json(lista);
 });
