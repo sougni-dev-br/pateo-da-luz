@@ -1,20 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { decidirSincronizacao, ehCategoriaFuncionario, itensVistosDesatualizados, lerItensVistos, motivoParaNaoFechar } from "../reimbursement-rules.js";
+import { decidirSincronizacao, itensVistosDesatualizados, lerItensVistos, motivoParaNaoFechar } from "../reimbursement-rules.js";
 
 const d = (s: string) => new Date(`${s}T12:00:00Z`);
 const aberto = { reportStatus: "OPEN", payeeId: "pessoa-a", amount: 120.5, purchaseDate: d("2026-10-03") };
-
-describe("quem pode ser 'quem pagou'", () => {
-  it("aceita a categoria Funcionario com ou sem acento e em qualquer caixa", () => {
-    expect(ehCategoriaFuncionario("Funcionário")).toBe(true);
-    expect(ehCategoriaFuncionario("FUNCIONARIO")).toBe(true);
-  });
-
-  it("recusa loja e fornecedor sem categoria", () => {
-    expect(ehCategoriaFuncionario("Hortifruti")).toBe(false);
-    expect(ehCategoriaFuncionario(null)).toBe(false);
-  });
-});
 
 describe("compra criada ou editada", () => {
   it("compra nova de reembolso entra no reembolso", () => {

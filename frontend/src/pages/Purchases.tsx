@@ -598,7 +598,7 @@ export function Purchases({ user }: { user: AppUser }) {
   const smallExpenseUsesCreditCard = form.isSmallExpense && selectedPaymentMethod ? selectedPaymentMethod.type === "CREDIT_CARD" : false;
   const normalPurchaseUsesCreditCard = !form.isSmallExpense && selectedPaymentMethod ? selectedPaymentMethod.type === "CREDIT_CARD" : false;
   const usesCreditCard = smallExpenseUsesCreditCard || normalPurchaseUsesCreditCard;
-  // Pago do bolso de um funcionario: sem parcela aqui; a compra vai para o reembolso da pessoa
+  // Pago do bolso de alguém (funcionário, sócio, terceiro): sem parcela aqui; a compra vai para o reembolso da pessoa
   // e o titulo nasce quando o reembolso for fechado (Financeiro > Reembolsos).
   const usesReimbursement = selectedPaymentMethod?.type === "REIMBURSEMENT";
   const semParcelasProprias = usesCreditCard || usesReimbursement;
@@ -2803,7 +2803,12 @@ export function Purchases({ user }: { user: AppUser }) {
                               {savedPayee && !reimbursementPayees.some((payee) => payee.id === savedPayee.id) && (
                                 <option value={savedPayee.id}>{savedPayee.name}</option>
                               )}
-                              {reimbursementPayees.map((payee) => <option key={payee.id} value={payee.id}>{payee.name}</option>)}
+                              <optgroup label="Funcionários">
+                                {reimbursementPayees.filter((payee) => payee.group === "FUNCIONARIO").map((payee) => <option key={payee.id} value={payee.id}>{payee.name}</option>)}
+                              </optgroup>
+                              <optgroup label="Outros fornecedores">
+                                {reimbursementPayees.filter((payee) => payee.group !== "FUNCIONARIO").map((payee) => <option key={payee.id} value={payee.id}>{payee.name}</option>)}
+                              </optgroup>
                             </select>
                           </label>
                         ) : normalPurchaseUsesCreditCard ? (
@@ -2874,7 +2879,7 @@ export function Purchases({ user }: { user: AppUser }) {
                       {usesReimbursement && (
                         <p className="pnova-cycle-info-hint" style={{ margin: "0 0 8px" }}>
                           {reimbursementPayees.length === 0
-                            ? "Nenhum funcionário ativo. Cadastre a pessoa em RH › Funcionários."
+                            ? "Nenhuma pessoa disponível. Cadastre em Fornecedores (ou em RH › Funcionários)."
                             : <>Sem título agora: a compra entra no reembolso {selectedPayee ? <>de <strong>{selectedPayee.name}</strong></> : "da pessoa"}, com a data e a loja desta nota. O título nasce ao fechar o reembolso em <strong>Financeiro › Reembolsos</strong>.</>}
                         </p>
                       )}

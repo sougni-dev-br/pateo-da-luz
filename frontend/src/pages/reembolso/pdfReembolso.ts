@@ -1,4 +1,4 @@
-// PDF do reembolso a funcionário: a folha que vai para a pasta do Contas a Pagar junto com os
+// PDF do reembolso: a folha que vai para a pasta do Contas a Pagar junto com os
 // comprovantes. Quem pagou, o período, cada compra (data, loja, o quê, nota), o total e as
 // linhas de assinatura de quem recebe e de quem conferiu.
 import type { ReimbursementDetail, ReimbursementStatus } from "../../api/client";
@@ -41,7 +41,7 @@ export function ordenarCompras(items: Item[]): Item[] {
 
 export function nomeArquivoReembolso(detail: Pick<ReimbursementDetail, "payeeName" | "id">): string {
   const nome = detail.payeeName.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^A-Za-z0-9]+/g, "_").replace(/^_|_$/g, "");
-  return `Reembolso_${nome || "funcionario"}_${detail.id.slice(-6)}.pdf`;
+  return `Reembolso_${nome || "beneficiario"}_${detail.id.slice(-6)}.pdf`;
 }
 
 export async function montarPdfReembolso(detail: ReimbursementDetail): Promise<Doc> {
@@ -56,7 +56,7 @@ export async function montarPdfReembolso(detail: ReimbursementDetail): Promise<D
   const conferidas = itens.filter((i) => i.checked).length;
 
   cabecalhoPdf(doc, {
-    titulo: "Reembolso a funcionário",
+    titulo: "Reembolso",
     apoio: `${detail.payeeName}   |   compras de ${periodoDoReembolso(itens)}`,
     selo: SELO[detail.status],
   });

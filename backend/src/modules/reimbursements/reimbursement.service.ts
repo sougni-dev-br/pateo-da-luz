@@ -7,31 +7,20 @@ import { nextSupplierCode } from "../suppliers/supplier-code.js";
 import {
   ReimbursementError,
   decidirSincronizacao,
-  ehCategoriaFuncionario,
   mensagemDeBloqueio
 } from "./reimbursement-rules.js";
 
 type Tx = Prisma.TransactionClient;
 
 /**
- * "Quem pagou" precisa ser um fornecedor ativo que seja de um funcionario: da categoria
- * Funcionario ou com o CPF de um funcionario ativo. E nunca a propria loja da compra.
+ * "Quem pagou" e qualquer fornecedor ativo (funcionario, socio, terceiro...), nunca a
+ * propria loja da compra.
  */
 export async function validarQuemPagou(tx: Tx, payeeId: string, fornecedorDaCompraId: string) {
-  const [payee] = await tx.$queryRaw<Array<{ id: string; name: string; mainCategory: string | null; isActive: boolean; ehFuncionario: boolean }>>`
-    SELECT s."id", s."name", s."mainCategory", s."isActive",
-           EXISTS (
-             SELECT 1 FROM "Employee" e
-             WHERE e."isActive" AND e."deletedAt" IS NULL
-               AND length(regexp_replace(e."cpf", '[^0-9]', '', 'g')) = 11
-               AND regexp_replace(e."cpf", '[^0-9]', '', 'g') = regexp_replace(COALESCE(s."document", ''), '[^0-9]', '', 'g')
-           ) AS "ehFuncionario"
-    FROM "Supplier" s WHERE s."id" = ${payeeId} LIMIT 1
+  const [payee] = await tx.$queryRaw<Array<{ id: string; name: string; isActive: boolean }>>`
+    SELECT s."id", s."name", s."isActive" FROM "Supplier" s WHERE s."id" = ${payeeId} LIMIT 1
   `;
   if (!payee || !payee.isActive) throw new ReimbursementError("Quem pagou nao encontrado ou inativo.");
-  if (!ehCategoriaFuncionario(payee.mainCategory) && !payee.ehFuncionario) {
-    throw new ReimbursementError(`${payee.name} nao e um fornecedor da categoria Funcionario. Cadastre a pessoa em Fornecedores > A partir de funcionario.`);
-  }
   if (payee.id === fornecedorDaCompraId) {
     throw new ReimbursementError("O fornecedor da compra e a loja onde foi comprado; quem pagou vai no campo proprio.");
   }

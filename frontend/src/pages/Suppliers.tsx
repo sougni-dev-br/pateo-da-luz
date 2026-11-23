@@ -393,7 +393,7 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
             {!editingId && canReuseEmployee && !fromEmployee && (
               <div className="supp-employee-hint">
                 <UserRound size={16} aria-hidden />
-                <span>É reembolso a funcionário? Traga nome, CPF e PIX do cadastro dele.</span>
+                <span>O reembolso é de um funcionário? Traga nome, CPF e PIX do cadastro dele.</span>
                 <Button variant="secondary" size="sm" onClick={openFromEmployee}>Reaproveitar funcionário</Button>
               </div>
             )}
