@@ -66,16 +66,16 @@ describe("formasPorNomeBase — o select não repete BOLETO oito vezes", () => {
 });
 
 describe("formaPermiteParcelamento", () => {
-  test("boleto, faturado e cartão de crédito permitem", () => {
+  test("boleto, faturado, pix e cartão de crédito permitem", () => {
+    expect(formaPermiteParcelamento({ id: "4", name: "PIX" })).toBe(true);
     expect(formaPermiteParcelamento({ id: "1", name: "BOLETO" })).toBe(true);
     expect(formaPermiteParcelamento({ id: "2", name: "FATURADO" })).toBe(true);
     expect(formaPermiteParcelamento({ id: "3", name: "CARTAO CREDITO" })).toBe(true);
   });
 
-  test("pix, dinheiro e débito não permitem", () => {
+  test("dinheiro e débito não permitem", () => {
     // O backend recusa mais de uma parcela nessas formas: a tela precisa saber
     // antes, para não deixar montar um parcelamento que vai ser rejeitado.
-    expect(formaPermiteParcelamento({ id: "4", name: "PIX" })).toBe(false);
     expect(formaPermiteParcelamento({ id: "5", name: "DINHEIRO" })).toBe(false);
     expect(formaPermiteParcelamento({ id: "6", name: "CARTAO DEBITO" })).toBe(false);
   });

@@ -40,7 +40,7 @@ function basePaymentMethodName(name?: string | null) {
 type PM = { id?: string; name?: string | null; group?: string | null; type?: string | null };
 function allowsInstallments(method?: PM | null) {
   const baseName = normalize(basePaymentMethodName(method?.name));
-  if (["boleto", "faturado", "cartao credito"].includes(baseName)) return true;
+  if (["boleto", "faturado", "cartao credito", "pix"].includes(baseName)) return true;
   if (normalize(method?.group) === "faturado") return true;
   return ["credit_card", "bank_slip"].includes(normalize(method?.type));
 }
