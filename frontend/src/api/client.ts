@@ -10948,7 +10948,32 @@ export type PlanejamentoTotalProjetado = {
 };
 export type PlanejamentoProjecao = { anoBase: number; meses: PlanejamentoMesProjetado[]; total: PlanejamentoTotalProjetado };
 export type PlanejamentoCenarioResumo = { id: string; ano: number; anoBase: number; nome: string; atualizadoEm: string };
-export type PlanejamentoCenario = PlanejamentoCenarioResumo & { premissas: PlanejamentoPremissasDoMes[]; projecao: PlanejamentoProjecao };
+export type PlanejamentoGrupoDeGasto = "OCUPACAO" | "TARIFAS_PUBLICAS" | "FOLHA" | "TRIBUTOS" | "DIVIDA" | "CONTRATOS" | "SEGUROS" | "TARIFAS_BANCARIAS" | "OUTROS";
+export type PlanejamentoModoDoGasto = "FIXO" | "PERCENTUAL";
+/** 12 valores (jan a dez): R$ no modo FIXO; fração das vendas (0,05 = 5%) no PERCENTUAL. */
+export type PlanejamentoLinhaDeGasto = { grupo: PlanejamentoGrupoDeGasto; nome: string; modo: PlanejamentoModoDoGasto; valores: number[] };
+export type PlanejamentoGastosPorGrupo = Partial<Record<PlanejamentoGrupoDeGasto, number>>;
+export type PlanejamentoMesDeResultado = {
+  mes: number;
+  gastosPorGrupo: PlanejamentoGastosPorGrupo;
+  abatimentoDoServico: number;
+  gastosTotal: number;
+  lucro: number | null;
+  equilibrioVendas: number | null;
+  equilibrioClientes: number | null;
+};
+export type PlanejamentoResultado = {
+  meses: (PlanejamentoMesDeResultado | null)[];
+  total: { gastosPorGrupo: PlanejamentoGastosPorGrupo; abatimentoDoServico: number; gastosTotal: number; lucro: number | null };
+};
+export type PlanejamentoPrevia = { projecao: PlanejamentoProjecao; resultado: PlanejamentoResultado };
+export type PlanejamentoCenario = PlanejamentoCenarioResumo & {
+  premissas: PlanejamentoPremissasDoMes[];
+  gastos: PlanejamentoLinhaDeGasto[];
+  servicoPercentual: number | null;
+  projecao: PlanejamentoProjecao;
+  resultado: PlanejamentoResultado;
+};
 
 export function listPlanejamentoCenarios() {
   return request<PlanejamentoCenarioResumo[]>("/planning/cenarios");
@@ -10956,13 +10981,13 @@ export function listPlanejamentoCenarios() {
 export function getPlanejamentoCenario(id: string) {
   return request<PlanejamentoCenario>(`/planning/cenarios/${encodeURIComponent(id)}`);
 }
-export function previaPlanejamentoProjecao(payload: { anoBase: number; premissas: PlanejamentoPremissasDoMes[] }) {
-  return request<PlanejamentoProjecao>("/planning/projecao", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(payload) });
+export function previaPlanejamentoProjecao(payload: { anoBase: number; premissas: PlanejamentoPremissasDoMes[]; gastos: PlanejamentoLinhaDeGasto[]; servicoPercentual: number | null }) {
+  return request<PlanejamentoPrevia>("/planning/projecao", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(payload) });
 }
-export function createPlanejamentoCenario(payload: { ano: number; anoBase: number; nome: string; premissas?: PlanejamentoPremissasDoMes[] }) {
+export function createPlanejamentoCenario(payload: { ano: number; anoBase: number; nome: string; premissas?: PlanejamentoPremissasDoMes[]; gastos?: PlanejamentoLinhaDeGasto[]; servicoPercentual?: number | null }) {
   return request<PlanejamentoCenario>("/planning/cenarios", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(payload) });
 }
-export function updatePlanejamentoCenario(id: string, payload: { nome: string; anoBase: number; premissas: PlanejamentoPremissasDoMes[]; atualizadoEm: string }) {
+export function updatePlanejamentoCenario(id: string, payload: { nome: string; anoBase: number; premissas: PlanejamentoPremissasDoMes[]; gastos: PlanejamentoLinhaDeGasto[]; servicoPercentual: number | null; atualizadoEm: string }) {
   return request<PlanejamentoCenario>(`/planning/cenarios/${encodeURIComponent(id)}`, { method: "PUT", headers: JSON_HEADERS, body: JSON.stringify(payload) });
 }
 export function deletePlanejamentoCenario(id: string) {

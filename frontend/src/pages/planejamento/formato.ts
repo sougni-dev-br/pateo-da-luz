@@ -52,3 +52,32 @@ export const MOTIVO_SEM_BASE: Record<string, string> = {
   CLIENTES_INCOMPLETOS: "vendas sem nº de clientes",
   TURNO_SEM_CLIENTES: "turno sem clientes"
 };
+
+export const ROTULO_DO_GRUPO: Record<string, string> = {
+  OCUPACAO: "Ocupação",
+  TARIFAS_PUBLICAS: "Tarifas públicas",
+  FOLHA: "Folha de pagamento",
+  TRIBUTOS: "Tributos",
+  DIVIDA: "Dívida",
+  CONTRATOS: "Contratos recorrentes",
+  SEGUROS: "Seguros",
+  TARIFAS_BANCARIAS: "Tarifas bancárias",
+  OUTROS: "Outros"
+};
+
+/** Valor em reais para o campo: 52000 vira "52.000"; 1234,5 vira "1.234,5". */
+export function reaisParaTexto(valor: number): string {
+  return valor.toLocaleString("pt-BR", { maximumFractionDigits: 2 });
+}
+
+/** "52.000", "52000", "1.234,56", "R$ 500" → número. Devolve null se não for dinheiro válido (negativo não vale). */
+export function textoParaReais(texto: string): number | null {
+  const limpo = texto.trim().replace(/^R\$\s*/i, "").replace(/\s/g, "");
+  if (!limpo) return null;
+  const ptBr = /^\d{1,3}(\.\d{3})*(,\d+)?$/.test(limpo);
+  const simples = /^\d+([.,]\d+)?$/.test(limpo);
+  if (!ptBr && !simples) return null;
+  const normalizado = ptBr ? limpo.replace(/\./g, "").replace(",", ".") : limpo.replace(",", ".");
+  const n = Number(normalizado);
+  return Number.isFinite(n) ? Math.round(n * 100) / 100 : null;
+}

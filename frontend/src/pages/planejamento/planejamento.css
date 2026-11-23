@@ -49,3 +49,11 @@ tbody .plan-col-rotulo { color: inherit; font-size: inherit; letter-spacing: nor
 .plan-dialogo-acoes { display: flex; justify-content: flex-end; gap: 10px; margin-top: var(--space-4); }
 
 @media (max-width: 900px) { .plan-kpis-4 { grid-template-columns: 1fr 1fr; } }
+
+.plan-gastos { display: grid; gap: var(--space-4); align-content: start; }
+.plan-servico { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.plan-servico-rotulo { font-weight: var(--fw-medium); }
+.plan-quadro-gastos table { min-width: 1500px; }
+.plan-gasto-meta { display: block; font-weight: normal; }
+.plan-nova-linha { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; }
+.plan-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

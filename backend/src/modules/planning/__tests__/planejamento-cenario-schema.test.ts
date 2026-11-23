@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { novoCenarioSchema, ordenadas, premissasSchema } from "../planejamento-cenario-schema.js";
+import { gastosSchema, novoCenarioSchema, ordenadas, premissasSchema, servicoSchema } from "../planejamento-cenario-schema.js";
+import { linhasPadrao } from "../planejamento-gastos.js";
 import { premissasNeutras } from "../planejamento-projecao.js";
 
 describe("premissasSchema", () => {
@@ -38,5 +39,34 @@ describe("ordenadas", () => {
     const embaralhada = [...premissasNeutras()].reverse();
     expect(ordenadas(embaralhada).map((p) => p.mes)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
     expect(embaralhada[0].mes).toBe(12);
+  });
+});
+
+describe("gastosSchema e servicoSchema", () => {
+  const linha = (sobre: Record<string, unknown> = {}) => ({ grupo: "OCUPACAO", nome: "Ocupação", modo: "FIXO", valores: Array(12).fill(1000), ...sobre });
+
+  it("aceita as linhas padrão", () => {
+    expect(gastosSchema.safeParse(linhasPadrao()).success).toBe(true);
+  });
+
+  it("recusa grupo desconhecido, mês faltando, valor negativo e percentual acima de 100%", () => {
+    expect(gastosSchema.safeParse([linha({ grupo: "XYZ" })]).success).toBe(false);
+    expect(gastosSchema.safeParse([linha({ valores: [1, 2] })]).success).toBe(false);
+    expect(gastosSchema.safeParse([linha({ valores: Array(12).fill(-1) })]).success).toBe(false);
+    expect(gastosSchema.safeParse([linha({ modo: "PERCENTUAL", valores: Array(12).fill(1.5) })]).success).toBe(false);
+    expect(gastosSchema.safeParse([linha({ modo: "PERCENTUAL", valores: Array(12).fill(0.05) })]).success).toBe(true);
+  });
+
+  it("recusa nome repetido (sem diferenciar maiúsculas) e mais de 40 linhas", () => {
+    expect(gastosSchema.safeParse([linha(), linha({ nome: "OCUPAÇÃO".toLowerCase() })]).success).toBe(false);
+    const muitas = Array.from({ length: 41 }, (_, i) => linha({ nome: `Linha ${i}` }));
+    expect(gastosSchema.safeParse(muitas).success).toBe(false);
+  });
+
+  it("serviço vai de 0% a 100% ou vazio", () => {
+    expect(servicoSchema.safeParse(null).success).toBe(true);
+    expect(servicoSchema.safeParse(0.1).success).toBe(true);
+    expect(servicoSchema.safeParse(1.2).success).toBe(false);
+    expect(servicoSchema.safeParse(-0.1).success).toBe(false);
   });
 });

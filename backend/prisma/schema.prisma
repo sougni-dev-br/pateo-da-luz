@@ -4575,9 +4575,29 @@ model PlanejamentoCenario {
   anoBase     Int
   nome        String
   premissas   Json
+  // % de serviço sobre as vendas (fração). Abate da folha de pagamento informada; null = não considerar.
+  servicoPercentual Decimal? @db.Decimal(6, 4)
+  gastos      PlanejamentoGastoLinha[]
   createdById String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@unique([ano, nome], map: "planejamentocenario_ano_nome_key")
+}
+
+// Linha de gasto do cenário (Fase 3a). 12 valores (jan a dez): R$ no modo FIXO, fração das vendas no PERCENTUAL.
+model PlanejamentoGastoLinha {
+  id        String              @id @default(cuid())
+  cenarioId String
+  cenario   PlanejamentoCenario @relation(fields: [cenarioId], references: [id], onDelete: Cascade)
+  grupo     String
+  nome      String
+  modo      String
+  valores   Json
+  ordem     Int                 @default(0)
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+
+  @@unique([cenarioId, nome], map: "planejamentogastolinha_cenario_nome_key")
+  @@index([cenarioId])
 }

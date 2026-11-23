@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { descricaoDoPeriodo, leituraDaVariacao, percentualParaTexto, textoDaVariacao, textoParaPercentual } from "../formato";
+import { descricaoDoPeriodo, leituraDaVariacao, percentualParaTexto, textoDaVariacao, textoParaPercentual, textoParaReais, reaisParaTexto } from "../formato";
 
 describe("textoDaVariacao", () => {
   it("mostra sinal e uma casa decimal em pt-BR", () => {
@@ -55,5 +55,25 @@ describe("percentuais dos campos de premissa", () => {
     expect(textoParaPercentual("abc")).toBeNull();
     expect(textoParaPercentual("1,2,3")).toBeNull();
     expect(textoParaPercentual("-")).toBeNull();
+  });
+});
+
+describe("valores em reais dos campos de gasto", () => {
+  it("lê formato pt-BR e simples, e recusa o resto", () => {
+    expect(textoParaReais("52.000")).toBe(52000);
+    expect(textoParaReais("52000")).toBe(52000);
+    expect(textoParaReais("1.234,56")).toBe(1234.56);
+    expect(textoParaReais("R$ 500")).toBe(500);
+    expect(textoParaReais("12,5")).toBe(12.5);
+    expect(textoParaReais("")).toBeNull();
+    expect(textoParaReais("-5")).toBeNull();
+    expect(textoParaReais("abc")).toBeNull();
+    expect(textoParaReais("1.23.4")).toBeNull();
+  });
+
+  it("escreve em pt-BR", () => {
+    expect(reaisParaTexto(52000)).toBe("52.000");
+    expect(reaisParaTexto(1234.5)).toBe("1.234,5");
+    expect(reaisParaTexto(0)).toBe("0");
   });
 });
