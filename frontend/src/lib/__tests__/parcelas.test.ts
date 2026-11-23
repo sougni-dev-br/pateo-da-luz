@@ -9,7 +9,6 @@ const DINHEIRO: FormaPagamento = { id: "4", name: "DINHEIRO", type: "CASH", grou
 
 describe("quantidadeEfetivaDeParcelas", () => {
   test("forma que não parcela cai para 1, mesmo pedindo mais", () => {
-    expect(quantidadeEfetivaDeParcelas(PIX, 6)).toBe(1);
     expect(quantidadeEfetivaDeParcelas(DINHEIRO, 3)).toBe(1);
   });
 
@@ -62,12 +61,13 @@ describe("montarParcelas — o caso que motivou a regra de centavos", () => {
     expect(parcelas.map((parcela) => parcela.amount)).toEqual(["33.33", "33.33", "33.34"]);
   });
 
-  test("PIX devolve uma parcela só, com o total inteiro", () => {
+  test("PIX parcela normalmente e a soma fecha com o total", () => {
     const parcelas = montarParcelas({
       forma: PIX, total: 7150.07, parcelasPedidas: 4,
       dataCompra: "2026-09-15", vencimento: { modo: "escada", diasAteAPrimeira: 0 }
     });
-    expect(parcelas).toEqual([{ installment: 1, dueDate: "2026-09-15", amount: "7150.07" }]);
+    expect(parcelas).toHaveLength(4);
+    expect(parcelas.reduce((soma, parcela) => soma + Number(parcela.amount), 0)).toBeCloseTo(7150.07, 2);
   });
 });
 

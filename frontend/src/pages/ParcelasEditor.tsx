@@ -75,7 +75,7 @@ export function ParcelasEditor({ parcelas, totalEsperado, formasPagamento, payme
   function mudarForma(novaFormaId: string) {
     onFormaChange(novaFormaId);
     const nova = formasPagamento.find((forma) => forma.id === novaFormaId) ?? null;
-    // Forma que não parcela (PIX, dinheiro, débito) volta para parcela única:
+    // Forma que não parcela (dinheiro, débito) volta para parcela única:
     // o backend recusaria mais de uma, e é melhor a tela ajustar do que deixar
     // a pessoa montar um parcelamento que vai ser rejeitado no fim.
     if (!formaPermiteParcelamento(nova) && parcelas.length > 1) recalcular(1);

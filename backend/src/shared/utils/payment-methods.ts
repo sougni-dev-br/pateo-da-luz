@@ -49,7 +49,7 @@ export function paymentMethodAllowsInstallments(input: {
   const normalizedGroup = normalizeText(input.group);
   const normalizedType = normalizeText(input.type);
 
-  if (["boleto", "faturado", "cartao credito"].includes(normalizedBase)) return true;
+  if (["boleto", "faturado", "cartao credito", "pix"].includes(normalizedBase)) return true;
   if (normalizedGroup === "faturado") return true;
   if (normalizedType === "credit_card" || normalizedType === "bank_slip") return true;
   return false;

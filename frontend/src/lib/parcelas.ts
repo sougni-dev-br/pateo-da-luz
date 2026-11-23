@@ -47,7 +47,7 @@ export type MontarParcelasParams = {
   vencimento: RegraDeVencimento;
 };
 
-/** PIX e dinheiro não parcelam: o backend recusa, então a tela nem oferece. */
+/** Dinheiro e débito não parcelam: o backend recusa, então a tela nem oferece. */
 export function quantidadeEfetivaDeParcelas(forma: FormaPagamento | null | undefined, parcelasPedidas: number): number {
   if (!formaPermiteParcelamento(forma)) return 1;
   return Math.max(1, parcelasPedidas || 1);

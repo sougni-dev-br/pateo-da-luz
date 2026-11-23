@@ -50,7 +50,7 @@ export type FormaPagamento = { id: string; name: string; group?: string | null; 
 
 export function formaPermiteParcelamento(forma?: FormaPagamento | null): boolean {
   const base = normalizar(nomeBaseDaForma(forma?.name));
-  if (["boleto", "faturado", "cartao credito"].includes(base)) return true;
+  if (["boleto", "faturado", "cartao credito", "pix"].includes(base)) return true;
   if (normalizar(forma?.group) === "faturado") return true;
   return ["credit_card", "bank_slip"].includes(normalizar(forma?.type));
 }
