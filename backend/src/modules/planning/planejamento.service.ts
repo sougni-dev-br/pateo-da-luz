@@ -3,6 +3,7 @@ import { prisma } from "../../config/database.js";
 import { REVENUE_CHANNEL_SALON } from "../monthly/revenue-channels.js";
 import { hojeEmBrasilia } from "../monthly/revenue-coverage.service.js";
 import { mesclarFontes, mesesEncerradosAte, montarComparativo, type Comparativo, type MesDoSalao } from "./planejamento-comparativo.js";
+import { montarProjecao, type PremissasDoMes, type Projecao } from "./planejamento-projecao.js";
 
 type LinhaDoErp = {
   ano: number;
@@ -71,10 +72,25 @@ async function mesesDoHistorico(anos: readonly number[]): Promise<MesDoSalao[]> 
   }));
 }
 
+/** Salão por mês dos anos pedidos, com o ERP valendo quando cobre o mês e o histórico importado no resto. */
+async function carregarMesesDoSalao(anos: readonly number[]): Promise<MesDoSalao[]> {
+  const [erp, historico] = await Promise.all([mesesDoErp(anos), mesesDoHistorico(anos)]);
+  return mesclarFontes(erp, historico);
+}
+
 export async function carregarComparativo(anoBase: number, anoComparado: number): Promise<Comparativo & { hoje: string }> {
   const anos = [...new Set([anoBase, anoComparado])];
-  const [erp, historico] = await Promise.all([mesesDoErp(anos), mesesDoHistorico(anos)]);
+  const meses = await carregarMesesDoSalao(anos);
   const hoje = hojeEmBrasilia();
-  const comparativo = montarComparativo(mesclarFontes(erp, historico), anoBase, anoComparado, mesesEncerradosAte(hoje, anos), hoje.slice(0, 7));
+  const comparativo = montarComparativo(meses, anoBase, anoComparado, mesesEncerradosAte(hoje, anos), hoje.slice(0, 7));
   return { ...comparativo, hoje };
+}
+
+/** Projeta o cenário sobre o ano-base real. Só o mês corrente do ano-base conta como "em andamento". */
+export async function carregarProjecao(anoBase: number, premissas: readonly PremissasDoMes[]): Promise<Projecao> {
+  const meses = await carregarMesesDoSalao([anoBase]);
+  const hoje = hojeEmBrasilia();
+  const emAndamento = new Set<number>();
+  if (Number(hoje.slice(0, 4)) === anoBase) emAndamento.add(Number(hoje.slice(5, 7)));
+  return montarProjecao(anoBase, meses, premissas, emAndamento);
 }

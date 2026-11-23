@@ -5,7 +5,10 @@ import { Alert, EmptyState, Select, Tabs } from "../design-system";
 import { hojeLocalIso } from "../lib/datas";
 import { descricaoDoPeriodo, NOMES_DOS_MESES } from "./planejamento/formato";
 import { PainelComparativo } from "./planejamento/PainelComparativo";
+import { Cenarios } from "./planejamento/Cenarios";
 import { TabelaMensal, type GrandezaDoQuadro } from "./planejamento/TabelaMensal";
+import { hasPermission } from "../lib/permissions";
+import { useSession } from "../context/SessionContext";
 
 // Planejamento > Comparativo: o que a planilha de planejamento fazia à mão (clientes por turno, vendas,
 // ticket médio e a comparação ano × ano), calculado direto do faturamento do ERP. O histórico anterior ao
@@ -33,7 +36,7 @@ function avisosDeFonte(dados: PlanejamentoComparativo): string[] {
   return avisos;
 }
 
-export function Planejamento() {
+function Comparativo() {
   const anoAtual = Number(hojeLocalIso().slice(0, 4));
   const [anoBase, setAnoBase] = useState(anoAtual - 1);
   const [anoComparado, setAnoComparado] = useState(anoAtual);
@@ -99,6 +102,25 @@ export function Planejamento() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+type Visao = "comparativo" | "cenarios";
+const VISOES: { value: Visao; label: string }[] = [
+  { value: "comparativo", label: "Comparativo" },
+  { value: "cenarios", label: "Cenários" }
+];
+
+export function Planejamento() {
+  const { user } = useSession();
+  const [visao, setVisao] = useState<Visao>("comparativo");
+  // Quem pode ver o módulo vê as duas abas; a permissão de gravação é tratada dentro dos cenários.
+  const podeVer = hasPermission(user, "planning", "view");
+  return (
+    <div className="plan">
+      <Tabs tabs={VISOES} value={visao} onChange={(v) => setVisao(v as Visao)} aria-label="Visão do planejamento" />
+      {podeVer ? (visao === "comparativo" ? <Comparativo /> : <Cenarios />) : <Alert tone="warning">Você não tem acesso ao Planejamento.</Alert>}
     </div>
   );
 }

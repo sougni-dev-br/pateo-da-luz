@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { descricaoDoPeriodo, leituraDaVariacao, textoDaVariacao } from "../formato";
+import { descricaoDoPeriodo, leituraDaVariacao, percentualParaTexto, textoDaVariacao, textoParaPercentual } from "../formato";
 
 describe("textoDaVariacao", () => {
   it("mostra sinal e uma casa decimal em pt-BR", () => {
@@ -36,5 +36,24 @@ describe("descricaoDoPeriodo", () => {
   it("trata um mês e nenhum", () => {
     expect(descricaoDoPeriodo([5])).toBe("maio");
     expect(descricaoDoPeriodo([])).toBe("");
+  });
+});
+
+describe("percentuais dos campos de premissa", () => {
+  it("converte texto em fração e de volta", () => {
+    expect(textoParaPercentual("10")).toBe(0.1);
+    expect(textoParaPercentual("5,5")).toBe(0.055);
+    expect(textoParaPercentual(" -3% ")).toBe(-0.03);
+    expect(textoParaPercentual("0")).toBe(0);
+    expect(percentualParaTexto(0.055)).toBe("5,5");
+    expect(percentualParaTexto(-0.03)).toBe("-3");
+    expect(percentualParaTexto(0)).toBe("0");
+  });
+
+  it("recusa o que não é número", () => {
+    expect(textoParaPercentual("")).toBeNull();
+    expect(textoParaPercentual("abc")).toBeNull();
+    expect(textoParaPercentual("1,2,3")).toBeNull();
+    expect(textoParaPercentual("-")).toBeNull();
   });
 });

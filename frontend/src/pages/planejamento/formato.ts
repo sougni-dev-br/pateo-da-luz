@@ -30,3 +30,25 @@ export function descricaoDoPeriodo(meses: readonly number[]): string {
   if (seguidos) return `${nomes[0]} a ${nomes[nomes.length - 1]}`;
   return `${nomes.slice(0, -1).join(", ")} e ${nomes[nomes.length - 1]}`;
 }
+
+/** Fração → texto do campo de percentual: 0,055 vira "5,5"; 0 vira "0". */
+export function percentualParaTexto(fracao: number): string {
+  const pct = Math.round(fracao * 10000) / 100;
+  return pct.toLocaleString("pt-BR", { maximumFractionDigits: 2 });
+}
+
+/** Texto digitado ("10", "5,5", "-3", "7%") → fração. Devolve null se não for um número. */
+export function textoParaPercentual(texto: string): number | null {
+  const limpo = texto.trim().replace("%", "").replace(/\s/g, "");
+  if (!/^[-+−]?\d+([.,]\d+)?$/.test(limpo)) return null;
+  const numero = Number(limpo.replace("−", "-").replace(",", "."));
+  if (!Number.isFinite(numero)) return null;
+  return Math.round(numero * 100) / 10000;
+}
+
+export const MOTIVO_SEM_BASE: Record<string, string> = {
+  SEM_DADO: "sem dado no ano-base",
+  EM_ANDAMENTO: "mês em andamento",
+  CLIENTES_INCOMPLETOS: "vendas sem nº de clientes",
+  TURNO_SEM_CLIENTES: "turno sem clientes"
+};

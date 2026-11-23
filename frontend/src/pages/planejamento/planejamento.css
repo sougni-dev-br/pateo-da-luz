@@ -31,3 +31,21 @@ tbody .plan-col-rotulo { color: inherit; font-size: inherit; letter-spacing: nor
 .plan-andamento { color: var(--muted); }
 
 @media (max-width: 900px) { .plan-kpis { grid-template-columns: 1fr; } }
+
+.plan-filtro-largo { min-width: 240px; }
+.plan-cabecalho-secao { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: var(--space-4); }
+.plan-kpis-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.plan-quadro-estreito table { min-width: 640px; }
+.plan-quadro:not(.plan-quadro-estreito) table { min-width: 980px; }
+.plan-col-destaque { font-weight: var(--fw-semibold); }
+.plan-linha-sem-base td, .plan-linha-sem-base th { color: var(--muted); font-style: italic; }
+.plan-linha-todos th, .plan-linha-todos td { background: var(--paper-soft); }
+
+.plan-campo { width: 76px; padding: 6px 8px; text-align: right; font: inherit; border: 1px solid var(--line); border-radius: 6px; background: var(--paper, #fff); color: inherit; }
+.plan-campo:focus-visible { outline: 2px solid var(--accent, #1f5fbf); outline-offset: 1px; }
+.plan-campo:disabled { background: transparent; border-color: transparent; }
+.plan-campo-invalido { border-color: var(--danger, #b42318); }
+
+.plan-dialogo-acoes { display: flex; justify-content: flex-end; gap: 10px; margin-top: var(--space-4); }
+
+@media (max-width: 900px) { .plan-kpis-4 { grid-template-columns: 1fr 1fr; } }

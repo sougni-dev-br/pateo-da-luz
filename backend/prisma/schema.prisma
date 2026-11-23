@@ -4566,3 +4566,18 @@ model SalaoHistoricoMensal {
 
   @@unique([ano, mes], map: "salaohistoricomensal_ano_mes_key")
 }
+
+// Cenário de projeção do Salão (Planejamento > Cenários): premissas mês a mês sobre um ano-base real.
+// As premissas (JSON validado por zod na rota) são frações: 0,05 = 5%.
+model PlanejamentoCenario {
+  id          String   @id @default(cuid())
+  ano         Int
+  anoBase     Int
+  nome        String
+  premissas   Json
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([ano, nome], map: "planejamentocenario_ano_nome_key")
+}

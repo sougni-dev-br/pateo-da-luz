@@ -10912,3 +10912,59 @@ export type PlanejamentoComparativo = {
 export function getPlanejamentoComparativo(anoBase: number, anoComparado: number) {
   return request<PlanejamentoComparativo>(`/planning/comparativo?anoBase=${anoBase}&anoComparado=${anoComparado}`);
 }
+
+// ── Planejamento > Cenários de projeção do Salão ────────────────────────────
+// Percentuais trafegam como fração (0,05 = 5%).
+export type PlanejamentoPremissasDoMes = {
+  mes: number;
+  clientesAlmoco: number;
+  clientesJantar: number;
+  ticketAlmoco: number;
+  ticketJantar: number;
+  cmv: number | null;
+};
+export type PlanejamentoMotivoSemBase = "SEM_DADO" | "EM_ANDAMENTO" | "CLIENTES_INCOMPLETOS" | "TURNO_SEM_CLIENTES";
+export type PlanejamentoTurnosCheios = { almoco: number; jantar: number; total: number };
+export type PlanejamentoGrandezasProjetadas = { clientes: PlanejamentoTurnosCheios; ticket: PlanejamentoTurnosCheios; vendas: PlanejamentoTurnosCheios };
+export type PlanejamentoMesProjetado = {
+  mes: number;
+  motivoSemBase: PlanejamentoMotivoSemBase | null;
+  base: PlanejamentoGrandezasProjetadas | null;
+  projetado: PlanejamentoGrandezasProjetadas | null;
+  cmvPercentual: number | null;
+  cmvValor: number | null;
+  margemBruta: number | null;
+};
+export type PlanejamentoTotalProjetado = {
+  meses: number[];
+  base: PlanejamentoGrandezasProjetadas;
+  projetado: PlanejamentoGrandezasProjetadas;
+  variacaoVendas: number | null;
+  variacaoClientes: number | null;
+  variacaoTicket: number | null;
+  cmvValor: number | null;
+  cmvPercentual: number | null;
+  margemBruta: number | null;
+};
+export type PlanejamentoProjecao = { anoBase: number; meses: PlanejamentoMesProjetado[]; total: PlanejamentoTotalProjetado };
+export type PlanejamentoCenarioResumo = { id: string; ano: number; anoBase: number; nome: string; atualizadoEm: string };
+export type PlanejamentoCenario = PlanejamentoCenarioResumo & { premissas: PlanejamentoPremissasDoMes[]; projecao: PlanejamentoProjecao };
+
+export function listPlanejamentoCenarios() {
+  return request<PlanejamentoCenarioResumo[]>("/planning/cenarios");
+}
+export function getPlanejamentoCenario(id: string) {
+  return request<PlanejamentoCenario>(`/planning/cenarios/${encodeURIComponent(id)}`);
+}
+export function previaPlanejamentoProjecao(payload: { anoBase: number; premissas: PlanejamentoPremissasDoMes[] }) {
+  return request<PlanejamentoProjecao>("/planning/projecao", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(payload) });
+}
+export function createPlanejamentoCenario(payload: { ano: number; anoBase: number; nome: string; premissas?: PlanejamentoPremissasDoMes[] }) {
+  return request<PlanejamentoCenario>("/planning/cenarios", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(payload) });
+}
+export function updatePlanejamentoCenario(id: string, payload: { nome: string; anoBase: number; premissas: PlanejamentoPremissasDoMes[]; atualizadoEm: string }) {
+  return request<PlanejamentoCenario>(`/planning/cenarios/${encodeURIComponent(id)}`, { method: "PUT", headers: JSON_HEADERS, body: JSON.stringify(payload) });
+}
+export function deletePlanejamentoCenario(id: string) {
+  return request<{ ok: boolean }>(`/planning/cenarios/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
