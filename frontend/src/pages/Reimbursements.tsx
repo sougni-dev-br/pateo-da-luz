@@ -1,4 +1,4 @@
-import { CheckCheck, Eye, Lock, RefreshCw, RotateCcw } from "lucide-react";
+import { CheckCheck, Eye, Lock, Printer, RefreshCw, RotateCcw } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -23,6 +23,7 @@ import { hojeLocalIso } from "../lib/datas";
 import { parcelasNoNomeDaForma } from "../lib/formas-pagamento";
 import { hasPermission } from "../lib/permissions";
 import { formatDate } from "../utils/format";
+import { gerarPdfReembolso } from "./reembolso/pdfReembolso";
 
 // Reembolso a funcionário: as compras que a pessoa pagou do próprio bolso (cada uma com
 // a loja e a data dela) e, ao fechar, um título só para a pessoa no Contas a Pagar.
@@ -169,6 +170,20 @@ export function Reimbursements() {
     setCloseForm(null);
     return closed;
   }, "Reembolso fechado. O título já está no Contas a Pagar.");
+
+  // Baixa o PDF para imprimir e guardar na pasta do Contas a Pagar.
+  const [gerandoPdf, setGerandoPdf] = useState(false);
+  async function baixarPdf() {
+    if (!detail) return;
+    setGerandoPdf(true);
+    try {
+      await gerarPdfReembolso(detail);
+    } catch (error) {
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Não foi possível gerar o PDF." });
+    } finally {
+      setGerandoPdf(false);
+    }
+  }
 
   const reopen = () => detail && run(() => reopenReimbursement(detail.id), "Reembolso reaberto. O título anterior foi cancelado.");
 
@@ -379,6 +394,9 @@ export function Reimbursements() {
             )}
 
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, flexWrap: "wrap", paddingTop: 16 }}>
+              <Button variant="secondary" leadingIcon={<Printer size={14} />} disabled={busy || gerandoPdf || detail.items.length === 0} onClick={baixarPdf}>
+                {gerandoPdf ? "Gerando PDF…" : "Gerar PDF"}
+              </Button>
               {detail.status === "OPEN" && canCheck && pending > 0 && (
                 <Button variant="secondary" leadingIcon={<CheckCheck size={14} />} disabled={busy} onClick={checkAll}>Conferir todas</Button>
               )}
