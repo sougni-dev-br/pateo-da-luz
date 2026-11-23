@@ -150,11 +150,11 @@ export function auditarFerias(pessoa: string, t: TituloAuditado, atual: FeriasAt
   }
   const abertos = atual.mesesAbertos.filter((c) => !atual.daPlanilha?.has(c));
   if (abertos.length > 0 && !t.pago) out.push(achado("ATENCAO", "ferias-mes-aberto", pessoa, t, `Gorjeta ainda não fechada em ${abertos.join(", ")}: a média das férias pode mudar até o fechamento. Reaplique o complemento depois de fechar e antes de pagar.`));
-  if (media.mesesAusentes.length > 0) out.push(achado("ATENCAO", "ferias-mes-ausente", pessoa, t, `Sem apuração nem valor informado em ${media.mesesAusentes.join(", ")}: ficaram fora da média (${media.mesesContados} mês(es) contados).`));
+  if (media.mesesAusentes.length > 0) out.push(achado("ATENCAO", "ferias-mes-ausente", pessoa, t, `Sem valor para ${media.mesesAusentes.join(", ")} (informe o valor; antes de 2026-09 a apuração do ERP não vale): ficaram fora da média (${media.mesesContados} mês(es) contados).`));
   const zerados = atual.meses.filter((m) => m.origem === "APURACAO" && m.valor === 0 && !atual.daPlanilha?.has(m.chave)).map((m) => m.chave);
   if (zerados.length > 0) out.push(achado("ATENCAO", "mes-apuracao-zero", pessoa, t, `Mês(es) com apuração zero e sem valor informado à mão: ${zerados.join(", ")} entram na média como R$ 0,00. Se houve gorjeta (planilha), informe o valor.`));
-  const zeroInformado = atual.meses.filter((m) => m.apuracaoZero).map((m) => m.chave);
-  if (zeroInformado.length > 0) out.push(achado("OK", "mes-apuracao-zero", pessoa, t, `Mês(es) com apuração zero em que valeu o valor informado à mão: ${zeroInformado.join(", ")}.`));
+  const informadoSobreErp = atual.meses.filter((m) => m.origem === "INFORMADA" && m.apuracaoErp != null && difere(m.apuracaoErp, m.valor ?? NaN));
+  if (informadoSobreErp.length > 0) out.push(achado("OK", "informado-vale", pessoa, t, `Valor informado (planilha) vale sobre a apuração do ERP em: ${informadoSobreErp.map((m) => `${m.chave} ${reais(m.valor ?? 0)} (ERP ${reais(m.apuracaoErp ?? 0)})`).join("; ")}.`));
   if (out.every((a) => a.severidade === "OK")) out.push(achado("OK", "ferias", pessoa, t, `Complemento ${reais(complementoGravado)} confere com o cálculo de hoje: (${reais(atual.combinado)} + média ${reais(media.media)}) × 4/3 = ${reais(calc.remuneracao)}, menos o líquido do recibo ${reais(liquidoRecibo)}; total do título ${reais(t.amount)}.`));
   return out;
 }

@@ -118,10 +118,10 @@ describe("auditarFerias", () => {
     const r = auditarFerias(PESSOA, feriasTitulo({ pago: true, paidAmount: 9061.2 }), feriasAtual({ meses }));
     expect(r.find((x) => x.regra === "ferias-base-mudou")?.mensagem).toContain("JÁ FOI PAGO");
   });
-  it("apuração zero com valor informado é OK (regra do #261)", () => {
-    const meses = MESES_REAIS.map((m) => (m.chave === "2026-07" ? { chave: "2026-07", valor: 0, origem: "INFORMADA" as const, apuracaoZero: true } : m));
+  it("informado vale sobre a apuração do ERP: OK informativo (regra do #261)", () => {
+    const meses = MESES_REAIS.map((m) => (m.chave === "2026-07" ? { chave: "2026-07", valor: 1392.45, origem: "INFORMADA" as const, apuracaoErp: 0 } : m));
     const r = auditarFerias(PESSOA, feriasTitulo(), feriasAtual({ meses }));
-    expect(r.some((x) => x.severidade === "OK" && x.regra === "mes-apuracao-zero")).toBe(true);
+    expect(r.some((x) => x.severidade === "OK" && x.regra === "informado-vale")).toBe(true);
   });
   it("título sem complemento aplicado mas com fórmula positiva pede para aplicar", () => {
     const t: TituloAuditado = { ...feriasTitulo({ amount: 5304.84 }), details: { recibo: { dias: 30, liquido: 5304.84 } } };
