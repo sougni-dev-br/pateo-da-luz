@@ -35,6 +35,7 @@ import { supplierRouter } from "./modules/suppliers/supplier.routes.js";
 import { supplierCyclesRouter } from "./modules/suppliers/supplier-cycles.routes.js";
 import { reimbursementsRouter } from "./modules/reimbursements/reimbursement.routes.js";
 import { oilCollectionsRouter } from "./modules/oil-collections/oil-collection.routes.js";
+import { planningRouter } from "./modules/planning/planejamento.routes.js";
 import { taxPaymentRouter } from "./modules/tax-payments/tax-payment.routes.js";
 import { companyRouter } from "./modules/companies/company.routes.js";
 import { employeeRouter } from "./modules/payroll/employee.routes.js";
@@ -171,6 +172,7 @@ app.use("/suppliers", supplierRouter);
 app.use("/supplier-cycles", supplierCyclesRouter);
 app.use("/reimbursements", reimbursementsRouter);
 app.use("/oil-collections", oilCollectionsRouter);
+app.use("/planning", planningRouter);
 app.use("/companies", companyRouter);
 // Antes de "/employees": o prefixo mais específico é resolvido primeiro.
 app.use("/employees/ficha-registro", fichaImportacaoRouter);

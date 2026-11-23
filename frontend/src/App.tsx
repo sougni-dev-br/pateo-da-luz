@@ -39,6 +39,7 @@ import {
   Warehouse,
   X,
   ChartColumn,
+  TrendingUp,
   Banknote,
   Bus,
   Clock3
@@ -126,6 +127,7 @@ const Desperdicio = lazy(() => import("./pages/desperdicio/Desperdicio").then((m
 const Reimbursements = lazy(() => import("./pages/Reimbursements").then((module) => ({ default: module.Reimbursements })));
 const Parcelamentos = lazy(() => import("./pages/Parcelamentos").then((module) => ({ default: module.Parcelamentos })));
 const ColetaOleo = lazy(() => import("./pages/ColetaOleo").then((module) => ({ default: module.ColetaOleo })));
+const Planejamento = lazy(() => import("./pages/Planejamento").then((module) => ({ default: module.Planejamento })));
 const TaxPayments = lazy(() => import("./pages/TaxPayments").then((module) => ({ default: module.TaxPayments })));
 const Notifications = lazy(() => import("./pages/Notifications").then((module) => ({ default: module.Notifications })));
 // Rota /design-system: dev-only (isLocal). Em prod, o ternario resolve para null
@@ -178,6 +180,7 @@ const sections = [
   { id: "revenue", label: "Faturamento", icon: BadgeDollarSign, showInSidebar: true, group: "Financeiro", path: "/financeiro/faturamento", matchers: ["/financeiro/faturamento"], description: "Receita por canal, por dia e por lançamento: salão, delivery e eventos.", hidePageHeader: true },
   { id: "faturamento-salao", label: "Salão (Agile PDV)", icon: BadgeDollarSign, showInSidebar: true, group: "Financeiro", path: "/financeiro/faturamento-salao", matchers: ["/financeiro/faturamento-salao"], description: "Faturamento do salão sincronizado automaticamente pelo agente do PDV", hidePageHeader: true },
   { id: "analise-salao", label: "Análise do Salão", icon: ChartColumn, showInSidebar: true, group: "Financeiro", path: "/financeiro/analise-salao", matchers: ["/financeiro/analise-salao"], description: "Cancelamentos e vendas por funcionário, a partir das vendas do PDV", hidePageHeader: true },
+  { id: "planning", label: "Planejamento", icon: TrendingUp, showInSidebar: true, group: "Financeiro", path: "/financeiro/planejamento", matchers: ["/financeiro/planejamento"], description: "Comparativo ano a ano do Salão: vendas, clientes e ticket médio por turno" },
   { id: "delivery", label: "Delivery", icon: Truck, showInSidebar: true, group: "Financeiro", path: "/financeiro/delivery", matchers: ["/financeiro/delivery", "/financeiro/delivery-ifood"], permissionAnyOf: ["delivery-ifood", "delivery-noventa-nove", "delivery-keeta"], description: "Faturamento delivery iFood + 99 Food + Keeta — taxas, promoções e repasses" },
   { id: "cards", label: "Cartões", icon: CreditCard, showInSidebar: true, group: "Financeiro", path: "/financeiro/cartoes", matchers: ["/financeiro/cartoes"] },
   { id: "cash", label: "Caixa", icon: BadgeDollarSign, showInSidebar: true, group: "Financeiro", path: "/financeiro/caixa", matchers: ["/financeiro/caixa"] },
@@ -793,6 +796,7 @@ export function App() {
               <Route path="/financeiro/reembolsos" element={<Reimbursements />} />
               <Route path="/financeiro/parcelamentos" element={<Parcelamentos />} />
               <Route path="/operacao/coleta-oleo" element={<ColetaOleo />} />
+              <Route path="/financeiro/planejamento" element={<Planejamento />} />
               <Route path="/estoque/produtos" element={<Products />} />
               <Route path="/estoque/produtos/novo" element={<ProductEditor />} />
               <Route path="/estoque/produtos/:id/editar" element={<ProductEditor />} />

@@ -4546,3 +4546,58 @@ model PontoFechamento {
   @@unique([employeeId, year, month])
   @@index([year, month])
 }
+
+// Histórico mensal do Salão para meses SEM lançamento diário no ERP (2025, antes do Agile PDV). Alimenta o
+// comparativo ano × ano de Planejamento. Onde existe RevenueEntry do canal Salão, o ERP vence e esta tabela
+// é ignorada. Valores SEM serviço (venda de Mesas); clientes = pessoas do turno (o "TC" do fechamento).
+model SalaoHistoricoMensal {
+  id             String   @id @default(cuid())
+  ano            Int
+  mes            Int
+  vendasAlmoco   Decimal  @db.Decimal(14, 2)
+  vendasJantar   Decimal  @db.Decimal(14, 2)
+  clientesAlmoco Int
+  clientesJantar Int
+  servico        Decimal  @default(0) @db.Decimal(14, 2)
+  // De onde veio o número (ex.: "Caixa0125.xls"), só para a pessoa conferir.
+  fonte          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([ano, mes], map: "salaohistoricomensal_ano_mes_key")
+}
+
+// Cenário de projeção do Salão (Planejamento > Cenários): premissas mês a mês sobre um ano-base real.
+// As premissas (JSON validado por zod na rota) são frações: 0,05 = 5%.
+model PlanejamentoCenario {
+  id          String   @id @default(cuid())
+  ano         Int
+  anoBase     Int
+  nome        String
+  premissas   Json
+  // % de serviço sobre as vendas (fração). Abate da folha de pagamento informada; null = não considerar.
+  servicoPercentual Decimal? @db.Decimal(6, 4)
+  gastos      PlanejamentoGastoLinha[]
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([ano, nome], map: "planejamentocenario_ano_nome_key")
+}
+
+// Linha de gasto do cenário (Fase 3a). 12 valores (jan a dez): R$ no modo FIXO, fração das vendas no PERCENTUAL.
+model PlanejamentoGastoLinha {
+  id        String              @id @default(cuid())
+  cenarioId String
+  cenario   PlanejamentoCenario @relation(fields: [cenarioId], references: [id], onDelete: Cascade)
+  grupo     String
+  nome      String
+  modo      String
+  valores   Json
+  ordem     Int                 @default(0)
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+
+  @@unique([cenarioId, nome], map: "planejamentogastolinha_cenario_nome_key")
+  @@index([cenarioId])
+}

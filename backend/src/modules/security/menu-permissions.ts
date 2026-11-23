@@ -20,6 +20,7 @@ export const menuCatalog = [
   { id: "revenue", label: "Faturamento diario", group: "Financeiro" },
   { id: "faturamento-salao", label: "Faturamento Salao (Agile PDV)", group: "Financeiro" },
   { id: "analise-salao", label: "Analise do Salao (cancelamentos e vendas por pessoa)", group: "Financeiro" },
+  { id: "planning", label: "Planejamento (comparativo e cenários)", group: "Financeiro" },
   { id: "delivery-ifood", label: "Delivery iFood", group: "Financeiro" },
   { id: "delivery-noventa-nove", label: "Delivery 99 Food", group: "Financeiro" },
   { id: "delivery-keeta", label: "Delivery Keeta", group: "Financeiro" },
@@ -418,6 +419,7 @@ function menuFromRequest(request: Request): MenuId | null {
   if (path.startsWith("/supplier-cycles")) return "supplier-cycles";
   if (path.startsWith("/reimbursements")) return "reimbursements";
   if (path.startsWith("/oil-collections")) return "oil-collections";
+  if (path.startsWith("/planning")) return "planning";
   if (path.startsWith("/suppliers")) return "suppliers";
   if (path.startsWith("/companies")) return "companies";
   if (path.startsWith("/employees")) return "employees";
@@ -581,6 +583,11 @@ function actionFromRequest(request: Request, menuId: MenuId): PermissionAction {
   // Importar a ficha de registro: a prévia só lê (POST por causa do PDF); aplicar altera cadastros existentes.
   if (menuId === "employees" && path === "/employees/ficha-registro/previa") return "view";
   if (menuId === "employees" && path === "/employees/ficha-registro/aplicar") return "edit";
+
+  // Planejamento: a prévia da projeção só calcula (POST por causa das premissas); não grava nada.
+  if (menuId === "planning" && path === "/planning/projecao") return "view";
+  // O realizado só serve a quem edita o cenário (a rota ainda exige acesso ao DRE).
+  if (menuId === "planning" && path === "/planning/realizado") return "edit";
 
   // Restaurar um registro cancelado desfaz uma exclusao: pede a acao de excluir.
   if (path.endsWith("/restore")) return "delete";

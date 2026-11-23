@@ -10881,3 +10881,131 @@ export function gerarDecimoTerceiro(year: number, parcela: 1 | 2) {
     body: JSON.stringify({ year, parcela })
   });
 }
+
+// ── Planejamento > Comparativo ano × ano do Salão ───────────────────────────
+export type PlanejamentoTurnos = { almoco: number | null; jantar: number | null; total: number | null };
+export type PlanejamentoFonte = "ERP" | "HISTORICO";
+export type PlanejamentoLado = { vendas: PlanejamentoTurnos; clientes: PlanejamentoTurnos; ticket: PlanejamentoTurnos; servico: number | null; fonte: PlanejamentoFonte | null };
+export type PlanejamentoMes = {
+  mes: number;
+  emAndamento: boolean;
+  comparavel: boolean;
+  incompleto: boolean;
+  base: PlanejamentoLado;
+  comparado: PlanejamentoLado;
+  variacao: { vendas: PlanejamentoTurnos; clientes: PlanejamentoTurnos; ticket: PlanejamentoTurnos };
+};
+export type PlanejamentoAcumulado = {
+  base: { vendas: PlanejamentoTurnos; clientes: PlanejamentoTurnos; ticket: PlanejamentoTurnos; servico: number };
+  comparado: { vendas: PlanejamentoTurnos; clientes: PlanejamentoTurnos; ticket: PlanejamentoTurnos; servico: number };
+  variacao: { vendas: PlanejamentoTurnos; clientes: PlanejamentoTurnos; ticket: PlanejamentoTurnos };
+  mesesComparados: number[];
+};
+export type PlanejamentoComparativo = {
+  anoBase: number;
+  anoComparado: number;
+  hoje: string;
+  meses: PlanejamentoMes[];
+  acumulado: PlanejamentoAcumulado;
+};
+
+export function getPlanejamentoComparativo(anoBase: number, anoComparado: number) {
+  return request<PlanejamentoComparativo>(`/planning/comparativo?anoBase=${anoBase}&anoComparado=${anoComparado}`);
+}
+
+// ── Planejamento > Cenários de projeção do Salão ────────────────────────────
+// Percentuais trafegam como fração (0,05 = 5%).
+export type PlanejamentoPremissasDoMes = {
+  mes: number;
+  clientesAlmoco: number;
+  clientesJantar: number;
+  ticketAlmoco: number;
+  ticketJantar: number;
+  cmv: number | null;
+};
+export type PlanejamentoMotivoSemBase = "SEM_DADO" | "EM_ANDAMENTO" | "CLIENTES_INCOMPLETOS" | "TURNO_SEM_CLIENTES";
+export type PlanejamentoTurnosCheios = { almoco: number; jantar: number; total: number };
+export type PlanejamentoGrandezasProjetadas = { clientes: PlanejamentoTurnosCheios; ticket: PlanejamentoTurnosCheios; vendas: PlanejamentoTurnosCheios };
+export type PlanejamentoMesProjetado = {
+  mes: number;
+  motivoSemBase: PlanejamentoMotivoSemBase | null;
+  base: PlanejamentoGrandezasProjetadas | null;
+  projetado: PlanejamentoGrandezasProjetadas | null;
+  cmvPercentual: number | null;
+  cmvValor: number | null;
+  margemBruta: number | null;
+};
+export type PlanejamentoTotalProjetado = {
+  meses: number[];
+  base: PlanejamentoGrandezasProjetadas;
+  projetado: PlanejamentoGrandezasProjetadas;
+  variacaoVendas: number | null;
+  variacaoClientes: number | null;
+  variacaoTicket: number | null;
+  cmvValor: number | null;
+  cmvPercentual: number | null;
+  margemBruta: number | null;
+};
+export type PlanejamentoProjecao = { anoBase: number; meses: PlanejamentoMesProjetado[]; total: PlanejamentoTotalProjetado };
+export type PlanejamentoCenarioResumo = { id: string; ano: number; anoBase: number; nome: string; atualizadoEm: string };
+export type PlanejamentoGrupoDeGasto = "OCUPACAO" | "TARIFAS_PUBLICAS" | "FOLHA" | "TRIBUTOS" | "DIVIDA" | "CONTRATOS" | "SEGUROS" | "TARIFAS_BANCARIAS" | "OUTROS";
+export type PlanejamentoModoDoGasto = "FIXO" | "PERCENTUAL";
+/** 12 valores (jan a dez): R$ no modo FIXO; fração das vendas (0,05 = 5%) no PERCENTUAL. */
+export type PlanejamentoLinhaDeGasto = { grupo: PlanejamentoGrupoDeGasto; nome: string; modo: PlanejamentoModoDoGasto; valores: number[] };
+export type PlanejamentoGastosPorGrupo = Partial<Record<PlanejamentoGrupoDeGasto, number>>;
+export type PlanejamentoMesDeResultado = {
+  mes: number;
+  gastosPorGrupo: PlanejamentoGastosPorGrupo;
+  abatimentoDoServico: number;
+  gastosTotal: number;
+  lucro: number | null;
+  equilibrioVendas: number | null;
+  equilibrioClientes: number | null;
+};
+export type PlanejamentoResultado = {
+  meses: (PlanejamentoMesDeResultado | null)[];
+  total: { gastosPorGrupo: PlanejamentoGastosPorGrupo; abatimentoDoServico: number; gastosTotal: number; lucro: number | null };
+};
+export type PlanejamentoPrevia = { projecao: PlanejamentoProjecao; resultado: PlanejamentoResultado };
+export type PlanejamentoCenario = PlanejamentoCenarioResumo & {
+  premissas: PlanejamentoPremissasDoMes[];
+  gastos: PlanejamentoLinhaDeGasto[];
+  servicoPercentual: number | null;
+  projecao: PlanejamentoProjecao;
+  resultado: PlanejamentoResultado;
+};
+
+export function listPlanejamentoCenarios() {
+  return request<PlanejamentoCenarioResumo[]>("/planning/cenarios");
+}
+export function getPlanejamentoCenario(id: string) {
+  return request<PlanejamentoCenario>(`/planning/cenarios/${encodeURIComponent(id)}`);
+}
+export function previaPlanejamentoProjecao(payload: { anoBase: number; premissas: PlanejamentoPremissasDoMes[]; gastos: PlanejamentoLinhaDeGasto[]; servicoPercentual: number | null }) {
+  return request<PlanejamentoPrevia>("/planning/projecao", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(payload) });
+}
+export function createPlanejamentoCenario(payload: { ano: number; anoBase: number; nome: string; premissas?: PlanejamentoPremissasDoMes[]; gastos?: PlanejamentoLinhaDeGasto[]; servicoPercentual?: number | null }) {
+  return request<PlanejamentoCenario>("/planning/cenarios", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(payload) });
+}
+export function updatePlanejamentoCenario(id: string, payload: { nome: string; anoBase: number; premissas: PlanejamentoPremissasDoMes[]; gastos: PlanejamentoLinhaDeGasto[]; servicoPercentual: number | null; atualizadoEm: string }) {
+  return request<PlanejamentoCenario>(`/planning/cenarios/${encodeURIComponent(id)}`, { method: "PUT", headers: JSON_HEADERS, body: JSON.stringify(payload) });
+}
+export function deletePlanejamentoCenario(id: string) {
+  return request<{ ok: boolean }>(`/planning/cenarios/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export type PlanejamentoRealizadoDoGrupo = {
+  grupo: PlanejamentoGrupoDeGasto;
+  origemNoDre: boolean;
+  /** R$ do mês; null nos meses ainda não encerrados. */
+  valoresPorMes: (number | null)[];
+  media: number | null;
+  mesesConsiderados: number[];
+  mesesSemLancamento: number[];
+  percentualDaReceita: number | null;
+};
+export type PlanejamentoRealizado = { ano: number; mesesEncerrados: number[]; grupos: PlanejamentoRealizadoDoGrupo[] };
+
+export function getPlanejamentoRealizado(ano: number, ignorarSemLancamento: boolean) {
+  return request<PlanejamentoRealizado>(`/planning/realizado?ano=${ano}&ignorarSemLancamento=${ignorarSemLancamento}`);
+}
