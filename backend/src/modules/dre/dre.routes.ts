@@ -642,6 +642,18 @@ async function calcDRE(from: Date, to: Date, competencia: Competencia | null) {
 // ROUTES
 // ─────────────────────────────────────────────
 
+/**
+ * Gastos do mês por grupo do DRE e receita bruta, pelo MESMO cálculo da tela DRE Gerencial (visão atual).
+ * Usado pelo Planejamento para sugerir os gastos de um cenário a partir do realizado.
+ */
+export async function calcularDreDoMes(ano: number, mes: number) {
+  const dre = await calcDRE(new Date(ano, mes - 1, 1), new Date(ano, mes, 0, 23, 59, 59, 999), { year: ano, month: mes });
+  return {
+    gastosPorGrupo: Object.fromEntries(dre.expenseGroups.map((g) => [g.key, g.total])) as Record<string, number>,
+    receitaBruta: dre.revenue.grossAmount
+  };
+}
+
 dreRouter.get("/summary", async (request, response) => {
   const range = parseRange(request.query as Record<string, unknown>);
   if (!range) {

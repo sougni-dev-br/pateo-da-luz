@@ -14,6 +14,10 @@ describe("permissões do Planejamento", () => {
     expect(await ctx("POST", "/planning/projecao")).toEqual({ menuId: "planning", action: "view" });
   });
 
+  it("buscar o realizado do DRE pede Editar no Planejamento", async () => {
+    expect(await ctx("GET", "/planning/realizado")).toEqual({ menuId: "planning", action: "edit" });
+  });
+
   it("criar, salvar e excluir cenário pedem criar, editar e excluir", async () => {
     expect(await ctx("POST", "/planning/cenarios")).toEqual({ menuId: "planning", action: "create" });
     expect(await ctx("PUT", "/planning/cenarios/c1")).toEqual({ menuId: "planning", action: "edit" });

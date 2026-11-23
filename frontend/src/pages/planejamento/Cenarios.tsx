@@ -228,7 +228,7 @@ export function Cenarios() {
               <h2 id="plan-gastos" className="plan-titulo">Gastos de {cenario.ano}</h2>
               <p className="plan-sub">Valor fixo por mês (R$) ou percentual das vendas. A folha é a total, com o serviço dentro: o serviço abate dela no resultado.</p>
             </div>
-            <GastosEditor gastos={gastos} servicoPercentual={servicoPercentual} desabilitado={!podeEditar || salvando} onMudarGastos={setGastos} onMudarServico={setServicoPercentual} />
+            <GastosEditor anoBase={anoBase} gastos={gastos} servicoPercentual={servicoPercentual} desabilitado={!podeEditar || salvando} onMudarGastos={setGastos} onMudarServico={setServicoPercentual} />
           </section>
 
           <section className="plan-secao" aria-labelledby="plan-resultado">

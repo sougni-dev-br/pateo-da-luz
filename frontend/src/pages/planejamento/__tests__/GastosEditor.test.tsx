@@ -7,7 +7,7 @@ const ocupacao = (): PlanejamentoLinhaDeGasto => ({ grupo: "OCUPACAO", nome: "Oc
 const tributos = (): PlanejamentoLinhaDeGasto => ({ grupo: "TRIBUTOS", nome: "Tributos", modo: "PERCENTUAL", valores: Array(12).fill(0.06) });
 
 function montar(gastos: PlanejamentoLinhaDeGasto[], sobre: { servicoPercentual?: number | null; desabilitado?: boolean } = {}) {
-  const props = { gastos, servicoPercentual: null, desabilitado: false, onMudarGastos: vi.fn<(proximos: PlanejamentoLinhaDeGasto[]) => void>(), onMudarServico: vi.fn<(valor: number | null) => void>(), ...sobre };
+  const props = { anoBase: 2026, gastos, servicoPercentual: null, desabilitado: false, onMudarGastos: vi.fn<(proximos: PlanejamentoLinhaDeGasto[]) => void>(), onMudarServico: vi.fn<(valor: number | null) => void>(), ...sobre };
   render(<GastosEditor {...props} />);
   return props;
 }

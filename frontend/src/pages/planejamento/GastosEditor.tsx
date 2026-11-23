@@ -1,8 +1,9 @@
-import { Plus, Trash2 } from "lucide-react";
+import { History, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import type { PlanejamentoGrupoDeGasto, PlanejamentoLinhaDeGasto, PlanejamentoModoDoGasto } from "../../api/client";
 import { Button, IconButton, Select, Table, TextField } from "../../design-system";
 import { CampoNumerico } from "./CampoNumerico";
+import { RealizadoDialog } from "./RealizadoDialog";
 import { NOMES_DOS_MESES_CURTOS, percentualParaTexto, reaisParaTexto, ROTULO_DO_GRUPO, textoParaPercentual, textoParaReais } from "./formato";
 
 // Gastos do cenário, uma linha por tipo: valor fixo por mês (R$) ou % das vendas. A coluna "Todos" preenche
@@ -26,6 +27,7 @@ const dentroDoReal = (v: number) => v >= 0 && v <= VALOR_MAXIMO_EM_REAIS;
 const dentroDoPercentual = (v: number) => v >= 0 && v <= 1;
 
 type Props = {
+  anoBase: number;
   gastos: PlanejamentoLinhaDeGasto[];
   servicoPercentual: number | null;
   desabilitado: boolean;
@@ -33,10 +35,11 @@ type Props = {
   onMudarServico: (valor: number | null) => void;
 };
 
-export function GastosEditor({ gastos, servicoPercentual, desabilitado, onMudarGastos, onMudarServico }: Props) {
+export function GastosEditor({ anoBase, gastos, servicoPercentual, desabilitado, onMudarGastos, onMudarServico }: Props) {
   const [grupo, setGrupo] = useState<PlanejamentoGrupoDeGasto>("OUTROS");
   const [modo, setModo] = useState<PlanejamentoModoDoGasto>("FIXO");
   const [nome, setNome] = useState("");
+  const [dialogoRealizado, setDialogoRealizado] = useState(false);
 
   const nomeJaExiste = gastos.some((g) => g.nome.trim().toLowerCase() === nome.trim().toLowerCase());
   const podeAdicionar = !desabilitado && nome.trim() !== "" && !nomeJaExiste && gastos.length < MAXIMO_DE_LINHAS;
@@ -55,6 +58,12 @@ export function GastosEditor({ gastos, servicoPercentual, desabilitado, onMudarG
 
   return (
     <div className="plan-gastos">
+      {!desabilitado && (
+        <div className="plan-barra">
+          <Button variant="secondary" onClick={() => setDialogoRealizado(true)}><History size={16} aria-hidden /> Preencher com o realizado de {anoBase}</Button>
+        </div>
+      )}
+
       <div className="plan-servico">
         <span className="plan-servico-rotulo">Serviço sobre as vendas (%)</span>
         <CampoNumerico
@@ -118,6 +127,8 @@ export function GastosEditor({ gastos, servicoPercentual, desabilitado, onMudarG
           </Table.Body>
         </Table>
       </div>
+
+      <RealizadoDialog aberto={dialogoRealizado} anoBase={anoBase} gastos={gastos} onFechar={() => setDialogoRealizado(false)} onAplicar={onMudarGastos} />
 
       {!desabilitado && (
         <div className="plan-nova-linha">

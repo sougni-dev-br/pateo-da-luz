@@ -57,3 +57,6 @@ tbody .plan-col-rotulo { color: inherit; font-size: inherit; letter-spacing: nor
 .plan-gasto-meta { display: block; font-weight: normal; }
 .plan-nova-linha { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; }
 .plan-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+.plan-realizado { display: grid; gap: var(--space-4); }
+.plan-check { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-sm); }

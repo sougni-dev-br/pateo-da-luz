@@ -10993,3 +10993,19 @@ export function updatePlanejamentoCenario(id: string, payload: { nome: string; a
 export function deletePlanejamentoCenario(id: string) {
   return request<{ ok: boolean }>(`/planning/cenarios/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
+
+export type PlanejamentoRealizadoDoGrupo = {
+  grupo: PlanejamentoGrupoDeGasto;
+  origemNoDre: boolean;
+  /** R$ do mês; null nos meses ainda não encerrados. */
+  valoresPorMes: (number | null)[];
+  media: number | null;
+  mesesConsiderados: number[];
+  mesesSemLancamento: number[];
+  percentualDaReceita: number | null;
+};
+export type PlanejamentoRealizado = { ano: number; mesesEncerrados: number[]; grupos: PlanejamentoRealizadoDoGrupo[] };
+
+export function getPlanejamentoRealizado(ano: number, ignorarSemLancamento: boolean) {
+  return request<PlanejamentoRealizado>(`/planning/realizado?ano=${ano}&ignorarSemLancamento=${ignorarSemLancamento}`);
+}

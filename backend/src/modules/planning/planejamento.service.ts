@@ -1,8 +1,10 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
+import { calcularDreDoMes } from "../dre/dre.routes.js";
 import { REVENUE_CHANNEL_SALON } from "../monthly/revenue-channels.js";
 import { hojeEmBrasilia } from "../monthly/revenue-coverage.service.js";
 import { mesclarFontes, mesesEncerradosAte, montarComparativo, type Comparativo, type MesDoSalao } from "./planejamento-comparativo.js";
+import { mesesEncerradosDoAno, montarRealizado, type MesDoDre, type Realizado } from "./planejamento-realizado.js";
 import { montarProjecao, type PremissasDoMes, type Projecao } from "./planejamento-projecao.js";
 
 type LinhaDoErp = {
@@ -93,4 +95,33 @@ export async function carregarProjecao(anoBase: number, premissas: readonly Prem
   const emAndamento = new Set<number>();
   if (Number(hoje.slice(0, 4)) === anoBase) emAndamento.add(Number(hoje.slice(5, 7)));
   return montarProjecao(anoBase, meses, premissas, emAndamento);
+}
+
+const MESES_EM_PARALELO = 3;
+// O DRE de um mês encerrado muda pouco, e cada mês roda várias consultas. Guarda a PROMESSA por alguns minutos:
+// cliques repetidos e abas abertas juntas dividem a mesma consulta em vez de empilhar no banco.
+const VALIDADE_DO_DRE_EM_MS = 5 * 60 * 1000;
+const cacheDoDre = new Map<string, { ate: number; dados: Promise<Omit<MesDoDre, "mes">> }>();
+
+function dreDoMesEncerrado(ano: number, mes: number): Promise<Omit<MesDoDre, "mes">> {
+  const chave = `${ano}-${mes}`;
+  const agora = Date.now();
+  const guardado = cacheDoDre.get(chave);
+  if (guardado && guardado.ate > agora) return guardado.dados;
+  const dados = calcularDreDoMes(ano, mes);
+  cacheDoDre.set(chave, { ate: agora + VALIDADE_DO_DRE_EM_MS, dados });
+  // Consulta que falhou não fica guardada: a próxima tentativa refaz.
+  dados.catch(() => { if (cacheDoDre.get(chave)?.dados === dados) cacheDoDre.delete(chave); });
+  return dados;
+}
+
+/** Gastos realizados do ano por grupo, a partir do DRE (só meses encerrados). Poucos meses por vez: cada mês do DRE roda várias consultas. */
+export async function carregarRealizado(ano: number, ignorarMesesSemLancamento: boolean): Promise<Realizado> {
+  const encerrados = mesesEncerradosDoAno(ano, hojeEmBrasilia());
+  const meses: MesDoDre[] = [];
+  for (let i = 0; i < encerrados.length; i += MESES_EM_PARALELO) {
+    const bloco = encerrados.slice(i, i + MESES_EM_PARALELO);
+    meses.push(...(await Promise.all(bloco.map(async (mes) => ({ mes, ...(await dreDoMesEncerrado(ano, mes)) })))));
+  }
+  return montarRealizado(ano, meses, encerrados, ignorarMesesSemLancamento);
 }

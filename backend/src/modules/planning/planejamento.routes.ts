@@ -2,12 +2,13 @@ import { Router, type Request, type Response } from "express";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../../config/database.js";
-import { auditLog, getSessionUser, requestIp } from "../security/security-utils.js";
+import { userHasPermission } from "../security/menu-permissions.js";
+import { auditLog, getSessionUser, requestIp, type SessionUser } from "../security/security-utils.js";
 import { edicaoSchema, gastosSchema, novoCenarioSchema, ordenadas, premissasSchema, previaSchema } from "./planejamento-cenario-schema.js";
 import { GRUPOS_DE_GASTO, linhasPadrao, montarResultado, type LinhaDeGasto } from "./planejamento-gastos.js";
 import { ANO_MAXIMO, ANO_MINIMO } from "./planejamento-limites.js";
 import { premissasNeutras, type PremissasDoMes } from "./planejamento-projecao.js";
-import { carregarComparativo, carregarProjecao } from "./planejamento.service.js";
+import { carregarComparativo, carregarProjecao, carregarRealizado } from "./planejamento.service.js";
 
 // Planejamento (comparativo e cenários de projeção do Salão). O acesso vem do módulo "planning"
 // (ver / lançar / editar / excluir), aplicado pelo middleware de permissões por prefixo de rota.
@@ -95,6 +96,20 @@ async function usuario(request: Request, response: Response) {
   if (!user) response.status(401).json({ message: "Sessao obrigatoria." });
   return user;
 }
+
+// Realizado do ano-base por grupo de gasto, vindo do DRE. Quem aplica é quem edita o cenário (exige "editar" em
+// Planejamento, ver menu-permissions.ts) E precisa poder ver o DRE: o módulo não abre números que a pessoa não vê lá.
+planningRouter.get("/realizado", async (request, response) => {
+  const user = await usuario(request, response);
+  if (!user) return;
+  const ano = z.coerce.number().int().min(ANO_MINIMO).max(ANO_MAXIMO).safeParse(request.query.ano);
+  if (!ano.success) return void response.status(400).json({ message: "Informe um ano válido entre 2020 e 2100." });
+  if (!(await userHasPermission(user as SessionUser, "dre", "view"))) {
+    return void response.status(403).json({ message: "Para preencher pelo realizado, você precisa de acesso ao DRE Gerencial." });
+  }
+  const ignorar = String(request.query.ignorarSemLancamento ?? "true") !== "false";
+  response.json(await carregarRealizado(ano.data, ignorar));
+});
 
 planningRouter.get("/cenarios", async (request, response) => {
   const ano = z.coerce.number().int().min(ANO_MINIMO).max(ANO_MAXIMO).safeParse(request.query.ano);
