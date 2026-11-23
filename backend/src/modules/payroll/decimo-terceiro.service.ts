@@ -406,10 +406,10 @@ export async function listarDecimoTerceiroSR(ano: number): Promise<PreviaDecimo1
       ...informadasDaTabela(informadasDaTabelaPorPessoa.get(e.id) ?? [], ano),
     ]);
     const { integralPorMes, mesesApurados: mesesApuradosDif, mesesDasFerias } = gorjetaIntegralDoCombinado({
-      apuracao: variaveis.gorjetaIntegral.get(e.id) ?? new Map(), apurados: variaveis.apurados, doDecimo, dasFerias,
+      ano, apuracao: variaveis.gorjetaIntegral.get(e.id) ?? new Map(), apurados: variaveis.apurados, doDecimo, dasFerias,
     });
     if (mesesDasFerias.length > 0) {
-      avisosCombinado.push(`${nomeDe(e)}: a gorjeta de ${mesesDasFerias.map((m) => mmaaaa(m, ano)).join(", ")} veio do valor informado à mão (complemento das férias; mês sem apuração). Confira.`);
+      avisosCombinado.push(`${nomeDe(e)}: a gorjeta de ${mesesDasFerias.map((m) => mmaaaa(m, ano)).join(", ")} veio do valor informado à mão (vale sobre a apuração do ERP). Confira.`);
     }
     if (!declarada && extrato && [...integralPorMes.values()].some((v) => v > 0)) {
       avisosCombinado.push(`${nomeDe(e)}: o extrato do 13º não trouxe a média de valores (gorjeta declarada) dele; a diferença da gorjeta integral não foi somada. Reimporte o extrato do 13º.`);

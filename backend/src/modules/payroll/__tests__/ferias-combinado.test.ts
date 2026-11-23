@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   combinadoProporcional, complementoDeFerias, janelaDeMeses, mediaDaGorjeta, semMarcasDoFeriasCombinado,
-  foiSomadoAFerias, valorFeriasComCombinado, type MesDaGorjeta,
+  foiSomadoAFerias, valorFeriasComCombinado, valorDoMesDaGorjeta, GORJETA_ERP_VALE_A_PARTIR_DE, type MesDaGorjeta,
 } from "../ferias-combinado.js";
 
 // Valores fictícios: combinado 6.000, base 4.000, gorjeta média 1.500, recibo líquido 6.000.
@@ -115,5 +115,35 @@ describe("complementoDeFerias — férias fracionadas (dias do recibo)", () => {
 
   test("30 dias, ausente ou acima de 30: valor cheio", () => {
     for (const dias of [30, undefined, 33]) expect(complementoDeFerias({ combinado: 6000, mediaGorjeta: 1500, liquidoRecibo: 6000, dias }).remuneracao).toBe(10000);
+  });
+});
+
+// Regra (Eli, 19/11/2026): (1) valor INFORMADO sempre vale (sobre a apuração, seja zero, aberta ou parcial); (2) mês anterior ao corte
+// sem informado = AUSENTE (a apuração do ERP não vale; fica só como referência); (3) a partir do corte vale a apuração.
+describe("valorDoMesDaGorjeta", () => {
+  const dep = "2026-10", ant = "2026-07";
+  test("o corte é setembro/2026", () => {
+    expect(GORJETA_ERP_VALE_A_PARTIR_DE).toBe("2026-09");
+  });
+  test("informado vale sobre a apuração > 0 (planilha fechou diferente do ERP aberto)", () => {
+    expect(valorDoMesDaGorjeta({ chave: dep, apuracao: 2016.17, informada: 2593.97 })).toEqual({ valor: 2593.97, origem: "INFORMADA", apuracaoErp: 2016.17 });
+  });
+  test("informado vale também antes do corte", () => {
+    expect(valorDoMesDaGorjeta({ chave: ant, apuracao: 0, informada: 1392.45 })).toEqual({ valor: 1392.45, origem: "INFORMADA", apuracaoErp: 0 });
+  });
+  test("informado 0 digitado também vale (zero explícito)", () => {
+    expect(valorDoMesDaGorjeta({ chave: dep, apuracao: 1500, informada: 0 })).toEqual({ valor: 0, origem: "INFORMADA", apuracaoErp: 1500 });
+  });
+  test("a partir do corte sem informado: vale a apuração (inclusive zero)", () => {
+    expect(valorDoMesDaGorjeta({ chave: "2026-09", apuracao: 1500, informada: null })).toEqual({ valor: 1500, origem: "APURACAO", apuracaoErp: 1500 });
+    expect(valorDoMesDaGorjeta({ chave: dep, apuracao: 0, informada: null })).toEqual({ valor: 0, origem: "APURACAO", apuracaoErp: 0 });
+  });
+  test("antes do corte sem informado: AUSENTE, com a apuração só como referência", () => {
+    expect(valorDoMesDaGorjeta({ chave: "2026-08", apuracao: 2016.17, informada: null })).toEqual({ valor: null, origem: "AUSENTE", apuracaoErp: 2016.17 });
+    expect(valorDoMesDaGorjeta({ chave: "2025-12", apuracao: 900, informada: null }).origem).toBe("AUSENTE");
+  });
+  test("sem apuração: informado preenche; sem nada, ausente", () => {
+    expect(valorDoMesDaGorjeta({ chave: dep, apuracao: null, informada: 800 })).toEqual({ valor: 800, origem: "INFORMADA", apuracaoErp: null });
+    expect(valorDoMesDaGorjeta({ chave: dep, apuracao: null, informada: null })).toEqual({ valor: null, origem: "AUSENTE", apuracaoErp: null });
   });
 });
