@@ -4,7 +4,7 @@ import type { PlanejamentoGrupoDeGasto, PlanejamentoLinhaDeGasto, PlanejamentoMo
 import { Button, IconButton, Select, Table, TextField } from "../../design-system";
 import { CampoNumerico } from "./CampoNumerico";
 import { RealizadoDialog } from "./RealizadoDialog";
-import { NOMES_DOS_MESES_CURTOS, percentualParaTexto, reaisParaTexto, ROTULO_DO_GRUPO, textoParaPercentual, textoParaReais } from "./formato";
+import { NOMES_DOS_MESES_CURTOS, pagoNoMesPadrao, percentualParaTexto, reaisParaTexto, ROTULO_DO_GRUPO, textoParaPercentual, textoParaReais } from "./formato";
 
 // Gastos do cenário, uma linha por tipo: valor fixo por mês (R$) ou % das vendas. A coluna "Todos" preenche
 // os 12 meses de uma vez. A folha é informada TOTAL (com o serviço dentro); o serviço abate dela no resultado.
@@ -19,7 +19,7 @@ const OPCOES_DE_MODO: { value: PlanejamentoModoDoGasto; label: string }[] = [
 
 /** Uma linha zerada por grupo; tributos nasce como % das vendas. Espelha o `linhasPadrao` do servidor. */
 export function linhasPadraoDeGasto(): PlanejamentoLinhaDeGasto[] {
-  return GRUPOS.map((grupo) => ({ grupo, nome: ROTULO_DO_GRUPO[grupo], modo: grupo === "TRIBUTOS" ? "PERCENTUAL" : "FIXO", valores: Array(12).fill(0) as number[] }));
+  return GRUPOS.map((grupo) => ({ grupo, nome: ROTULO_DO_GRUPO[grupo], modo: grupo === "TRIBUTOS" ? "PERCENTUAL" : "FIXO", valores: Array(12).fill(0) as number[], pagoNoMes: pagoNoMesPadrao(grupo) }));
 }
 
 const VALOR_MAXIMO_EM_REAIS = 1_000_000_000;
@@ -50,10 +50,11 @@ export function GastosEditor({ anoBase, gastos, servicoPercentual, desabilitado,
   }
 
   function adicionar() {
-    onMudarGastos([...gastos, { grupo, nome: nome.trim(), modo, valores: Array(12).fill(0) as number[] }]);
+    onMudarGastos([...gastos, { grupo, nome: nome.trim(), modo, valores: Array(12).fill(0) as number[], pagoNoMes: pagoNoMesPadrao(grupo) }]);
     setNome("");
   }
 
+  const mudarPagoNoMes = (indice: number, valor: number | null) => onMudarGastos(gastos.map((g, i) => (i === indice ? { ...g, pagoNoMes: valor ?? 1 } : g)));
   const valorComum = (g: PlanejamentoLinhaDeGasto): number | null => (g.valores.every((v) => v === g.valores[0]) ? g.valores[0] : null);
 
   return (
@@ -61,6 +62,7 @@ export function GastosEditor({ anoBase, gastos, servicoPercentual, desabilitado,
       {!desabilitado && (
         <div className="plan-barra">
           <Button variant="secondary" onClick={() => setDialogoRealizado(true)}><History size={16} aria-hidden /> Preencher com o realizado de {anoBase}</Button>
+          <Button variant="secondary" title="Sobrescreve o % pago no mês de TODAS as linhas, inclusive as que você editou à mão" onClick={() => onMudarGastos(gastos.map((g) => ({ ...g, pagoNoMes: pagoNoMesPadrao(g.grupo) })))}>Redefinir % pago no mês (padrão)</Button>
         </div>
       )}
 
@@ -88,6 +90,7 @@ export function GastosEditor({ anoBase, gastos, servicoPercentual, desabilitado,
           <Table.Head>
             <Table.Row>
               <Table.Th scope="col" className="plan-col-rotulo">Gasto</Table.Th>
+              <Table.Th align="right" title="Parte do gasto paga no mês do gasto (regime de caixa); o resto sai no mês seguinte">Pago no mês %</Table.Th>
               <Table.Th align="right">Todos</Table.Th>
               {NOMES_DOS_MESES_CURTOS.map((m) => <Table.Th key={m} align="right">{m}</Table.Th>)}
               <Table.Th align="right"><span className="plan-sr">Remover</span></Table.Th>
@@ -114,6 +117,9 @@ export function GastosEditor({ anoBase, gastos, servicoPercentual, desabilitado,
                     {g.nome}
                     <span className="plan-sub plan-gasto-meta">{ROTULO_DO_GRUPO[g.grupo]} · {percentual ? "% das vendas" : "R$ por mês"}</span>
                   </Table.Th>
+                  <Table.Td align="right">
+                    <CampoNumerico valor={g.pagoNoMes} rotulo={`${g.nome}, % pago no mês`} desabilitado={desabilitado} interpretar={textoParaPercentual} formatar={percentualParaTexto} valido={dentroDoPercentual} largura={64} onMudar={(v) => mudarPagoNoMes(i, v)} />
+                  </Table.Td>
                   <Table.Td align="right">{campo(valorComum(g), `${g.nome}, todos os meses`, (v) => mudarLinha(i, "todos", v))}</Table.Td>
                   {g.valores.map((valor, m) => (
                     <Table.Td key={m} align="right">{campo(valor, `${g.nome} em ${NOMES_DOS_MESES_CURTOS[m]}`, (v) => mudarLinha(i, m, v))}</Table.Td>

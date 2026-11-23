@@ -4,7 +4,8 @@ import { z } from "zod";
 import { prisma } from "../../config/database.js";
 import { userHasPermission } from "../security/menu-permissions.js";
 import { auditLog, getSessionUser, requestIp, type SessionUser } from "../security/security-utils.js";
-import { edicaoSchema, gastosSchema, novoCenarioSchema, ordenadas, premissasSchema, previaSchema } from "./planejamento-cenario-schema.js";
+import { caixaSchema, edicaoSchema, gastosSchema, novoCenarioSchema, ordenadas, premissasSchema, previaSchema } from "./planejamento-cenario-schema.js";
+import { caixaPadrao, montarCaixa, type CaixaPremissas } from "./planejamento-caixa.js";
 import { GRUPOS_DE_GASTO, linhasPadrao, montarResultado, type LinhaDeGasto } from "./planejamento-gastos.js";
 import { ANO_MAXIMO, ANO_MINIMO } from "./planejamento-limites.js";
 import { premissasNeutras, type PremissasDoMes } from "./planejamento-projecao.js";
@@ -54,8 +55,9 @@ function premissasDe(c: Cenario): PremissasDoMes[] {
 
 // Linha gravada fora do formato (edição manual no banco) não some da tela: é normalizada, para o próximo salvamento
 // não apagá-la sem ninguém ver.
-function normalizarLinha(g: { grupo: string; nome: string; modo: string; valores: unknown }): LinhaDeGasto {
-  const lida = gastosSchema.safeParse([{ grupo: g.grupo, nome: g.nome, modo: g.modo, valores: g.valores }]);
+function normalizarLinha(g: { grupo: string; nome: string; modo: string; valores: unknown; pagoNoMes: unknown }): LinhaDeGasto {
+  const pagoNoMes = Number(g.pagoNoMes);
+  const lida = gastosSchema.safeParse([{ grupo: g.grupo, nome: g.nome, modo: g.modo, valores: g.valores, pagoNoMes }]);
   if (lida.success) return lida.data[0];
   const bruto = Array.isArray(g.valores) ? g.valores : [];
   const modo = g.modo === "PERCENTUAL" ? "PERCENTUAL" : "FIXO";
@@ -64,6 +66,7 @@ function normalizarLinha(g: { grupo: string; nome: string; modo: string; valores
     grupo: (GRUPOS_DE_GASTO as readonly string[]).includes(g.grupo) ? (g.grupo as LinhaDeGasto["grupo"]) : "OUTROS",
     nome: g.nome.slice(0, 60),
     modo,
+    pagoNoMes: Number.isFinite(pagoNoMes) ? Math.min(Math.max(pagoNoMes, 0), 1) : 1,
     valores: Array.from({ length: 12 }, (_, i) => {
       const n = Number(bruto[i]);
       return Number.isFinite(n) ? Math.min(Math.max(n, 0), teto) : 0;
@@ -73,19 +76,26 @@ function normalizarLinha(g: { grupo: string; nome: string; modo: string; valores
 
 const gastosDe = (c: Cenario): LinhaDeGasto[] => c.gastos.map(normalizarLinha);
 
+function caixaDe(c: Cenario): CaixaPremissas {
+  const lida = caixaSchema.safeParse(c.caixa);
+  return lida.success ? lida.data : caixaPadrao();
+}
+
 const servicoDe = (c: Cenario) => (c.servicoPercentual === null ? null : Number(c.servicoPercentual));
 const resumo = (c: Pick<Cenario, "id" | "ano" | "anoBase" | "nome" | "updatedAt">) => ({ id: c.id, ano: c.ano, anoBase: c.anoBase, nome: c.nome, atualizadoEm: c.updatedAt.toISOString() });
-const estadoGravado = (c: Cenario) => ({ ...resumo(c), premissas: premissasDe(c), gastos: gastosDe(c), servicoPercentual: servicoDe(c) });
+const estadoGravado = (c: Cenario) => ({ ...resumo(c), premissas: premissasDe(c), gastos: gastosDe(c), servicoPercentual: servicoDe(c), caixaPremissas: caixaDe(c) });
 
 async function comProjecao(c: Cenario) {
   const premissas = premissasDe(c);
   const gastos = gastosDe(c);
   const servicoPercentual = servicoDe(c);
+  const caixaPremissas = caixaDe(c);
   const projecao = await carregarProjecao(c.anoBase, premissas);
-  return { ...resumo(c), premissas, gastos, servicoPercentual, projecao, resultado: montarResultado(projecao, gastos, servicoPercentual) };
+  const resultado = montarResultado(projecao, gastos, servicoPercentual);
+  return { ...resumo(c), premissas, gastos, servicoPercentual, caixaPremissas, projecao, resultado, caixa: montarCaixa(projecao, resultado, gastos, caixaPremissas) };
 }
 
-const linhasParaGravar = (gastos: readonly LinhaDeGasto[]) => gastos.map((g, ordem) => ({ grupo: g.grupo, nome: g.nome, modo: g.modo, valores: g.valores, ordem }));
+const linhasParaGravar = (gastos: readonly LinhaDeGasto[]) => gastos.map((g, ordem) => ({ grupo: g.grupo, nome: g.nome, modo: g.modo, valores: g.valores, pagoNoMes: g.pagoNoMes ?? 1, ordem }));
 
 function mensagemDoZod(erro: z.ZodError): string {
   return erro.issues[0]?.message ?? "Dados inválidos.";
@@ -131,7 +141,8 @@ planningRouter.post("/projecao", async (request, response) => {
   const dados = previaSchema.safeParse(request.body);
   if (!dados.success) return void response.status(400).json({ message: mensagemDoZod(dados.error) });
   const projecao = await carregarProjecao(dados.data.anoBase, ordenadas(dados.data.premissas));
-  response.json({ projecao, resultado: montarResultado(projecao, dados.data.gastos, dados.data.servicoPercentual) });
+  const resultado = montarResultado(projecao, dados.data.gastos, dados.data.servicoPercentual);
+  response.json({ projecao, resultado, caixa: montarCaixa(projecao, resultado, dados.data.gastos, dados.data.caixa ?? caixaPadrao()) });
 });
 
 planningRouter.post("/cenarios", async (request, response) => {
@@ -139,7 +150,7 @@ planningRouter.post("/cenarios", async (request, response) => {
   if (!user) return;
   const dados = novoCenarioSchema.safeParse(request.body);
   if (!dados.success) return void response.status(400).json({ message: mensagemDoZod(dados.error) });
-  const { ano, anoBase, nome, premissas, gastos, servicoPercentual } = dados.data;
+  const { ano, anoBase, nome, premissas, gastos, servicoPercentual, caixa } = dados.data;
   try {
     const criado = await prisma.planejamentoCenario.create({
       data: {
@@ -148,6 +159,7 @@ planningRouter.post("/cenarios", async (request, response) => {
         nome,
         premissas: ordenadas(premissas ?? premissasNeutras()),
         servicoPercentual: servicoPercentual ?? null,
+        caixa: caixa ?? caixaPadrao(),
         createdById: user.id,
         gastos: { create: linhasParaGravar(gastos ?? linhasPadrao()) }
       },
@@ -176,7 +188,7 @@ planningRouter.put("/cenarios/:id", async (request, response) => {
     const gravou = await prisma.$transaction(async (tx) => {
       const gravados = await tx.planejamentoCenario.updateMany({
         where: { id: atual.id, updatedAt: new Date(dados.data.atualizadoEm) },
-        data: { nome: dados.data.nome, anoBase: dados.data.anoBase, premissas: ordenadas(dados.data.premissas), servicoPercentual: dados.data.servicoPercentual }
+        data: { nome: dados.data.nome, anoBase: dados.data.anoBase, premissas: ordenadas(dados.data.premissas), servicoPercentual: dados.data.servicoPercentual, caixa: dados.data.caixa }
       });
       if (gravados.count === 0) return false;
       await tx.planejamentoGastoLinha.deleteMany({ where: { cenarioId: atual.id } });

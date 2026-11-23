@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { PlanejamentoLinhaDeGasto, PlanejamentoRealizadoDoGrupo } from "../../../api/client";
 import { aplicarRealizado, temSugestao } from "../realizado";
 
-const linha = (grupo: PlanejamentoLinhaDeGasto["grupo"], nome: string, modo: "FIXO" | "PERCENTUAL" = "FIXO", v = 0): PlanejamentoLinhaDeGasto => ({ grupo, nome, modo, valores: Array(12).fill(v) });
+const linha = (grupo: PlanejamentoLinhaDeGasto["grupo"], nome: string, modo: "FIXO" | "PERCENTUAL" = "FIXO", v = 0): PlanejamentoLinhaDeGasto => ({ grupo, nome, modo, valores: Array(12).fill(v), pagoNoMes: 1 });
 const sugestao = (grupo: PlanejamentoRealizadoDoGrupo["grupo"], sobre: Partial<PlanejamentoRealizadoDoGrupo> = {}): PlanejamentoRealizadoDoGrupo => ({
   grupo, origemNoDre: true, valoresPorMes: [100, 200, ...Array(10).fill(null)], media: 150, mesesConsiderados: [1, 2], mesesSemLancamento: [], percentualDaReceita: 0.08, ...sobre
 });

@@ -11,6 +11,7 @@
  * Mês sem projeção (sem base) não tem gasto nem lucro. Sem % de CMV não há margem, logo não há lucro.
  */
 
+import { PAGO_NO_MES_PADRAO } from "./planejamento-caixa.js";
 import type { Projecao } from "./planejamento-projecao.js";
 
 export const GRUPOS_DE_GASTO = ["OCUPACAO", "TARIFAS_PUBLICAS", "FOLHA", "TRIBUTOS", "DIVIDA", "CONTRATOS", "SEGUROS", "TARIFAS_BANCARIAS", "OUTROS"] as const;
@@ -35,11 +36,15 @@ export type LinhaDeGasto = {
   modo: ModoDoGasto;
   /** 12 valores (jan a dez): R$ no modo FIXO, fração das vendas (0,05 = 5%) no PERCENTUAL. */
   valores: number[];
+  /** Fração do gasto paga no mês do gasto (regime de caixa); o resto sai no mês seguinte. Ausente = 100%. */
+  pagoNoMes?: number;
 };
 
 export type MesDeResultado = {
   mes: number;
   gastosPorGrupo: Partial<Record<GrupoDeGasto, number>>;
+  /** R$ do mês de cada linha de gasto, na ordem das linhas, ANTES do abatimento do serviço. */
+  porLinha: number[];
   /** Parte da folha paga pelo serviço dos garçons: abate dos gastos. */
   abatimentoDoServico: number;
   gastosTotal: number;
@@ -66,7 +71,8 @@ export function linhasPadrao(): LinhaDeGasto[] {
     grupo,
     nome: ROTULO_DO_GRUPO[grupo],
     modo: grupo === "TRIBUTOS" ? ("PERCENTUAL" as const) : ("FIXO" as const),
-    valores: zeros()
+    valores: zeros(),
+    pagoNoMes: PAGO_NO_MES_PADRAO[grupo] ?? 1
   }));
 }
 
@@ -122,6 +128,7 @@ export function montarResultado(projecao: Projecao, linhas: readonly LinhaDeGast
     }
 
     const porGrupo: Partial<Record<GrupoDeGasto, number>> = {};
+    const porLinha: number[] = [];
     let fixos = 0;
     let percentuais = 0;
     let folhaBruta = 0;
@@ -131,6 +138,7 @@ export function montarResultado(projecao: Projecao, linhas: readonly LinhaDeGast
       const valor = linha.valores[m.mes - 1] ?? 0;
       const emReais = linha.modo === "FIXO" ? valor : vendas * valor;
       somarPorGrupo(porGrupo, linha.grupo, emReais);
+      porLinha.push(arredondar(emReais));
       if (linha.modo === "FIXO") fixos += valor;
       else percentuais += valor;
       if (linha.grupo === "FOLHA") {
@@ -150,6 +158,7 @@ export function montarResultado(projecao: Projecao, linhas: readonly LinhaDeGast
     meses.push({
       mes: m.mes,
       gastosPorGrupo: arredondarGrupos(porGrupo),
+      porLinha,
       abatimentoDoServico: arredondar(abatimento),
       gastosTotal: arredondar(gastos),
       lucro: lucro === null ? null : arredondar(lucro),

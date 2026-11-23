@@ -7,6 +7,8 @@ import {
   listPlanejamentoCenarios,
   previaPlanejamentoProjecao,
   updatePlanejamentoCenario,
+  type PlanejamentoCaixa,
+  type PlanejamentoCaixaPremissas,
   type PlanejamentoCenario,
   type PlanejamentoCenarioResumo,
   type PlanejamentoLinhaDeGasto,
@@ -17,11 +19,14 @@ import {
 import { Notice, useNotice } from "../../components/Notice";
 import { Dialog } from "../../components/ui/Dialog";
 import { useSession } from "../../context/SessionContext";
-import { Alert, Button, EmptyState, FormGrid, Select, TextField } from "../../design-system";
+import { Alert, Button, EmptyState, FormGrid, Select, Tabs, TextField } from "../../design-system";
 import { hojeLocalIso } from "../../lib/datas";
 import { hasPermission } from "../../lib/permissions";
+import { CaixaEditor } from "./CaixaEditor";
+import { mixFecha } from "./caixa";
 import { GastosEditor } from "./GastosEditor";
 import { PremissasEditor } from "./PremissasEditor";
+import { ResultadoCaixa } from "./ResultadoCaixa";
 import { ResultadoGastos } from "./ResultadoGastos";
 import { ResultadoProjecao } from "./ResultadoProjecao";
 
@@ -32,6 +37,13 @@ const ATRASO_DA_PREVIA_MS = 350;
 
 const mensagemDe = (e: unknown, padrao: string) => (e instanceof Error && e.message ? e.message : padrao);
 const iguais = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+type Visao = "competencia" | "caixa" | "lado";
+const VISOES: { value: Visao; label: string }[] = [
+  { value: "lado", label: "Lado a lado" },
+  { value: "competencia", label: "Competência" },
+  { value: "caixa", label: "Caixa" }
+];
 
 export function Cenarios() {
   const { user } = useSession();
@@ -50,13 +62,18 @@ export function Cenarios() {
   const [servicoPercentual, setServicoPercentual] = useState<number | null>(null);
   const [projecao, setProjecao] = useState<PlanejamentoProjecao | null>(null);
   const [resultado, setResultado] = useState<PlanejamentoResultado | null>(null);
+  const [caixaPremissas, setCaixaPremissas] = useState<PlanejamentoCaixaPremissas | null>(null);
+  const [caixa, setCaixa] = useState<PlanejamentoCaixa | null>(null);
+  const [visao, setVisao] = useState<Visao>("lado");
   const [erro, setErro] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [calculando, setCalculando] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [dialogoNovo, setDialogoNovo] = useState(false);
 
-  const sujo = cenario !== null && (anoBase !== cenario.anoBase || !iguais(premissas, cenario.premissas) || !iguais(gastos, cenario.gastos) || servicoPercentual !== cenario.servicoPercentual);
+  const sujo = cenario !== null && (anoBase !== cenario.anoBase || !iguais(premissas, cenario.premissas) || !iguais(gastos, cenario.gastos) || servicoPercentual !== cenario.servicoPercentual || !iguais(caixaPremissas, cenario.caixaPremissas));
+  // Mix que não fecha em 100% o servidor recusa: não manda a prévia nem deixa salvar até corrigir.
+  const caixaValida = caixaPremissas === null || mixFecha(caixaPremissas);
   const sujoRef = useRef(sujo);
   sujoRef.current = sujo;
 
@@ -77,6 +94,8 @@ export function Cenarios() {
       setServicoPercentual(aberto.servicoPercentual);
       setProjecao(aberto.projecao);
       setResultado(aberto.resultado);
+      setCaixaPremissas(aberto.caixaPremissas);
+      setCaixa(aberto.caixa);
     } catch (e) {
       if (pedido === pedidoDeAbertura.current) setErro(mensagemDe(e, "Não foi possível abrir o cenário."));
     } finally {
@@ -89,7 +108,7 @@ export function Cenarios() {
     setLista(resumos);
     const alvo = abrirId ?? resumos[0]?.id;
     if (alvo) await abrir(alvo);
-    else { setCenario(null); setProjecao(null); setResultado(null); setCarregando(false); }
+    else { setCenario(null); setProjecao(null); setResultado(null); setCaixa(null); setCaixaPremissas(null); setCarregando(false); }
   }, [abrir]);
 
   useEffect(() => {
@@ -105,18 +124,20 @@ export function Cenarios() {
       // Voltou ao estado salvo (ex.: desfez a edição): mostra de novo o resultado gravado, não o da edição intermediária.
       setProjecao(cenario.projecao);
       setResultado(cenario.resultado);
+      setCaixa(cenario.caixa);
       return undefined;
     }
+    if (!caixaPremissas) return undefined;
     let cancelado = false;
     setCalculando(true);
     const espera = window.setTimeout(() => {
-      previaPlanejamentoProjecao({ anoBase, premissas, gastos, servicoPercentual })
-        .then((r) => { if (!cancelado) { setProjecao(r.projecao); setResultado(r.resultado); setErro(null); } })
+      previaPlanejamentoProjecao({ anoBase, premissas, gastos, servicoPercentual, caixa: caixaValida ? caixaPremissas : undefined })
+        .then((r) => { if (!cancelado) { setProjecao(r.projecao); setResultado(r.resultado); setCaixa(caixaValida ? r.caixa : null); setErro(null); } })
         .catch((e: unknown) => { if (!cancelado) setErro(mensagemDe(e, "Não foi possível calcular a projeção.")); })
         .finally(() => { if (!cancelado) setCalculando(false); });
     }, ATRASO_DA_PREVIA_MS);
     return () => { cancelado = true; window.clearTimeout(espera); setCalculando(false); };
-  }, [anoBase, premissas, gastos, servicoPercentual, cenario, sujo]);
+  }, [anoBase, premissas, gastos, servicoPercentual, caixaPremissas, caixaValida, cenario, sujo]);
 
   function trocarCenario(id: string) {
     if (id === cenario?.id || salvando) return;
@@ -125,16 +146,18 @@ export function Cenarios() {
   }
 
   async function salvar() {
-    if (!cenario) return;
+    if (!cenario || !caixaPremissas || !caixaValida) return;
     setSalvando(true);
     try {
-      const salvo = await updatePlanejamentoCenario(cenario.id, { nome: cenario.nome, anoBase, premissas, gastos, servicoPercentual, atualizadoEm: cenario.atualizadoEm });
+      const salvo = await updatePlanejamentoCenario(cenario.id, { nome: cenario.nome, anoBase, premissas, gastos, servicoPercentual, caixa: caixaPremissas, atualizadoEm: cenario.atualizadoEm });
       setCenario(salvo);
       setPremissas(salvo.premissas);
       setGastos(salvo.gastos);
       setServicoPercentual(salvo.servicoPercentual);
       setProjecao(salvo.projecao);
       setResultado(salvo.resultado);
+      setCaixaPremissas(salvo.caixaPremissas);
+      setCaixa(salvo.caixa);
       setLista((atual) => atual?.map((r) => (r.id === salvo.id ? { ...r, anoBase: salvo.anoBase, atualizadoEm: salvo.atualizadoEm } : r)) ?? atual);
       setErro(null);
       showNotice("success", "Cenário salvo.");
@@ -160,7 +183,7 @@ export function Cenarios() {
   async function duplicar() {
     if (!cenario) return;
     try {
-      const copia = await createPlanejamentoCenario({ ano: cenario.ano, anoBase, nome: `${cenario.nome} (cópia)`.slice(0, 60), premissas, gastos, servicoPercentual });
+      const copia = await createPlanejamentoCenario({ ano: cenario.ano, anoBase, nome: `${cenario.nome} (cópia)`.slice(0, 60), premissas, gastos, servicoPercentual, caixa: caixaPremissas ?? undefined });
       showNotice("success", "Cópia criada.");
       await recarregarLista(copia.id);
     } catch (e) {
@@ -212,7 +235,7 @@ export function Cenarios() {
                   <Select aria-label="Ano-base" value={String(anoBase)} onChange={(e) => setAnoBase(Number(e.target.value))} options={anosBase} containerClassName="plan-filtro" />
                 )}
                 {podeEditar && (
-                  <Button onClick={() => void salvar()} disabled={!sujo || salvando}><Save size={16} aria-hidden /> {salvando ? "Salvando…" : "Salvar"}</Button>
+                  <Button onClick={() => void salvar()} disabled={!sujo || salvando || !caixaValida}><Save size={16} aria-hidden /> {salvando ? "Salvando…" : "Salvar"}</Button>
                 )}
                 {sujo && !salvando && <Button variant="secondary" onClick={() => void abrir(cenario.id)}>Descartar alterações</Button>}
               </div>
@@ -231,6 +254,16 @@ export function Cenarios() {
             <GastosEditor anoBase={anoBase} gastos={gastos} servicoPercentual={servicoPercentual} desabilitado={!podeEditar || salvando} onMudarGastos={setGastos} onMudarServico={setServicoPercentual} />
           </section>
 
+          {caixaPremissas && (
+            <section className="plan-secao" aria-labelledby="plan-caixa">
+              <div>
+                <h2 id="plan-caixa" className="plan-titulo">Regime de caixa</h2>
+                <p className="plan-sub">Quando o dinheiro entra e sai: forma de pagamento e prazo das vendas, prazo das compras e % de cada gasto pago no mês. A competência continua sendo a base do cenário.</p>
+              </div>
+              <CaixaEditor caixa={caixaPremissas} desabilitado={!podeEditar || salvando} onMudar={setCaixaPremissas} />
+            </section>
+          )}
+
           <section className="plan-secao" aria-labelledby="plan-resultado">
             <h2 id="plan-resultado" className="plan-titulo">Resultado projetado</h2>
             {projecao && projecao.total.meses.length === 0 ? (
@@ -243,8 +276,15 @@ export function Cenarios() {
 
           {projecao && resultado && projecao.total.meses.length > 0 && (
             <section className="plan-secao" aria-labelledby="plan-lucro">
-              <h2 id="plan-lucro" className="plan-titulo">Lucro do cenário</h2>
-              <ResultadoGastos projecao={projecao} resultado={resultado} />
+              <h2 id="plan-lucro" className="plan-titulo">Resultado do cenário</h2>
+              <Tabs tabs={VISOES} value={visao} onChange={(v) => setVisao(v as Visao)} aria-label="Regime do resultado" />
+              {visao === "competencia" ? (
+                <ResultadoGastos projecao={projecao} resultado={resultado} />
+              ) : caixa ? (
+                <ResultadoCaixa projecao={projecao} resultado={resultado} caixa={caixa} modo={visao === "caixa" ? "caixa" : "lado"} />
+              ) : (
+                <Alert tone="warning">Corrija o mix das formas de pagamento (precisa somar 100%) para ver o resultado de caixa. A competência acima segue atualizada.</Alert>
+              )}
             </section>
           )}
         </div>

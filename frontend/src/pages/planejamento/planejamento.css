@@ -60,3 +60,4 @@ tbody .plan-col-rotulo { color: inherit; font-size: inherit; letter-spacing: nor
 
 .plan-realizado { display: grid; gap: var(--space-4); }
 .plan-check { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-sm); }
+.plan-quadro-gastos table { min-width: 1640px; }

@@ -3,8 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { PlanejamentoLinhaDeGasto } from "../../../api/client";
 import { GastosEditor, linhasPadraoDeGasto } from "../GastosEditor";
 
-const ocupacao = (): PlanejamentoLinhaDeGasto => ({ grupo: "OCUPACAO", nome: "Ocupação", modo: "FIXO", valores: Array(12).fill(52000) });
-const tributos = (): PlanejamentoLinhaDeGasto => ({ grupo: "TRIBUTOS", nome: "Tributos", modo: "PERCENTUAL", valores: Array(12).fill(0.06) });
+const ocupacao = (): PlanejamentoLinhaDeGasto => ({ grupo: "OCUPACAO", nome: "Ocupação", modo: "FIXO", valores: Array(12).fill(52000), pagoNoMes: 0 });
+const tributos = (): PlanejamentoLinhaDeGasto => ({ grupo: "TRIBUTOS", nome: "Tributos", modo: "PERCENTUAL", valores: Array(12).fill(0.06), pagoNoMes: 0 });
 
 function montar(gastos: PlanejamentoLinhaDeGasto[], sobre: { servicoPercentual?: number | null; desabilitado?: boolean } = {}) {
   const props = { anoBase: 2026, gastos, servicoPercentual: null, desabilitado: false, onMudarGastos: vi.fn<(proximos: PlanejamentoLinhaDeGasto[]) => void>(), onMudarServico: vi.fn<(valor: number | null) => void>(), ...sobre };
