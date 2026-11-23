@@ -17,6 +17,7 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "test": "vitest run",
+    "auditar:combinado": "tsx scripts/auditar-combinado.ts",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "dev:qa": "tsx watch --env-file=.env.qa src/server.ts",
