@@ -10881,3 +10881,34 @@ export function gerarDecimoTerceiro(year: number, parcela: 1 | 2) {
     body: JSON.stringify({ year, parcela })
   });
 }
+
+// ── Planejamento > Comparativo ano × ano do Salão ───────────────────────────
+export type PlanejamentoTurnos = { almoco: number | null; jantar: number | null; total: number | null };
+export type PlanejamentoFonte = "ERP" | "HISTORICO";
+export type PlanejamentoLado = { vendas: PlanejamentoTurnos; clientes: PlanejamentoTurnos; ticket: PlanejamentoTurnos; servico: number | null; fonte: PlanejamentoFonte | null };
+export type PlanejamentoMes = {
+  mes: number;
+  emAndamento: boolean;
+  comparavel: boolean;
+  incompleto: boolean;
+  base: PlanejamentoLado;
+  comparado: PlanejamentoLado;
+  variacao: { vendas: PlanejamentoTurnos; clientes: PlanejamentoTurnos; ticket: PlanejamentoTurnos };
+};
+export type PlanejamentoAcumulado = {
+  base: { vendas: PlanejamentoTurnos; clientes: PlanejamentoTurnos; ticket: PlanejamentoTurnos; servico: number };
+  comparado: { vendas: PlanejamentoTurnos; clientes: PlanejamentoTurnos; ticket: PlanejamentoTurnos; servico: number };
+  variacao: { vendas: PlanejamentoTurnos; clientes: PlanejamentoTurnos; ticket: PlanejamentoTurnos };
+  mesesComparados: number[];
+};
+export type PlanejamentoComparativo = {
+  anoBase: number;
+  anoComparado: number;
+  hoje: string;
+  meses: PlanejamentoMes[];
+  acumulado: PlanejamentoAcumulado;
+};
+
+export function getPlanejamentoComparativo(anoBase: number, anoComparado: number) {
+  return request<PlanejamentoComparativo>(`/planning/comparativo?anoBase=${anoBase}&anoComparado=${anoComparado}`);
+}

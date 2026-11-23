@@ -20,6 +20,7 @@ export const menuCatalog = [
   { id: "revenue", label: "Faturamento diario", group: "Financeiro" },
   { id: "faturamento-salao", label: "Faturamento Salao (Agile PDV)", group: "Financeiro" },
   { id: "analise-salao", label: "Analise do Salao (cancelamentos e vendas por pessoa)", group: "Financeiro" },
+  { id: "planning", label: "Planejamento (comparativo ano a ano)", group: "Financeiro" },
   { id: "delivery-ifood", label: "Delivery iFood", group: "Financeiro" },
   { id: "delivery-noventa-nove", label: "Delivery 99 Food", group: "Financeiro" },
   { id: "delivery-keeta", label: "Delivery Keeta", group: "Financeiro" },
@@ -418,6 +419,7 @@ function menuFromRequest(request: Request): MenuId | null {
   if (path.startsWith("/supplier-cycles")) return "supplier-cycles";
   if (path.startsWith("/reimbursements")) return "reimbursements";
   if (path.startsWith("/oil-collections")) return "oil-collections";
+  if (path.startsWith("/planning")) return "planning";
   if (path.startsWith("/suppliers")) return "suppliers";
   if (path.startsWith("/companies")) return "companies";
   if (path.startsWith("/employees")) return "employees";

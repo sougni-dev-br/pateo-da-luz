@@ -4546,3 +4546,23 @@ model PontoFechamento {
   @@unique([employeeId, year, month])
   @@index([year, month])
 }
+
+// Histórico mensal do Salão para meses SEM lançamento diário no ERP (2025, antes do Agile PDV). Alimenta o
+// comparativo ano × ano de Planejamento. Onde existe RevenueEntry do canal Salão, o ERP vence e esta tabela
+// é ignorada. Valores SEM serviço (venda de Mesas); clientes = pessoas do turno (o "TC" do fechamento).
+model SalaoHistoricoMensal {
+  id             String   @id @default(cuid())
+  ano            Int
+  mes            Int
+  vendasAlmoco   Decimal  @db.Decimal(14, 2)
+  vendasJantar   Decimal  @db.Decimal(14, 2)
+  clientesAlmoco Int
+  clientesJantar Int
+  servico        Decimal  @default(0) @db.Decimal(14, 2)
+  // De onde veio o número (ex.: "Caixa0125.xls"), só para a pessoa conferir.
+  fonte          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([ano, mes], map: "salaohistoricomensal_ano_mes_key")
+}
