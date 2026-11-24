@@ -917,14 +917,66 @@ export type Supplier = {
   closingChecklistGroup?: string | null;
 };
 
+export type SupplierHistoryTitleState = "NONE" | "OPEN" | "OVERDUE" | "PAID";
+
+export type SupplierHistoryParcel = {
+  number: number;
+  dueDate: string | null;
+  amount: number;
+  state: "OPEN" | "OVERDUE" | "PAID";
+  paidDate: string | null;
+  paidAmount: number;
+};
+
+/** Título (Contas a Pagar) gerado pela compra — ou pelo fechamento do ciclo, quando `viaCycle`. */
+export type SupplierHistoryTitle = {
+  state: SupplierHistoryTitleState;
+  parcels: SupplierHistoryParcel[];
+  installments: number;
+  paidInstallments: number;
+  amount: number;
+  paidAmount: number;
+  nextDueDate: string | null;
+  paidDate: string | null;
+  viaCycle: boolean;
+};
+
+export type SupplierHistoryTitleFilter = "open" | "overdue" | "paid" | "none";
+
+export type SupplierHistoryPurchase = {
+  id: string;
+  purchaseNumber: string | null;
+  invoiceNumber: string | null;
+  purchaseDate: string;
+  totalAmount: string;
+  status: string;
+  paymentMethod: string | null;
+  title: SupplierHistoryTitle;
+};
+
 export type SupplierHistory = {
-  monthTotal: number;
-  yearTotal: number;
-  lastPurchase: Purchase | null;
-  recentInvoices: Array<{ id: string; purchaseNumber: string | null; invoiceNumber: string | null; purchaseDate: string; totalAmount: string; status: string }>;
-  topProducts: Array<{ name: string; quantity: string; total: string }>;
-  paymentMethods: Array<{ name: string; count: number }>;
+  period: { from: string | null; to: string | null };
+  periodTotal: number;
+  purchaseCount: number;
+  /** Do histórico todo (não depende do período filtrado). */
+  lastPurchase: { id: string; purchaseDate: string; totalAmount: string; purchaseNumber: string | null; invoiceNumber: string | null } | null;
   averagePaymentTermDays: number | null;
+  purchases: { items: SupplierHistoryPurchase[]; total: number; page: number; pageSize: number; truncated: boolean };
+  /** Compras do filtro atual por situação do título (antes do filtro de situação). */
+  titleBuckets: Record<"all" | SupplierHistoryTitleFilter, { count: number; amount: number }>;
+  paymentMethods: Array<{ name: string; count: number; total: string }>;
+};
+
+export type SupplierHistoryFilters = {
+  from?: string;
+  to?: string;
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  includeCancelled?: boolean;
+  titleState?: SupplierHistoryTitleFilter;
+  /** Todas as compras do filtro numa resposta só (para exportar). */
+  all?: boolean;
 };
 
 export type ProductNature = "INSUMO" | "EMBALAGEM" | "CONSUMO" | "DURAVEL" | "SERVICO";
@@ -2734,8 +2786,22 @@ export function setSupplierStatus(id: string, isActive: boolean) {
   });
 }
 
-export function getSupplierHistory(id: string, filters?: { year?: string; month?: string }) {
-  return request<SupplierHistory>(`/suppliers/${id}/history${toQueryString(filters)}`);
+function supplierHistoryQuery(filters?: SupplierHistoryFilters) {
+  return toQueryString({
+    ...filters,
+    page: filters?.page === undefined ? undefined : String(filters.page),
+    pageSize: filters?.pageSize === undefined ? undefined : String(filters.pageSize)
+  });
+}
+
+/** Planilha (.xlsx) com as mesmas compras do filtro: sempre a lista inteira, não só a página. */
+export function downloadSupplierHistoryXlsx(id: string, filters: SupplierHistoryFilters, filename: string) {
+  const { page: _page, pageSize: _pageSize, all: _all, ...rest } = filters;
+  return download(`/suppliers/${id}/history/export.xlsx${supplierHistoryQuery(rest)}`, filename);
+}
+
+export function getSupplierHistory(id: string, filters?: SupplierHistoryFilters) {
+  return request<SupplierHistory>(`/suppliers/${id}/history${supplierHistoryQuery(filters)}`);
 }
 
 export type ProductListFilters = {
