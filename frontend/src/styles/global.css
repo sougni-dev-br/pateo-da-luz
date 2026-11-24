@@ -976,7 +976,7 @@ select:focus {
 .table-wrap table {
   width: 100%;
   max-width: none;
-  min-width: 760px;
+  min-width: 720px;
   table-layout: auto;
 }
 
@@ -2091,6 +2091,19 @@ select:disabled {
 .supp-table-wrap .ds-table-th.ds-table-cell-actions {
   background: var(--paper-soft);
 }
+
+/* Larguras fixas para as colunas curtas: o Fornecedor fica com toda a sobra, e o espaço não
+   se espalha entre o Código e o nome. */
+.supp-table-wrap .ds-table {
+  table-layout: fixed;
+  min-width: 760px;
+}
+
+.supp-table-wrap .ds-table-th:nth-child(1) { width: 84px; }
+.supp-table-wrap .ds-table-th:nth-child(2) { width: 92px; }
+.supp-table-wrap .ds-table-th:nth-child(4) { width: 150px; }
+.supp-table-wrap .ds-table-th:nth-child(5) { width: 108px; }
+.supp-table-wrap .ds-table-th:nth-child(6) { width: 104px; }
 
 /* Nome do fornecedor com contato e categoria numa linha de apoio (no lugar de duas colunas). */
 .supp-cell-name,
