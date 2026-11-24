@@ -24,6 +24,8 @@ export type MesDoSalao = {
   diasComVenda?: number;
   /** Há venda sem "pessoas" registradas em algum dia: o ticket do mês sairia inflado, então clientes e ticket ficam sem dado. */
   clientesIncompletos?: boolean;
+  /** Mês do ERP que não cobre ao menos 90% dos dias (e não há histórico para substituí-lo): não serve de comparação nem de base. */
+  parcial?: boolean;
 };
 
 export type Turnos = { almoco: number | null; jantar: number | null; total: number | null };
@@ -32,12 +34,12 @@ export type MesComparado = {
   mes: number;
   /** Mês ainda em andamento: aparece na tabela, mas não entra no acumulado. */
   emAndamento: boolean;
-  /** Dado nos dois anos, mês encerrado e clientes completos: é o que entra no acumulado. */
+  /** Dado nos dois anos, mês encerrado, clientes completos e nenhum lado parcial: é o que entra no acumulado. */
   comparavel: boolean;
   /** Algum dos lados tem venda sem clientes registrados (o mês fica fora do acumulado). */
   incompleto: boolean;
-  base: { vendas: Turnos; clientes: Turnos; ticket: Turnos; servico: number | null; fonte: FonteDoMes | null };
-  comparado: { vendas: Turnos; clientes: Turnos; ticket: Turnos; servico: number | null; fonte: FonteDoMes | null };
+  base: { vendas: Turnos; clientes: Turnos; ticket: Turnos; servico: number | null; fonte: FonteDoMes | null; parcial: boolean };
+  comparado: { vendas: Turnos; clientes: Turnos; ticket: Turnos; servico: number | null; fonte: FonteDoMes | null; parcial: boolean };
   variacao: { vendas: Turnos; clientes: Turnos; ticket: Turnos };
 };
 
@@ -100,7 +102,7 @@ function variacaoDeTurnos(atual: Turnos, anterior: Turnos): Turnos {
 function lado(mes: MesDoSalao | undefined) {
   const vendas = turnosDe(mes, "vendasAlmoco", "vendasJantar");
   const clientes = mes?.clientesIncompletos ? SEM_DADO : turnosDe(mes, "clientesAlmoco", "clientesJantar");
-  return { vendas, clientes, ticket: ticketDe(vendas, clientes), servico: mes ? arredondar(mes.servico) : null, fonte: mes?.fonte ?? null };
+  return { vendas, clientes, ticket: ticketDe(vendas, clientes), servico: mes ? arredondar(mes.servico) : null, fonte: mes?.fonte ?? null, parcial: Boolean(mes?.parcial) };
 }
 
 function somar(meses: MesDoSalao[]) {
@@ -145,7 +147,8 @@ export function montarComparativo(
     const encerrado = mesesEncerrados.has(chave(anoBase, mes)) && mesesEncerrados.has(chave(anoComparado, mes));
     const emAndamento = Boolean(b || c) && !encerrado && (chave(anoBase, mes) === mesAtual || chave(anoComparado, mes) === mesAtual);
     const incompleto = Boolean(b?.clientesIncompletos || c?.clientesIncompletos);
-    const comparavel = Boolean(b && c) && encerrado && !incompleto;
+    const parcial = Boolean(b?.parcial || c?.parcial);
+    const comparavel = Boolean(b && c) && encerrado && !incompleto && !parcial;
     const ladoBase = lado(b);
     const ladoComparado = lado(c);
 
@@ -223,7 +226,9 @@ export function erpCobreOMes(diasComVenda: number, ano: number, mes: number): bo
  */
 export function mesclarFontes(erp: MesDoSalao[], historico: MesDoSalao[]): MesDoSalao[] {
   const doHistorico = new Set(historico.map((m) => `${m.ano}-${m.mes}`));
-  const erpValido = erp.filter((m) => erpCobreOMes(m.diasComVenda ?? 0, m.ano, m.mes) || !doHistorico.has(`${m.ano}-${m.mes}`));
+  const erpValido = erp
+    .filter((m) => erpCobreOMes(m.diasComVenda ?? 0, m.ano, m.mes) || !doHistorico.has(`${m.ano}-${m.mes}`))
+    .map((m) => ({ ...m, parcial: !erpCobreOMes(m.diasComVenda ?? 0, m.ano, m.mes) }));
   const usadosDoErp = new Set(erpValido.map((m) => `${m.ano}-${m.mes}`));
-  return [...erpValido, ...historico.filter((m) => !usadosDoErp.has(`${m.ano}-${m.mes}`))];
+  return [...erpValido, ...historico.filter((m) => !usadosDoErp.has(`${m.ano}-${m.mes}`)).map((m) => ({ ...m, parcial: false }))];
 }

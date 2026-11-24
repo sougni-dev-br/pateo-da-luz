@@ -99,6 +99,9 @@ app.use("/public/delivery/noventa-nove", express.json({
     (req as express.Request & { rawBody?: string }).rawBody = buf.toString("utf8");
   }
 }));
+// Um cenário de planejamento tem poucos KB (12 meses de premissas e no máximo 40 linhas de gasto): corpo pequeno
+// também aqui, antes do parser geral de 25 MB, que então pula o corpo já lido.
+app.use("/planning", express.json({ limit: "256kb" }));
 // Limite generoso para acomodar o payload do agente Agile PDV
 // (backfill de 6 meses pode ficar em ~10 MB de JSON com vendas + pagamentos + itens).
 // verify() salva o rawBody UTF-8 apenas em rotas que precisam validar

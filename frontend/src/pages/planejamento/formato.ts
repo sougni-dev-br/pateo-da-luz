@@ -49,6 +49,7 @@ export function textoParaPercentual(texto: string): number | null {
 export const MOTIVO_SEM_BASE: Record<string, string> = {
   SEM_DADO: "sem dado no ano-base",
   EM_ANDAMENTO: "mês em andamento",
+  MES_PARCIAL: "mês incompleto no ano-base",
   CLIENTES_INCOMPLETOS: "vendas sem nº de clientes",
   TURNO_SEM_CLIENTES: "turno sem clientes"
 };

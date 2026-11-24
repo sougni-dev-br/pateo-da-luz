@@ -30,7 +30,7 @@ async function mesesDoErp(anos: readonly number[]): Promise<MesDoSalao[]> {
   const linhas = await prisma.$queryRaw<LinhaDoErp[]>`
     SELECT "competenceYear" AS "ano",
            "competenceMonth" AS "mes",
-           COUNT(DISTINCT "date")::int AS "dias",
+           COUNT(DISTINCT "date"::date)::int AS "dias",
            SUM("salesFirstShift" - "shift1Service") AS "vendasAlmoco",
            SUM("salesSecondShift" - "shift2Service") AS "vendasJantar",
            SUM(COALESCE("peopleFirstShift", 0)) AS "clientesAlmoco",
@@ -97,7 +97,8 @@ export async function carregarProjecao(anoBase: number, premissas: readonly Prem
   return montarProjecao(anoBase, meses, premissas, emAndamento);
 }
 
-const MESES_EM_PARALELO = 3;
+// Um mês por vez: cada mês do DRE já roda várias consultas e o pool do banco é pequeno e compartilhado com o resto do ERP.
+const MESES_EM_PARALELO = 1;
 // O DRE de um mês encerrado muda pouco, e cada mês roda várias consultas. Guarda a PROMESSA por alguns minutos:
 // cliques repetidos e abas abertas juntas dividem a mesma consulta em vez de empilhar no banco.
 const VALIDADE_DO_DRE_EM_MS = 5 * 60 * 1000;
@@ -115,8 +116,7 @@ function dreDoMesEncerrado(ano: number, mes: number): Promise<Omit<MesDoDre, "me
   return dados;
 }
 
-/** Gastos realizados do ano por grupo, a partir do DRE (só meses encerrados). Poucos meses por vez: cada mês do DRE roda várias consultas. */
-export async function carregarRealizado(ano: number, ignorarMesesSemLancamento: boolean): Promise<Realizado> {
+async function calcularRealizado(ano: number, ignorarMesesSemLancamento: boolean): Promise<Realizado> {
   const encerrados = mesesEncerradosDoAno(ano, hojeEmBrasilia());
   const meses: MesDoDre[] = [];
   for (let i = 0; i < encerrados.length; i += MESES_EM_PARALELO) {
@@ -124,4 +124,22 @@ export async function carregarRealizado(ano: number, ignorarMesesSemLancamento: 
     meses.push(...(await Promise.all(bloco.map(async (mes) => ({ mes, ...(await dreDoMesEncerrado(ano, mes)) })))));
   }
   return montarRealizado(ano, meses, encerrados, ignorarMesesSemLancamento);
+}
+
+// Bloqueio de módulo: uma apuração por vez no processo (as demais esperam a fila), e o mesmo pedido em curso é
+// reaproveitado em vez de repetido.
+let filaDoRealizado: Promise<unknown> = Promise.resolve();
+const realizadoEmCurso = new Map<string, Promise<Realizado>>();
+
+/** Gastos realizados do ano por grupo, a partir do DRE (só meses encerrados). Serializado: cada mês do DRE roda várias consultas. */
+export function carregarRealizado(ano: number, ignorarMesesSemLancamento: boolean): Promise<Realizado> {
+  const chave = `${ano}:${ignorarMesesSemLancamento}`;
+  const emCurso = realizadoEmCurso.get(chave);
+  if (emCurso) return emCurso;
+  const execucao = filaDoRealizado.then(() => calcularRealizado(ano, ignorarMesesSemLancamento));
+  filaDoRealizado = execucao.catch(() => undefined);
+  realizadoEmCurso.set(chave, execucao);
+  const liberar = () => { if (realizadoEmCurso.get(chave) === execucao) realizadoEmCurso.delete(chave); };
+  execucao.then(liberar, liberar);
+  return execucao;
 }

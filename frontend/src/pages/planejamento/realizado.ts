@@ -66,3 +66,22 @@ export function aplicarRealizado(
   }
   return { gastos: resultado, gruposAplicados: aplicados };
 }
+
+/** A partir de quantas vezes o valor de hoje (para mais ou para menos) a sugestão é tratada como suspeita. */
+export const SALTO_SUSPEITO = 3;
+
+/** O grupo passa de 100% da receita do DRE no período: sinal de receita incompleta naqueles meses. */
+export const passaDaReceita = (g: PlanejamentoRealizadoDoGrupo): boolean => (g.percentualDaReceita ?? 0) > 1;
+
+export type Suspeita = { motivo: "RECEITA_INCOMPLETA" | "SALTO"; vezes: number | null };
+
+/**
+ * Por que a sugestão não deve vir marcada: a receita daqueles meses parece incompleta, ou o valor muda mais de
+ * SALTO_SUSPEITO vezes contra o que está no cenário. `hoje` e `realizado` na mesma unidade da linha.
+ */
+export function suspeitaDa(g: PlanejamentoRealizadoDoGrupo, hoje: number | null, realizado: number | null): Suspeita | null {
+  const vezes = hoje !== null && realizado !== null && hoje > 0 && realizado > 0 ? Math.max(realizado / hoje, hoje / realizado) : null;
+  if (passaDaReceita(g)) return { motivo: "RECEITA_INCOMPLETA", vezes };
+  if (vezes !== null && vezes > SALTO_SUSPEITO) return { motivo: "SALTO", vezes };
+  return null;
+}

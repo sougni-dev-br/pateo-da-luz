@@ -1,0 +1,79 @@
+/* Planejamento: acabamento da iteração 5. Importado DEPOIS de planejamento.css (sobrepõe regras de largura). */
+
+/* ── Diálogo de gastos: o que pede conferência e o que será sobrescrito ── */
+.plan-sugestao-etiqueta {
+  display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: var(--radius-pill);
+  background: var(--tint-warning); color: #7a4f00; font-size: 11px; font-weight: var(--fw-bold); vertical-align: 2px; white-space: nowrap;
+}
+.plan-sugestao-sobrescreve { color: var(--ink-soft); }
+.plan-sugestao-conferir { border-color: #e7cf9a; }
+.plan-sugestao-conferir-texto {
+  margin: 4px 0 0; padding: 4px 8px; border-radius: var(--radius-sm); background: var(--tint-warning);
+  color: #6b4500; font-size: var(--fs-xs); font-weight: var(--fw-semibold); line-height: 1.4; justify-self: start;
+}
+
+/* ── Régua: o erro do mix no topo (nunca atrás da barra de salvar) e as saídas abaixo do eixo ── */
+.plan-regua:focus { outline: none; }
+.plan-regua:focus-visible { outline: 2px solid var(--gold-dark); outline-offset: 2px; }
+.plan-regua-erro { margin: 0; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--tint-danger); color: #7d2a2a; font-size: var(--fs-sm); font-weight: var(--fw-semibold); line-height: 1.45; }
+.plan-regua-grupo { color: var(--plan-muted); font-size: 11px; font-weight: var(--fw-bold); letter-spacing: 0.06em; text-transform: uppercase; }
+.plan-regua-grupo-saidas { margin: 8px 0 0; padding-top: 8px; border-top: 1px dashed var(--line-strong); }
+.plan-regua-saida { --plan-regua-cor: #8f4a3c; }
+.plan-regua-saida .plan-regua-espera {
+  opacity: 1; border-radius: 0 3px 3px 0;
+  background: repeating-linear-gradient(135deg, rgba(143, 74, 60, 0.85) 0 4px, rgba(143, 74, 60, 0.45) 4px 8px);
+}
+.plan-regua-saida .plan-regua-nome { color: var(--ink-soft); }
+.plan-regua-saida .plan-regua-mix:empty { display: none; }
+
+/* ── Barra de salvar: "Detalhes" e "Ver o mix" com alvo de 40px ── */
+.plan-salvar-detalhe-botao { min-height: 40px; padding: 0 8px; }
+
+/* ── Desfazer no computador: dentro da faixa da barra, à esquerda, sem flutuar sobre os números do veredito ── */
+@media (min-width: 901px) {
+  .plan-salvar:has(> .plan-toast):has(> .plan-salvar-linha) { grid-template-columns: auto minmax(0, 1fr); align-items: stretch; }
+  .plan-salvar > .plan-toast:has(+ .plan-salvar-linha) { justify-self: stretch; max-width: 360px; align-self: stretch; }
+}
+
+/* ── Gastos: serviço e ações do realizado na mesma faixa ── */
+.plan-gastos-topo { align-items: flex-end; }
+.plan-gastos-acoes { flex: 1 1 300px; justify-content: flex-start; align-self: center; }
+
+/* ── Cabeçalho da subaba: explicação sob demanda até 1100px ── */
+.plan-cabecalho-linha { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 12px; }
+.plan-ajuda-botao { font-size: var(--fs-xs); }
+.plan-sub[hidden] { display: none; }
+
+/* ── Peso na margem dentro de cartão: barra embaixo do texto, na largura do bloco, em qualquer largura ── */
+.plan-gasto-cartao .plan-peso { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
+.plan-gasto-cartao .plan-peso-trilho { order: 2; width: 100%; max-width: 280px; flex: none; }
+
+/* ── "Vendas projetadas": sem turnos, ticket e CMV abaixo de 1180px (a Variação sempre inteira) ── */
+@media (max-width: 1180px) {
+  .plan-so-1180 { display: none !important; }
+  .plan-quadro-cabe-no-celular table { min-width: 0 !important; }
+}
+
+/* ── Densidade em notebook (até 1100px): ações no "⋯", espaços menores, veredito numa linha ── */
+@media (max-width: 1100px) {
+  .plan, .plan-conteudo { gap: var(--space-4); }
+  .plan-secao { gap: var(--space-3); }
+  .plan-acoes-largas { display: none; }
+  .plan-acoes-menu { display: block; align-self: flex-end; }
+  .plan-barra-cenario { flex-wrap: nowrap; }
+  .plan-veredito-linha { gap: 6px 14px; padding: 6px 8px 6px 14px; }
+  .plan-veredito-linha .plan-veredito-selo { display: none; }
+  .plan-veredito-linha-titulo { font-size: 15px; }
+  .plan-veredito-linha .plan-veredito-linha-numeros { gap: 2px 12px; }
+  .plan-veredito-ir { min-width: 40px; justify-content: center; }
+  .plan-veredito-ir-texto { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .plan-campo-solto { padding: 10px 14px; gap: 4px; }
+}
+
+@media (max-width: 640px) {
+  .plan-sugestao-etiqueta { margin-left: 6px; }
+  .plan-salvar > .plan-toast { max-width: 100%; }
+}
+
+/* O efeito nas premissas encosta no título (o .plan-ritmo do comparativo traz margem de cima). */
+.plan-premissas > .plan-efeito-no-ano { margin-top: 0; }

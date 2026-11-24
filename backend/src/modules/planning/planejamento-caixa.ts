@@ -212,13 +212,15 @@ export function montarCaixa(projecao: Projecao, resultado: Resultado, linhas: re
   }
 
   const completos = meses.filter((m): m is MesDeCaixa => m !== null);
+  // Sem nenhum mês calculado a soma não existe (zero pareceria um caixa que não se mexeu).
+  const semSoma = algumMesNaoCalculado || completos.length === 0;
   return {
     meses,
     mesesCalculados: calculados,
     total: {
-      entradas: algumMesNaoCalculado ? null : arredondar(somaEntradas),
-      saidas: algumMesNaoCalculado ? null : arredondar(somaSaidas),
-      resultado: algumMesNaoCalculado ? null : arredondar(somaResultado),
+      entradas: semSoma ? null : arredondar(somaEntradas),
+      saidas: semSoma ? null : arredondar(somaSaidas),
+      resultado: semSoma ? null : arredondar(somaResultado),
       // Só há saldo/menor saldo quando a corrente de meses não teve buraco: senão o acumulado mentiria.
       saldoFinal: !algumMesNaoCalculado && completos.length > 0 ? completos[completos.length - 1].saldo : null,
       menorSaldo: !algumMesNaoCalculado && menor ? { mes: menor.mes, valor: arredondar(menor.valor) } : null,

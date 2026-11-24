@@ -5,10 +5,10 @@ const CAB = ["Ano", "Mês", "Vendas almoço", "Vendas jantar", "Vendas mesas", "
 
 describe("lerBaseMensal", () => {
   it("lê uma linha completa e ignora o cabeçalho", () => {
-    const r = lerBaseMensal([CAB, [2025, "Jan", 12960.21, 32954.72, 45914.93, 166, 454, 620, 4554.72, "Caixa0125(1).xls", 0]]);
+    const r = lerBaseMensal([CAB, [2025, "Jan", 10000, 30000, 40000, 100, 300, 400, 1000, "fechamento-exemplo.xls", 0]]);
     expect(r.avisos).toEqual([]);
     expect(r.linhas).toEqual([
-      { ano: 2025, mes: 1, vendasAlmoco: 12960.21, vendasJantar: 32954.72, clientesAlmoco: 166, clientesJantar: 454, servico: 4554.72, fonte: "Caixa0125(1).xls" }
+      { ano: 2025, mes: 1, vendasAlmoco: 10000, vendasJantar: 30000, clientesAlmoco: 100, clientesJantar: 300, servico: 1000, fonte: "fechamento-exemplo.xls" }
     ]);
   });
 
@@ -18,11 +18,11 @@ describe("lerBaseMensal", () => {
     expect(r.avisos).toEqual([]);
   });
 
-  it("avisa quando o TC total difere da soma dos turnos e usa a soma (dez/2025)", () => {
-    const r = lerBaseMensal([[2025, "Dez", 90766.72, 67524.28, 158291, 988, 780, 1773, 14785.64, "Caixa1225.xls"]]);
+  it("avisa quando o TC total difere da soma dos turnos e usa a soma (exemplo)", () => {
+    const r = lerBaseMensal([[2025, "Dez", 60000, 40000, 100000, 300, 200, 505, 5000, "fechamento-exemplo.xls"]]);
     expect(r.linhas).toHaveLength(1);
-    expect(r.linhas[0].clientesAlmoco + r.linhas[0].clientesJantar).toBe(1768);
-    expect(r.avisos[0]).toMatch(/TC total \(1773\) difere/);
+    expect(r.linhas[0].clientesAlmoco + r.linhas[0].clientesJantar).toBe(500);
+    expect(r.avisos[0]).toMatch(/TC total \(505\) difere/);
   });
 
   it("avisa quando Mesas não fecha com almoço + jantar", () => {

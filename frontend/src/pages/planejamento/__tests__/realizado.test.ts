@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PlanejamentoLinhaDeGasto, PlanejamentoRealizadoDoGrupo } from "../../../api/client";
-import { aplicarRealizado, temSugestao } from "../realizado";
+import { aplicarRealizado, suspeitaDa, temSugestao } from "../realizado";
 
 const linha = (grupo: PlanejamentoLinhaDeGasto["grupo"], nome: string, modo: "FIXO" | "PERCENTUAL" = "FIXO", v = 0): PlanejamentoLinhaDeGasto => ({ grupo, nome, modo, valores: Array(12).fill(v), pagoNoMes: 1 });
 const sugestao = (grupo: PlanejamentoRealizadoDoGrupo["grupo"], sobre: Partial<PlanejamentoRealizadoDoGrupo> = {}): PlanejamentoRealizadoDoGrupo => ({
@@ -62,5 +62,22 @@ describe("aplicarRealizado", () => {
     expect(r.gruposAplicados).toEqual([]);
     aplicarRealizado(original, [sugestao("OCUPACAO")], "MEDIA");
     expect(original[0].valores[0]).toBe(9);
+  });
+});
+
+describe("suspeitaDa", () => {
+  it("receita incompleta (grupo acima de 100% da receita) é suspeita mesmo com variação pequena", () => {
+    expect(suspeitaDa(sugestao("TARIFAS_PUBLICAS", { percentualDaReceita: 1.055 }), 9800, 10550)?.motivo).toBe("RECEITA_INCOMPLETA");
+  });
+
+  it("salto acima de 3 vezes, para mais ou para menos, é suspeito; até 3 vezes não", () => {
+    expect(suspeitaDa(sugestao("OUTROS", { percentualDaReceita: 0.2 }), 2000, 39200)).toEqual({ motivo: "SALTO", vezes: 19.6 });
+    expect(suspeitaDa(sugestao("OUTROS", { percentualDaReceita: 0.2 }), 40000, 10000)?.motivo).toBe("SALTO");
+    expect(suspeitaDa(sugestao("OUTROS", { percentualDaReceita: 0.2 }), 2000, 6000)).toBeNull();
+  });
+
+  it("linha nova ou zerada hoje não tem como comparar: só a receita incompleta conta", () => {
+    expect(suspeitaDa(sugestao("OUTROS"), null, 5000)).toBeNull();
+    expect(suspeitaDa(sugestao("OUTROS"), 0, 5000)).toBeNull();
   });
 });

@@ -7,7 +7,7 @@
  *   vendas projetadas   = clientes projetados × ticket projetado          (por turno; total = soma)
  *   CMV                 = vendas totais × % de CMV do mês
  *
- * Só um mês encerrado, com clientes completos nos dois turnos, serve de base: projetar em cima de mês parcial
+ * Só um mês encerrado, completo (não parcial no ERP), com clientes completos nos dois turnos, serve de base: projetar em cima de mês parcial
  * ou sem clientes registrados daria venda falsa. Esses meses ficam sem projeção, com o motivo.
  * Percentuais trafegam como fração (0,05 = 5%).
  */
@@ -24,7 +24,7 @@ export type PremissasDoMes = {
   cmv: number | null;
 };
 
-export type MotivoSemBase = "SEM_DADO" | "EM_ANDAMENTO" | "CLIENTES_INCOMPLETOS" | "TURNO_SEM_CLIENTES";
+export type MotivoSemBase = "SEM_DADO" | "EM_ANDAMENTO" | "MES_PARCIAL" | "CLIENTES_INCOMPLETOS" | "TURNO_SEM_CLIENTES";
 
 export type Turnos = { almoco: number; jantar: number; total: number };
 
@@ -80,6 +80,7 @@ export function premissasNeutras(): PremissasDoMes[] {
 function motivoDeNaoServir(base: MesDoSalao | undefined, emAndamento: boolean): MotivoSemBase | null {
   if (!base) return "SEM_DADO";
   if (emAndamento) return "EM_ANDAMENTO";
+  if (base.parcial) return "MES_PARCIAL";
   if (base.clientesIncompletos) return "CLIENTES_INCOMPLETOS";
   if (base.clientesAlmoco <= 0 || base.clientesJantar <= 0) return "TURNO_SEM_CLIENTES";
   return null;

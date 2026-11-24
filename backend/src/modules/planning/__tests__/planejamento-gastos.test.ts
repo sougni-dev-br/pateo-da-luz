@@ -19,13 +19,13 @@ function projecaoCom(meses: { mes: number; vendas: number; cmv: number | null; t
 const fixa = (grupo: LinhaDeGasto["grupo"], nome: string, valor: number): LinhaDeGasto => ({ grupo, nome, modo: "FIXO", valores: Array(12).fill(valor) });
 
 describe("montarResultado", () => {
-  it("reproduz o lucro de março da planilha (vendas 281.692,13, CMV 42%, folha 90 mil com serviço de 9%)", () => {
-    const projecao = projecaoCom([{ mes: 3, vendas: 281692.13, cmv: 0.42 }]);
-    // Mesmas linhas que a planilha somou (ela deixa de fora tarifas públicas e dívida).
+  it("lucro com vendas de 300 mil, CMV 42%, folha de 90 mil e serviço de 9%", () => {
+    const projecao = projecaoCom([{ mes: 3, vendas: 300000, cmv: 0.42 }]);
+    // Sem tarifas públicas e dívida, como a planilha de origem.
     const linhas = [fixa("OCUPACAO", "Ocupação", 52000), fixa("FOLHA", "Folha", 90000), fixa("TRIBUTOS", "Tributos", 15000), fixa("CONTRATOS", "Contratos", 3000), fixa("SEGUROS", "Seguros", 500), fixa("TARIFAS_BANCARIAS", "Tarifas", 200), fixa("OUTROS", "Outros", 2000)];
     const r = montarResultado(projecao, linhas, 0.09);
-    expect(r.meses[2]?.abatimentoDoServico).toBeCloseTo(25352.29, 1);
-    expect(r.meses[2]?.lucro).toBeCloseTo(26033.73, 0);
+    expect(r.meses[2]?.abatimentoDoServico).toBeCloseTo(27000, 1);
+    expect(r.meses[2]?.lucro).toBeCloseTo(38300, 0);
   });
 
   it("gasto percentual acompanha as vendas do mês", () => {
@@ -96,6 +96,36 @@ describe("montarResultado", () => {
   it("sem equilíbrio possível quando custo variável come toda a venda", () => {
     const linhas: LinhaDeGasto[] = [fixa("OCUPACAO", "Ocupação", 1000), { grupo: "TRIBUTOS", nome: "Tributos", modo: "PERCENTUAL", valores: Array(12).fill(0.7) }];
     expect(montarResultado(projecaoCom([{ mes: 1, vendas: 100000, cmv: 0.4 }]), linhas, null).meses[0]?.equilibrioVendas).toBeNull();
+  });
+
+  it("sem equilíbrio quando, com o serviço já abatido, o custo variável ainda come toda a venda", () => {
+    const pct = (grupo: LinhaDeGasto["grupo"], v: number): LinhaDeGasto => ({ grupo, nome: grupo, modo: "PERCENTUAL", valores: Array(12).fill(v) });
+    const linhas = [fixa("OCUPACAO", "Ocupação", 70000), fixa("FOLHA", "Folha fixa", 30000), pct("FOLHA", 0.27), pct("TRIBUTOS", 0.19)];
+    const r = montarResultado(projecaoCom([{ mes: 1, vendas: 400000, cmv: 0.56 }]), linhas, 0.015);
+    expect(r.meses[0]?.equilibrioVendas).toBeNull();
+    expect(r.meses[0]?.equilibrioClientes).toBeNull();
+  });
+
+  it("equilíbrio com folha fixa e em % juntas: trecho do teto e trecho acima dele zeram o lucro", () => {
+    const folhaPct: LinhaDeGasto = { grupo: "FOLHA", nome: "Folha %", modo: "PERCENTUAL", valores: Array(12).fill(0.1) };
+    const vender = (vendas: number, linhas: LinhaDeGasto[]) => montarResultado(projecaoCom([{ mes: 1, vendas, cmv: 0.4 }]), linhas, 0.2).meses[0]!;
+    // Folha fixa grande: o serviço não chega ao teto, vale o trecho A.
+    const a = [fixa("OCUPACAO", "Ocupação", 20000), fixa("FOLHA", "Folha", 10000), folhaPct];
+    const eqA = vender(100000, a).equilibrioVendas!;
+    expect(eqA).toBeCloseTo(30000 / 0.7, 0);
+    expect(vender(eqA, a).lucro).toBeCloseTo(0, 0);
+    // Folha fixa pequena: o teto estoura antes do equilíbrio, vale o trecho B.
+    const b = [fixa("OCUPACAO", "Ocupação", 20000), fixa("FOLHA", "Folha", 3000), folhaPct];
+    const eqB = vender(100000, b).equilibrioVendas!;
+    expect(eqB).toBeCloseTo(20000 / 0.6, 0);
+    expect(vender(eqB, b).lucro).toBeCloseTo(0, 0);
+  });
+
+  it("equilíbrio exatamente no teto do abatimento", () => {
+    // Serviço de 10% sobre 100 mil = folha de 10 mil: os dois trechos dão o mesmo ponto.
+    const linhas = [fixa("OCUPACAO", "Ocupação", 65000), fixa("FOLHA", "Folha", 10000)];
+    const r = montarResultado(projecaoCom([{ mes: 1, vendas: 100000, cmv: 0.35 }]), linhas, 0.1);
+    expect(r.meses[0]?.equilibrioVendas).toBeCloseTo(100000, 0);
   });
 });
 

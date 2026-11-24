@@ -1,19 +1,32 @@
 import type { ReactNode } from "react";
 import type { PlanejamentoProjecao } from "../../api/client";
-import { KpiCard, Money, Table } from "../../design-system";
-import type { KpiDelta } from "../../design-system";
+import { Table } from "../../design-system";
+import { Quadro } from "./Quadro";
+import { Reais } from "./Reais";
 import { leituraDaVariacao, MOTIVO_SEM_BASE, NOMES_DOS_MESES_CURTOS, descricaoDoPeriodo, textoDaVariacao } from "./formato";
 
 // Resultado do cenário: totais do ano (só dos meses que têm base) e o mês a mês com vendas por turno,
 // CMV e margem bruta. Mês sem base aparece com o motivo, nunca zerado.
 
 const inteiro = (n: number) => Math.round(n).toLocaleString("pt-BR");
-const dinheiro = (n: number | null, casas = 0): ReactNode => (n === null ? "—" : <Money value={n} decimals={casas} />);
+const dinheiro = (n: number | null, casas = 0): ReactNode => (n === null ? "—" : <Reais valor={n} casas={casas} moeda={false} />);
 
-function deltaDe(variacao: number | null): KpiDelta | null {
-  const leitura = leituraDaVariacao(variacao);
-  if (!leitura) return null;
-  return { text: textoDaVariacao(variacao), direction: leitura === "Aumento" ? "up" : leitura === "Redução" ? "down" : "flat" };
+const classeDaVariacao = (v: number | null) => {
+  const leitura = leituraDaVariacao(v);
+  return leitura === "Aumento" ? "plan-var-sobe" : leitura === "Redução" ? "plan-var-desce" : undefined;
+};
+
+function Indicador({ rotulo, valor, variacao, nota }: { rotulo: string; valor: ReactNode; variacao?: number | null; nota?: ReactNode }) {
+  return (
+    <div className="plan-indicador">
+      <dt>{rotulo}</dt>
+      <dd>
+        <span className="plan-indicador-valor">{valor}</span>
+        {variacao !== undefined && <span className={`plan-indicador-var ${classeDaVariacao(variacao) ?? ""}`}>{textoDaVariacao(variacao)}</span>}
+        {nota && <span className="plan-indicador-nota">{nota}</span>}
+      </dd>
+    </div>
+  );
 }
 
 export function ResultadoProjecao({ projecao, ano, anoBase }: { projecao: PlanejamentoProjecao; ano: number; anoBase: number }) {
@@ -25,32 +38,31 @@ export function ResultadoProjecao({ projecao, ano, anoBase }: { projecao: Planej
 
   return (
     <>
-      <div className="plan-kpis plan-kpis-4">
-        <KpiCard label={`Vendas ${ano}`} value={dinheiro(total.projetado.vendas.total)} delta={deltaDe(total.variacaoVendas)} sub={<>{anoBase}: {dinheiro(total.base.vendas.total)}</>} />
-        <KpiCard label={`Clientes ${ano}`} value={inteiro(total.projetado.clientes.total)} delta={deltaDe(total.variacaoClientes)} sub={`${anoBase}: ${inteiro(total.base.clientes.total)}`} />
-        <KpiCard label={`Ticket médio ${ano}`} value={dinheiro(total.projetado.ticket.total, 2)} delta={deltaDe(total.variacaoTicket)} sub={<>{anoBase}: {dinheiro(total.base.ticket.total, 2)}</>} />
-        <KpiCard
-          label="Margem bruta"
-          value={dinheiro(total.margemBruta)}
-          sub={total.margemBruta === null ? "Defina o CMV de todos os meses com base" : `CMV de ${((total.cmvPercentual ?? 0) * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% das vendas`}
+      <dl className="plan-indicadores-linha" aria-label={`Totais de ${periodo || "—"} contra ${anoBase}`}>
+        <Indicador rotulo={`Clientes ${ano}`} valor={inteiro(total.projetado.clientes.total)} variacao={total.variacaoClientes} />
+        <Indicador rotulo="Ticket médio" valor={<Reais valor={total.projetado.ticket.total} casas={2} />} variacao={total.variacaoTicket} />
+        <Indicador
+          rotulo="Margem bruta"
+          valor={total.margemBruta === null ? "—" : <Reais valor={total.margemBruta} />}
+          nota={total.margemBruta === null ? "defina o CMV de todos os meses" : `CMV de ${((total.cmvPercentual ?? 0) * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`}
         />
-      </div>
-      <p className="plan-sub">Totais de {periodo || "—"}: só entram os meses com base real em {anoBase}.{semBase.length > 0 ? ` Sem projeção: ${semBase.map((m) => `${NOMES_DOS_MESES_CURTOS[m.mes - 1]} (${MOTIVO_SEM_BASE[m.motivoSemBase ?? "SEM_DADO"]})`).join(", ")}.` : ""}</p>
+      </dl>
+      <p className="plan-sub">Valores em R$. Totais de {periodo || "—"}: só entram os meses com base real em {anoBase}; as vendas do ano estão no veredito.{semBase.length > 0 ? ` Sem projeção: ${semBase.map((m) => `${NOMES_DOS_MESES_CURTOS[m.mes - 1]} (${MOTIVO_SEM_BASE[m.motivoSemBase ?? "SEM_DADO"] ?? "sem base"})`).join(", ")}.` : ""}</p>
 
-      <div className="plan-quadro">
+      <Quadro rotulo={`Projeção de ${ano} mês a mês`} className="plan-quadro-cabe-no-celular">
         <Table aria-label={`Projeção de ${ano} mês a mês`}>
           <Table.Head>
             <Table.Row>
               <Table.Th scope="col">Mês</Table.Th>
-              <Table.Th align="right">Clientes</Table.Th>
-              <Table.Th align="right">Vendas almoço</Table.Th>
-              <Table.Th align="right">Vendas jantar</Table.Th>
-              <Table.Th align="right">Vendas {ano}</Table.Th>
-              <Table.Th align="right">Vendas {anoBase}</Table.Th>
-              <Table.Th align="right">Variação</Table.Th>
-              <Table.Th align="right">Ticket médio</Table.Th>
-              <Table.Th align="right">CMV</Table.Th>
-              <Table.Th align="right">Margem bruta</Table.Th>
+              <Table.Th scope="col" align="right" className="plan-so-largo">Clientes</Table.Th>
+              <Table.Th scope="col" align="right" className="plan-so-largo plan-so-1180">Vendas almoço</Table.Th>
+              <Table.Th scope="col" align="right" className="plan-so-largo plan-so-1180">Vendas jantar</Table.Th>
+              <Table.Th scope="col" align="right">Vendas {ano}</Table.Th>
+              <Table.Th scope="col" align="right" className="plan-so-largo">Vendas {anoBase}</Table.Th>
+              <Table.Th scope="col" align="right">Variação</Table.Th>
+              <Table.Th scope="col" align="right" className="plan-so-largo plan-so-1180">Ticket médio</Table.Th>
+              <Table.Th scope="col" align="right" className="plan-so-largo plan-so-1180">CMV</Table.Th>
+              <Table.Th scope="col" align="right">Margem bruta</Table.Th>
             </Table.Row>
           </Table.Head>
           <Table.Body>
@@ -60,7 +72,7 @@ export function ResultadoProjecao({ projecao, ano, anoBase }: { projecao: Planej
                 return (
                   <Table.Row key={m.mes} className="plan-linha-sem-base">
                     <Table.Th scope="row">{nome}</Table.Th>
-                    <Table.Td colSpan={9}>Sem projeção: {MOTIVO_SEM_BASE[m.motivoSemBase ?? "SEM_DADO"]}</Table.Td>
+                    <Table.Td colSpan={9}>Sem projeção: {MOTIVO_SEM_BASE[m.motivoSemBase ?? "SEM_DADO"] ?? "sem base"}</Table.Td>
                   </Table.Row>
                 );
               }
@@ -68,21 +80,35 @@ export function ResultadoProjecao({ projecao, ano, anoBase }: { projecao: Planej
               return (
                 <Table.Row key={m.mes}>
                   <Table.Th scope="row">{nome}</Table.Th>
-                  <Table.Td align="right">{inteiro(m.projetado.clientes.total)}</Table.Td>
-                  <Table.Td align="right">{dinheiro(m.projetado.vendas.almoco)}</Table.Td>
-                  <Table.Td align="right">{dinheiro(m.projetado.vendas.jantar)}</Table.Td>
+                  <Table.Td align="right" className="plan-so-largo">{inteiro(m.projetado.clientes.total)}</Table.Td>
+                  <Table.Td align="right" className="plan-so-largo plan-so-1180">{dinheiro(m.projetado.vendas.almoco)}</Table.Td>
+                  <Table.Td align="right" className="plan-so-largo plan-so-1180">{dinheiro(m.projetado.vendas.jantar)}</Table.Td>
                   <Table.Td align="right" className="plan-col-destaque">{dinheiro(m.projetado.vendas.total)}</Table.Td>
-                  <Table.Td align="right">{dinheiro(m.base.vendas.total)}</Table.Td>
-                  <Table.Td align="right">{textoDaVariacao(variacao)}</Table.Td>
-                  <Table.Td align="right">{dinheiro(m.projetado.ticket.total, 2)}</Table.Td>
-                  <Table.Td align="right">{m.cmvPercentual === null ? "—" : `${(m.cmvPercentual * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`}</Table.Td>
+                  <Table.Td align="right" className="plan-so-largo">{dinheiro(m.base.vendas.total)}</Table.Td>
+                  <Table.Td align="right" className={classeDaVariacao(variacao)}>{textoDaVariacao(variacao)}</Table.Td>
+                  <Table.Td align="right" className="plan-so-largo plan-so-1180">{dinheiro(m.projetado.ticket.total, 2)}</Table.Td>
+                  <Table.Td align="right" className="plan-so-largo plan-so-1180">{m.cmvPercentual === null ? "—" : `${(m.cmvPercentual * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`}</Table.Td>
                   <Table.Td align="right">{dinheiro(m.margemBruta)}</Table.Td>
                 </Table.Row>
               );
             })}
           </Table.Body>
+          <tfoot>
+            <Table.Row className="plan-linha-total">
+              <Table.Th scope="row">Total</Table.Th>
+              <Table.Td align="right" className="plan-so-largo">{inteiro(total.projetado.clientes.total)}</Table.Td>
+              <Table.Td align="right" className="plan-so-largo plan-so-1180">{dinheiro(total.projetado.vendas.almoco)}</Table.Td>
+              <Table.Td align="right" className="plan-so-largo plan-so-1180">{dinheiro(total.projetado.vendas.jantar)}</Table.Td>
+              <Table.Td align="right" className="plan-col-destaque">{dinheiro(total.projetado.vendas.total)}</Table.Td>
+              <Table.Td align="right" className="plan-so-largo">{dinheiro(total.base.vendas.total)}</Table.Td>
+              <Table.Td align="right" className={classeDaVariacao(total.variacaoVendas)}>{textoDaVariacao(total.variacaoVendas)}</Table.Td>
+              <Table.Td align="right" className="plan-so-largo plan-so-1180">{dinheiro(total.projetado.ticket.total, 2)}</Table.Td>
+              <Table.Td align="right" className="plan-so-largo plan-so-1180">{total.cmvPercentual === null ? "—" : `${(total.cmvPercentual * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`}</Table.Td>
+              <Table.Td align="right">{dinheiro(total.margemBruta)}</Table.Td>
+            </Table.Row>
+          </tfoot>
         </Table>
-      </div>
+      </Quadro>
     </>
   );
 }

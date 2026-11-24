@@ -154,6 +154,16 @@ describe("montarCaixa", () => {
     expect(c.total.saldoFinal).toBe(200000);
   });
 
+  it("sem nenhum mês calculado (janeiro sem base), os totais ficam nulos e não zero", () => {
+    const p = projecaoCom([{ mes: 2, vendas: 100000, cmv: 0 }]);
+    const c = caixa(p, [], aVista());
+    expect(c.mesesCalculados).toEqual([]);
+    expect(c.total.entradas).toBeNull();
+    expect(c.total.saidas).toBeNull();
+    expect(c.total.resultado).toBeNull();
+    expect(c.total.saldoFinal).toBeNull();
+  });
+
   it("padrão: cinco formas somando 100%", () => {
     const padrao = caixaPadrao();
     expect(padrao.formas).toHaveLength(5);
