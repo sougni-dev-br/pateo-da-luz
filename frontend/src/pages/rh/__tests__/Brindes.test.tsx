@@ -46,18 +46,20 @@ describe("Brindes", () => {
   test("sem campanha oferece criar o brinde", async () => {
     vi.mocked(getCampanhasBrinde).mockResolvedValue({ hoje: "2026-12-20", ativos: 0, campanhas: [] });
     abrir();
-    fireEvent.click(await screen.findByRole("button", { name: "Criar" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Criar brinde" }));
     await waitFor(() => expect(criarCampanhaBrinde).toHaveBeenCalledWith({ nome: "Brinde de Natal", ano: new Date().getFullYear() }));
   });
 
   test("mostra o andamento e quem recebeu; marcar e desfazer chamam a API", async () => {
     vi.mocked(getDetalheBrinde).mockResolvedValue(detalhe([pessoa({ employeeId: "a", nome: "Ana" }), pessoa({ employeeId: "b", nome: "Bia", entrega })]));
     abrir();
-    expect(await screen.findByText(/1 de 2 funcionários ativos já receberam/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Marcar como entregue" }));
+    expect(await screen.findByText(/funcionários ativos já receberam/)).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Andamento das entregas" })).toHaveAttribute("aria-valuenow", "50");
+    fireEvent.click(screen.getByRole("button", { name: "Marcar Ana como entregue" }));
     await waitFor(() => expect(marcarEntregaBrinde).toHaveBeenCalledWith("b1", "a"));
-    fireEvent.click(screen.getByRole("button", { name: "✓ Recebeu" }));
+    fireEvent.click(screen.getByRole("button", { name: "Desfazer a entrega de Bia" }));
     await waitFor(() => expect(desfazerEntregaBrinde).toHaveBeenCalledWith("b1", "b"));
+    expect(window.confirm).toHaveBeenCalledWith("Desfazer a entrega do brinde para Bia?");
   });
 
   test("filtro Faltam esconde quem já recebeu; quem saiu e recebeu só aparece em Receberam", async () => {
@@ -67,8 +69,7 @@ describe("Brindes", () => {
       pessoa({ employeeId: "c", nome: "Caio", ativo: false, entrega }),
     ]));
     abrir();
-    // A folha de assinatura (aria-hidden, só impressão) repete os nomes: a tela é a região.
-    const tela = within(await screen.findByRole("region", { name: /Brindes aos colaboradores/ }));
+    const tela = within(await screen.findByRole("region", { name: /Brinde de Natal 2026/ }));
     await tela.findByText("Ana");
     fireEvent.click(tela.getByRole("button", { name: /Faltam/ }));
     expect(tela.getByText("Ana")).toBeInTheDocument();
@@ -77,6 +78,21 @@ describe("Brindes", () => {
     fireEvent.click(tela.getByRole("button", { name: /Receberam/ }));
     expect(tela.getByText("Caio")).toBeInTheDocument();
     expect(tela.getByText("Já saiu da empresa")).toBeInTheDocument();
+  });
+
+  test("desfazer não grava quando a pessoa cancela a confirmação", async () => {
+    vi.mocked(window.confirm).mockReturnValueOnce(false);
+    vi.mocked(getDetalheBrinde).mockResolvedValue(detalhe([pessoa({ employeeId: "b", nome: "Bia", entrega })]));
+    abrir();
+    fireEvent.click(await screen.findByRole("button", { name: "Desfazer a entrega de Bia" }));
+    expect(desfazerEntregaBrinde).not.toHaveBeenCalled();
+  });
+
+  test("avisa o resultado na região de status", async () => {
+    vi.mocked(getDetalheBrinde).mockResolvedValue(detalhe([pessoa({ employeeId: "a", nome: "Ana" })]));
+    abrir();
+    fireEvent.click(await screen.findByRole("button", { name: "Marcar Ana como entregue" }));
+    expect(await screen.findByText("Ana marcado como entregue.")).toBeInTheDocument();
   });
 
   test("marcar todos que faltam pede confirmação e manda só os ativos sem entrega", async () => {
