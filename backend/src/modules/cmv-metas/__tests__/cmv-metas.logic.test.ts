@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { classificarMeta, metaVigente, percentualDe, projetarMes, validarPercentuais, type MetaVigencia } from "../cmv-metas.logic.js";
+import { classificarMeta, metaVigente, percentualDe, projetarMes, razaoParaPercentual, validarPercentuais, type MetaVigencia } from "../cmv-metas.logic.js";
 
 const meta = (o: Partial<MetaVigencia>): MetaVigencia => ({
   id: "m", escopo: "GERAL", sectorId: null, alvoPercentual: 30, alertaPercentual: 27,
@@ -68,5 +68,12 @@ describe("validarPercentuais", () => {
     expect(validarPercentuais(0, 0)).not.toBeNull();
     expect(validarPercentuais(101, 50)).not.toBeNull();
     expect(validarPercentuais(Number.NaN, 10)).not.toBeNull();
+  });
+});
+
+describe("razaoParaPercentual", () => {
+  test("o CMV do ciclo vem como razão e vira pontos percentuais", () => {
+    expect(razaoParaPercentual(0.6233)).toBe(62.33);
+    expect(razaoParaPercentual(0.7532)).toBe(75.32);
   });
 });

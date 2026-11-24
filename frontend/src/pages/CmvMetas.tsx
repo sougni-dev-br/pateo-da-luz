@@ -100,8 +100,8 @@ export function CmvMetas() {
         observacao: form.observacao.trim() || null,
       });
       setForm(null);
-      setAviso("Meta salva.");
       await carregar();
+      setAviso("Meta salva.");
     } catch (e) {
       setErro(mensagem(e, "Não foi possível salvar a meta."));
     } finally {
@@ -114,8 +114,8 @@ export function CmvMetas() {
     setErro(null);
     try {
       await removerMetaCmv(id);
-      setAviso("Vigência removida.");
       await carregar();
+      setAviso("Vigência removida.");
     } catch (e) {
       setErro(mensagem(e, "Não foi possível remover a meta."));
     }

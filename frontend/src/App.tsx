@@ -189,7 +189,7 @@ const sections = [
   { id: "cards", label: "Cartões", icon: CreditCard, showInSidebar: true, group: "Financeiro", path: "/financeiro/cartoes", matchers: ["/financeiro/cartoes"] },
   { id: "cash", label: "Caixa", icon: BadgeDollarSign, showInSidebar: true, group: "Financeiro", path: "/financeiro/caixa", matchers: ["/financeiro/caixa"] },
   { id: "cmv-real", label: "CMV Real", icon: Calculator, showInSidebar: true, group: "CMV", path: "/cmv/real", matchers: ["/cmv/real"] },
-  { id: "cmv-metas", label: "Metas de CMV", icon: Target, showInSidebar: true, group: "CMV", path: "/cmv/metas", matchers: ["/cmv/metas"], permissionId: "cmv-real", description: "Meta de CMV % por mês e por setor: realizado, projeção e quanto ainda dá para comprar" },
+  { id: "cmv-metas", label: "Metas de CMV", icon: Target, showInSidebar: true, group: "CMV", path: "/cmv/metas", matchers: ["/cmv/metas"], permissionId: "cmv-real", description: "Meta de CMV % por mês e por setor: realizado, projeção e quanto ainda dá para comprar", hidePageHeader: true },
   // O matcher precisa cobrir /:yearMonth, senao "Mes anterior" e "Proximo mes"
   // saem da secao: findSectionByPath casa com end:true, o guard nao acha secao
   // nenhuma e redireciona em silencio para o fallback. Na pratica a tela ficava

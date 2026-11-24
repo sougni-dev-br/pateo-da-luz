@@ -2,7 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 import { cmvPurchasePredicate, getCmvPurchaseTotalsByPurchaseDateRange } from "../cmv-real/cmv-purchase-base.service.js";
 import { hojeEmSaoPaulo } from "../payroll/extras-comum.js";
-import { arredondar, classificarMeta, metaVigente, percentualDe, projetarMes, validarPercentuais, type MetaVigencia, type Projecao, type StatusMeta } from "./cmv-metas.logic.js";
+import { arredondar, classificarMeta, metaVigente, percentualDe, projetarMes, razaoParaPercentual, validarPercentuais, type MetaVigencia, type Projecao, type StatusMeta } from "./cmv-metas.logic.js";
 
 // Metas de CMV % (compras ÷ faturamento). Só LÊ compras, pedidos e faturamento que já existem;
 // a única escrita é na tabela CmvMeta. Segue a visão contábil do CMV (mesma base do CMV Real).
@@ -273,7 +273,7 @@ export async function montarPainel(ano: number, mes: number): Promise<Painel> {
     ateODia: iv.ateODia,
     mesCorrente: iv.mesCorrente,
     faturamento: arredondar(fat),
-    cmvRealCiclo: ciclo && ciclo.cmvPercentual != null ? { percentual: arredondar(num(ciclo.cmvPercentual)), periodo: ciclo.name, status: ciclo.status } : null,
+    cmvRealCiclo: ciclo && ciclo.cmvPercentual != null ? { percentual: razaoParaPercentual(num(ciclo.cmvPercentual)), periodo: ciclo.name, status: ciclo.status } : null,
     linhas,
     historico: await historicoGeral(ano, mes, metas, hoje),
   };

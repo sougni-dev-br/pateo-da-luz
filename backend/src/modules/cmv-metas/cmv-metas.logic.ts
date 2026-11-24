@@ -78,3 +78,6 @@ export function validarPercentuais(alvo: number, alerta: number): string | null 
   if (alerta <= 0 || alerta > alvo) return "O alerta deve ser maior que 0 e não passar da meta.";
   return null;
 }
+
+/** CmvPeriod.cmvPercentual é guardado como razão (0,6233 = 62,33%); o painel trabalha em pontos percentuais. */
+export const razaoParaPercentual = (razao: number): number => arredondar(razao * 100);
