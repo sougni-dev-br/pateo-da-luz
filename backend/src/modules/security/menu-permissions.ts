@@ -181,6 +181,7 @@ export function isMenuId(value: string): value is MenuId {
 const MENUS_AUXILIARES: Record<string, MenuId> = {
   rescisoes: "payroll",
   ferias: "payroll",
+  brindes: "payroll",
   "rh-retorno": "payroll-tips",
   // A antiga "Folha e VT" virou três telas (14/10/2026); as duas novas herdam a da Folha.
   "payroll-vt": "payroll",

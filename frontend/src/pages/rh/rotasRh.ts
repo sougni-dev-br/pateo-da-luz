@@ -6,6 +6,7 @@ export const ROTAS_RH = {
   importarFicha: "/rh/funcionarios/importar-ficha",
   escala: "/rh/escala",
   ferias: "/rh/ferias",
+  brindes: "/rh/brindes",
   gorjeta: "/rh/gorjeta",
   rescisoes: "/rh/rescisoes",
   folha: "/rh/folha",

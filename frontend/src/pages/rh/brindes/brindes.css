@@ -1,0 +1,63 @@
+/* RH → Brindes. Prefixo br-. */
+.br-tela { display: grid; gap: 14px; min-width: 0; }
+.br-topo { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.br-topo h2 { margin: 0; font-size: var(--fs-h2); }
+.br-topo p { margin: 2px 0 0; color: var(--muted); font-size: var(--fs-sm); }
+.br-acoes { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.br-tela :is(button, a, input, select, textarea):focus-visible { outline: 2px solid var(--gold-dark); outline-offset: 2px; }
+
+.br-progresso { display: grid; gap: 6px; }
+.br-barra { height: 8px; border-radius: 999px; background: var(--line); overflow: hidden; }
+.br-barra > span { display: block; height: 100%; background: var(--success); transition: width var(--dur) var(--ease); }
+.br-progresso small { color: var(--muted); font-size: var(--fs-sm); }
+
+.br-filtros { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.br-filtro {
+  display: inline-flex; align-items: baseline; gap: 6px; padding: 6px 12px;
+  border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--paper);
+  color: var(--ink); font: inherit; font-size: var(--fs-sm); cursor: pointer;
+}
+.br-filtro strong { font-size: var(--fs-lg); font-variant-numeric: tabular-nums; }
+.br-filtro[aria-pressed="true"] { background: var(--gold-tint); border-color: var(--gold-dark); }
+.br-busca { margin-left: auto; min-width: 220px; padding: 7px 10px; border: 1px solid var(--line); border-radius: var(--radius-md); font: inherit; background: var(--paper); }
+
+.br-grupo { border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--paper); overflow: hidden; }
+.br-grupo > h3 { margin: 0; padding: 8px 14px; font-size: var(--fs-2xs); text-transform: uppercase; letter-spacing: var(--ls-eyebrow); color: var(--muted); background: var(--paper-soft); border-bottom: 1px solid var(--line); }
+.br-linha { display: grid; grid-template-columns: 150px minmax(160px, 2fr) 150px minmax(140px, 2fr); gap: 12px; align-items: center; padding: 9px 14px; border-top: 1px solid var(--line); }
+.br-linha:first-of-type { border-top: 0; }
+.br-linha--entregue { background: var(--success-tint, var(--paper-soft)); }
+.br-nome { display: grid; gap: 2px; min-width: 0; }
+.br-nome strong { overflow-wrap: anywhere; }
+.br-sub { font-size: var(--fs-xs); color: var(--muted); }
+.br-aviso { font-size: var(--fs-xs); color: var(--warning); font-weight: 600; }
+.br-marca { padding: 7px 10px; border: 1px solid var(--line-strong, var(--line)); border-radius: var(--radius-md); background: var(--paper); font: inherit; font-size: var(--fs-sm); cursor: pointer; text-align: left; }
+.br-marca[aria-pressed="true"] { background: var(--success); border-color: var(--success); color: #fff; font-weight: 600; }
+.br-marca:disabled { opacity: .6; cursor: progress; }
+.br-linha input[type="date"], .br-linha input[type="text"] { width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius-md); font: inherit; font-size: var(--fs-sm); background: var(--paper); }
+.br-quem { font-size: var(--fs-xs); color: var(--muted); }
+.br-novo { display: flex; gap: 8px; flex-wrap: wrap; align-items: end; }
+.br-novo label { display: grid; gap: 4px; font-size: var(--fs-sm); }
+.br-novo input { padding: 7px 10px; border: 1px solid var(--line); border-radius: var(--radius-md); font: inherit; background: var(--paper); }
+
+@media (max-width: 760px) {
+  .br-linha { grid-template-columns: 1fr 1fr; }
+  .br-busca { margin-left: 0; width: 100%; }
+}
+
+/* Folha de assinatura: fora da tela, só na impressão */
+.br-area-impressao { position: absolute; left: -99999px; visibility: hidden; }
+@media print {
+  body.imprimindo-brinde > *:not(.br-area-impressao) { display: none !important; }
+  html:has(body.imprimindo-brinde) { background: #fff !important; }
+  body.imprimindo-brinde { margin: 0 !important; background: #fff !important; }
+  body.imprimindo-brinde .br-area-impressao { position: static; left: auto; visibility: visible; color: #111; background: #fff; font-family: Arial, Helvetica, sans-serif; font-size: 10pt; }
+  .br-area-impressao h1 { font-size: 16pt; margin: 0 0 2mm; }
+  .br-folha-sub { margin: 0 0 5mm; color: #333; }
+  .br-folha-grupo { margin-bottom: 6mm; }
+  .br-folha-grupo h2 { font-size: 11pt; margin: 0 0 2mm; }
+  .br-area-impressao table { width: 100%; border-collapse: collapse; }
+  .br-area-impressao th, .br-area-impressao td { border: 0.3mm solid #444; padding: 2.2mm 2mm; text-align: left; }
+  .br-area-impressao th { background: #eee; }
+  .br-area-impressao tr { break-inside: avoid; }
+  .br-assina { width: 38%; }
+}

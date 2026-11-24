@@ -11064,3 +11064,39 @@ export type PlanejamentoRealizadoDeCaixa = {
 export function getPlanejamentoRealizadoDeCaixa(ano: number, anoCenario: number) {
   return request<PlanejamentoRealizadoDeCaixa>(`/planning/realizado-caixa?ano=${ano}&anoCenario=${anoCenario}`);
 }
+
+// ─── Brindes aos colaboradores (RH → Brindes) ────────────────────────────────────
+export type CampanhaBrinde = { id: string; nome: string; ano: number; observacao: string | null; entregues: number };
+export type ListaCampanhasBrinde = { hoje: string; ativos: number; campanhas: CampanhaBrinde[] };
+export type EntregaBrinde = { id: string; entregueEm: string; observacao: string | null; registradoPor: string | null };
+const JSON_HEADERS_BRINDE = { "Content-Type": "application/json" };
+export type PessoaBrinde = {
+  employeeId: string; nome: string; nomeCompleto: string; empresa: string | null; setor: string | null; cargo: string | null;
+  ativo: boolean; saidaEm: string | null; entrega: EntregaBrinde | null;
+};
+export type ResumoBrinde = { ativos: number; entregues: number; faltam: number; entreguesDeInativos: number };
+export type DetalheBrinde = {
+  hoje: string;
+  campanha: { id: string; nome: string; ano: number; observacao: string | null };
+  resumo: ResumoBrinde;
+  pessoas: PessoaBrinde[];
+};
+
+export function getCampanhasBrinde() {
+  return request<ListaCampanhasBrinde>("/payroll/brindes");
+}
+export function criarCampanhaBrinde(payload: { nome: string; ano: number; observacao?: string }) {
+  return request<{ id: string }>("/payroll/brindes", { method: "POST", headers: JSON_HEADERS_BRINDE, body: JSON.stringify(payload) });
+}
+export function getDetalheBrinde(id: string) {
+  return request<DetalheBrinde>(`/payroll/brindes/${id}`);
+}
+export function marcarEntregaBrinde(id: string, employeeId: string, payload: { entregueEm?: string; observacao?: string | null } = {}) {
+  return request<{ id: string }>(`/payroll/brindes/${id}/entregas/${employeeId}`, { method: "PUT", headers: JSON_HEADERS_BRINDE, body: JSON.stringify(payload) });
+}
+export function desfazerEntregaBrinde(id: string, employeeId: string) {
+  return request<{ ok: boolean }>(`/payroll/brindes/${id}/entregas/${employeeId}`, { method: "DELETE" });
+}
+export function marcarEntregasBrindeEmLote(id: string, payload: { employeeIds: string[]; entregueEm?: string }) {
+  return request<{ marcados: number; jaMarcadosOuInativos: number }>(`/payroll/brindes/${id}/entregas/lote`, { method: "POST", headers: JSON_HEADERS_BRINDE, body: JSON.stringify(payload) });
+}
