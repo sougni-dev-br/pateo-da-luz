@@ -1,5 +1,5 @@
 import type { PlanejamentoGrupoDeGasto, PlanejamentoLinhaDeGasto, PlanejamentoRealizadoDoGrupo } from "../../api/client";
-import { ROTULO_DO_GRUPO } from "./formato";
+import { pagoNoMesPadrao, ROTULO_DO_GRUPO } from "./formato";
 
 // Aplica o realizado do DRE às linhas de gasto do cenário. Mexe só na PRIMEIRA linha de cada grupo marcado (um grupo
 // com várias linhas não tem como ser dividido sozinho) e cria a linha se o grupo ainda não tem. Devolve cópias.
@@ -56,7 +56,8 @@ export function aplicarRealizado(
       grupo: sugestao.grupo,
       nome: nomeLivre(ROTULO_DO_GRUPO[sugestao.grupo] ?? sugestao.grupo, resultado),
       modo: sugestao.grupo === "TRIBUTOS" ? "PERCENTUAL" : "FIXO",
-      valores: mesesPreenchidos()
+      valores: mesesPreenchidos(),
+      pagoNoMes: pagoNoMesPadrao(sugestao.grupo)
     };
     const valores = valoresDaLinha(nova, sugestao, modo);
     if (valores === null) continue;

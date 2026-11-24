@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { gastosSchema, novoCenarioSchema, ordenadas, premissasSchema, servicoSchema } from "../planejamento-cenario-schema.js";
+import { caixaSchema, gastosSchema, novoCenarioSchema, ordenadas, premissasSchema, servicoSchema } from "../planejamento-cenario-schema.js";
+import { caixaPadrao } from "../planejamento-caixa.js";
 import { linhasPadrao } from "../planejamento-gastos.js";
 import { premissasNeutras } from "../planejamento-projecao.js";
 
@@ -68,5 +69,34 @@ describe("gastosSchema e servicoSchema", () => {
     expect(servicoSchema.safeParse(0.1).success).toBe(true);
     expect(servicoSchema.safeParse(1.2).success).toBe(false);
     expect(servicoSchema.safeParse(-0.1).success).toBe(false);
+  });
+});
+
+describe("caixaSchema e % pago no mês", () => {
+  it("aceita o padrão de caixa", () => {
+    expect(caixaSchema.safeParse(caixaPadrao()).success).toBe(true);
+  });
+
+  it("recusa mix que não soma 100%, forma repetida, prazo fora da faixa e taxa alta", () => {
+    const p = caixaPadrao();
+    expect(caixaSchema.safeParse({ ...p, formas: p.formas.map((f, i) => (i === 0 ? { ...f, mix: 0.5 } : f)) }).success).toBe(false);
+    expect(caixaSchema.safeParse({ ...p, formas: p.formas.map((f, i) => (i === 4 ? { ...f, forma: "PIX" } : f)) }).success).toBe(false);
+    expect(caixaSchema.safeParse({ ...p, formas: p.formas.map((f, i) => (i === 0 ? { ...f, prazoDias: 120 } : f)) }).success).toBe(false);
+    expect(caixaSchema.safeParse({ ...p, formas: p.formas.map((f, i) => (i === 0 ? { ...f, taxa: 0.5 } : f)) }).success).toBe(false);
+    expect(caixaSchema.safeParse({ ...p, comprasPrazoDias: -1 }).success).toBe(false);
+  });
+
+  it("herdado exige jan, fev e mar e não aceita negativo", () => {
+    const p = caixaPadrao();
+    expect(caixaSchema.safeParse({ ...p, herdado: { entradas: [1, 2], saidas: [0, 0, 0] } }).success).toBe(false);
+    expect(caixaSchema.safeParse({ ...p, herdado: { entradas: [-1, 0, 0], saidas: [0, 0, 0] } }).success).toBe(false);
+  });
+
+  it("linha de gasto sem % pago no mês assume 100%; fora de 0–100% é recusada", () => {
+    const base = { grupo: "OCUPACAO", nome: "Ocupação", modo: "FIXO", valores: Array(12).fill(1) };
+    const sem = gastosSchema.safeParse([base]);
+    expect(sem.success && sem.data[0].pagoNoMes).toBe(1);
+    expect(gastosSchema.safeParse([{ ...base, pagoNoMes: 1.2 }]).success).toBe(false);
+    expect(gastosSchema.safeParse([{ ...base, pagoNoMes: -0.1 }]).success).toBe(false);
   });
 });

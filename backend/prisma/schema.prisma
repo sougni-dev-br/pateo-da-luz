@@ -4577,6 +4577,8 @@ model PlanejamentoCenario {
   premissas   Json
   // % de serviço sobre as vendas (fração). Abate da folha de pagamento informada; null = não considerar.
   servicoPercentual Decimal? @db.Decimal(6, 4)
+  // Premissas do regime de caixa (Fase 3c-1): formas de pagamento, prazos, saldo inicial. null = padrão.
+  caixa       Json?
   gastos      PlanejamentoGastoLinha[]
   createdById String?
   createdAt   DateTime @default(now())
@@ -4594,6 +4596,8 @@ model PlanejamentoGastoLinha {
   nome      String
   modo      String
   valores   Json
+  // Fração do gasto paga no mês do gasto; o resto sai no mês seguinte (regime de caixa).
+  pagoNoMes Decimal             @default(1) @db.Decimal(5, 4)
   ordem     Int                 @default(0)
   createdAt DateTime            @default(now())
   updatedAt DateTime            @updatedAt

@@ -81,3 +81,15 @@ export function textoParaReais(texto: string): number | null {
   const n = Number(normalizado);
   return Number.isFinite(n) ? Math.round(n * 100) / 100 : null;
 }
+
+/** % do gasto pago no mês do gasto, por grupo, para linhas novas (o resto sai no mês seguinte). Espelha o servidor; são suposições editáveis. */
+const PAGO_NO_MES_PADRAO: Record<string, number> = { OCUPACAO: 0, TARIFAS_PUBLICAS: 0, FOLHA: 0.4, TRIBUTOS: 0 };
+export const pagoNoMesPadrao = (grupo: string): number => PAGO_NO_MES_PADRAO[grupo] ?? 1;
+
+export const ROTULO_DA_FORMA: Record<string, string> = { DINHEIRO: "Dinheiro", PIX: "PIX", DEBITO: "Débito", CREDITO: "Crédito", VOUCHER: "Voucher" };
+
+/** Dias inteiros e não negativos ("30" → 30); null se não for. */
+export function textoParaDias(texto: string): number | null {
+  const limpo = texto.trim();
+  return /^\d{1,3}$/.test(limpo) ? Number(limpo) : null;
+}
