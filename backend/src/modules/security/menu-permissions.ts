@@ -587,7 +587,7 @@ function actionFromRequest(request: Request, menuId: MenuId): PermissionAction {
   // Planejamento: a prévia da projeção só calcula (POST por causa das premissas); não grava nada.
   if (menuId === "planning" && path === "/planning/projecao") return "view";
   // O realizado só serve a quem edita o cenário (a rota ainda exige acesso ao DRE).
-  if (menuId === "planning" && path === "/planning/realizado") return "edit";
+  if (menuId === "planning" && (path === "/planning/realizado" || path === "/planning/realizado-caixa")) return "edit";
 
   // Restaurar um registro cancelado desfaz uma exclusao: pede a acao de excluir.
   if (path.endsWith("/restore")) return "delete";

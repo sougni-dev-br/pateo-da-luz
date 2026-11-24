@@ -11042,3 +11042,25 @@ export type PlanejamentoRealizado = { ano: number; mesesEncerrados: number[]; gr
 export function getPlanejamentoRealizado(ano: number, ignorarSemLancamento: boolean) {
   return request<PlanejamentoRealizado>(`/planning/realizado?ano=${ano}&ignorarSemLancamento=${ignorarSemLancamento}`);
 }
+
+export type PlanejamentoPagoNoMesRealizado = {
+  grupo: PlanejamentoGrupoDeGasto;
+  pagoNoMes: number | null;
+  mesSeguinte: number | null;
+  depois: number | null;
+  base: number;
+};
+export type PlanejamentoRealizadoDeCaixa = {
+  ano: number;
+  mesesParaPrazo: number[];
+  mix: { formas: Record<PlanejamentoFormaDeRecebimento, number>; base: number } | null;
+  comprasPrazoDias: number | null;
+  comprasCobertura: number | null;
+  pagoNoMes: PlanejamentoPagoNoMesRealizado[];
+  herdado: { entradas: number[]; saidas: number[] };
+  avisos: string[];
+};
+
+export function getPlanejamentoRealizadoDeCaixa(ano: number, anoCenario: number) {
+  return request<PlanejamentoRealizadoDeCaixa>(`/planning/realizado-caixa?ano=${ano}&anoCenario=${anoCenario}`);
+}
