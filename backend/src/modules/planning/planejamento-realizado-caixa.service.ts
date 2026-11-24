@@ -119,6 +119,7 @@ async function prazoDeCompras(ano: number, meses: readonly number[]): Promise<{ 
     SELECT SUM(p."totalAmount") AS "total"
     FROM "Purchase" p
     WHERE p.status = 'ACTIVE'
+      AND ${semParcelamentoForaDoDre}
       AND EXISTS (SELECT 1 FROM "PurchaseItem" px WHERE px."purchaseId" = p.id)
       AND p."competenceYear" = ${ano}
       AND p."competenceMonth" IN (${emMeses(meses)})
@@ -142,44 +143,51 @@ async function prazoDeCompras(ano: number, meses: readonly number[]): Promise<{ 
   return { prazo: prazoMedioDasCompras(Number(r?.ponderado ?? 0), medido), cobertura: coberturaDoPrazo(medido, Number(totalDasCompras?.total ?? 0)) };
 }
 
-/** O que já está lançado com vencimento em jan–mar do ano do cenário: contas a pagar abertas e recebíveis abertos. */
+/**
+ * Mês (1 a 3) em que um título aberto cai no caixa do cenário. O que venceu ANTES de 1º de janeiro e continua aberto
+ * (atrasado) ainda vai ser pago/recebido: entra em janeiro, em vez de ficar de fora da conta.
+ */
+const mesHerdado = (coluna: string, inicio: Date) =>
+  Prisma.sql`CASE WHEN ${Prisma.raw(coluna)} < ${inicio} THEN 1 ELSE EXTRACT(MONTH FROM ${Prisma.raw(coluna)})::int END`;
+
+/** O que já está lançado e aberto com vencimento até março do ano do cenário (inclusive o atrasado, somado a janeiro). */
 async function herdadoDoAno(anoDoCenario: number): Promise<{ entradas: number[]; saidas: number[] }> {
   const inicio = new Date(Date.UTC(anoDoCenario, 0, 1));
   const fim = new Date(Date.UTC(anoDoCenario, MESES_HERDADOS, 1));
   const [aPagar, folhaAPagar, tributosAPagar, aReceber] = await Promise.all([
     // Caixa NÃO exclui o título de ciclo/cartão/reembolso: ele é o registro que leva o valor ao Contas a Pagar.
     prisma.$queryRaw<Array<{ mes: number; total: Prisma.Decimal | null }>>`
-      SELECT EXTRACT(MONTH FROM pi."dueDate")::int AS "mes", SUM(COALESCE(pi.amount, 0)) AS "total"
+      SELECT ${mesHerdado('pi."dueDate"', inicio)} AS "mes", SUM(COALESCE(pi.amount, 0)) AS "total"
       FROM "PaymentInstallment" pi
       JOIN "Purchase" p ON p.id = pi."purchaseId"
       WHERE p.status = 'ACTIVE'
         AND pi.status NOT IN ('CANCELLED', 'PAID')
         AND pi."paidDate" IS NULL
         AND pi."reversedAt" IS NULL
-        AND pi."dueDate" >= ${inicio} AND pi."dueDate" < ${fim}
+        AND pi."dueDate" < ${fim}
       GROUP BY 1
     `,
     prisma.$queryRaw<Array<{ mes: number; total: Prisma.Decimal | null }>>`
-      SELECT EXTRACT(MONTH FROM pit."dueDate")::int AS "mes", SUM(pit.amount) AS "total"
+      SELECT ${mesHerdado('pit."dueDate"', inicio)} AS "mes", SUM(pit.amount) AS "total"
       FROM "PayrollItem" pit
       WHERE pit."deletedAt" IS NULL AND pit.status NOT IN ('CANCELED', 'PAID') AND pit."paymentDate" IS NULL
-        AND pit."dueDate" >= ${inicio} AND pit."dueDate" < ${fim}
+        AND pit."dueDate" < ${fim}
       GROUP BY 1
     `,
     prisma.$queryRaw<Array<{ mes: number; total: Prisma.Decimal | null }>>`
-      SELECT EXTRACT(MONTH FROM tp."dueDate")::int AS "mes", SUM(tp.amount) AS "total"
+      SELECT ${mesHerdado('tp."dueDate"', inicio)} AS "mes", SUM(tp.amount) AS "total"
       FROM "TaxPayment" tp
       WHERE tp."deletedAt" IS NULL AND tp.status NOT IN ('CANCELED', 'PAID') AND tp."paymentDate" IS NULL
-        AND tp."dueDate" >= ${inicio} AND tp."dueDate" < ${fim}
+        AND tp."dueDate" < ${fim}
       GROUP BY 1
     `,
     prisma.$queryRaw<Array<{ mes: number; total: Prisma.Decimal | null }>>`
-      SELECT EXTRACT(MONTH FROM r."expectedDate")::int AS "mes", SUM(GREATEST(r."netAmount" - COALESCE(r."paidAmount", 0), 0)) AS "total"
+      SELECT ${mesHerdado('r."expectedDate"', inicio)} AS "mes", SUM(GREATEST(r."netAmount" - COALESCE(r."paidAmount", 0), 0)) AS "total"
       FROM "Receivable" r
       WHERE r.status IN ('OPEN', 'PARTIALLY_RECEIVED', 'LATE')
         AND r."cancelledAt" IS NULL
         AND r."sourceType" IN ('EVENT', 'DIRECT', 'OTHER')
-        AND r."expectedDate" >= ${inicio} AND r."expectedDate" < ${fim}
+        AND r."expectedDate" < ${fim}
       GROUP BY 1
     `
   ]);

@@ -66,7 +66,7 @@ describe("CaixaEditor", () => {
 
   it("mix que não fecha 100% avisa na tela", () => {
     montar({ ...padrao(), formas: padrao().formas.map((f, i) => (i === 0 ? { ...f, mix: 0.4 } : f)) });
-    expect(screen.getByText(/precisa somar 100%/)).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(/O mix soma 130%: sobram 30 pontos para fechar 100%.*não pode ser salvo/);
   });
 
   it("saldo inicial, prazo das compras e herdados são editáveis", () => {

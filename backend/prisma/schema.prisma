@@ -1316,6 +1316,7 @@ model PaymentInstallment {
   rawValue              String?
   createdAt             DateTime            @default(now())
 
+  @@index([purchaseId])
   @@index([dueDate])
   @@index([sourceType])
   @@index([paidDate])
@@ -4559,7 +4560,7 @@ model SalaoHistoricoMensal {
   clientesAlmoco Int
   clientesJantar Int
   servico        Decimal  @default(0) @db.Decimal(14, 2)
-  // De onde veio o número (ex.: "Caixa0125.xls"), só para a pessoa conferir.
+  // De onde veio o número (ex.: "fechamento-exemplo.xls"), só para a pessoa conferir.
   fonte          String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
@@ -4603,5 +4604,4 @@ model PlanejamentoGastoLinha {
   updatedAt DateTime            @updatedAt
 
   @@unique([cenarioId, nome], map: "planejamentogastolinha_cenario_nome_key")
-  @@index([cenarioId])
 }

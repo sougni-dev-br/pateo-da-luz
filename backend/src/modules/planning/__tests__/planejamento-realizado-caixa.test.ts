@@ -11,6 +11,22 @@ describe("montarMix", () => {
     expect(m!.base).toBe(4);
   });
 
+  it("terço em três formas: o resto de 0,0001 vai para a maior parcela e a soma fecha em 1", () => {
+    const m = montarMix({ DINHEIRO: 1, PIX: 1, DEBITO: 1, CREDITO: 0, VOUCHER: 0 });
+    const f = m!.formas;
+    expect(f.DINHEIRO).toBe(0.3334);
+    expect(f.PIX).toBe(0.3333);
+    expect(f.DEBITO).toBe(0.3333);
+    expect(Math.round((f.DINHEIRO + f.PIX + f.DEBITO + f.CREDITO + f.VOUCHER) * 10000)).toBe(10000);
+  });
+
+  it("empate de maior parcela: o resto fica com a primeira forma da lista", () => {
+    const m = montarMix({ DINHEIRO: 0, PIX: 1, DEBITO: 0, CREDITO: 1, VOUCHER: 1 });
+    expect(m!.formas.PIX).toBe(0.3334);
+    expect(m!.formas.CREDITO).toBe(0.3333);
+    expect(m!.formas.VOUCHER).toBe(0.3333);
+  });
+
   it("mix de valores reais mantém as proporções", () => {
     const m = montarMix({ DINHEIRO: 10000, PIX: 30000, DEBITO: 25000, CREDITO: 30000, VOUCHER: 5000 });
     expect(m!.formas.PIX).toBe(0.3);
@@ -68,7 +84,7 @@ describe("prazoMedioDasCompras e meses maduros", () => {
     expect(mesesMadurosParaPrazo(2027, "2026-11-23")).toEqual([]);
   });
 
-  it("na virada do ano, nov e dez do ano anterior ainda não estão maduros", () => {
+  it("na virada do ano, só dezembro do ano anterior ainda não está maduro", () => {
     expect(mesesMadurosParaPrazo(2026, "2027-01-15")).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
     expect(mesesMadurosParaPrazo(2026, "2027-02-01")).toHaveLength(12);
   });

@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { diasDoMes, erpCobreOMes, mesclarFontes, mesesEncerradosAte, montarComparativo, variacao, type MesDoSalao } from "../planejamento-comparativo.js";
 
-// Valores reais de jan e fev da planilha de planejamento (Base mensal), sem serviço.
-const jan25: MesDoSalao = { ano: 2025, mes: 1, vendasAlmoco: 12960.21, vendasJantar: 32954.72, clientesAlmoco: 166, clientesJantar: 454, servico: 4554.72, fonte: "HISTORICO" };
-const jan26: MesDoSalao = { ano: 2026, mes: 1, vendasAlmoco: 25838.72, vendasJantar: 42233.67, clientesAlmoco: 332, clientesJantar: 640, servico: 7051.28, fonte: "ERP" };
-const fev25: MesDoSalao = { ano: 2025, mes: 2, vendasAlmoco: 86678.26, vendasJantar: 46836.43, clientesAlmoco: 1009, clientesJantar: 656, servico: 13210.88, fonte: "HISTORICO" };
-const fev26: MesDoSalao = { ano: 2026, mes: 2, vendasAlmoco: 66344.63, vendasJantar: 40291.59, clientesAlmoco: 797, clientesJantar: 616, servico: 10552.05, fonte: "ERP" };
+// Valores fictícios e redondos de jan e fev (nunca colocar dado real do restaurante aqui: o repositório é público).
+const jan25: MesDoSalao = { ano: 2025, mes: 1, vendasAlmoco: 10000, vendasJantar: 30000, clientesAlmoco: 100, clientesJantar: 300, servico: 1000, fonte: "HISTORICO" };
+const jan26: MesDoSalao = { ano: 2026, mes: 1, vendasAlmoco: 20000, vendasJantar: 40000, clientesAlmoco: 200, clientesJantar: 400, servico: 2000, fonte: "ERP" };
+const fev25: MesDoSalao = { ano: 2025, mes: 2, vendasAlmoco: 50000, vendasJantar: 30000, clientesAlmoco: 400, clientesJantar: 200, servico: 5000, fonte: "HISTORICO" };
+const fev26: MesDoSalao = { ano: 2026, mes: 2, vendasAlmoco: 40000, vendasJantar: 40000, clientesAlmoco: 400, clientesJantar: 400, servico: 4000, fonte: "ERP" };
 const mar25: MesDoSalao = { ...fev25, mes: 3 };
 const mar26: MesDoSalao = { ...fev26, mes: 3 };
 
@@ -36,21 +36,21 @@ describe("montarComparativo", () => {
     const { meses } = montarComparativo([jan25, jan26], 2025, 2026, encerrados, MES_ATUAL);
     const jan = meses[0];
     expect(jan.comparavel).toBe(true);
-    expect(jan.base.vendas.total).toBe(45914.93);
-    expect(jan.comparado.vendas.total).toBe(68072.39);
-    expect(jan.variacao.vendas.total).toBeCloseTo(0.4826, 3);
-    expect(jan.base.clientes.total).toBe(620);
-    expect(jan.base.ticket.almoco).toBeCloseTo(78.07, 2);
-    expect(jan.comparado.ticket.jantar).toBeCloseTo(65.99, 2);
+    expect(jan.base.vendas.total).toBe(40000);
+    expect(jan.comparado.vendas.total).toBe(60000);
+    expect(jan.variacao.vendas.total).toBeCloseTo(0.5, 3);
+    expect(jan.base.clientes.total).toBe(400);
+    expect(jan.base.ticket.almoco).toBeCloseTo(100, 2);
+    expect(jan.comparado.ticket.jantar).toBeCloseTo(100, 2);
   });
 
   it("soma o acumulado e recalcula o ticket pela razão, não pela média dos tickets", () => {
     const { acumulado } = montarComparativo([jan25, jan26, fev25, fev26], 2025, 2026, encerrados, MES_ATUAL);
     expect(acumulado.mesesComparados).toEqual([1, 2]);
-    expect(acumulado.base.vendas.total).toBeCloseTo(45914.93 + 133514.69, 2);
-    expect(acumulado.base.clientes.total).toBe(620 + 1665);
-    expect(acumulado.base.ticket.total).toBeCloseTo((45914.93 + 133514.69) / (620 + 1665), 2);
-    const mediaSimples = (74.056 + 80.189) / 2;
+    expect(acumulado.base.vendas.total).toBeCloseTo(40000 + 80000, 2);
+    expect(acumulado.base.clientes.total).toBe(400 + 600);
+    expect(acumulado.base.ticket.total).toBeCloseTo((40000 + 80000) / (400 + 600), 2);
+    const mediaSimples = (100 + 133.33) / 2;
     expect(acumulado.base.ticket.total).not.toBeCloseTo(mediaSimples, 1);
   });
 
@@ -89,9 +89,9 @@ describe("montarComparativo", () => {
     expect(r.acumulado.base.ticket.total).toBeNull();
   });
 
-  it("calcula a variação do ticket sobre o valor sem arredondar (acumulado jan-out da planilha: +3,5%)", () => {
-    const base: MesDoSalao = { ano: 2025, mes: 1, vendasAlmoco: 1733691.25, vendasJantar: 575681.98, clientesAlmoco: 18959, clientesJantar: 7757, servico: 0, fonte: "HISTORICO" };
-    const comp: MesDoSalao = { ano: 2026, mes: 1, vendasAlmoco: 1625918.43, vendasJantar: 530814.73, clientesAlmoco: 16769, clientesJantar: 7326, servico: 0, fonte: "ERP" };
+  it("calcula a variação do ticket sobre o valor sem arredondar (+3,5%)", () => {
+    const base: MesDoSalao = { ano: 2025, mes: 1, vendasAlmoco: 1000000, vendasJantar: 500000, clientesAlmoco: 10000, clientesJantar: 5000, servico: 0, fonte: "HISTORICO" };
+    const comp: MesDoSalao = { ano: 2026, mes: 1, vendasAlmoco: 1000000, vendasJantar: 449000, clientesAlmoco: 9000, clientesJantar: 5000, servico: 0, fonte: "ERP" };
     const { acumulado } = montarComparativo([base, comp], 2025, 2026, new Set(["2025-01", "2026-01"]), "2026-11");
     expect(Math.round((acumulado.variacao.ticket.total ?? 0) * 1000) / 10).toBe(3.5);
   });
@@ -112,8 +112,22 @@ describe("montarComparativo", () => {
     expect(r.meses[0].comparavel).toBe(false);
     expect(r.meses[0].comparado.clientes.total).toBeNull();
     expect(r.meses[0].comparado.ticket.total).toBeNull();
-    expect(r.meses[0].comparado.vendas.total).toBe(68072.39);
+    expect(r.meses[0].comparado.vendas.total).toBe(60000);
     expect(r.acumulado.mesesComparados).toEqual([2]);
+  });
+
+  it("mês parcial em qualquer lado não é comparável, fica fora do acumulado e expõe o aviso", () => {
+    const parcial: MesDoSalao = { ...jan26, parcial: true };
+    const r = montarComparativo([jan25, parcial, fev25, fev26], 2025, 2026, encerrados, MES_ATUAL);
+    expect(r.meses[0].comparavel).toBe(false);
+    expect(r.meses[0].comparado.parcial).toBe(true);
+    expect(r.meses[0].base.parcial).toBe(false);
+    expect(r.meses[0].variacao.vendas.total).toBeNull();
+    expect(r.acumulado.mesesComparados).toEqual([2]);
+    // O mesmo vale quando o parcial é o ano-base.
+    const baseParcial = montarComparativo([{ ...jan25, parcial: true }, jan26], 2025, 2026, encerrados, MES_ATUAL);
+    expect(baseParcial.meses[0].comparavel).toBe(false);
+    expect(baseParcial.meses[0].base.parcial).toBe(true);
   });
 });
 
@@ -142,13 +156,19 @@ describe("mesclarFontes", () => {
     const r = mesclarFontes([erpParcial], [jan25]);
     expect(r).toHaveLength(1);
     expect(r[0].fonte).toBe("HISTORICO");
-    expect(r[0].vendasAlmoco).toBe(12960.21);
+    expect(r[0].vendasAlmoco).toBe(10000);
   });
 
-  it("sem histórico, o parcial do ERP é o que existe", () => {
+  it("sem histórico, o parcial do ERP é o que existe, marcado como parcial", () => {
     const r = mesclarFontes([erpParcial], []);
     expect(r).toHaveLength(1);
     expect(r[0].fonte).toBe("ERP");
+    expect(r[0].parcial).toBe(true);
+  });
+
+  it("mês cheio do ERP e do histórico não são parciais", () => {
+    expect(mesclarFontes([erpCheio], [])[0].parcial).toBe(false);
+    expect(mesclarFontes([], [jan25])[0].parcial).toBe(false);
   });
 
   it("histórico preenche os meses que o ERP não tem", () => {

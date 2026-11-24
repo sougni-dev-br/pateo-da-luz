@@ -10885,7 +10885,7 @@ export function gerarDecimoTerceiro(year: number, parcela: 1 | 2) {
 // ── Planejamento > Comparativo ano × ano do Salão ───────────────────────────
 export type PlanejamentoTurnos = { almoco: number | null; jantar: number | null; total: number | null };
 export type PlanejamentoFonte = "ERP" | "HISTORICO";
-export type PlanejamentoLado = { vendas: PlanejamentoTurnos; clientes: PlanejamentoTurnos; ticket: PlanejamentoTurnos; servico: number | null; fonte: PlanejamentoFonte | null };
+export type PlanejamentoLado = { vendas: PlanejamentoTurnos; clientes: PlanejamentoTurnos; ticket: PlanejamentoTurnos; servico: number | null; fonte: PlanejamentoFonte | null; parcial: boolean };
 export type PlanejamentoMes = {
   mes: number;
   emAndamento: boolean;
@@ -10923,7 +10923,7 @@ export type PlanejamentoPremissasDoMes = {
   ticketJantar: number;
   cmv: number | null;
 };
-export type PlanejamentoMotivoSemBase = "SEM_DADO" | "EM_ANDAMENTO" | "CLIENTES_INCOMPLETOS" | "TURNO_SEM_CLIENTES";
+export type PlanejamentoMotivoSemBase = "SEM_DADO" | "EM_ANDAMENTO" | "MES_PARCIAL" | "CLIENTES_INCOMPLETOS" | "TURNO_SEM_CLIENTES";
 export type PlanejamentoTurnosCheios = { almoco: number; jantar: number; total: number };
 export type PlanejamentoGrandezasProjetadas = { clientes: PlanejamentoTurnosCheios; ticket: PlanejamentoTurnosCheios; vendas: PlanejamentoTurnosCheios };
 export type PlanejamentoMesProjetado = {
@@ -11006,6 +11006,8 @@ export type PlanejamentoCenario = PlanejamentoCenarioResumo & {
   projecao: PlanejamentoProjecao;
   resultado: PlanejamentoResultado;
   caixa: PlanejamentoCaixa;
+  /** Dados gravados fora do formato que foram trocados pelo padrão na leitura: conferir antes de salvar. */
+  avisos?: string[];
 };
 
 export function listPlanejamentoCenarios() {

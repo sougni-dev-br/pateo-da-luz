@@ -1,13 +1,17 @@
-import { History, Plus, Trash2 } from "lucide-react";
+import { History, Plus } from "lucide-react";
 import { useState } from "react";
-import type { PlanejamentoGrupoDeGasto, PlanejamentoLinhaDeGasto, PlanejamentoModoDoGasto } from "../../api/client";
-import { Button, IconButton, Select, Table, TextField } from "../../design-system";
+import type { PlanejamentoGrupoDeGasto, PlanejamentoLinhaDeGasto, PlanejamentoModoDoGasto, PlanejamentoProjecao, PlanejamentoResultado } from "../../api/client";
+import { Button, Select, TextField } from "../../design-system";
 import { CampoNumerico } from "./CampoNumerico";
+import { useConfirmacao } from "./Confirmacao";
+import type { RealizadoDoAnoBase } from "./gastosLeitura";
+import { GastosCartoes, GastosTabela, type PropsDasLinhas } from "./GastosLinhas";
 import { RealizadoDialog } from "./RealizadoDialog";
-import { NOMES_DOS_MESES_CURTOS, pagoNoMesPadrao, percentualParaTexto, reaisParaTexto, ROTULO_DO_GRUPO, textoParaPercentual, textoParaReais } from "./formato";
+import { pagoNoMesPadrao, percentualParaTexto, ROTULO_DO_GRUPO, textoParaPercentual } from "./formato";
+import { useLargura } from "./useLargura";
 
-// Gastos do cenário, uma linha por tipo: valor fixo por mês (R$) ou % das vendas. A coluna "Todos" preenche
-// os 12 meses de uma vez. A folha é informada TOTAL (com o serviço dentro); o serviço abate dela no resultado.
+// Gastos do cenário, uma linha por tipo: valor fixo por mês (R$) ou % das vendas. "Todos" preenche os 12 meses de
+// uma vez. A folha é informada TOTAL (com o serviço dentro); o serviço abate dela no resultado.
 
 const MAXIMO_DE_LINHAS = 40;
 const GRUPOS = Object.keys(ROTULO_DO_GRUPO) as PlanejamentoGrupoDeGasto[];
@@ -16,15 +20,14 @@ const OPCOES_DE_MODO: { value: PlanejamentoModoDoGasto; label: string }[] = [
   { value: "FIXO", label: "Valor fixo (R$)" },
   { value: "PERCENTUAL", label: "% das vendas" }
 ];
+const dentroDoPercentual = (v: number) => v >= 0 && v <= 1;
+/** Abaixo disso a planilha de meio ano não cabe sem rolar: cada linha vira um cartão com os 12 meses em grade. */
+const LARGURA_DA_PLANILHA = 1040;
 
 /** Uma linha zerada por grupo; tributos nasce como % das vendas. Espelha o `linhasPadrao` do servidor. */
 export function linhasPadraoDeGasto(): PlanejamentoLinhaDeGasto[] {
   return GRUPOS.map((grupo) => ({ grupo, nome: ROTULO_DO_GRUPO[grupo], modo: grupo === "TRIBUTOS" ? "PERCENTUAL" : "FIXO", valores: Array(12).fill(0) as number[], pagoNoMes: pagoNoMesPadrao(grupo) }));
 }
-
-const VALOR_MAXIMO_EM_REAIS = 1_000_000_000;
-const dentroDoReal = (v: number) => v >= 0 && v <= VALOR_MAXIMO_EM_REAIS;
-const dentroDoPercentual = (v: number) => v >= 0 && v <= 1;
 
 type Props = {
   anoBase: number;
@@ -33,13 +36,18 @@ type Props = {
   desabilitado: boolean;
   onMudarGastos: (proximos: PlanejamentoLinhaDeGasto[]) => void;
   onMudarServico: (valor: number | null) => void;
+  projecao?: PlanejamentoProjecao | null;
+  resultado?: PlanejamentoResultado | null;
+  realizado?: RealizadoDoAnoBase;
 };
 
-export function GastosEditor({ anoBase, gastos, servicoPercentual, desabilitado, onMudarGastos, onMudarServico }: Props) {
+export function GastosEditor({ anoBase, gastos, servicoPercentual, desabilitado, onMudarGastos, onMudarServico, projecao, resultado, realizado }: Props) {
+  const { ref, largura } = useLargura<HTMLDivElement>();
   const [grupo, setGrupo] = useState<PlanejamentoGrupoDeGasto>("OUTROS");
   const [modo, setModo] = useState<PlanejamentoModoDoGasto>("FIXO");
   const [nome, setNome] = useState("");
   const [dialogoRealizado, setDialogoRealizado] = useState(false);
+  const { confirmar, dialogo } = useConfirmacao();
 
   const nomeJaExiste = gastos.some((g) => g.nome.trim().toLowerCase() === nome.trim().toLowerCase());
   const podeAdicionar = !desabilitado && nome.trim() !== "" && !nomeJaExiste && gastos.length < MAXIMO_DE_LINHAS;
@@ -54,96 +62,68 @@ export function GastosEditor({ anoBase, gastos, servicoPercentual, desabilitado,
     setNome("");
   }
 
-  const mudarPagoNoMes = (indice: number, valor: number | null) => onMudarGastos(gastos.map((g, i) => (i === indice ? { ...g, pagoNoMes: valor ?? 1 } : g)));
-  const valorComum = (g: PlanejamentoLinhaDeGasto): number | null => (g.valores.every((v) => v === g.valores[0]) ? g.valores[0] : null);
+  async function redefinirPagoNoMes() {
+    const ok = await confirmar({ titulo: "Voltar o % pago no mês ao padrão?", texto: "Vale para todas as linhas, inclusive as que você ajustou à mão. Os valores dos meses não mudam.", acao: "Voltar ao padrão" });
+    if (ok) onMudarGastos(gastos.map((g) => ({ ...g, pagoNoMes: pagoNoMesPadrao(g.grupo) })));
+  }
+
+  const linhas: PropsDasLinhas = {
+    anoBase, gastos, desabilitado, projecao, resultado, realizado,
+    onMudarLinha: mudarLinha,
+    onMudarPago: (indice, valor) => onMudarGastos(gastos.map((g, i) => (i === indice ? { ...g, pagoNoMes: valor ?? 1 } : g))),
+    onRemover: (indice) => onMudarGastos(gastos.filter((_, k) => k !== indice))
+  };
 
   return (
     <div className="plan-gastos">
-      {!desabilitado && (
-        <div className="plan-barra">
-          <Button variant="secondary" onClick={() => setDialogoRealizado(true)}><History size={16} aria-hidden /> Preencher com o realizado de {anoBase}</Button>
-          <Button variant="secondary" title="Sobrescreve o % pago no mês de TODAS as linhas, inclusive as que você editou à mão" onClick={() => onMudarGastos(gastos.map((g) => ({ ...g, pagoNoMes: pagoNoMesPadrao(g.grupo) })))}>Redefinir % pago no mês (padrão)</Button>
+      <div className="plan-campos-soltos plan-gastos-topo">
+        <div className="plan-campo-solto">
+          <label className="plan-campo-solto-rotulo" htmlFor="plan-servico">Serviço sobre as vendas</label>
+          <span className="plan-campo-com-unidade">
+            <CampoNumerico
+              id="plan-servico"
+              valor={servicoPercentual}
+              rotulo="Serviço sobre as vendas, em %"
+              desabilitado={desabilitado}
+              aceitaVazio
+              interpretar={textoParaPercentual}
+              formatar={percentualParaTexto}
+              valido={dentroDoPercentual}
+              onMudar={onMudarServico}
+            />
+            <span className="plan-unidade" aria-hidden>%</span>
+          </span>
+          <span className="plan-campo-solto-ajuda">Abate da folha (que é a total, com o serviço dentro). Vazio = não abater.</span>
         </div>
-      )}
-
-      <div className="plan-servico">
-        <span className="plan-servico-rotulo">Serviço sobre as vendas (%)</span>
-        <CampoNumerico
-          valor={servicoPercentual}
-          rotulo="Serviço sobre as vendas, em %"
-          desabilitado={desabilitado}
-          aceitaVazio
-          interpretar={textoParaPercentual}
-          formatar={percentualParaTexto}
-          valido={dentroDoPercentual}
-          onMudar={onMudarServico}
-        />
-        <span className="plan-sub">Abate da folha informada abaixo (a folha é a total, com o serviço dentro). Vazio = não abater.</span>
+        {!desabilitado && (
+          <div className="plan-barra plan-gastos-acoes">
+            <Button variant="secondary" onClick={() => setDialogoRealizado(true)}><History size={16} aria-hidden /> Preencher com o realizado de {anoBase}</Button>
+            <button type="button" className="plan-link" onClick={() => void redefinirPagoNoMes()}>Redefinir % pago no mês</button>
+          </div>
+        )}
+        {realizado?.erro && <p className="plan-nota-atencao plan-campo-solto-nota">O realizado de {anoBase} por grupo não carregou ({realizado.erro.replace(/\.$/, "")}); as linhas seguem editáveis, só sem a referência.</p>}
       </div>
 
       {servicoPercentual !== null && servicoPercentual > 0 && !gastos.some((g) => g.grupo === "FOLHA") && (
-        <p className="plan-sub">O serviço só abate de uma linha do grupo Folha de pagamento; sem ela, ele não muda o resultado.</p>
+        <p className="plan-nota-atencao">O serviço só abate de uma linha do grupo Folha de pagamento; sem ela, ele não muda o resultado.</p>
       )}
 
-      <div className="plan-quadro plan-quadro-gastos">
-        <Table aria-label="Gastos do cenário por mês">
-          <Table.Head>
-            <Table.Row>
-              <Table.Th scope="col" className="plan-col-rotulo">Gasto</Table.Th>
-              <Table.Th align="right" title="Parte do gasto paga no mês do gasto (regime de caixa); o resto sai no mês seguinte">Pago no mês %</Table.Th>
-              <Table.Th align="right">Todos</Table.Th>
-              {NOMES_DOS_MESES_CURTOS.map((m) => <Table.Th key={m} align="right">{m}</Table.Th>)}
-              <Table.Th align="right"><span className="plan-sr">Remover</span></Table.Th>
-            </Table.Row>
-          </Table.Head>
-          <Table.Body>
-            {gastos.map((g, i) => {
-              const percentual = g.modo === "PERCENTUAL";
-              const campo = (valor: number | null, rotulo: string, onMudar: (v: number | null) => void) => (
-                <CampoNumerico
-                  valor={valor}
-                  rotulo={rotulo}
-                  desabilitado={desabilitado}
-                  interpretar={percentual ? textoParaPercentual : textoParaReais}
-                  formatar={percentual ? percentualParaTexto : reaisParaTexto}
-                  valido={percentual ? dentroDoPercentual : dentroDoReal}
-                  largura={percentual ? 64 : 88}
-                  onMudar={onMudar}
-                />
-              );
-              return (
-                <Table.Row key={g.nome}>
-                  <Table.Th scope="row" className="plan-col-rotulo">
-                    {g.nome}
-                    <span className="plan-sub plan-gasto-meta">{ROTULO_DO_GRUPO[g.grupo]} · {percentual ? "% das vendas" : "R$ por mês"}</span>
-                  </Table.Th>
-                  <Table.Td align="right">
-                    <CampoNumerico valor={g.pagoNoMes} rotulo={`${g.nome}, % pago no mês`} desabilitado={desabilitado} interpretar={textoParaPercentual} formatar={percentualParaTexto} valido={dentroDoPercentual} largura={64} onMudar={(v) => mudarPagoNoMes(i, v)} />
-                  </Table.Td>
-                  <Table.Td align="right">{campo(valorComum(g), `${g.nome}, todos os meses`, (v) => mudarLinha(i, "todos", v))}</Table.Td>
-                  {g.valores.map((valor, m) => (
-                    <Table.Td key={m} align="right">{campo(valor, `${g.nome} em ${NOMES_DOS_MESES_CURTOS[m]}`, (v) => mudarLinha(i, m, v))}</Table.Td>
-                  ))}
-                  <Table.Td align="right">
-                    {!desabilitado && <IconButton variant="danger" size="sm" icon={<Trash2 size={16} aria-hidden />} label={`Remover ${g.nome}`} onClick={() => onMudarGastos(gastos.filter((_, k) => k !== i))} />}
-                  </Table.Td>
-                </Table.Row>
-              );
-            })}
-          </Table.Body>
-        </Table>
+      <div ref={ref} className="plan-gastos-linhas">
+        {largura >= LARGURA_DA_PLANILHA ? <GastosTabela {...linhas} /> : <GastosCartoes {...linhas} />}
       </div>
 
+      {dialogo}
       <RealizadoDialog aberto={dialogoRealizado} anoBase={anoBase} gastos={gastos} onFechar={() => setDialogoRealizado(false)} onAplicar={onMudarGastos} />
 
       {!desabilitado && (
-        <div className="plan-nova-linha">
+        <fieldset className="plan-nova-linha">
+          <legend className="plan-nova-linha-titulo">Adicionar linha de gasto</legend>
           {gastos.length === 0 && <Button variant="secondary" onClick={() => onMudarGastos(linhasPadraoDeGasto())}>Usar as linhas padrão</Button>}
-          <Select aria-label="Grupo do gasto" value={grupo} onChange={(e) => setGrupo(e.target.value as PlanejamentoGrupoDeGasto)} options={OPCOES_DE_GRUPO} containerClassName="plan-filtro" />
-          <Select aria-label="Forma de cálculo" value={modo} onChange={(e) => setModo(e.target.value as PlanejamentoModoDoGasto)} options={OPCOES_DE_MODO} containerClassName="plan-filtro" />
-          <TextField aria-label="Nome da nova linha de gasto" placeholder="Nome da nova linha" value={nome} maxLength={60} error={nomeJaExiste ? "Já existe uma linha com esse nome." : undefined} onChange={(e) => setNome(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && podeAdicionar) { e.preventDefault(); adicionar(); } }} />
+          <Select label="Grupo" value={grupo} onChange={(e) => setGrupo(e.target.value as PlanejamentoGrupoDeGasto)} options={OPCOES_DE_GRUPO} containerClassName="plan-filtro" />
+          <Select label="Forma de cálculo" value={modo} onChange={(e) => setModo(e.target.value as PlanejamentoModoDoGasto)} options={OPCOES_DE_MODO} containerClassName="plan-filtro" />
+          <TextField label="Nome da nova linha de gasto" value={nome} maxLength={60} containerClassName="plan-filtro-largo" hint={gastos.length >= MAXIMO_DE_LINHAS ? `Limite de ${MAXIMO_DE_LINHAS} linhas atingido.` : undefined} error={nomeJaExiste ? "Já existe uma linha com esse nome." : undefined} onChange={(e) => setNome(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && podeAdicionar) { e.preventDefault(); adicionar(); } }} />
           <Button variant="secondary" disabled={!podeAdicionar} onClick={adicionar}><Plus size={16} aria-hidden /> Adicionar linha</Button>
-        </div>
+        </fieldset>
       )}
     </div>
   );

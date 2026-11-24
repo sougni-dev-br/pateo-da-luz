@@ -103,11 +103,17 @@ function pontoDeEquilibrio(d: DadosDoEquilibrio): number | null {
   const denominadorA = semAbatimento + d.servico;
   const vendasA = denominadorA > 0 ? d.fixos / denominadorA : null;
   const folgaDoTeto = d.servico - d.folhaPercentual;
-  if (vendasA !== null && (folgaDoTeto <= 0 || vendasA * folgaDoTeto <= d.folhaFixa)) return vendasA;
+  // Sem folga o serviço nunca passa do teto: só o trecho A existe e, sem solução nele, não há equilíbrio.
+  if (folgaDoTeto <= 0) return vendasA;
+  if (vendasA !== null && vendasA * folgaDoTeto <= d.folhaFixa) return vendasA;
 
-  // Trecho B: a folha já foi toda abatida (abatimento = folhaFixa + folhaPercentual × V).
+  // Trecho B: a folha já foi toda abatida (abatimento = folhaFixa + folhaPercentual × V); só vale se o serviço
+  // realmente chegou ao teto nesse ponto.
   const denominadorB = semAbatimento + d.folhaPercentual;
-  return denominadorB > 0 ? (d.fixos - d.folhaFixa) / denominadorB : null;
+  if (denominadorB <= 0) return null;
+  const vendasB = (d.fixos - d.folhaFixa) / denominadorB;
+  const valido = Number.isFinite(vendasB) && vendasB >= 0 && vendasB * folgaDoTeto >= d.folhaFixa;
+  return valido ? vendasB : null;
 }
 
 export function montarResultado(projecao: Projecao, linhas: readonly LinhaDeGasto[], servicoPercentual: number | null): Resultado {

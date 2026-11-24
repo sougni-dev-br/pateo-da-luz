@@ -5,10 +5,10 @@ import { montarProjecao, premissasNeutras, type PremissasDoMes } from "../planej
 const mes = (m: number, sobre: Partial<MesDoSalao> = {}): MesDoSalao => ({
   ano: 2026,
   mes: m,
-  vendasAlmoco: 25839.4,
-  vendasJantar: 42235.27,
-  clientesAlmoco: 332,
-  clientesJantar: 640,
+  vendasAlmoco: 20000,
+  vendasJantar: 40000,
+  clientesAlmoco: 200,
+  clientesJantar: 400,
   servico: 0,
   fonte: "ERP",
   ...sobre
@@ -18,16 +18,16 @@ const com = (m: number, p: Partial<PremissasDoMes>): PremissasDoMes[] => premiss
 const NENHUM = new Set<number>();
 
 describe("montarProjecao", () => {
-  it("reproduz a planilha: jan/27 com +10% de clientes e +5% de ticket no almoço", () => {
-    // Jan/26 da planilha: almoço 332 clientes, ticket 77,83; jantar 640 clientes, ticket 65,99.
-    const base = mes(1, { vendasAlmoco: 332 * 77.82746987951808, vendasJantar: 640 * 65.990109375 });
+  it("reproduz a conta da planilha: jan/27 com +10% de clientes e +5% de ticket no almoço", () => {
+    // Base fictícia: almoço 200 clientes a 100; jantar 400 clientes a 100.
+    const base = mes(1, { vendasAlmoco: 200 * 100, vendasJantar: 400 * 100 });
     const r = montarProjecao(2026, [base], com(1, { clientesAlmoco: 0.1, ticketAlmoco: 0.05, clientesJantar: 0.1, ticketJantar: 0.05 }), NENHUM);
     const jan = r.meses[0];
-    expect(jan.projetado?.clientes.almoco).toBe(365.2);
-    expect(jan.projetado?.ticket.almoco).toBeCloseTo(81.72, 2);
-    expect(jan.projetado?.vendas.almoco).toBeCloseTo(29843.72, 1);
-    expect(jan.projetado?.vendas.jantar).toBeCloseTo(48779.89, 1);
-    expect(jan.projetado?.vendas.total).toBeCloseTo(78623.61, 1);
+    expect(jan.projetado?.clientes.almoco).toBe(220);
+    expect(jan.projetado?.ticket.almoco).toBeCloseTo(105, 2);
+    expect(jan.projetado?.vendas.almoco).toBeCloseTo(23100, 1);
+    expect(jan.projetado?.vendas.jantar).toBeCloseTo(46200, 1);
+    expect(jan.projetado?.vendas.total).toBeCloseTo(69300, 1);
   });
 
   it("premissas neutras devolvem o próprio ano-base", () => {
@@ -66,6 +66,18 @@ describe("montarProjecao", () => {
     expect(r.meses[3].motivoSemBase).toBe("TURNO_SEM_CLIENTES");
     expect(r.meses[4].motivoSemBase).toBe("SEM_DADO");
     expect(r.total.meses).toEqual([1]);
+  });
+
+  it("mês parcial do ERP (sem histórico que o substitua) não serve de base", () => {
+    const r = montarProjecao(2026, [mes(1, { parcial: true }), mes(2)], premissasNeutras(), NENHUM);
+    expect(r.meses[0].motivoSemBase).toBe("MES_PARCIAL");
+    expect(r.meses[0].projetado).toBeNull();
+    expect(r.total.meses).toEqual([2]);
+  });
+
+  it("o mês corrente continua EM_ANDAMENTO mesmo sendo parcial", () => {
+    const r = montarProjecao(2026, [mes(1, { parcial: true })], premissasNeutras(), new Set([1]));
+    expect(r.meses[0].motivoSemBase).toBe("EM_ANDAMENTO");
   });
 
   it("ignora meses de outro ano", () => {
