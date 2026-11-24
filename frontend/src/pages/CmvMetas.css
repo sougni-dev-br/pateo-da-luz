@@ -1,0 +1,46 @@
+/* ═══════════════════════════════════════════════════════════════════
+   CMV → Metas de CMV — prefixo mt-. Só tokens de styles/tokens.
+═══════════════════════════════════════════════════════════════════ */
+
+.mt-tela { display: grid; gap: 16px; min-width: 0; container-type: inline-size; }
+.mt-tela :is(button, a, input, select, textarea):focus-visible { outline: 2px solid var(--gold-dark); outline-offset: 2px; }
+.mt-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.mt-ajuda { margin: 0; color: var(--muted); font-size: var(--fs-sm); }
+.mt-sub { font-size: var(--fs-xs); color: var(--muted); }
+
+.mt-topo { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.mt-topo h2 { margin: 0; font-size: var(--fs-h2); }
+.mt-topo p { margin: 2px 0 0; color: var(--muted); font-size: var(--fs-sm); max-width: 62ch; }
+.mt-topo-acoes { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; }
+
+.mt-cartao { display: grid; gap: 10px; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--paper-soft); }
+.mt-cartao h3, .mt-bloco h3 { margin: 0; font-size: var(--fs-base); }
+.mt-form { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+.mt-acoes { display: flex; gap: 8px; }
+
+.mt-resumo { display: grid; gap: 14px; grid-template-columns: minmax(260px, 1.2fr) minmax(260px, 1fr); }
+@container (max-width: 700px) { .mt-resumo { grid-template-columns: 1fr; } }
+
+/* Painel grande do mês: a cor da borda é o semáforo, o número é o protagonista. */
+.mt-destaque { display: grid; gap: 6px; align-content: start; padding: 16px 18px; border: 1px solid var(--line); border-left-width: 6px; border-radius: var(--radius-lg); background: var(--paper-soft); }
+.mt-destaque strong { font-size: 2.6rem; line-height: 1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.mt-destaque.mt-verde { border-left-color: var(--success, #2e7d4f); }
+.mt-destaque.mt-amarelo { border-left-color: var(--warning, #c58a00); }
+.mt-destaque.mt-vermelho { border-left-color: var(--danger, #b3261e); }
+.mt-destaque.mt-sem_dados { border-left-color: var(--line); }
+
+.mt-numeros { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 0; }
+.mt-numeros div { padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-md, 8px); }
+.mt-numeros dt { font-size: var(--fs-xs); color: var(--muted); }
+.mt-numeros dd { margin: 2px 0 0; font-size: var(--fs-lg, 1.1rem); font-variant-numeric: tabular-nums; }
+
+.mt-barra { position: relative; height: 10px; margin-top: 6px; border-radius: 999px; background: var(--line); overflow: visible; }
+.mt-barra-cheia { height: 100%; border-radius: 999px; }
+.mt-barra-cheia.mt-verde { background: var(--success, #2e7d4f); }
+.mt-barra-cheia.mt-amarelo { background: var(--warning, #c58a00); }
+.mt-barra-cheia.mt-vermelho { background: var(--danger, #b3261e); }
+.mt-barra-marca { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--muted); opacity: 0.6; }
+.mt-barra-meta { width: 3px; opacity: 1; background: var(--ink, currentColor); }
+
+.mt-bloco { display: grid; gap: 8px; }
+.mt-estouro { color: var(--danger, #b3261e); font-weight: 600; }

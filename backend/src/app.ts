@@ -17,6 +17,7 @@ import { ifoodExpenseRouter } from "./modules/ifood-expenses/ifood-expense.route
 import { inventoryRouter } from "./modules/inventory/inventory.routes.js";
 import { conversoesPendentesRouter } from "./modules/inventory/conversoes-pendentes.routes.js";
 import { cmvRealRouter } from "./modules/cmv-real/cmv-real.routes.js";
+import { cmvMetasRouter } from "./modules/cmv-metas/cmv-metas.routes.js";
 import { cardsRouter } from "./modules/cards/cards.routes.js";
 import { masterDataRouter } from "./modules/master-data/master-data.routes.js";
 import { dishesRouter } from "./modules/dishes/dishes.routes.js";
@@ -208,6 +209,7 @@ app.use("/import-conflicts", importConflictRouter);
 // Antes de "/inventory": "requisitions/conversions" não pode ser lido como id de requisição.
 app.use("/inventory/requisitions/conversions", conversoesPendentesRouter);
 app.use("/inventory", inventoryRouter);
+app.use("/monthly/cmv-real/metas", cmvMetasRouter);
 app.use("/monthly/cmv-real", cmvRealRouter);
 app.use("/monthly-closure", monthlyClosureRouter);
 app.use("/monthly", monthlyRouter);
