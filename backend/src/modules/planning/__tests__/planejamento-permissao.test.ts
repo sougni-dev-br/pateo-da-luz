@@ -16,6 +16,7 @@ describe("permissões do Planejamento", () => {
 
   it("buscar o realizado do DRE pede Editar no Planejamento", async () => {
     expect(await ctx("GET", "/planning/realizado")).toEqual({ menuId: "planning", action: "edit" });
+    expect(await ctx("GET", "/planning/realizado-caixa")).toEqual({ menuId: "planning", action: "edit" });
   });
 
   it("criar, salvar e excluir cenário pedem criar, editar e excluir", async () => {

@@ -9,6 +9,7 @@ import { caixaPadrao, montarCaixa, type CaixaPremissas } from "./planejamento-ca
 import { GRUPOS_DE_GASTO, linhasPadrao, montarResultado, type LinhaDeGasto } from "./planejamento-gastos.js";
 import { ANO_MAXIMO, ANO_MINIMO } from "./planejamento-limites.js";
 import { premissasNeutras, type PremissasDoMes } from "./planejamento-projecao.js";
+import { carregarRealizadoDeCaixa } from "./planejamento-realizado-caixa.service.js";
 import { carregarComparativo, carregarProjecao, carregarRealizado } from "./planejamento.service.js";
 
 // Planejamento (comparativo e cenários de projeção do Salão). O acesso vem do módulo "planning"
@@ -119,6 +120,21 @@ planningRouter.get("/realizado", async (request, response) => {
   }
   const ignorar = String(request.query.ignorarSemLancamento ?? "true") !== "false";
   response.json(await carregarRealizado(ano.data, ignorar));
+});
+
+// Realizado de CAIXA do ano-base (mix de pagamento, prazo das compras, % pago no mês, herdado). Mesma regra do realizado
+// de gastos: exige editar em Planejamento e ver o DRE, porque devolve agregados financeiros da casa.
+planningRouter.get("/realizado-caixa", async (request, response) => {
+  const user = await usuario(request, response);
+  if (!user) return;
+  const anos = z
+    .object({ ano: z.coerce.number().int().min(ANO_MINIMO).max(ANO_MAXIMO), anoCenario: z.coerce.number().int().min(ANO_MINIMO).max(ANO_MAXIMO) })
+    .safeParse({ ano: request.query.ano, anoCenario: request.query.anoCenario });
+  if (!anos.success) return void response.status(400).json({ message: "Informe o ano-base e o ano do cenário (entre 2020 e 2100)." });
+  if (!(await userHasPermission(user as SessionUser, "dre", "view"))) {
+    return void response.status(403).json({ message: "Para preencher pelo realizado, você precisa de acesso ao DRE Gerencial." });
+  }
+  response.json(await carregarRealizadoDeCaixa(anos.data.ano, anos.data.anoCenario));
 });
 
 planningRouter.get("/cenarios", async (request, response) => {

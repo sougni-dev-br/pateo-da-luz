@@ -1,4 +1,4 @@
-import { Copy, Plus, Save, Trash2 } from "lucide-react";
+import { Copy, History, Plus, Save, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createPlanejamentoCenario,
@@ -23,6 +23,7 @@ import { Alert, Button, EmptyState, FormGrid, Select, Tabs, TextField } from "..
 import { hojeLocalIso } from "../../lib/datas";
 import { hasPermission } from "../../lib/permissions";
 import { CaixaEditor } from "./CaixaEditor";
+import { RealizadoCaixaDialog } from "./RealizadoCaixaDialog";
 import { mixFecha } from "./caixa";
 import { GastosEditor } from "./GastosEditor";
 import { PremissasEditor } from "./PremissasEditor";
@@ -65,6 +66,7 @@ export function Cenarios() {
   const [caixaPremissas, setCaixaPremissas] = useState<PlanejamentoCaixaPremissas | null>(null);
   const [caixa, setCaixa] = useState<PlanejamentoCaixa | null>(null);
   const [visao, setVisao] = useState<Visao>("lado");
+  const [dialogoRealizadoCaixa, setDialogoRealizadoCaixa] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [calculando, setCalculando] = useState(false);
@@ -260,7 +262,21 @@ export function Cenarios() {
                 <h2 id="plan-caixa" className="plan-titulo">Regime de caixa</h2>
                 <p className="plan-sub">Quando o dinheiro entra e sai: forma de pagamento e prazo das vendas, prazo das compras e % de cada gasto pago no mês. A competência continua sendo a base do cenário.</p>
               </div>
+              {podeEditar && (
+                <div className="plan-barra">
+                  <Button variant="secondary" disabled={salvando} onClick={() => setDialogoRealizadoCaixa(true)}><History size={16} aria-hidden /> Preencher com o realizado de {anoBase}</Button>
+                </div>
+              )}
               <CaixaEditor caixa={caixaPremissas} desabilitado={!podeEditar || salvando} onMudar={setCaixaPremissas} />
+              <RealizadoCaixaDialog
+                aberto={dialogoRealizadoCaixa}
+                anoBase={anoBase}
+                anoDoCenario={cenario.ano}
+                caixa={caixaPremissas}
+                gastos={gastos}
+                onFechar={() => setDialogoRealizadoCaixa(false)}
+                onAplicar={(proximoCaixa, proximosGastos) => { setCaixaPremissas(proximoCaixa); setGastos(proximosGastos); }}
+              />
             </section>
           )}
 
