@@ -803,7 +803,7 @@ export function App() {
               <Route path="/estoque/produtos" element={<Products />} />
               <Route path="/estoque/produtos/novo" element={<ProductEditor />} />
               <Route path="/estoque/produtos/:id/editar" element={<ProductEditor />} />
-              <Route path="/cadastros/fornecedores" element={<Suppliers onOpenPurchases={() => handleNavigate("purchases")} />} />
+              <Route path="/cadastros/fornecedores" element={<Suppliers />} />
               <Route path="/cadastros/empresas" element={<Companies />} />
               <Route path={ROTAS_RH.funcionarios} element={<Funcionarios />} />
               <Route path={ROTAS_RH.importarFicha} element={<ImportarFicha />} />

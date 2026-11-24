@@ -1,0 +1,152 @@
+.supplier-history-panel {
+  width: min(1040px, 96vw);
+  max-height: 92vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Sem isto a tabela encolhe e ganha rolagem própria dentro do modal. */
+.supplier-history-panel > * {
+  flex-shrink: 0;
+}
+
+.supplier-history-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 14px;
+}
+
+.supplier-history-filters > * {
+  min-width: 170px;
+}
+
+/* Faixa compacta no lugar dos cartões grandes: valor e rótulo lado a lado. */
+.supplier-history-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 28px;
+  padding: 10px 14px;
+  border: 1px solid var(--border, #e6e1d8);
+  border-radius: 10px;
+  background: var(--surface-subtle, #faf8f4);
+}
+
+.supplier-history-stat {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.supplier-history-stat span {
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+
+.supplier-history-stat strong {
+  font-size: 1.05rem;
+  line-height: 1.3;
+}
+
+.supplier-history-stat small {
+  font-size: 0.75rem;
+  opacity: 0.7;
+}
+
+.supplier-history-methods {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin: 0;
+  font-size: 0.8rem;
+  opacity: 0.85;
+}
+
+.supplier-history-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.supplier-history-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border: 1px solid var(--border, #e6e1d8);
+  border-radius: 999px;
+  background: transparent;
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.supplier-history-chip:hover {
+  background: var(--row-hover, #f5f1e8);
+}
+
+.supplier-history-chip:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.supplier-history-chip.is-active {
+  border-color: transparent;
+  background: var(--ink, #1c1a17);
+  color: #fff;
+}
+
+.supplier-history-chip-count {
+  font-weight: 700;
+}
+
+.supplier-history-cell-main {
+  display: block;
+}
+
+.supplier-history-cell-sub {
+  display: block;
+  margin-top: 1px;
+  font-size: 0.75rem;
+  opacity: 0.65;
+}
+
+.supplier-history-panel td,
+.supplier-history-panel th {
+  padding-block: 6px;
+}
+
+.supplier-history-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.875rem;
+}
+
+.supplier-history-pager > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.supplier-history-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* Parcelas 2/3, 3/3...: a compra repetida; Data e NF ficam esmaecidas para a leitura seguir a parcela. */
+.supplier-history-row-continued td:nth-child(1),
+.supplier-history-row-continued td:nth-child(2) {
+  opacity: 0.55;
+}
+
+.supplier-history-row-continued {
+  background: var(--surface-subtle, #faf8f4);
+}

@@ -5,7 +5,8 @@ import { normalizeText } from "../../shared/utils/normalize-text.js";
 import { parseDate } from "../../shared/utils/parse-date.js";
 import { auditLog, getSessionUser, requestIp, requireRole, type SessionUser } from "../security/security-utils.js";
 import { userHasPermission } from "../security/menu-permissions.js";
-import { excludeAggregatorsSql } from "../purchases/purchase-aggregators.js";
+import { loadSupplierHistory, parseSupplierHistoryQuery } from "./supplier-history.js";
+import { buildSupplierHistoryWorkbook, historyFileName } from "./supplier-history-xlsx.js";
 import { employeeFullName, employeeToSupplierDraft, onlyDigits } from "./employee-supplier.js";
 import { nextSupplierCode } from "./supplier-code.js";
 import { supplierClosingRequirementsRouter } from "./supplier-closing-requirements.routes.js";
@@ -401,68 +402,29 @@ supplierRouter.get("/:id/history", async (request, response) => {
   const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "VISUALIZACAO"]);
   if (!user) return;
 
-  const now = new Date();
-  const year = request.query.year ? Number(request.query.year) : now.getFullYear();
-  const month = request.query.month ? Number(request.query.month) : now.getMonth() + 1;
-  const startMonth = new Date(year, month - 1, 1);
-  const endMonth = new Date(year, month, 1);
-  const startYear = new Date(year, 0, 1);
-  const endYear = new Date(year + 1, 0, 1);
+  response.json(await loadSupplierHistory(request.params.id, parseSupplierHistoryQuery(request.query)));
+});
 
-  // Fornecedor de ciclo (hortifruti) tinha o total do mes e do ano dobrado: a nota
-  // do fechamento somava de novo o que as compras do periodo ja somavam.
-  const [monthTotal, yearTotal, lastPurchase, recentInvoices, topProducts, paymentMethods, averageTerm] = await Promise.all([
-    prisma.$queryRaw<Array<{ total: string | null }>>`
-      SELECT SUM("totalAmount")::text AS "total" FROM "Purchase"
-      WHERE "supplierId" = ${request.params.id} AND "purchaseDate" >= ${startMonth} AND "purchaseDate" < ${endMonth} AND "status" <> 'CANCELLED'
-        AND ${excludeAggregatorsSql()}
-    `,
-    prisma.$queryRaw<Array<{ total: string | null }>>`
-      SELECT SUM("totalAmount")::text AS "total" FROM "Purchase"
-      WHERE "supplierId" = ${request.params.id} AND "purchaseDate" >= ${startYear} AND "purchaseDate" < ${endYear} AND "status" <> 'CANCELLED'
-        AND ${excludeAggregatorsSql()}
-    `,
-    prisma.purchase.findFirst({ where: { supplierId: request.params.id }, orderBy: { purchaseDate: "desc" } }),
-    prisma.$queryRaw<Array<Record<string, unknown>>>`
-      SELECT "id", "purchaseNumber", "invoiceNumber", "purchaseDate", "totalAmount"::text AS "totalAmount", "status"
-      FROM "Purchase"
-      WHERE "supplierId" = ${request.params.id}
-      ORDER BY "purchaseDate" DESC
-      LIMIT 10
-    `,
-    prisma.$queryRaw<Array<Record<string, unknown>>>`
-      SELECT p."name", SUM(i."quantity")::text AS "quantity", SUM(i."totalPrice")::text AS "total"
-      FROM "PurchaseItem" i
-      JOIN "Purchase" pu ON pu."id" = i."purchaseId"
-      JOIN "Product" p ON p."id" = i."productId"
-      WHERE pu."supplierId" = ${request.params.id} AND pu."status" <> 'CANCELLED'
-      GROUP BY p."name"
-      ORDER BY SUM(i."totalPrice") DESC
-      LIMIT 10
-    `,
-    prisma.$queryRaw<Array<Record<string, unknown>>>`
-      SELECT COALESCE("paymentMethod", 'Sem pagamento') AS "name", COUNT(*)::int AS "count"
-      FROM "Purchase"
-      WHERE "supplierId" = ${request.params.id} AND "status" <> 'CANCELLED'
-      GROUP BY COALESCE("paymentMethod", 'Sem pagamento')
-      ORDER BY COUNT(*) DESC
-    `,
-    prisma.$queryRaw<Array<{ days: string | null }>>`
-      SELECT AVG(EXTRACT(DAY FROM pi."dueDate" - pu."purchaseDate"))::text AS "days"
-      FROM "PaymentInstallment" pi
-      JOIN "Purchase" pu ON pu."id" = pi."purchaseId"
-      WHERE pu."supplierId" = ${request.params.id} AND pi."dueDate" IS NOT NULL
-        AND pu."status" <> 'CANCELLED' AND pi."status" <> 'CANCELLED'
-    `
-  ]);
+// Mesmos filtros do histórico, sempre com a lista inteira (sem paginar): é o que vai para a planilha.
+supplierRouter.get("/:id/history/export.xlsx", async (request, response) => {
+  const user = await requireRole(request, response, ["ADMIN", "GESTAO_COMPLETA", "VISUALIZACAO"]);
+  if (!user) return;
 
-  response.json({
-    monthTotal: Number(monthTotal[0]?.total ?? 0),
-    yearTotal: Number(yearTotal[0]?.total ?? 0),
-    lastPurchase,
-    recentInvoices,
-    topProducts,
-    paymentMethods,
-    averagePaymentTermDays: averageTerm[0]?.days ? Number(averageTerm[0].days) : null
+  const supplier = await prisma.supplier.findUnique({ where: { id: request.params.id }, select: { name: true } });
+  if (!supplier) {
+    response.status(404).json({ message: "Fornecedor nao encontrado." });
+    return;
+  }
+
+  const query = { ...parseSupplierHistoryQuery(request.query), all: true };
+  const result = await loadSupplierHistory(request.params.id, query);
+  const file = await buildSupplierHistoryWorkbook(supplier.name, result, {
+    titleFilter: query.titleFilter,
+    search: query.search,
+    includeCancelled: query.includeCancelled
   });
+
+  response.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  response.setHeader("Content-Disposition", `attachment; filename="${historyFileName(supplier.name, "xlsx")}"`);
+  response.send(file);
 });

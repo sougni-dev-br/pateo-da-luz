@@ -2073,6 +2073,41 @@ select:disabled {
   min-width: 0;
 }
 
+/* Lista de fornecedores: colunas mais enxutas e a coluna de ações fixa à direita, para o
+   lápis e o menu "..." ficarem sempre à vista, sem precisar rolar a tabela para o lado. */
+.supp-table-wrap .ds-table-th,
+.supp-table-wrap .ds-table-td {
+  padding-inline: 10px;
+}
+
+.supp-table-wrap .ds-table-cell-actions {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  background: var(--paper);
+  box-shadow: -10px 0 8px -8px rgba(0, 0, 0, 0.14);
+}
+
+.supp-table-wrap .ds-table-th.ds-table-cell-actions {
+  background: var(--paper-soft);
+}
+
+/* Nome do fornecedor com contato e categoria numa linha de apoio (no lugar de duas colunas). */
+.supp-cell-name,
+.supp-cell-sub {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.supp-cell-sub {
+  margin-top: 1px;
+  color: var(--muted);
+  font-size: var(--fs-xs, 0.75rem);
+  font-weight: var(--fw-regular, 400);
+}
+
 /* Linha em edição destacada sobre o hover creme do DS. */
 .supp-row-editing .ds-table-td {
   background: var(--tint-warning) !important;

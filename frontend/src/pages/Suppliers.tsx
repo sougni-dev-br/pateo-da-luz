@@ -1,6 +1,7 @@
 import { ChevronDown, ChevronUp, History, Pencil, PowerOff, RefreshCw, RotateCcw, UserRound, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { getPaymentMethods, getSupplierEmployeeOptions, getSupplierHistory, getSuppliers, PaymentMethod, saveSupplier, setSupplierStatus, Supplier, SupplierEmployeeOption, SupplierHistory } from "../api/client";
+import { getPaymentMethods, getSupplierEmployeeOptions, getSuppliers, PaymentMethod, saveSupplier, setSupplierStatus, Supplier, SupplierEmployeeOption } from "../api/client";
+import { SupplierHistoryModal } from "./SupplierHistoryModal";
 import { nomeBaseDaForma } from "../lib/formas-pagamento";
 import { useRevealScroll } from "../lib/useRevealScroll";
 import { Notice, useNotice } from "../components/Notice";
@@ -74,6 +75,12 @@ function paymentLabel(supplier: Supplier): string {
   return "-";
 }
 
+/** Linha de apoio sob o nome na lista: contato e categoria, só o que estiver preenchido. */
+export function supplierSubline(supplier: Pick<Supplier, "contactName" | "phone" | "email" | "mainCategory">): string {
+  const contact = supplier.contactName || supplier.phone || supplier.email;
+  return [contact, supplier.mainCategory].filter(Boolean).join(" · ");
+}
+
 const EMPLOYEE_SELECT_ID = "supp-employee-select";
 
 type EmployeeSummaryProps = {
@@ -125,7 +132,7 @@ function EmployeeSummary({ option, paymentLabel, onUndo }: EmployeeSummaryProps)
   );
 }
 
-export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void }) {
+export function Suppliers() {
   const { user } = useSession();
   const canEdit = hasPermission(user, "suppliers", "edit");
   const canDelete = hasPermission(user, "suppliers", "delete");
@@ -139,7 +146,6 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
   const [formOpen, setFormOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null);
-  const [history, setHistory] = useState<SupplierHistory | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
@@ -212,9 +218,8 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
     }
   }
 
-  async function loadHistory(supplier: Supplier) {
+  function loadHistory(supplier: Supplier) {
     setSelectedSupplier(supplier);
-    setHistory(await getSupplierHistory(supplier.id));
   }
 
   function editSupplier(supplier: Supplier) {
@@ -682,8 +687,6 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
                     <Table.Th>Código</Table.Th>
                     <Table.Th minWidth={180}>Fornecedor</Table.Th>
                     <Table.Th>Documento</Table.Th>
-                    <Table.Th>Contato</Table.Th>
-                    <Table.Th>Categoria</Table.Th>
                     <Table.Th>Pagamento</Table.Th>
                     <Table.Th actions>Ações</Table.Th>
                   </Table.Row>
@@ -700,17 +703,11 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
                         </StatusBadge>
                       </Table.Td>
                       <Table.Td style={{ color: "var(--muted)", whiteSpace: "nowrap" }}>{supplier.externalCode ?? "-"}</Table.Td>
-                      <Table.Td truncate title={supplier.name} style={{ fontWeight: "var(--fw-medium)" as never }}>
-                        {supplier.name}
+                      <Table.Td title={supplier.name} style={{ fontWeight: "var(--fw-medium)" as never, maxWidth: 320 }}>
+                        <span className="supp-cell-name">{supplier.name}</span>
+                        {supplierSubline(supplier) && <span className="supp-cell-sub">{supplierSubline(supplier)}</span>}
                       </Table.Td>
-                      <Table.Td style={{ whiteSpace: "nowrap" }}>{supplier.document ?? "-"}</Table.Td>
-                      <Table.Td truncate style={{ maxWidth: 150 }} title={supplier.contactName ?? supplier.phone ?? supplier.email ?? undefined}>
-                        {supplier.contactName ?? supplier.phone ?? supplier.email ?? "-"}
-                      </Table.Td>
-                      <Table.Td truncate style={{ maxWidth: 120 }} title={supplier.mainCategory ?? undefined}>
-                        {supplier.mainCategory ?? "-"}
-                      </Table.Td>
-                      <Table.Td>
+                      <Table.Td style={{ whiteSpace: "nowrap" }}>{supplier.document ?? "-"}</Table.Td>                      <Table.Td>
                         <StatusBadge
                           tone="neutral"
                           title={supplier.billingMode === "CYCLE"
@@ -786,66 +783,8 @@ export function Suppliers({ onOpenPurchases }: { onOpenPurchases?: () => void })
       </section>
 
       {/* ── Modal de histórico ── */}
-      {selectedSupplier && history && (
-        <div className="modal-backdrop">
-          <section className="panel modal-panel">
-            <div className="section-heading">
-              <div>
-                <PanelEyebrow>Histórico do fornecedor</PanelEyebrow>
-                <h2>{selectedSupplier.name}</h2>
-              </div>
-              <Button variant="secondary" onClick={() => { setSelectedSupplier(null); setHistory(null); }}>Fechar</Button>
-            </div>
-            <div className="summary-grid">
-              <article><span>Total no mês</span><strong><Money value={history.monthTotal} /></strong></article>
-              <article><span>Total no ano</span><strong><Money value={history.yearTotal} /></strong></article>
-              <article><span>Última compra</span><strong>{history.lastPurchase ? formatDate(history.lastPurchase.purchaseDate) : "-"}</strong></article>
-              <article><span>Prazo médio</span><strong>{history.averagePaymentTermDays == null ? "-" : `${Math.round(history.averagePaymentTermDays)} dias`}</strong></article>
-            </div>
-            <div className="summary-columns">
-              <div>
-                <h3>Últimas NFs</h3>
-                {history.recentInvoices.map((invoice) => <p key={invoice.id}>{invoice.purchaseNumber ?? "-"} NF {invoice.invoiceNumber ?? "-"} - <Money value={invoice.totalAmount} /></p>)}
-              </div>
-              <div>
-                <h3>Produtos mais comprados</h3>
-                {history.topProducts.map((product) => <p key={product.name}>{product.name} - <Money value={product.total} /></p>)}
-              </div>
-              <div>
-                <h3>Pagamentos usados</h3>
-                {history.paymentMethods.map((method) => <p key={method.name}>{method.name}: {method.count}</p>)}
-              </div>
-            </div>
-            <div className="subsection">
-              <Table>
-                <Table.Head>
-                  <Table.Row>
-                    <Table.Th>Pedido interno</Table.Th>
-                    <Table.Th>Data</Table.Th>
-                    <Table.Th>NF</Table.Th>
-                    <Table.Th align="right">Total</Table.Th>
-                    <Table.Th>Status</Table.Th>
-                    <Table.Th actions>Abrir</Table.Th>
-                  </Table.Row>
-                </Table.Head>
-                <Table.Body>
-                  {history.recentInvoices.map((invoice) => (
-                    <Table.Row key={invoice.id}>
-                      <Table.Td>{invoice.purchaseNumber ?? "-"}</Table.Td>
-                      <Table.Td>{formatDate(invoice.purchaseDate)}</Table.Td>
-                      <Table.Td>{invoice.invoiceNumber ?? "-"}</Table.Td>
-                      <Table.Td align="right"><Money value={invoice.totalAmount} /></Table.Td>
-                      <Table.Td>{invoice.status}</Table.Td>
-                      <Table.Td actions>
-                        <Button variant="secondary" size="sm" onClick={onOpenPurchases}>Abrir compra</Button>
-                      </Table.Td>
-                    </Table.Row>
-                  ))}
-                </Table.Body>
-              </Table>
-            </div>
-          </section>
-        </div>
+      {selectedSupplier && (
+        <SupplierHistoryModal supplier={selectedSupplier} onClose={() => setSelectedSupplier(null)} />
       )}
     </div>
   );
