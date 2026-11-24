@@ -1,0 +1,96 @@
+/* ═══════════════════════════════════════════════════════════════════
+   RH → Brindes — prefixo br-. Só tokens de styles/tokens (sem hex soltos).
+═══════════════════════════════════════════════════════════════════ */
+
+.br-tela { display: grid; gap: 14px; min-width: 0; container-type: inline-size; }
+.br-tela :is(button, a, input, select, textarea):focus-visible { outline: 2px solid var(--gold-dark); outline-offset: 2px; }
+.br-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.br-ajuda { margin: 0; color: var(--muted); font-size: var(--fs-sm); }
+.br-sub { font-size: var(--fs-xs); color: var(--muted); }
+
+.br-topo { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.br-topo h2 { margin: 0; font-size: var(--fs-h2); }
+.br-topo p { margin: 2px 0 0; color: var(--muted); font-size: var(--fs-sm); }
+.br-topo-acoes { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; }
+.br-topo-acoes .ds-select { min-width: 190px; }
+
+/* ── Cartão de formulário (novo brinde) ────────────────────────────── */
+.br-cartao { display: grid; gap: 10px; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--paper-soft); }
+.br-cartao h3 { margin: 0; font-size: var(--fs-base); }
+.br-novo { display: grid; gap: 12px; }
+.br-novo-campos { display: flex; gap: 12px; flex-wrap: wrap; }
+.br-novo-nome { flex: 1 1 260px; }
+.br-novo-ano { flex: 0 0 110px; }
+.br-novo-acoes { display: flex; gap: 8px; }
+
+/* ── Resumo: andamento à esquerda, PDF à direita ───────────────────── */
+.br-resumo { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px 24px; flex-wrap: wrap; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--paper); }
+.br-resumo-numero { display: grid; gap: 6px; flex: 1 1 280px; min-width: 0; }
+.br-resumo-numero strong { font-size: 30px; line-height: 1; font-variant-numeric: tabular-nums; color: var(--ink); }
+.br-resumo-numero strong span { font-size: var(--fs-lg); font-weight: var(--fw-regular, 400); color: var(--muted); }
+.br-resumo-numero small { color: var(--muted); font-size: var(--fs-sm); }
+.br-barra { height: 8px; border-radius: 999px; background: var(--line); overflow: hidden; }
+.br-barra > span { display: block; height: 100%; background: var(--success); transition: width var(--dur) var(--ease); }
+.br-pdf { display: flex; align-items: flex-end; gap: 8px; flex-wrap: wrap; }
+.br-pdf .ds-select { min-width: 170px; }
+
+/* ── Filtros: cartões com contagem, como em Férias ─────────────────── */
+.br-filtros-bloco { display: grid; gap: 10px; }
+.br-filtros { display: flex; gap: 8px; flex-wrap: wrap; }
+.br-filtro {
+  --cor: var(--muted);
+  display: inline-flex; align-items: center; gap: 10px; text-align: left; flex: 1 1 190px; max-width: 280px;
+  padding: 8px 14px 8px 12px;
+  border: 1px solid var(--line); border-left: 3px solid var(--cor); border-radius: var(--radius-md);
+  background: var(--paper); color: var(--ink); font: inherit; font-size: var(--fs-sm); cursor: pointer;
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+.br-filtro strong { font-size: 26px; line-height: 1; font-variant-numeric: tabular-nums; }
+.br-filtro-texto { display: grid; gap: 1px; font-weight: var(--fw-semibold); }
+.br-filtro-texto small { font-weight: var(--fw-regular, 400); font-size: var(--fs-xs); color: var(--muted); line-height: 1.25; }
+.br-filtro:hover { border-color: var(--line-strong); border-left-color: var(--cor); box-shadow: var(--shadow-soft); }
+.br-filtro[aria-pressed="true"] { background: var(--gold-tint); border-color: var(--gold-dark); border-left-color: var(--cor); }
+.br-filtro--warning { --cor: var(--warning); }
+.br-filtro--success { --cor: var(--success); }
+
+.br-barra-ferramentas { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+.br-busca { flex: 1 1 260px; max-width: 420px; }
+
+/* ── Grupos e linhas: borda à esquerda pela situação ───────────────── */
+.br-grupo { display: grid; gap: 8px; }
+.br-grupo > h3 { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 4px 0 0; padding-bottom: 6px; border-bottom: 1px solid var(--line); font-size: var(--fs-2xs); text-transform: uppercase; letter-spacing: var(--ls-eyebrow); color: var(--muted); }
+.br-grupo > h3 span { text-transform: none; letter-spacing: 0; font-size: var(--fs-xs); font-weight: var(--fw-regular, 400); }
+.br-lista { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.br-linha {
+  --cor: var(--line-strong);
+  display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.1fr) minmax(0, 1.8fr) auto; gap: 8px 16px; align-items: center;
+  padding: 10px 14px; border: 1px solid var(--line); border-left: 4px solid var(--cor); border-radius: var(--radius-md);
+  background: var(--paper); font-size: var(--fs-sm);
+  transition: background var(--dur-fast) var(--ease);
+}
+.br-linha:hover { background: var(--row-hover); }
+.br-linha--feito { --cor: var(--success); background: var(--tint-success); border-color: var(--tint-success-border); border-left-color: var(--cor); }
+.br-linha--atencao { --cor: var(--warning); background: var(--tint-warning); border-color: var(--tint-warning-border); border-left-color: var(--cor); }
+.br-nome { display: grid; gap: 2px; min-width: 0; }
+.br-nome strong { overflow-wrap: anywhere; line-height: var(--lh-snug); }
+.br-situacao { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; min-width: 0; }
+.br-situacao .br-sub { flex-basis: 100%; }
+.br-detalhes { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 8px; min-width: 0; }
+.br-acao { justify-self: end; }
+
+/* Pelo tamanho do painel (e não da janela): com o menu lateral aberto a área útil é bem menor. */
+@container (max-width: 860px) {
+  .br-linha { grid-template-columns: minmax(0, 1fr) auto; }
+  .br-linha > .br-situacao { grid-column: 1 / -1; grid-row: 2; }
+  .br-linha > .br-detalhes { grid-column: 1 / -1; grid-row: 3; }
+  .br-linha > .br-detalhes:empty { display: none; }
+  .br-linha > .br-acao { grid-row: 1; grid-column: 2; }
+}
+@container (max-width: 520px) {
+  .br-linha { grid-template-columns: minmax(0, 1fr); }
+  .br-linha > .br-acao { grid-row: auto; grid-column: 1 / -1; justify-self: stretch; }
+  .br-linha > .br-acao .ds-button { width: 100%; justify-content: center; }
+  .br-detalhes { grid-template-columns: minmax(0, 1fr); }
+  .br-filtro { max-width: none; }
+  .br-pdf, .br-pdf .ds-select, .br-pdf .ds-button { width: 100%; }
+}

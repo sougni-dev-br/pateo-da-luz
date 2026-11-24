@@ -3126,6 +3126,7 @@ model Employee {
   pontoFechamentos       PontoFechamento[]
   feriasProgramadas      FeriasProgramacao[]
   feriasSolicitadas      FeriasSolicitacao[]
+  brindesRecebidos       BrindeEntrega[]
   anotacoesCarteira      EmployeeAnotacaoCarteira[]
   // Auditoria / soft delete
   createdById            String
@@ -4604,4 +4605,36 @@ model PlanejamentoGastoLinha {
 
   @@unique([cenarioId, nome], map: "planejamentogastolinha_cenario_nome_key")
   @@index([cenarioId])
+}
+
+// Brinde para os colaboradores (Natal e outras datas). Uma campanha por ocasião; a entrega registra
+// quem recebeu, quando e quem marcou. A lista de elegíveis NÃO é gravada: são os funcionários ativos
+// na hora de abrir a tela; quem recebeu e depois saiu continua aparecendo pela entrega.
+model BrindeCampanha {
+  id          String          @id @default(cuid())
+  nome        String
+  ano         Int
+  observacao  String?
+  createdById String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  entregas    BrindeEntrega[]
+
+  @@unique([nome, ano])
+}
+
+model BrindeEntrega {
+  id           String         @id @default(cuid())
+  campanhaId   String
+  campanha     BrindeCampanha @relation(fields: [campanhaId], references: [id], onDelete: Cascade)
+  employeeId   String
+  employee     Employee       @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  entregueEm   DateTime       @db.Date
+  observacao   String?
+  registradoPorId String?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@unique([campanhaId, employeeId])
+  @@index([employeeId])
 }

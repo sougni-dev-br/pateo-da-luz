@@ -17,6 +17,7 @@ import {
   FileInput,
   FileSignature,
   Palmtree,
+  Gift,
   FileSpreadsheet,
   FileScan,
   HandCoins,
@@ -111,6 +112,7 @@ const FolhaGorjeta = lazy(() => import("./pages/FolhaGorjeta").then((module) => 
 const ExtratoRh = lazy(() => import("./pages/ExtratoRh").then((module) => ({ default: module.ExtratoRh })));
 const Ponto = lazy(() => import("./pages/rh/Ponto").then((module) => ({ default: module.Ponto })));
 const ImportarFicha = lazy(() => import("./pages/rh/ImportarFicha").then((module) => ({ default: module.ImportarFicha })));
+const Brindes = lazy(() => import("./pages/rh/Brindes").then((module) => ({ default: module.Brindes })));
 const Ferias = lazy(() => import("./pages/rh/Ferias").then((module) => ({ default: module.Ferias })));
 const Rescisoes = lazy(() => import("./pages/rh/Rescisoes").then((module) => ({ default: module.Rescisoes })));
 const Extras = lazy(() => import("./pages/Extras").then((module) => ({ default: module.Extras })));
@@ -222,6 +224,7 @@ const sections = [
   // Férias: período e prazo calculados da data de registro; usa a permissão da Folha ("payroll"),
   // a mesma das rotas /payroll/ferias.
   { id: "ferias", label: "Férias", icon: Palmtree, showInSidebar: true, group: "Pessoas", path: ROTAS_RH.ferias, matchers: [ROTAS_RH.ferias], permissionId: "payroll", description: "Programação de férias: período aquisitivo, prazo para gozo, alerta de vencimento e datas decididas" },
+  { id: "brindes", label: "Brindes", icon: Gift, showInSidebar: true, group: "Pessoas", path: ROTAS_RH.brindes, matchers: [ROTAS_RH.brindes], permissionId: "payroll", description: "Brinde de Natal e outras datas: lista dos funcionários ativos e quem já recebeu, com data e PDF para a assinatura de quem retira" },
   // A antiga "Folha e VT" virou três telas; as três usam a permissão da Folha ("payroll"),
   // a mesma de antes: ninguém perde nem ganha acesso com a divisão.
   { id: "payroll-ponto", label: "Ponto", icon: Clock3, showInSidebar: true, group: "Folha", path: ROTAS_RH.ponto, matchers: [ROTAS_RH.ponto], permissionId: "payroll", description: "Faltas, atrasos, horas extras e adicional noturno do mês pela CLT: importa o relógio, lança o papel e fecha para a folha" },
@@ -807,6 +810,7 @@ export function App() {
               <Route path={ROTAS_RH.escala} element={<Escala />} />
               <Route path={ROTAS_RH.gorjeta} element={<FolhaGorjeta />} />
               <Route path={ROTAS_RH.ferias} element={<Ferias />} />
+              <Route path={ROTAS_RH.brindes} element={<Brindes />} />
               <Route path={ROTAS_RH.ponto} element={<Ponto />} />
               <Route path={ROTAS_RH.rescisoes} element={<Rescisoes />} />
               <Route path={ROTAS_RH.folha} element={<Folha key="lancamentos" secao="lancamentos" />} />

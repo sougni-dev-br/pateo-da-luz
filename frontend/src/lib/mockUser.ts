@@ -19,6 +19,7 @@ import { isLocal } from "../utils/env";
 import { mockFichas } from "./mockFichas";
 import { mockImpostos } from "./mockImpostos";
 import { mockAnaliseSalao } from "./mockAnaliseSalao";
+import { mockBrindes } from "./mockBrindes";
 import { mockFerias } from "./mockFerias";
 import { mockPagamentoMeio } from "./mockPagamentoMeio";
 
@@ -237,6 +238,10 @@ function mockResponseFor(url: string, method = "GET", corpo?: BodyInit | null): 
   // Lista do adiantamento / 1ª quinzena (Folha) e o lançamento dos sem registro.
   const pagamentoMeio = mockPagamentoMeio(url, method, corpo);
   if (pagamentoMeio !== undefined) return pagamentoMeio;
+
+  // RH → Brindes (lista de ativos e entregas).
+  const brindes = mockBrindes(url, method, corpo);
+  if (brindes !== undefined) return brindes;
 
   // RH → Férias (períodos, programar, editar, cancelar).
   const ferias = mockFerias(url, method, corpo);
