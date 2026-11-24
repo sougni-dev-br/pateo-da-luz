@@ -70,10 +70,12 @@ export function variacao(atual: number | null, anterior: number | null): number 
   return arredondar(atual / anterior - 1, 6);
 }
 
-// Quatro casas: a tela mostra duas, mas a variação do ticket sai do valor sem arredondar (a planilha faz o mesmo).
+// Seis casas: a tela mostra duas, e arredondar antes em quatro faria o ticket virar centavo a mais (88,21498 → 88,215 →
+// 88,22) e destoar do cenário, que arredonda uma vez só. A variação do ticket sai do valor praticamente sem arredondar.
+const CASAS_DA_RAZAO = 6;
 function razao(valor: number | null, divisor: number | null): number | null {
   if (valor === null || divisor === null || divisor <= 0) return null;
-  return arredondar(valor / divisor, 4);
+  return arredondar(valor / divisor, CASAS_DA_RAZAO);
 }
 
 function turnosDe(mes: MesDoSalao | undefined, almoco: keyof MesDoSalao, jantar: keyof MesDoSalao): Turnos {

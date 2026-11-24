@@ -9,15 +9,15 @@ import { Quadro } from "./Quadro";
 import { emMil, Reais } from "./Reais";
 import { useOculto } from "./useOculto";
 
-// As linhas de gasto em duas formas. No computador, uma planilha de meio ano por vez (Jan–Jun | Jul–Dez): cabe sem
-// rolar e o rodapé soma os gastos do mês contra a margem bruta. No celular e no tablet, um cartão por linha, com os
+// As linhas de gasto em duas formas. No computador, uma planilha com os 12 meses sempre à vista (colunas compactas; se a
+// tela for menor que a tabela, ela rola dentro da moldura, com a coluna do gasto fixa) e o rodapé soma os gastos do mês. No celular e no tablet, um cartão por linha, com os
 // 12 meses numa grade rotulada: todos os campos à vista e editáveis com o toque e com Tab.
 
 const VALOR_MAXIMO_EM_REAIS = 1_000_000_000;
 const dentroDoReal = (v: number) => v >= 0 && v <= VALOR_MAXIMO_EM_REAIS;
 const dentroDoPercentual = (v: number) => v >= 0 && v <= 1;
 const LARGURA_DO_CAMPO = 84;
-const SEMESTRES = [{ rotulo: "Jan–Jun", meses: [0, 1, 2, 3, 4, 5] }, { rotulo: "Jul–Dez", meses: [6, 7, 8, 9, 10, 11] }] as const;
+const TODOS_OS_MESES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] as const;
 
 export type PropsDasLinhas = {
   anoBase: number;
@@ -96,19 +96,12 @@ function RodapeDoMes({ mes, projecao, resultado, comMargem = true }: { mes: numb
 
 export function GastosTabela(props: PropsDasLinhas) {
   const { gastos, desabilitado, projecao, resultado, onMudarLinha, onMudarPago } = props;
-  const [semestre, setSemestre] = useState(0);
-  const meses = SEMESTRES[semestre].meses;
+  const meses = TODOS_OS_MESES;
   const colunas = 4 + meses.length;
   return (
     <div className="plan-gastos-planilha">
-      <div className="plan-semestres" role="group" aria-label="Meses à vista na tabela de gastos">
-        <span className="plan-semestres-rotulo">Mostrando {SEMESTRES[semestre].rotulo} · 6 de 12 meses</span>
-        {SEMESTRES.map((s, i) => (
-          <button key={s.rotulo} type="button" className="plan-semestre" aria-pressed={semestre === i} onClick={() => setSemestre(i)}>{s.rotulo}</button>
-        ))}
-      </div>
-      <Quadro rotulo={`Gastos do cenário, ${SEMESTRES[semestre].rotulo}`} editavel className="plan-quadro-gastos">
-        <Table aria-label={`Gastos do cenário por mês, ${SEMESTRES[semestre].rotulo}`}>
+      <Quadro rotulo={`Gastos do cenário, os 12 meses`} editavel className="plan-quadro-gastos">
+        <Table aria-label={`Gastos do cenário por mês, os 12 meses`}>
           <Table.Head>
             <Table.Row>
               <Table.Th scope="col" className="plan-col-rotulo plan-col-gasto">Gasto</Table.Th>

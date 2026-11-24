@@ -308,17 +308,18 @@
 .plan .ds-table-td.plan-col-caixa, .plan thead .plan-col-caixa { background: var(--plan-tinta-caixa); }
 
 /* ── Gastos: planilha de meio ano (computador) ou cartões (celular/tablet) ── */
-.plan-col-gasto { width: 210px; min-width: 200px; max-width: 230px; }
+.plan-col-gasto { width: 176px; min-width: 168px; max-width: 200px; }
 .plan-gasto-celula { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
 .plan-gasto-nome { display: grid; gap: 2px; min-width: 0; white-space: normal; }
 .plan-gasto-titulo { font-weight: var(--fw-semibold); color: var(--ink); }
 .plan-gasto-meta { display: block; color: var(--plan-muted); font-size: var(--fs-xs); font-weight: var(--fw-regular); letter-spacing: 0; text-transform: none; }
 .plan-remover { flex: none; opacity: 0.55; transition: opacity var(--dur-fast) var(--ease); }
 .ds-table-row:hover .plan-remover, .plan-gasto-cartao:hover .plan-remover, .plan-remover:focus-visible { opacity: 1; }
-.plan-col-total-ano { min-width: 112px; border-left: 1px solid var(--line); background: var(--paper-soft) !important; font-weight: var(--fw-bold); white-space: nowrap; }
+.plan-col-total-ano { min-width: 96px; border-left: 1px solid var(--line); background: var(--paper-soft) !important; font-weight: var(--fw-bold); white-space: nowrap; }
 .plan-total-rotulo { color: var(--plan-muted); font-size: var(--fs-xs); font-weight: var(--fw-medium); }
-.plan-quadro-gastos .plan-campo { width: 80px !important; }
-.plan-quadro-gastos :is(.ds-table-th, .ds-table-td) { padding-inline: 6px; }
+.plan-quadro-gastos .plan-campo { width: 58px !important; padding-inline: 4px; font-size: 13px; }
+.plan-quadro-gastos :is(.ds-table-th, .ds-table-td) { padding-inline: 2px; }
+.plan-quadro-gastos .ds-table-body .ds-table-td:has(.plan-campo) { padding: 6px 2px; }
 .plan-quadro-gastos thead .ds-table-th { white-space: normal; line-height: 1.25; }
 
 /* Peso da linha na margem bruta: a microbarra cresce enquanto se digita. */

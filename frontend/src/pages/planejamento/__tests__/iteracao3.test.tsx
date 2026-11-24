@@ -37,15 +37,13 @@ describe("Gastos no celular (cartões)", () => {
   });
 });
 
-describe("Gastos no computador (planilha de meio ano)", () => {
-  it("abre em Jan–Jun e troca para Jul–Dez", () => {
+describe("Gastos no computador (planilha dos 12 meses)", () => {
+  it("mostra os 12 meses de uma vez, sem alternar semestre, e o total do ano soma todos", () => {
     render(<GastosTabela {...linhas()} />);
-    expect(screen.getByLabelText("Ocupação em Jun")).toBeInTheDocument();
-    expect(screen.queryByLabelText("Ocupação em Jul")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Jul–Dez" }));
-    expect(screen.getByRole("button", { name: "Jul–Dez" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByLabelText("Ocupação em Dez")).toBeInTheDocument();
-    expect(screen.queryByLabelText("Ocupação em Jan")).toBeNull();
+    for (const mes of ["Jan", "Jun", "Jul", "Dez"]) expect(screen.getByLabelText(`Ocupação em ${mes}`)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Jul–Dez" })).toBeNull();
+    expect(screen.queryByText(/6 de 12 meses/)).toBeNull();
+    expect(screen.getByText("624.000")).toBeInTheDocument();
   });
 });
 

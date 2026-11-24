@@ -26,10 +26,11 @@ import { Abas, PainelDaAba, type Aba } from "./Abas";
 import { BarraDeSalvar, type FalhaAoSalvar } from "./BarraDeSalvar";
 import { CabecalhoDaSecao } from "./CabecalhoDaSecao";
 import { CaixaEditor } from "./CaixaEditor";
-import { mixFecha } from "./caixa";
+import { ehValorDePartida, mixFecha } from "./caixa";
 import { useConfirmacao } from "./Confirmacao";
 import { mensagemHumana } from "./erros";
 import { Esqueleto } from "./Esqueleto";
+import { focarCmvDepoisDeRenderizar, mesesSemCmv } from "./incompleto";
 import { GastosEditor } from "./GastosEditor";
 import { useRealizadoDoAnoBase } from "./gastosLeitura";
 import { NovoCenarioDialog } from "./NovoCenarioDialog";
@@ -73,6 +74,8 @@ export function Cenarios() {
   const [secao, setSecao] = useState<Secao>("resultado");
   const [desfazerTodos, setDesfazerTodos] = useState<DesfazerTodos | null>(null);
   const [dialogoRealizadoCaixa, setDialogoRealizadoCaixa] = useState(false);
+  // O mix e os prazos de partida são suposição; o aviso some quando a pessoa aplica o realizado ou mexe no caixa.
+  const [caixaTocada, setCaixaTocada] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [erroDaPrevia, setErroDaPrevia] = useState<string | null>(null);
   const [falha, setFalha] = useState<FalhaAoSalvar | null>(null);
@@ -86,6 +89,7 @@ export function Cenarios() {
 
   const sujo = cenario !== null && (anoBase !== cenario.anoBase || !iguais(premissas, cenario.premissas) || !iguais(gastos, cenario.gastos) || servicoPercentual !== cenario.servicoPercentual || !iguais(caixaPremissas, cenario.caixaPremissas));
   // Mix que não fecha em 100% o servidor recusa: não manda a prévia nem deixa salvar até corrigir.
+  const valoresDePartida = caixaPremissas !== null && !caixaTocada && ehValorDePartida(caixaPremissas);
   const caixaValida = caixaPremissas === null || mixFecha(caixaPremissas);
   const sujoRef = useRef(sujo);
   sujoRef.current = sujo;
@@ -109,6 +113,7 @@ export function Cenarios() {
       setResultado(aberto.resultado);
       setCaixaPremissas(aberto.caixaPremissas);
       setCaixa(aberto.caixa);
+      setCaixaTocada(false);
       setAvisos(avisosDe(aberto));
       setErroDaPrevia(null);
       setFalha(null);
@@ -172,6 +177,12 @@ export function Cenarios() {
       regua?.scrollIntoView({ block: "start", behavior: "smooth" });
       regua?.focus({ preventScroll: true });
     });
+  }
+
+  function preencher(alvo: "premissas" | "gastos") {
+    setSecao(alvo);
+    const primeiro = projecao ? mesesSemCmv(projecao)[0] : undefined;
+    if (alvo === "premissas" && primeiro !== undefined) focarCmvDepoisDeRenderizar(primeiro);
   }
 
   const confirmarDescarte = (texto: string, acao: string) => confirmar({ titulo: "Descartar as alterações não salvas?", texto, acao, perigo: true });
@@ -346,6 +357,7 @@ export function Cenarios() {
               desatualizado={erroDaPrevia !== null}
               compacto={secao !== "resultado"}
               onVerResultado={() => setSecao("resultado")}
+              onPreencher={preencher}
             />
           )}
           {semBase && (
@@ -358,7 +370,7 @@ export function Cenarios() {
 
           {secao === "resultado" && (
             <PainelDaAba id="plan-secao" valor="resultado" className="plan-secao">
-              {projecao && resultado && !semBase && <SecaoResultado projecao={projecao} resultado={resultado} caixa={caixa} ano={cenario.ano} anoBase={anoBase} />}
+              {projecao && resultado && !semBase && <SecaoResultado projecao={projecao} resultado={resultado} caixa={caixa} ano={cenario.ano} anoBase={anoBase} onPreencher={preencher} />}
             </PainelDaAba>
           )}
 
@@ -381,9 +393,15 @@ export function Cenarios() {
               <CabecalhoDaSecao
                 titulo="Regime de caixa"
                 descricao="Quando o dinheiro entra e sai: forma de pagamento e prazo das vendas, prazo das compras e o que vem do ano anterior. A competência continua sendo a base do cenário."
-                controle={podeEditar && <Button variant="secondary" disabled={salvando} onClick={() => setDialogoRealizadoCaixa(true)}><History size={16} aria-hidden /> Preencher com o realizado de {anoBase}</Button>}
+                controle={podeEditar && !valoresDePartida && <Button variant="secondary" disabled={salvando} onClick={() => setDialogoRealizadoCaixa(true)}><History size={16} aria-hidden /> Preencher com o realizado de {anoBase}</Button>}
               />
-              <CaixaEditor caixa={caixaPremissas} gastos={gastos} desabilitado={!podeEditar || salvando} onMudar={setCaixaPremissas} />
+              {valoresDePartida && (
+                <Alert tone="warning" title="Valores de partida são suposição" className="plan-aviso-partida">
+                  O mix de pagamento e os prazos abaixo não vêm do Salão (o real tem muito mais crédito): enquanto não forem preenchidos, a régua e o caixa não valem como previsão.
+                  {podeEditar && <Button className="plan-aviso-partida-botao" disabled={salvando} onClick={() => setDialogoRealizadoCaixa(true)}><History size={16} aria-hidden /> Preencher com o realizado de {anoBase}</Button>}
+                </Alert>
+              )}
+              <CaixaEditor caixa={caixaPremissas} gastos={gastos} desabilitado={!podeEditar || salvando} onMudar={(c) => { setCaixaTocada(true); setCaixaPremissas(c); }} valoresDePartida={valoresDePartida} />
             </PainelDaAba>
           )}
 
@@ -395,7 +413,7 @@ export function Cenarios() {
               caixa={caixaPremissas}
               gastos={gastos}
               onFechar={() => setDialogoRealizadoCaixa(false)}
-              onAplicar={(proximoCaixa, proximosGastos) => { setCaixaPremissas(proximoCaixa); setGastos(proximosGastos); }}
+              onAplicar={(proximoCaixa, proximosGastos) => { setCaixaTocada(true); setCaixaPremissas(proximoCaixa); setGastos(proximosGastos); }}
             />
           )}
         </div>

@@ -77,3 +77,14 @@
 
 /* O efeito nas premissas encosta no título (o .plan-ritmo do comparativo traz margem de cima). */
 .plan-premissas > .plan-efeito-no-ano { margin-top: 0; }
+
+/* Cenário incompleto: botão do veredito e bloco único no lugar dos gráficos e tabelas "sem base". */
+.plan-veredito-preencher { display: inline-flex; align-items: center; gap: 6px; justify-self: start; min-height: 40px; margin: 4px 0 2px; padding: 0 16px; border: 0; border-radius: var(--radius-sm); background: var(--gold-dark, #8a6a1f); color: #fff; font: inherit; font-size: var(--fs-sm); font-weight: var(--fw-bold); cursor: pointer; }
+.plan-veredito-preencher:hover { filter: brightness(1.08); }
+.plan-veredito-preencher:focus-visible { outline: 2px solid var(--gold-dark); outline-offset: 2px; }
+.plan-falta-cmv { display: grid; gap: 8px; margin: 0; padding: 16px 18px; border: 1px dashed var(--line-strong); border-radius: var(--radius-md); background: var(--paper); }
+.plan-falta-cmv-titulo { margin: 0; color: var(--ink); font-size: 15px; font-weight: var(--fw-bold); }
+.plan-falta-cmv-lista { margin: 0; color: var(--ink-soft); font-size: var(--fs-sm); line-height: 1.5; }
+.plan-falta-cmv .plan-veredito-preencher { margin: 4px 0 0; }
+.plan-aviso-partida .ds-alert-body { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.plan-aviso-partida-botao { margin-left: auto; }

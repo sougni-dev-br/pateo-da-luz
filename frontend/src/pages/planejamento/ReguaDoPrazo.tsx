@@ -2,7 +2,7 @@ import type { CSSProperties, ReactNode } from "react";
 import type { PlanejamentoCaixaPremissas, PlanejamentoLinhaDeGasto } from "../../api/client";
 import { mixFecha } from "./caixa";
 import { percentualParaTexto, ROTULO_DA_FORMA } from "./formato";
-import { DIAS_DO_MES, entradasDosMesesSeguintes, lerPrazos, pagoNoMesMedio } from "./regua";
+import { DIAS_DO_MES, entradasDosMesesSeguintes, ladoDoRotulo, lerPrazos, pagoNoMesMedio } from "./regua";
 
 // Régua de prazo: quando o dinheiro entra (vendas, por forma) e quando sai (compras e gastos). O comprimento da faixa
 // é a espera em dias; nas entradas a espessura é o peso no mix, então a área é o dinheiro parado. Abaixo do eixo, as
@@ -33,16 +33,16 @@ function Linha({ faixa, marcas, escala }: { faixa: Faixa; marcas: number[]; esca
       <span className="plan-regua-trilho" aria-hidden>
         {marcas.map((d) => <span key={d} className="plan-regua-grade" style={{ left: `${(d / escala) * 100}%` }} />)}
         <span className="plan-regua-espera" />
-        <span className="plan-regua-chegada"><span className="plan-regua-ponto" /><span className="plan-regua-dias">{faixa.rotulo}</span></span>
+        <span className={`plan-regua-chegada plan-regua-rotulo-${ladoDoRotulo(faixa.posicao)}`}><span className="plan-regua-ponto" /><span className="plan-regua-dias">{faixa.rotulo}</span></span>
       </span>
       <span className="plan-sr">{faixa.leitor}</span>
     </li>
   );
 }
 
-type Props = { caixa: PlanejamentoCaixaPremissas; gastos?: readonly PlanejamentoLinhaDeGasto[] };
+type Props = { caixa: PlanejamentoCaixaPremissas; gastos?: readonly PlanejamentoLinhaDeGasto[]; /** Mix e prazos ainda são os de partida (suposição): a régua avisa. */ valoresDePartida?: boolean };
 
-export function ReguaDoPrazo({ caixa, gastos = [] }: Props) {
+export function ReguaDoPrazo({ caixa, gastos = [], valoresDePartida = false }: Props) {
   const leitura = lerPrazos(caixa);
   const fecha = mixFecha(caixa);
   const { escala } = leitura;
@@ -85,6 +85,7 @@ export function ReguaDoPrazo({ caixa, gastos = [] }: Props) {
     <figure id="plan-regua" tabIndex={-1} className={`plan-regua${fecha ? "" : " plan-regua-aberta"}`} aria-labelledby="plan-regua-titulo">
       <figcaption className="plan-regua-cabecalho">
         <span id="plan-regua-titulo" className="plan-regua-titulo">Quando o dinheiro entra e sai</span>
+        {valoresDePartida && <span className="plan-regua-partida">com valores de partida (suposição)</span>}
         <span className="plan-regua-legenda">comprimento = dias de espera · espessura = peso no mix</span>
       </figcaption>
       {!fecha && (

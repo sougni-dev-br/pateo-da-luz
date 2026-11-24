@@ -86,3 +86,17 @@ export function pagoNoMesMedio(gastos: readonly PlanejamentoLinhaDeGasto[]): num
   if (pesoTotal > 0) return fixos.reduce((s, f) => s + f.peso * f.pago, 0) / pesoTotal;
   return gastos.reduce((s, l) => s + pago(l), 0) / gastos.length;
 }
+
+/** A partir daqui (fração do eixo) o rótulo do ponto passa para a esquerda dele: à direita não sobra trilho nem margem. */
+export const LIMITE_DO_ROTULO_A_DIREITA = 0.75;
+
+export type LadoDoRotulo = "direita" | "esquerda";
+
+/**
+ * De que lado do ponto fica o rótulo ("30 dias", "40% no mês"). Perto do fim do eixo o rótulo vai para a esquerda, para
+ * nunca sair do cartão (antes, com prazo = fim do eixo, ele criava rolagem horizontal na tela). Fora do eixo (posição
+ * fora de 0–1) também vai para a esquerda.
+ */
+export function ladoDoRotulo(posicao: number): LadoDoRotulo {
+  return posicao > LIMITE_DO_ROTULO_A_DIREITA || posicao < 0 ? "esquerda" : "direita";
+}

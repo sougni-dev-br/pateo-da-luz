@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { descricaoDoPeriodo, leituraDaVariacao, percentualParaTexto, textoDaVariacao, textoParaPercentual, textoParaReais, reaisParaTexto } from "../formato";
+import { descricaoDoPeriodo, leituraDaVariacao, textoDaMagnitude, percentualParaTexto, textoDaVariacao, textoParaPercentual, textoParaReais, reaisParaTexto } from "../formato";
 
 describe("textoDaVariacao", () => {
   it("mostra sinal e uma casa decimal em pt-BR", () => {
@@ -13,6 +13,21 @@ describe("textoDaVariacao", () => {
   it("variação minúscula que arredonda para zero não ganha sinal", () => {
     expect(textoDaVariacao(0.0001)).toBe("0,0%");
     expect(textoDaVariacao(-0.0001)).toBe("0,0%");
+  });
+});
+
+describe("variação no meio do arredondamento", () => {
+  it("−8,35% aparece igual na tabela (com sinal) e na frase do veredito (magnitude)", () => {
+    expect(textoDaVariacao(-0.0835)).toBe("−8,4%");
+    expect(textoDaMagnitude(-0.0835)).toBe("8,4%");
+    expect(textoDaVariacao(0.0835)).toBe("+8,4%");
+    expect(textoDaMagnitude(0.0835)).toBe("8,4%");
+  });
+  it("magnitude e sinal concordam em qualquer meio ponto", () => {
+    for (const v of [0.0005, 0.0015, 0.0125, 0.0835, 0.1005, 0.2345]) {
+      expect(textoDaVariacao(-v).replace("−", "")).toBe(textoDaMagnitude(-v));
+      expect(textoDaVariacao(v).replace("+", "")).toBe(textoDaMagnitude(v));
+    }
   });
 });
 
