@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { DetalheBrinde, PessoaBrinde } from "../../../api/client";
-import { nomeArquivoBrinde, pessoasParaPdf } from "../brindes/brindeLista";
+import { nomeArquivoBrinde, ordenarAlfabetico, pessoasParaPdf } from "../brindes/brindeLista";
 import { montarPdfBrinde } from "../brindes/pdfBrindes";
 
 const pessoa = (o: Partial<PessoaBrinde> & Pick<PessoaBrinde, "employeeId" | "nome">): PessoaBrinde => ({
@@ -19,6 +19,14 @@ describe("pessoasParaPdf", () => {
   });
   test("TODOS: todos os ativos, nunca quem saiu", () => {
     expect(pessoasParaPdf(pessoas, "TODOS").map((p) => p.employeeId)).toEqual(["a", "b"]);
+  });
+});
+
+describe("ordenarAlfabetico", () => {
+  test("ordena pelo nome completo, ignorando acento e empresa, sem alterar a lista original", () => {
+    const original = [pessoa({ employeeId: "1", nome: "Zélia", empresa: "Casa A" }), pessoa({ employeeId: "2", nome: "Ana", empresa: "Casa B" }), pessoa({ employeeId: "3", nome: "Álvaro", empresa: "Casa A" })];
+    expect(ordenarAlfabetico(original).map((p) => p.employeeId)).toEqual(["3", "2", "1"]);
+    expect(original[0].employeeId).toBe("1");
   });
 });
 

@@ -1,9 +1,9 @@
-// PDF para a entrega do brinde: um bloco por empresa, com uma linha alta para a pessoa assinar ao
+// PDF para a entrega do brinde: uma lista só, em ordem alfabética, com uma linha alta para a pessoa assinar ao
 // retirar. Usa a mesma identidade visual dos PDFs da folha (cabeçalho, rodapé, cores).
 import type { DetalheBrinde, PessoaBrinde } from "../../../api/client";
 import { textoPdf } from "../../gorjeta/envioContabilidade";
 import { type AutoTable, BEGE, CINZA, type Doc, LINHA, LISTRA, M, MARROM, TINTA, cabecalhoPdf, rodapePdf } from "../../gorjeta/pdfTema";
-import { type QuemEntraNoPdf, agruparPorEmpresa, dataBr, nomeArquivoBrinde, pessoasParaPdf } from "./brindeLista";
+import { type QuemEntraNoPdf, dataBr, nomeArquivoBrinde, ordenarAlfabetico, pessoasParaPdf } from "./brindeLista";
 
 const ALTURA_LINHA_ASSINATURA = 12;
 
@@ -29,14 +29,9 @@ export async function montarPdfBrinde(detalhe: DetalheBrinde, quem: QuemEntraNoP
   doc.text(textoPdf(`Declaro ter recebido o brinde (${campanha.nome} ${campanha.ano}), em perfeitas condições. Assine na linha ao lado do seu nome.`), M, 36);
 
   let y = 42;
-  for (const grupo of agruparPorEmpresa(lista)) {
-    if (y > H - 55) { doc.addPage(); y = 18; }
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(10.5);
-    doc.setTextColor(...MARROM);
-    doc.text(textoPdf(grupo.empresa), M, y + 4);
+  if (lista.length > 0) {
     autoTable(doc, {
-      startY: y + 6.5,
+      startY: y,
       margin: { left: M, right: M, top: 18, bottom: 18 },
       theme: "grid",
       rowPageBreak: "avoid",
@@ -44,7 +39,7 @@ export async function montarPdfBrinde(detalhe: DetalheBrinde, quem: QuemEntraNoP
       headStyles: { fillColor: [...MARROM], textColor: 255, fontStyle: "bold", fontSize: 8, minCellHeight: 7 },
       alternateRowStyles: { fillColor: [...LISTRA] },
       head: [["Funcionário", "Setor", "Data", "Assinatura"]],
-      body: grupo.pessoas.map((p: PessoaBrinde) => [textoPdf(p.nomeCompleto), textoPdf(p.setor ?? ""), p.entrega ? dataBr(p.entrega.entregueEm) : "", ""]),
+      body: ordenarAlfabetico(lista).map((p: PessoaBrinde) => [textoPdf(p.nomeCompleto), textoPdf(p.setor ?? ""), p.entrega ? dataBr(p.entrega.entregueEm) : "", ""]),
       columnStyles: { 0: { cellWidth: 62 }, 1: { cellWidth: 30 }, 2: { cellWidth: 22, halign: "center" }, 3: { cellWidth: "auto" } },
     });
     y = doc.lastAutoTable.finalY + 9;

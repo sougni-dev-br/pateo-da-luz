@@ -42,3 +42,8 @@ export function nomeArquivoBrinde(nome: string, ano: number): string {
   const base = nome.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   return `${base || "brinde"}-${ano}-assinaturas.pdf`;
 }
+
+/** Ordem alfabética pelo nome completo, sem considerar acento nem maiúscula. */
+export function ordenarAlfabetico(pessoas: readonly PessoaBrinde[]): PessoaBrinde[] {
+  return [...pessoas].sort((a, b) => a.nomeCompleto.localeCompare(b.nomeCompleto, "pt-BR", { sensitivity: "base" }));
+}
