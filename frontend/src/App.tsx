@@ -224,7 +224,7 @@ const sections = [
   // Férias: período e prazo calculados da data de registro; usa a permissão da Folha ("payroll"),
   // a mesma das rotas /payroll/ferias.
   { id: "ferias", label: "Férias", icon: Palmtree, showInSidebar: true, group: "Pessoas", path: ROTAS_RH.ferias, matchers: [ROTAS_RH.ferias], permissionId: "payroll", description: "Programação de férias: período aquisitivo, prazo para gozo, alerta de vencimento e datas decididas" },
-  { id: "brindes", label: "Brindes", icon: Gift, showInSidebar: true, group: "Pessoas", path: ROTAS_RH.brindes, matchers: [ROTAS_RH.brindes], permissionId: "payroll", description: "Brinde de Natal e outras datas: lista dos funcionários ativos e quem já recebeu, com data e impressão para assinatura" },
+  { id: "brindes", label: "Brindes", icon: Gift, showInSidebar: true, group: "Pessoas", path: ROTAS_RH.brindes, matchers: [ROTAS_RH.brindes], permissionId: "payroll", description: "Brinde de Natal e outras datas: lista dos funcionários ativos e quem já recebeu, com data e PDF para a assinatura de quem retira" },
   // A antiga "Folha e VT" virou três telas; as três usam a permissão da Folha ("payroll"),
   // a mesma de antes: ninguém perde nem ganha acesso com a divisão.
   { id: "payroll-ponto", label: "Ponto", icon: Clock3, showInSidebar: true, group: "Folha", path: ROTAS_RH.ponto, matchers: [ROTAS_RH.ponto], permissionId: "payroll", description: "Faltas, atrasos, horas extras e adicional noturno do mês pela CLT: importa o relógio, lança o papel e fecha para a folha" },

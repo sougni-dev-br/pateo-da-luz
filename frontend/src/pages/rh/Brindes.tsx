@@ -1,7 +1,7 @@
 // RH → Brindes: registro de quem recebeu o brinde (Natal e outras datas). A lista é a dos
 // funcionários ativos; marcar grava quem recebeu, o dia e quem marcou. Quem recebeu e depois
 // saiu continua na lista. A campanha escolhida fica no endereço (?brinde=<id>).
-import { Plus, Printer, RefreshCw } from "lucide-react";
+import { FileDown, Plus, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
@@ -10,11 +10,10 @@ import {
   marcarEntregaBrinde, marcarEntregasBrindeEmLote,
 } from "../../api/client";
 import { Alert, Button, EmptyState } from "../../design-system";
-import { FolhaAssinatura } from "./brindes/FolhaAssinatura";
-import { type FiltroBrinde, agruparPorEmpresa, dataBr, filtrarPessoas } from "./brindes/brindeLista";
+import { gerarPdfBrinde } from "./brindes/pdfBrindes";
+import { type FiltroBrinde, type QuemEntraNoPdf, agruparPorEmpresa, dataBr, filtrarPessoas } from "./brindes/brindeLista";
 import "./brindes/brindes.css";
 
-const CLASSE_IMPRIMINDO = "imprimindo-brinde";
 const mensagem = (e: unknown, padrao: string) => (e instanceof Error ? e.message : padrao);
 
 function LinhaPessoa({ pessoa, ocupada, onMarcar, onData, onObservacao }: {
@@ -93,6 +92,8 @@ export function Brindes() {
   const [filtro, setFiltro] = useState<FiltroBrinde>("TODOS");
   const [busca, setBusca] = useState("");
   const [criando, setCriando] = useState(false);
+  const [quemNoPdf, setQuemNoPdf] = useState<QuemEntraNoPdf>("FALTAM");
+  const [gerandoPdf, setGerandoPdf] = useState(false);
 
   const carregar = useCallback(async () => {
     setErro(null);
@@ -109,7 +110,6 @@ export function Brindes() {
   }, [brindeId]);
 
   useEffect(() => { void carregar(); }, [carregar]);
-  useEffect(() => () => { document.body.classList.remove(CLASSE_IMPRIMINDO); }, []);
 
   const executar = async (chave: string, acao: () => Promise<unknown>) => {
     setOcupada(chave);
@@ -137,11 +137,17 @@ export function Brindes() {
     void executar("lote", () => marcarEntregasBrindeEmLote(id, { employeeIds: faltam.map((p) => p.employeeId) }));
   };
 
-  const imprimir = () => {
-    document.body.classList.add(CLASSE_IMPRIMINDO);
-    const limpar = () => { document.body.classList.remove(CLASSE_IMPRIMINDO); window.removeEventListener("afterprint", limpar); };
-    window.addEventListener("afterprint", limpar);
-    window.print();
+  const gerarPdf = async () => {
+    if (!detalhe) return;
+    setGerandoPdf(true);
+    setErro(null);
+    try {
+      await gerarPdfBrinde(detalhe, quemNoPdf);
+    } catch (e) {
+      setErro(mensagem(e, "Não consegui gerar o PDF."));
+    } finally {
+      setGerandoPdf(false);
+    }
   };
 
   const grupos = useMemo(() => agruparPorEmpresa(filtrarPessoas(detalhe?.pessoas ?? [], filtro, busca)), [detalhe, filtro, busca]);
@@ -162,7 +168,13 @@ export function Brindes() {
             </select>
           )}
           <Button variant="secondary" size="sm" leadingIcon={<RefreshCw size={14} />} onClick={() => void carregar()}>Atualizar</Button>
-          {detalhe && <Button variant="secondary" size="sm" leadingIcon={<Printer size={14} />} onClick={imprimir}>Imprimir lista</Button>}
+          {detalhe && (
+            <select aria-label="Quem entra no PDF" value={quemNoPdf} onChange={(e) => setQuemNoPdf(e.target.value as QuemEntraNoPdf)}>
+              <option value="FALTAM">PDF: só quem falta</option>
+              <option value="TODOS">PDF: todos os ativos</option>
+            </select>
+          )}
+          {detalhe && <Button variant="secondary" size="sm" leadingIcon={<FileDown size={14} />} onClick={() => void gerarPdf()} disabled={gerandoPdf}>{gerandoPdf ? "Gerando…" : "Gerar PDF para assinatura"}</Button>}
           {detalhe && <Button size="sm" leadingIcon={<Plus size={14} />} onClick={() => setCriando(true)}>Novo brinde</Button>}
         </div>
       </div>
@@ -210,7 +222,6 @@ export function Brindes() {
               ))}
             </div>
           ))}
-          <FolhaAssinatura detalhe={detalhe} />
         </>
       )}
     </section>

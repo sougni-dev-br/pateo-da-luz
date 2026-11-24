@@ -43,21 +43,3 @@
   .br-linha { grid-template-columns: 1fr 1fr; }
   .br-busca { margin-left: 0; width: 100%; }
 }
-
-/* Folha de assinatura: fora da tela, só na impressão */
-.br-area-impressao { position: absolute; left: -99999px; visibility: hidden; }
-@media print {
-  body.imprimindo-brinde > *:not(.br-area-impressao) { display: none !important; }
-  html:has(body.imprimindo-brinde) { background: #fff !important; }
-  body.imprimindo-brinde { margin: 0 !important; background: #fff !important; }
-  body.imprimindo-brinde .br-area-impressao { position: static; left: auto; visibility: visible; color: #111; background: #fff; font-family: Arial, Helvetica, sans-serif; font-size: 10pt; }
-  .br-area-impressao h1 { font-size: 16pt; margin: 0 0 2mm; }
-  .br-folha-sub { margin: 0 0 5mm; color: #333; }
-  .br-folha-grupo { margin-bottom: 6mm; }
-  .br-folha-grupo h2 { font-size: 11pt; margin: 0 0 2mm; }
-  .br-area-impressao table { width: 100%; border-collapse: collapse; }
-  .br-area-impressao th, .br-area-impressao td { border: 0.3mm solid #444; padding: 2.2mm 2mm; text-align: left; }
-  .br-area-impressao th { background: #eee; }
-  .br-area-impressao tr { break-inside: avoid; }
-  .br-assina { width: 38%; }
-}

@@ -29,3 +29,16 @@ export function agruparPorEmpresa(pessoas: readonly PessoaBrinde[]): GrupoEmpres
   }
   return grupos;
 }
+
+export type QuemEntraNoPdf = "FALTAM" | "TODOS";
+
+/** Quem vai na folha de assinatura: ativos que ainda não receberam, ou todos os ativos (com a data de quem já recebeu). */
+export function pessoasParaPdf(pessoas: readonly PessoaBrinde[], quem: QuemEntraNoPdf): PessoaBrinde[] {
+  return pessoas.filter((p) => p.ativo && (quem === "TODOS" || !p.entrega));
+}
+
+/** Nome de arquivo sem acento nem símbolo: "Brinde de Natal" 2026 → brinde-de-natal-2026-assinaturas.pdf */
+export function nomeArquivoBrinde(nome: string, ano: number): string {
+  const base = nome.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return `${base || "brinde"}-${ano}-assinaturas.pdf`;
+}
