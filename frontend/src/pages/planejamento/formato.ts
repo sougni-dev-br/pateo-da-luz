@@ -1,21 +1,37 @@
 // Formatação do comparativo de Planejamento. As variações chegam do backend como fração (0,05 = +5%).
 
+/**
+ * Variação em pontos percentuais com uma casa, arredondada pela MAGNITUDE (meio para longe do zero) e só depois com o
+ * sinal. Math.round puro arredonda -83,5 para -83 e +83,5 para 84: a tabela mostraria −8,3% e a frase "8,4% a menos".
+ * Toda tela que escreve uma variação passa por aqui.
+ */
+export function pontosDaVariacao(variacao: number): number {
+  const magnitude = Math.round(Math.abs(variacao) * 1000 + 1e-9) / 10;
+  return variacao < 0 && magnitude > 0 ? -magnitude : magnitude;
+}
+
 /** Estável: a variação some ao arredondar para uma casa decimal (mesma precisão mostrada na tela). */
 export type Leitura = "Aumento" | "Redução" | "Estável";
 
 export function leituraDaVariacao(variacao: number | null): Leitura | null {
   if (variacao === null) return null;
-  const arredondada = Math.round(variacao * 1000) / 10;
-  if (arredondada > 0) return "Aumento";
-  if (arredondada < 0) return "Redução";
+  const pontos = pontosDaVariacao(variacao);
+  if (pontos > 0) return "Aumento";
+  if (pontos < 0) return "Redução";
   return "Estável";
 }
 
+const umaCasa = (n: number) => n.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+
 export function textoDaVariacao(variacao: number | null): string {
   if (variacao === null) return "—";
-  const pct = Math.round(variacao * 1000) / 10;
-  const texto = Math.abs(pct).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
-  return `${pct > 0 ? "+" : pct < 0 ? "−" : ""}${texto}%`;
+  const pct = pontosDaVariacao(variacao);
+  return `${pct > 0 ? "+" : pct < 0 ? "−" : ""}${umaCasa(Math.abs(pct))}%`;
+}
+
+/** Só o tamanho da variação, sem sinal ("8,4%"), para frases que já dizem "a mais"/"a menos". Igual ao da tabela. */
+export function textoDaMagnitude(variacao: number): string {
+  return `${umaCasa(Math.abs(pontosDaVariacao(variacao)))}%`;
 }
 
 export const NOMES_DOS_MESES_CURTOS = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"] as const;

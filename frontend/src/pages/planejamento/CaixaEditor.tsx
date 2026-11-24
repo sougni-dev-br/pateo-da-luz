@@ -27,6 +27,8 @@ type Props = {
   onMudar: (proximo: PlanejamentoCaixaPremissas) => void;
   /** Gastos do cenário: a régua mostra quanto deles sai no próprio mês, ao lado das entradas. */
   gastos?: readonly PlanejamentoLinhaDeGasto[];
+  /** Mix e prazos ainda são os de partida: a régua leva o selo "valores de partida". */
+  valoresDePartida?: boolean;
 };
 
 type CampoDaForma = { campo: keyof Omit<PlanejamentoFormaDePagamento, "forma">; rotulo: string; sufixo: string };
@@ -36,7 +38,7 @@ const CAMPOS_DA_FORMA: CampoDaForma[] = [
   { campo: "taxa", rotulo: "Taxa", sufixo: "taxa em %" }
 ];
 
-export function CaixaEditor({ caixa, desabilitado, onMudar, gastos = [] }: Props) {
+export function CaixaEditor({ caixa, desabilitado, onMudar, gastos = [], valoresDePartida = false }: Props) {
   const { ref, largura } = useLargura<HTMLDivElement>();
   const cartoes = largura < LARGURA_DAS_TABELAS;
   const mudarForma = (indice: number, campo: keyof Omit<PlanejamentoFormaDePagamento, "forma">, valor: number | null) =>
@@ -81,7 +83,7 @@ export function CaixaEditor({ caixa, desabilitado, onMudar, gastos = [] }: Props
         <p className="plan-sub">Mix = parte das vendas em cada forma; prazo = dias até o dinheiro cair; taxa = desconto da maquininha.</p>
       </div>
       <div className={`plan-caixa-formas${largura >= LARGURA_LADO_A_LADO ? " plan-caixa-formas-lado" : ""}`}>
-        <ReguaDoPrazo caixa={caixa} gastos={gastos} />
+        <ReguaDoPrazo caixa={caixa} gastos={gastos} valoresDePartida={valoresDePartida} />
         {cartoes ? (
           <ul className="plan-forma-lista" aria-label="Formas de pagamento das vendas do Salão">
             {caixa.formas.map((f, i) => (

@@ -36,6 +36,7 @@
 .plan-regua-aberta { border-color: var(--tint-danger-border); }
 .plan-regua-cabecalho { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px; }
 .plan-regua-titulo { color: var(--ink); font-size: 15px; font-weight: var(--fw-bold); }
+.plan-regua-partida { padding: 1px 8px; border-radius: 999px; background: var(--tint-warning, #f6ead0); color: #7a5a14; font-size: var(--fs-xs); font-weight: var(--fw-bold); }
 .plan-regua-legenda { color: var(--plan-muted); font-size: var(--fs-xs); }
 .plan-regua-corpo { display: grid; gap: 2px; }
 .plan-regua-eixo, .plan-regua-linha { display: grid; grid-template-columns: 128px minmax(0, 1fr); align-items: center; column-gap: 12px; }
@@ -52,9 +53,10 @@
   position: absolute; left: 0; right: 0; top: 2px; bottom: 2px; border-radius: 0 4px 4px 0; background: var(--plan-regua-cor, var(--gold)); opacity: 0.85;
   transform-origin: left center; transform: scale(var(--plan-regua-x), var(--plan-regua-y)); transition: transform var(--dur) var(--ease);
 }
-.plan-regua-chegada { position: absolute; inset: 0; transform: translateX(calc(var(--plan-regua-x) * 100%)); transition: transform var(--dur) var(--ease); pointer-events: none; }
+.plan-regua-chegada { position: absolute; top: 0; bottom: 0; left: calc(var(--plan-regua-x) * 100%); width: 0; transition: left var(--dur) var(--ease); pointer-events: none; }
 .plan-regua-ponto { position: absolute; left: -6px; top: 50%; width: 12px; height: 12px; margin-top: -6px; border: 2px solid var(--paper); border-radius: 50%; background: var(--plan-regua-cor, var(--gold)); box-shadow: 0 0 0 1px var(--plan-regua-cor, var(--gold)); }
 .plan-regua-dias { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--ink-soft); font-size: var(--fs-xs); font-weight: var(--fw-bold); white-space: nowrap; }
+.plan-regua-rotulo-esquerda .plan-regua-dias { left: auto; right: 12px; padding: 0 5px; border-radius: 3px; background: var(--paper); }
 .plan-regua-vazia .plan-regua-espera, .plan-regua-vazia .plan-regua-ponto { opacity: 0.25; }
 .plan-regua-dinheiro { --plan-regua-cor: #5f8a66; }
 .plan-regua-pix { --plan-regua-cor: #2c7a87; }

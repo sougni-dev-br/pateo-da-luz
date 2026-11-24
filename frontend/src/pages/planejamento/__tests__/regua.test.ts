@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PlanejamentoCaixaPremissas, PlanejamentoLinhaDeGasto } from "../../../api/client";
-import { distribuicaoPorPrazo, entradasDosMesesSeguintes, lerPrazos, pagoNoMesMedio, parteForaDoMes } from "../regua";
+import { distribuicaoPorPrazo, entradasDosMesesSeguintes, ladoDoRotulo, lerPrazos, pagoNoMesMedio, parteForaDoMes } from "../regua";
 
 const caixa = (formas: PlanejamentoCaixaPremissas["formas"]): PlanejamentoCaixaPremissas => ({ saldoInicial: 0, formas, comprasPrazoDias: 30, herdado: { entradas: [0, 0, 0], saidas: [0, 0, 0] } });
 
@@ -73,5 +73,26 @@ describe("pagoNoMesMedio", () => {
   it("sem valor fixo usa a média simples; sem linhas, null", () => {
     expect(pagoNoMesMedio([gasto("PERCENTUAL", 0.05, 0.5), gasto("FIXO", 0, 1)])).toBeCloseTo(0.75, 6);
     expect(pagoNoMesMedio([])).toBeNull();
+  });
+});
+
+describe("lado do rótulo do ponto da régua", () => {
+  it("rótulo à direita só enquanto sobra trilho; perto do fim do eixo vai para a esquerda", () => {
+    expect(ladoDoRotulo(0)).toBe("direita");
+    expect(ladoDoRotulo(1 / 30)).toBe("direita");
+    expect(ladoDoRotulo(0.75)).toBe("direita");
+    expect(ladoDoRotulo(45 / 60)).toBe("direita");
+    expect(ladoDoRotulo(1)).toBe("esquerda");
+    expect(ladoDoRotulo(45 / 50)).toBe("esquerda");
+  });
+  it("prazo igual ao fim do eixo (a escala cresce até o maior prazo) nunca fica à direita", () => {
+    for (const prazo of [30, 45, 90]) {
+      const { escala } = lerPrazos(caixa([{ forma: "CREDITO", mix: 1, prazoDias: prazo, taxa: 0 }]));
+      expect(ladoDoRotulo(prazo / escala)).toBe("esquerda");
+    }
+  });
+  it("posição fora do eixo também vai para a esquerda", () => {
+    expect(ladoDoRotulo(-0.1)).toBe("esquerda");
+    expect(ladoDoRotulo(1.2)).toBe("esquerda");
   });
 });

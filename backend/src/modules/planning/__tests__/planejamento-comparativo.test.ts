@@ -96,6 +96,12 @@ describe("montarComparativo", () => {
     expect(Math.round((acumulado.variacao.ticket.total ?? 0) * 1000) / 10).toBe(3.5);
   });
 
+  it("ticket que cai entre dois centavos arredonda uma vez só (88,21498 mostra 88,21, não 88,22)", () => {
+    const mes: MesDoSalao = { ano: 2026, mes: 1, vendasAlmoco: 88214.98, vendasJantar: 0, clientesAlmoco: 1000, clientesJantar: 0, servico: 0, fonte: "ERP" };
+    const { acumulado } = montarComparativo([{ ...mes, ano: 2025 }, mes], 2025, 2026, new Set(["2025-01", "2026-01"]), "2026-11");
+    expect(Math.round((acumulado.comparado.ticket.total ?? 0) * 100) / 100).toBe(88.21);
+  });
+
   it("mês em andamento não mostra variação, em qualquer dos anos (ano corrente como referência)", () => {
     const hoje = mesesEncerradosAte("2026-03-10", [2025, 2026]);
     const r = montarComparativo([mar25, mar26, jan25, jan26], 2026, 2025, hoje, "2026-03");

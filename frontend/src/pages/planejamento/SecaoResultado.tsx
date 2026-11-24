@@ -4,6 +4,7 @@ import { Alert } from "../../design-system";
 import { Abas, PainelDaAba, type Aba } from "./Abas";
 import { GraficoCompetenciaCaixa } from "./GraficoCompetenciaCaixa";
 import { NOMES_DOS_MESES } from "./formato";
+import { listaDeMeses, pendenciaDoCenario, textoDaPendencia } from "./incompleto";
 import { Reais } from "./Reais";
 import { ResultadoCaixa } from "./ResultadoCaixa";
 import { ResultadoGastos } from "./ResultadoGastos";
@@ -21,7 +22,7 @@ const REGIMES: Aba<Regime>[] = [
 ];
 const REGIMES_NO_CELULAR = REGIMES.filter((r) => r.valor !== "lado");
 
-type Props = { projecao: PlanejamentoProjecao; resultado: PlanejamentoResultado; caixa: PlanejamentoCaixa | null; ano: number; anoBase: number };
+type Props = { projecao: PlanejamentoProjecao; resultado: PlanejamentoResultado; caixa: PlanejamentoCaixa | null; ano: number; anoBase: number; onPreencher?: (alvo: "premissas" | "gastos") => void };
 
 /** O regime que não está à vista, numa linha: no celular a pessoa não perde o outro lado da conta. */
 function OutroRegime({ regime, resultado, caixa, onTrocar }: { regime: "competencia" | "caixa"; resultado: PlanejamentoResultado; caixa: PlanejamentoCaixa | null; onTrocar: () => void }) {
@@ -45,13 +46,27 @@ function OutroRegime({ regime, resultado, caixa, onTrocar }: { regime: "competen
   );
 }
 
-export function SecaoResultado({ projecao, resultado, caixa, ano, anoBase }: Props) {
+/** Sem CMV em algum mês não há lucro nem caixa para mostrar: um bloco só no lugar de gráficos e tabelas "sem base". */
+function FaltaCmv({ meses }: { meses: number[] }) {
+  return (
+    <div className="plan-falta-cmv" role="status">
+      <h2 id="plan-lucro-caixa" className="plan-falta-cmv-titulo">Faltam {meses.length} {meses.length === 1 ? "mês" : "meses"} de CMV: preencha para ver o lucro e o caixa</h2>
+      <p className="plan-falta-cmv-lista">Sem o CMV não há margem nem lucro, e sem lucro o caixa de um mês isolado engana. Meses sem CMV: {listaDeMeses(meses)}. Use o botão “Preencher o CMV” acima.</p>
+    </div>
+  );
+}
+
+export function SecaoResultado({ projecao, resultado, caixa, ano, anoBase, onPreencher }: Props) {
   const estreito = useEstreito();
   const [regime, setRegime] = useState<Regime>("lado");
   const visivel: Regime = estreito && regime === "lado" ? "competencia" : regime;
+  const pendencia = pendenciaDoCenario(projecao, resultado);
 
   return (
     <>
+      {pendencia?.tipo === "cmv" ? (
+        <section className="plan-secao" aria-labelledby="plan-lucro-caixa"><FaltaCmv meses={pendencia.meses} /></section>
+      ) : (
       <section className="plan-secao" aria-labelledby="plan-lucro-caixa">
         <div className="plan-cabecalho plan-cabecalho-com-controle">
           <div>
@@ -60,6 +75,9 @@ export function SecaoResultado({ projecao, resultado, caixa, ano, anoBase }: Pro
           </div>
           <Abas id="plan-regime" rotulo="Regime do resultado" variante="segmentada" abas={estreito ? REGIMES_NO_CELULAR : REGIMES} valor={visivel} aoMudar={setRegime} />
         </div>
+        {pendencia?.tipo === "gastos" && (
+          <Alert tone="warning">{`Parcial: ${textoDaPendencia(pendencia)}. O caixa abaixo mostra só entradas e compras, por isso sobra dinheiro em todos os meses. Preencha a aba Gastos.`}</Alert>
+        )}
         <GraficoCompetenciaCaixa resultado={resultado} caixa={caixa} />
         <PainelDaAba id="plan-regime" valor={visivel} className="plan-secao">
           {estreito && visivel !== "lado" && <OutroRegime regime={visivel} resultado={resultado} caixa={caixa} onTrocar={() => setRegime(visivel === "competencia" ? "caixa" : "competencia")} />}
@@ -72,6 +90,7 @@ export function SecaoResultado({ projecao, resultado, caixa, ano, anoBase }: Pro
           )}
         </PainelDaAba>
       </section>
+      )}
       <section className="plan-secao" aria-labelledby="plan-vendas-projetadas">
         <div className="plan-cabecalho">
           <h2 id="plan-vendas-projetadas" className="plan-titulo">Vendas projetadas</h2>

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import type { PlanejamentoComparativo, PlanejamentoTurnos } from "../../api/client";
 import { Table } from "../../design-system";
-import { descricaoDoPeriodo, leituraDaVariacao, NOMES_DOS_MESES, textoDaVariacao } from "./formato";
+import { descricaoDoPeriodo, leituraDaVariacao, NOMES_DOS_MESES, textoDaMagnitude, textoDaVariacao } from "./formato";
 import { Quadro } from "./Quadro";
 import { Reais } from "./Reais";
 import { RitmoDoAno } from "./RitmoDoAno";
@@ -38,14 +38,14 @@ function fraseDoVeredito(variacao: number | null, anoBase: number, anoComparado:
   const leitura = leituraDaVariacao(variacao);
   if (!leitura) return `Sem comparação de vendas entre ${anoComparado} e ${anoBase}`;
   if (leitura === "Estável") return `${anoComparado} vende o mesmo que ${anoBase}`;
-  return `${anoComparado} vende ${textoDaVariacao(Math.abs(variacao ?? 0)).replace("+", "")} ${leitura === "Aumento" ? "a mais" : "a menos"} que ${anoBase}`;
+  return `${anoComparado} vende ${textoDaMagnitude(variacao ?? 0)} ${leitura === "Aumento" ? "a mais" : "a menos"} que ${anoBase}`;
 }
 
 /** Vendas = clientes × ticket: diz qual dos dois mais explica a variação das vendas. */
 function oQueMaisPesou(clientes: number | null, ticket: number | null): string | null {
   if (clientes === null || ticket === null) return null;
   const motor = Math.abs(clientes) >= Math.abs(ticket) ? "o número de clientes" : "o ticket médio";
-  const outro = motor === "o número de clientes" ? `o ticket médio ${ticket >= 0 ? "subiu" : "caiu"} ${textoDaVariacao(Math.abs(ticket)).replace("+", "")}` : `os clientes ${clientes >= 0 ? "subiram" : "caíram"} ${textoDaVariacao(Math.abs(clientes)).replace("+", "")}`;
+  const outro = motor === "o número de clientes" ? `o ticket médio ${ticket >= 0 ? "subiu" : "caiu"} ${textoDaMagnitude(ticket)}` : `os clientes ${clientes >= 0 ? "subiram" : "caíram"} ${textoDaMagnitude(clientes)}`;
   return `O que mais pesou foi ${motor}; ${outro}.`;
 }
 

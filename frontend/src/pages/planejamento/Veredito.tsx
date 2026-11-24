@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { ArrowRight } from "lucide-react";
 import type { PlanejamentoCaixa, PlanejamentoProjecao, PlanejamentoResultado } from "../../api/client";
 import { descricaoDoPeriodo, NOMES_DOS_MESES, NOMES_DOS_MESES_CURTOS, textoDaVariacao } from "./formato";
+import { listaDeMeses, pendenciaDoCenario, textoDaPendencia, type Pendencia } from "./incompleto";
 import { LinhaDoTempoDoCaixa } from "./LinhaDoTempoDoCaixa";
 import { emMil, Reais } from "./Reais";
 import { useOculto } from "./useOculto";
@@ -26,6 +27,8 @@ type Props = {
   /** Versão de uma linha, para as subabas de edição. */
   compacto?: boolean;
   onVerResultado?: () => void;
+  /** Leva à aba onde o que falta se preenche (Premissas para o CMV, Gastos para os gastos). */
+  onPreencher?: (alvo: "premissas" | "gastos") => void;
 };
 
 const dinheiro = (n: number | null | undefined): ReactNode => (n === null || n === undefined ? "—" : <Reais valor={n} />);
@@ -43,12 +46,16 @@ export function trechoNegativo(caixa: PlanejamentoCaixa | null): string | null {
   return seguidos ? `de ${primeiro} a ${ultimo} o caixa fica no vermelho (${negativos.length} meses seguidos)` : `o caixa fica no vermelho em ${negativos.length} meses, entre ${primeiro} e ${ultimo}`;
 }
 
-function vereditoDe(lucro: number | null, caixa: PlanejamentoCaixa | null): { tom: Tom; titulo: string; detalhe: ReactNode } {
+function vereditoDe(lucro: number | null, caixa: PlanejamentoCaixa | null, pendencia: Pendencia | null): { tom: Tom; titulo: string; detalhe: ReactNode } {
   const pior = caixa?.total.menorSaldo ?? null;
   const mesDoPior = pior ? NOMES_DOS_MESES[pior.mes - 1] : "";
   const trecho = trechoNegativo(caixa);
-  if (lucro === null) {
-    return { tom: "neutro", titulo: "Ainda sem veredito", detalhe: "Falta o CMV de algum mês com base: sem ele não há margem nem lucro. Complete na aba Premissas." };
+  if (pendencia?.tipo === "gastos") {
+    return { tom: "neutro", titulo: "Ainda sem veredito", detalhe: "Nenhum gasto foi lançado: sem eles o lucro e o caixa saem inflados, porque só as entradas aparecem. Preencha a aba Gastos." };
+  }
+  if (lucro === null || pendencia?.tipo === "cmv") {
+    const meses = pendencia?.tipo === "cmv" ? ` (${listaDeMeses(pendencia.meses)})` : "";
+    return { tom: "neutro", titulo: "Ainda sem veredito", detalhe: `Falta o CMV de algum mês com base${meses}: sem ele não há margem nem lucro. Complete na aba Premissas.` };
   }
   if (lucro < 0) {
     return {
@@ -86,9 +93,9 @@ function Estado({ calculando, previa, desatualizado }: { calculando: boolean; pr
   );
 }
 
-function VereditoCompacto({ tom, titulo, lucro, resultadoDeCaixa, caixa, estado, onVerResultado }: { tom: Tom; titulo: string; lucro: number | null; resultadoDeCaixa: number | null; caixa: PlanejamentoCaixa | null; estado: ReactNode; onVerResultado?: () => void }) {
+function VereditoCompacto({ tom, titulo, lucro, resultadoDeCaixa, caixa, estado, parcial, onVerResultado }: { tom: Tom; titulo: string; lucro: number | null; resultadoDeCaixa: number | null; caixa: PlanejamentoCaixa | null; estado: ReactNode; parcial: boolean; onVerResultado?: () => void }) {
   const hidden = useOculto();
-  const pior = caixa?.total.menorSaldo ?? null;
+  const pior = parcial ? null : caixa?.total.menorSaldo ?? null;
   const mil = (n: number | null) => (n === null ? "—" : hidden ? "••••" : emMil(n));
   return (
     <section className={`plan-veredito plan-veredito-${tom} plan-veredito-linha`} aria-labelledby="plan-veredito-titulo">
@@ -96,7 +103,7 @@ function VereditoCompacto({ tom, titulo, lucro, resultadoDeCaixa, caixa, estado,
       <h2 id="plan-veredito-titulo" className="plan-veredito-linha-titulo">{titulo}</h2>
       <dl className="plan-veredito-linha-numeros">
         <div><dt>lucro</dt><dd className={sinal(lucro)}>{mil(lucro)}</dd></div>
-        <div><dt>caixa</dt><dd className={sinal(resultadoDeCaixa)}>{mil(resultadoDeCaixa)}</dd></div>
+        <div><dt>caixa</dt><dd className={parcial ? undefined : sinal(resultadoDeCaixa)}>{parcial ? "—" : mil(resultadoDeCaixa)}</dd></div>
         {pior && <div><dt>caixa mín.</dt><dd className={sinal(pior.valor)}>{mil(pior.valor)} em {NOMES_DOS_MESES_CURTOS[pior.mes - 1].toLowerCase()}</dd></div>}
       </dl>
       {estado}
@@ -107,12 +114,14 @@ function VereditoCompacto({ tom, titulo, lucro, resultadoDeCaixa, caixa, estado,
   );
 }
 
-export function Veredito({ ano, anoBase, nome, projecao, resultado, caixa, calculando, previa, desatualizado = false, compacto = false, onVerResultado }: Props) {
+export function Veredito({ ano, anoBase, nome, projecao, resultado, caixa, calculando, previa, desatualizado = false, compacto = false, onVerResultado, onPreencher }: Props) {
   const lucro = resultado?.total.lucro ?? null;
-  const { tom, titulo, detalhe } = vereditoDe(lucro, caixa);
+  const pendencia = pendenciaDoCenario(projecao, resultado);
+  const parcial = pendencia !== null;
+  const { tom, titulo, detalhe } = vereditoDe(lucro, caixa, pendencia);
   const periodo = descricaoDoPeriodo(projecao.total.meses);
-  const pior = caixa?.total.menorSaldo ?? null;
-  const resultadoDeCaixa = caixa?.total.resultado ?? null;
+  const pior = parcial ? null : caixa?.total.menorSaldo ?? null;
+  const resultadoDeCaixa = parcial ? null : caixa?.total.resultado ?? null;
   const mesmosMeses = caixa !== null && caixa.mesesCalculados.length === projecao.total.meses.length;
   const diferenca = mesmosMeses && lucro !== null && resultadoDeCaixa !== null ? resultadoDeCaixa - lucro : null;
   const variacao = projecao.total.variacaoVendas;
@@ -122,16 +131,17 @@ export function Veredito({ ano, anoBase, nome, projecao, resultado, caixa, calcu
   if (compacto) {
     return (
       <div className={classeVelha.trim() || undefined} aria-busy={calculando || desatualizado}>
-        <VereditoCompacto tom={tom} titulo={titulo} lucro={lucro} resultadoDeCaixa={resultadoDeCaixa} caixa={caixa} estado={estado} onVerResultado={onVerResultado} />
+        <VereditoCompacto tom={tom} titulo={titulo} lucro={lucro} resultadoDeCaixa={resultadoDeCaixa} caixa={caixa} estado={estado} parcial={parcial} onVerResultado={onVerResultado} />
       </div>
     );
   }
 
   const necessidade = caixa?.total.necessidadeDeCapital ?? 0;
-  const notaDoSaldo = !pior ? "sem todos os meses calculados"
+  const motivo = pendencia ? `parcial: ${textoDaPendencia(pendencia)}` : null;
+  const notaDoSaldo = motivo ?? (!pior ? "sem todos os meses calculados"
     : pior.valor >= 0 ? `em ${NOMES_DOS_MESES[pior.mes - 1]}: o caixa nunca fica negativo`
     : Math.abs(necessidade - Math.abs(pior.valor)) < 1 ? `em ${NOMES_DOS_MESES[pior.mes - 1]}: é o que precisa estar no banco antes de começar`
-    : <>em {NOMES_DOS_MESES[pior.mes - 1]}; giro necessário no ano: {dinheiro(necessidade)}</>;
+    : <>em {NOMES_DOS_MESES[pior.mes - 1]}; giro necessário no ano: {dinheiro(necessidade)}</>);
 
   return (
     <section className={`plan-veredito plan-veredito-${tom}${classeVelha}`} aria-labelledby="plan-veredito-titulo" aria-busy={calculando || desatualizado}>
@@ -141,6 +151,11 @@ export function Veredito({ ano, anoBase, nome, projecao, resultado, caixa, calcu
       </div>
       <h2 id="plan-veredito-titulo" className="plan-veredito-titulo">{titulo}</h2>
       <p className="plan-veredito-detalhe">{detalhe}</p>
+      {pendencia && onPreencher && (
+        <button type="button" className="plan-veredito-preencher" onClick={() => onPreencher(pendencia.tipo === "cmv" ? "premissas" : "gastos")}>
+          {pendencia.tipo === "cmv" ? "Preencher o CMV" : "Preencher os gastos"} <ArrowRight size={14} aria-hidden />
+        </button>
+      )}
 
       <div className="plan-veredito-grade">
         <div className="plan-par" role="group" aria-label="Competência e caixa no mesmo período">
@@ -153,7 +168,7 @@ export function Veredito({ ano, anoBase, nome, projecao, resultado, caixa, calcu
             <span className="plan-cifra-rotulo"><Rotulo longo="Resultado · caixa" curto="Caixa (result.)" /></span>
             <strong className={`plan-cifra-valor${sinal(resultadoDeCaixa)}`}>{dinheiro(resultadoDeCaixa)}</strong>
             <span className="plan-cifra-nota">
-              {diferenca === null ? (caixa ? "meses diferentes da competência" : "corrija o mix para calcular") : <>{dinheiro(Math.abs(diferenca))} {diferenca >= 0 ? "acima" : "abaixo"} da competência</>}
+              {motivo ? motivo : diferenca === null ? (caixa ? "meses diferentes da competência" : "corrija o mix para calcular") : <>{dinheiro(Math.abs(diferenca))} {diferenca >= 0 ? "acima" : "abaixo"} da competência</>}
             </span>
           </div>
         </div>
@@ -171,7 +186,7 @@ export function Veredito({ ano, anoBase, nome, projecao, resultado, caixa, calcu
         </div>
       </div>
 
-      {caixa && <LinhaDoTempoDoCaixa caixa={caixa} />}
+      {caixa && !parcial && <LinhaDoTempoDoCaixa caixa={caixa} />}
     </section>
   );
 }
