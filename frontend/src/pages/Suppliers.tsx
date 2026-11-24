@@ -703,7 +703,7 @@ export function Suppliers() {
                         </StatusBadge>
                       </Table.Td>
                       <Table.Td style={{ color: "var(--muted)", whiteSpace: "nowrap" }}>{supplier.externalCode ?? "-"}</Table.Td>
-                      <Table.Td title={supplier.name} style={{ fontWeight: "var(--fw-medium)" as never, maxWidth: 320 }}>
+                      <Table.Td title={supplier.name} style={{ fontWeight: "var(--fw-medium)" as never }}>
                         <span className="supp-cell-name">{supplier.name}</span>
                         {supplierSubline(supplier) && <span className="supp-cell-sub">{supplierSubline(supplier)}</span>}
                       </Table.Td>
