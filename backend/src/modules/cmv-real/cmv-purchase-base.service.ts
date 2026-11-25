@@ -55,7 +55,7 @@ export const CATEGORIAS_CMV_GERENCIAL = [
   "Descartáveis / Delivery",
 ] as const;
 
-function cmvPurchasePredicate(mode: CmvVisionKey) {
+export function cmvPurchasePredicate(mode: CmvVisionKey) {
   if (mode === "managerial") {
     return Prisma.sql`(
       dc."dreGroup" = 'CMV_COMPRAS'

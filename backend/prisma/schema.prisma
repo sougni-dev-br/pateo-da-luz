@@ -4638,3 +4638,21 @@ model BrindeEntrega {
   @@unique([campanhaId, employeeId])
   @@index([employeeId])
 }
+
+/// Meta de CMV % (compras / faturamento) com vigencia. Escopo GERAL (sectorId nulo) ou SETOR.
+/// Mudar a meta cria uma vigencia nova; a anterior e encerrada, nunca sobrescrita.
+model CmvMeta {
+  id               String    @id @default(cuid())
+  escopo           String    @default("GERAL")
+  sectorId         String?
+  alvoPercentual   Decimal   @db.Decimal(6, 2)
+  alertaPercentual Decimal   @db.Decimal(6, 2)
+  vigenciaInicio   DateTime  @db.Date
+  vigenciaFim      DateTime? @db.Date
+  observacao       String?
+  createdById      String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([escopo, sectorId, vigenciaInicio])
+}

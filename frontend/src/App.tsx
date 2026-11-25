@@ -43,7 +43,8 @@ import {
   TrendingUp,
   Banknote,
   Bus,
-  Clock3
+  Clock3,
+  Target
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -79,6 +80,7 @@ const CatalogImports = lazy(() => import("./pages/CatalogImports").then((module)
 const Cards = lazy(() => import("./pages/Cards").then((module) => ({ default: module.Cards })));
 const Cash = lazy(() => import("./pages/Cash").then((module) => ({ default: module.Cash })));
 const CmvReal = lazy(() => import("./pages/CmvReal").then((module) => ({ default: module.CmvReal })));
+const CmvMetas = lazy(() => import("./pages/CmvMetas").then((module) => ({ default: module.CmvMetas })));
 const Dashboard = lazy(() => import("./pages/Dashboard").then((module) => ({ default: module.Dashboard })));
 const DocIntake = lazy(() => import("./pages/DocIntake").then((module) => ({ default: module.DocIntake })));
 const ImportsHub = lazy(() => import("./pages/ImportsHub").then((module) => ({ default: module.ImportsHub })));
@@ -187,6 +189,7 @@ const sections = [
   { id: "cards", label: "Cartões", icon: CreditCard, showInSidebar: true, group: "Financeiro", path: "/financeiro/cartoes", matchers: ["/financeiro/cartoes"] },
   { id: "cash", label: "Caixa", icon: BadgeDollarSign, showInSidebar: true, group: "Financeiro", path: "/financeiro/caixa", matchers: ["/financeiro/caixa"] },
   { id: "cmv-real", label: "CMV Real", icon: Calculator, showInSidebar: true, group: "CMV", path: "/cmv/real", matchers: ["/cmv/real"] },
+  { id: "cmv-metas", label: "Metas de CMV", icon: Target, showInSidebar: true, group: "CMV", path: "/cmv/metas", matchers: ["/cmv/metas"], permissionId: "cmv-real", description: "Meta de CMV % por mês e por setor: realizado, projeção e quanto ainda dá para comprar", hidePageHeader: true },
   // O matcher precisa cobrir /:yearMonth, senao "Mes anterior" e "Proximo mes"
   // saem da secao: findSectionByPath casa com end:true, o guard nao acha secao
   // nenhuma e redireciona em silencio para o fallback. Na pratica a tela ficava
@@ -776,6 +779,7 @@ export function App() {
                 )}
               />
               <Route path="/cmv/real" element={<CmvReal user={user} />} />
+              <Route path="/cmv/metas" element={<CmvMetas />} />
               <Route path="/cmv/fechamento-mensal" element={<MonthlyClosurePanel user={user} />} />
               <Route path="/cmv/fechamento-mensal/:yearMonth" element={<MonthlyClosurePanel user={user} />} />
               <Route path="/cmv/fechamento-mensal-legado" element={<MonthlyClosing user={user} />} />

@@ -167,3 +167,17 @@ describe("resolvePermissionContext — Análise do Salão", () => {
     expect(await ctx("POST", "/integrations/agile/heartbeat")).toBeNull();
   });
 });
+
+// Metas de CMV não têm módulo próprio: herdam o CMV Real (quem vê o CMV vê as metas, e a ação
+// segue o método — gravar pede "create", remover pede "delete").
+describe("resolvePermissionContext — metas de CMV", () => {
+  it("leitura, gravação e remoção caem no módulo CMV Real", async () => {
+    expect(await ctx("GET", "/monthly/cmv-real/metas/painel")).toEqual({ menuId: "cmv-real", action: "view" });
+    expect(await ctx("POST", "/monthly/cmv-real/metas")).toEqual({ menuId: "cmv-real", action: "create" });
+    expect(await ctx("DELETE", "/monthly/cmv-real/metas/abc")).toEqual({ menuId: "cmv-real", action: "delete" });
+  });
+
+  it("o item do menu lateral vale como favorito do CMV Real", () => {
+    expect(menuDoFavorito("cmv-metas")).toBe("cmv-real");
+  });
+});
