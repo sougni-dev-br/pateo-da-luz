@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 import { cmvPurchasePredicate, getCmvPurchaseTotalsByPurchaseDateRange } from "../cmv-real/cmv-purchase-base.service.js";
+import { getCmvPeriod } from "../cmv-real/cmv-real.service.js";
 import { hojeEmSaoPaulo } from "../payroll/extras-comum.js";
 import { arredondar, classificarMeta, metaVigente, percentualDe, projetarMes, razaoParaPercentual, validarPercentuais, type MetaVigencia, type Projecao, type StatusMeta } from "./cmv-metas.logic.js";
 
@@ -155,6 +156,9 @@ async function pedidosAbertosPorSetor() {
   return new Map(rows.map((r) => [r.sectorId, num(r.total)]));
 }
 
+/** De onde vem o "realizado": o CMV real do ciclo (contagem fechada) ou, sem ciclo, compras ÷ faturamento. */
+export type BaseRealizado = "CMV_REAL" | "COMPRAS";
+
 export type LinhaPainel = {
   escopo: "GERAL" | "SETOR";
   sectorId: string | null;
@@ -162,12 +166,38 @@ export type LinhaPainel = {
   meta: { id: string; alvoPercentual: number; alertaPercentual: number } | null;
   compras: number;
   pedidosAbertos: number;
+  base: BaseRealizado;
+  /** Compras ÷ faturamento do mês, sempre calculado (referência quando a base é o CMV real). */
+  comprasSobreFaturamento: number | null;
   realizadoPercentual: number | null;
   status: StatusMeta;
   projecao: Projecao | null;
 };
 
-export type HistoricoMes = { mes: string; faturamento: number; compras: number; realizadoPercentual: number | null; alvoPercentual: number | null; status: StatusMeta };
+export type HistoricoMes = {
+  mes: string; faturamento: number; compras: number; base: BaseRealizado; comprasSobreFaturamento: number | null;
+  realizadoPercentual: number | null; alvoPercentual: number | null; status: StatusMeta;
+};
+
+type CicloDoMes = { percentual: number; periodo: string; status: string };
+
+/**
+ * CMV real do ciclo que terminou dentro do mês (até o dia de referência). Ciclo fechado vale pelo valor
+ * congelado; aberto é recalculado agora, porque o valor gravado nele fica velho. Sem ciclo, devolve null.
+ */
+async function cicloDoMes(inicio: Date, fim: Date): Promise<CicloDoMes | null> {
+  const ciclo = await prisma.cmvPeriod.findFirst({ where: { dataFinal: { gte: inicio, lte: fim } }, orderBy: { dataFinal: "desc" } });
+  if (!ciclo) return null;
+  let razao = ciclo.cmvPercentual == null ? null : num(ciclo.cmvPercentual);
+  if (ciclo.status !== "CLOSED") {
+    try {
+      razao = (await getCmvPeriod(ciclo.id)).cmvPercentual ?? razao;
+    } catch {
+      // Sem recálculo, o valor gravado ainda é melhor que nada; a tela mostra o ciclo como "em aberto".
+    }
+  }
+  return razao == null ? null : { percentual: razaoParaPercentual(razao), periodo: ciclo.name, status: ciclo.status };
+}
 
 export type Painel = {
   mes: string;
@@ -207,16 +237,20 @@ async function historicoGeral(ano: number, mes: number, metas: MetaVigencia[], h
   return Promise.all(
     meses.map(async (m) => {
       const iv = intervaloDoMes(m.ano, m.mes, hoje);
-      const [fat, compras] = await Promise.all([
+      const [fat, compras, ciclo] = await Promise.all([
         faturamentoLiquido(iv.inicio, iv.fim),
         getCmvPurchaseTotalsByPurchaseDateRange(iv.inicio, iv.fim, VISAO),
+        cicloDoMes(iv.inicio, iv.fim),
       ]);
       const meta = metaVigente(metas, "GERAL", null, iv.inicioIso);
-      const realizado = percentualDe(compras.total, fat);
+      const proxy = percentualDe(compras.total, fat);
+      const realizado = ciclo?.percentual ?? proxy;
       return {
         mes: iv.inicioIso.slice(0, 7),
         faturamento: arredondar(fat),
         compras: arredondar(compras.total),
+        base: ciclo ? "CMV_REAL" : "COMPRAS",
+        comprasSobreFaturamento: proxy,
         realizadoPercentual: realizado,
         alvoPercentual: meta?.alvoPercentual ?? null,
         status: meta ? classificarMeta(realizado, meta.alvoPercentual, meta.alertaPercentual) : "SEM_DADOS",
@@ -235,14 +269,17 @@ export async function montarPainel(ano: number, mes: number): Promise<Painel> {
     getCmvPurchaseTotalsByPurchaseDateRange(iv.inicio, iv.fim, VISAO),
     comprasPorSetor(iv.inicio, iv.fim),
     pedidosAbertosPorSetor(),
-    prisma.cmvPeriod.findFirst({ where: { dataFinal: { gte: iv.inicio, lte: iv.fim } }, orderBy: { dataFinal: "desc" } }),
+    cicloDoMes(iv.inicio, iv.fim),
   ]);
   const metas = linhasMeta.map(paraVigencia);
   const pedidosTotal = [...pedidos.values()].reduce((a, b) => a + b, 0);
 
-  const montar = (escopo: "GERAL" | "SETOR", sectorId: string | null, nome: string, compras: number, abertos: number): LinhaPainel => {
+  // Só a linha geral tem CMV real (o ciclo é do restaurante todo); setor segue em compras ÷ faturamento.
+  const montar = (escopo: "GERAL" | "SETOR", sectorId: string | null, nome: string, compras: number, abertos: number, cmvReal: number | null = null): LinhaPainel => {
     const meta = metaVigente(metas, escopo, sectorId, iv.ateODia);
-    const realizado = percentualDe(compras, fat);
+    const proxy = percentualDe(compras, fat);
+    const base: BaseRealizado = cmvReal != null ? "CMV_REAL" : "COMPRAS";
+    const realizado = cmvReal ?? proxy;
     return {
       escopo,
       sectorId,
@@ -250,16 +287,19 @@ export async function montarPainel(ano: number, mes: number): Promise<Painel> {
       meta: meta ? { id: meta.id, alvoPercentual: meta.alvoPercentual, alertaPercentual: meta.alertaPercentual } : null,
       compras: arredondar(compras),
       pedidosAbertos: arredondar(abertos),
+      base,
+      comprasSobreFaturamento: proxy,
       realizadoPercentual: realizado,
       status: meta ? classificarMeta(realizado, meta.alvoPercentual, meta.alertaPercentual) : "SEM_DADOS",
-      // Pedidos em aberto só entram na projeção do mês corrente: num mês passado já viraram nota ou foram esquecidos.
-      projecao: meta && iv.mesCorrente
+      // Pedidos em aberto só entram na projeção do mês corrente (num mês passado já viraram nota ou foram esquecidos),
+      // e a projeção é de compras: com o CMV real do ciclo já fechado não há mais o que projetar.
+      projecao: meta && iv.mesCorrente && base === "COMPRAS"
         ? projetarMes({ comprasAteHoje: compras, pedidosAbertos: abertos, faturamentoAteHoje: fat, diasDecorridos: iv.diasDecorridos, diasNoMes: iv.diasNoMes, alvoPercentual: meta.alvoPercentual })
         : null,
     };
   };
 
-  const linhas: LinhaPainel[] = [montar("GERAL", null, "Geral", geral.total, pedidosTotal)];
+  const linhas: LinhaPainel[] = [montar("GERAL", null, "Geral", geral.total, pedidosTotal, ciclo?.percentual ?? null)];
   for (const setor of setores) {
     const compras = porSetor.get(setor.id) ?? 0;
     const abertos = pedidos.get(setor.id) ?? 0;
@@ -273,7 +313,7 @@ export async function montarPainel(ano: number, mes: number): Promise<Painel> {
     ateODia: iv.ateODia,
     mesCorrente: iv.mesCorrente,
     faturamento: arredondar(fat),
-    cmvRealCiclo: ciclo && ciclo.cmvPercentual != null ? { percentual: razaoParaPercentual(num(ciclo.cmvPercentual)), periodo: ciclo.name, status: ciclo.status } : null,
+    cmvRealCiclo: ciclo,
     linhas,
     historico: await historicoGeral(ano, mes, metas, hoje),
   };

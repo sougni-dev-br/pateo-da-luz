@@ -27,6 +27,9 @@ function Selo({ status }: { status: StatusMetaCmv }) {
   return <StatusBadge tone={TOM[status]}>{ROTULO[status]}</StatusBadge>;
 }
 
+const ROTULO_BASE = { CMV_REAL: "CMV real", COMPRAS: "compras" } as const;
+const DICA_BASE = { CMV_REAL: "CMV real do ciclo contado", COMPRAS: "Compras ÷ faturamento do mês" } as const;
+
 function Barra({ linha }: { linha: LinhaPainelMetaCmv }) {
   if (!linha.meta || linha.realizadoPercentual == null) return null;
   const { alvoPercentual, alertaPercentual } = linha.meta;
@@ -126,7 +129,7 @@ export function CmvMetas() {
       <header className="mt-topo">
         <div>
           <h2>Metas de CMV</h2>
-          <p>Compras ÷ faturamento do mês, contra a meta. O CMV real só fecha na contagem do estoque; aqui você acompanha o caminho até lá.</p>
+          <p>Com o ciclo do mês já contado, a meta é conferida contra o CMV real. Antes disso (e nos setores), contra compras ÷ faturamento, só para acompanhar o caminho.</p>
         </div>
         <div className="mt-topo-acoes">
           <TextField label="Mês" type="month" value={mes} onChange={(e) => e.target.value && setMes(e.target.value)} />
@@ -167,7 +170,7 @@ export function CmvMetas() {
         <>
           <div className="mt-resumo">
             <div className={`mt-destaque mt-${geral.status.toLowerCase()}`}>
-              <span className="mt-sub">Compras ÷ faturamento · {nomeDoMes(painel.mes)}{painel.mesCorrente ? ` · até ${painel.ateODia.split("-").reverse().join("/")}` : ""}</span>
+              <span className="mt-sub">{geral.base === "CMV_REAL" ? "CMV real do ciclo" : "Compras ÷ faturamento (ciclo ainda sem contagem)"} · {nomeDoMes(painel.mes)}{painel.mesCorrente ? ` · até ${painel.ateODia.split("-").reverse().join("/")}` : ""}</span>
               <strong>{pct(geral.realizadoPercentual)}</strong>
               <span>{geral.meta ? `Meta ${pct(geral.meta.alvoPercentual)} · alerta ${pct(geral.meta.alertaPercentual)}` : "Sem meta para este mês"}</span>
               <Selo status={geral.status} />
@@ -178,6 +181,7 @@ export function CmvMetas() {
               <div><dt>Compras no mês</dt><dd><Money value={geral.compras} /></dd></div>
               <div><dt>Pedidos em andamento</dt><dd><Money value={geral.pedidosAbertos} /></dd></div>
               <div><dt>CMV real do ciclo</dt><dd>{painel.cmvRealCiclo ? `${pct(painel.cmvRealCiclo.percentual)} (${painel.cmvRealCiclo.status === "CLOSED" ? "fechado" : "em aberto"})` : "—"}</dd></div>
+              <div><dt>Compras ÷ faturamento</dt><dd>{pct(geral.comprasSobreFaturamento)}</dd></div>
             </dl>
           </div>
 
@@ -208,7 +212,7 @@ export function CmvMetas() {
                   <Table.Row key={l.sectorId ?? "geral"}>
                     <Table.Td>{l.nome}</Table.Td>
                     <Table.Td align="right">{l.meta ? pct(l.meta.alvoPercentual) : "—"}</Table.Td>
-                    <Table.Td align="right">{pct(l.realizadoPercentual)}</Table.Td>
+                    <Table.Td align="right">{pct(l.realizadoPercentual)}<br /><span className="mt-sub" title={DICA_BASE[l.base]}>{ROTULO_BASE[l.base]}</span></Table.Td>
                     <Table.Td align="right"><Money value={l.compras} /></Table.Td>
                     <Table.Td><Selo status={l.status} /></Table.Td>
                     <Table.Td><Margem linha={l} /></Table.Td>
@@ -238,7 +242,7 @@ export function CmvMetas() {
                     <Table.Td>{nomeDoMes(h.mes)}</Table.Td>
                     <Table.Td align="right"><Money value={h.faturamento} /></Table.Td>
                     <Table.Td align="right"><Money value={h.compras} /></Table.Td>
-                    <Table.Td align="right">{pct(h.realizadoPercentual)}</Table.Td>
+                    <Table.Td align="right">{pct(h.realizadoPercentual)}<br /><span className="mt-sub" title={DICA_BASE[h.base]}>{ROTULO_BASE[h.base]}</span></Table.Td>
                     <Table.Td align="right">{pct(h.alvoPercentual)}</Table.Td>
                     <Table.Td><Selo status={h.status} /></Table.Td>
                   </Table.Row>

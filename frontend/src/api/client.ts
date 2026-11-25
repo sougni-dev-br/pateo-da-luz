@@ -11180,12 +11180,17 @@ export type ProjecaoMetaCmv = {
   faturamentoProjetado: number | null; comprasComprometidas: number; percentualProjetado: number | null;
   tetoDeCompras: number | null; margemParaComprar: number | null;
 };
+export type BaseRealizadoMetaCmv = "CMV_REAL" | "COMPRAS";
 export type LinhaPainelMetaCmv = {
   escopo: "GERAL" | "SETOR"; sectorId: string | null; nome: string;
   meta: { id: string; alvoPercentual: number; alertaPercentual: number } | null;
-  compras: number; pedidosAbertos: number; realizadoPercentual: number | null; status: StatusMetaCmv; projecao: ProjecaoMetaCmv | null;
+  compras: number; pedidosAbertos: number; base: BaseRealizadoMetaCmv; comprasSobreFaturamento: number | null;
+  realizadoPercentual: number | null; status: StatusMetaCmv; projecao: ProjecaoMetaCmv | null;
 };
-export type HistoricoMetaCmv = { mes: string; faturamento: number; compras: number; realizadoPercentual: number | null; alvoPercentual: number | null; status: StatusMetaCmv };
+export type HistoricoMetaCmv = {
+  mes: string; faturamento: number; compras: number; base: BaseRealizadoMetaCmv; comprasSobreFaturamento: number | null;
+  realizadoPercentual: number | null; alvoPercentual: number | null; status: StatusMetaCmv;
+};
 export type PainelMetasCmv = {
   mes: string; hoje: string; ateODia: string; mesCorrente: boolean; faturamento: number;
   cmvRealCiclo: { percentual: number; periodo: string; status: string } | null;

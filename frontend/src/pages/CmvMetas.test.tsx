@@ -25,7 +25,7 @@ const renderTela = () => render(<SessionContext.Provider value={SESSAO}><HideVal
 const linhaGeral = (o: Partial<LinhaPainelMetaCmv> = {}): LinhaPainelMetaCmv => ({
   escopo: "GERAL", sectorId: null, nome: "Geral",
   meta: { id: "m1", alvoPercentual: 30, alertaPercentual: 27 },
-  compras: 33000, pedidosAbertos: 2000, realizadoPercentual: 33, status: "VERMELHO",
+  compras: 33000, pedidosAbertos: 2000, base: "COMPRAS", comprasSobreFaturamento: 33, realizadoPercentual: 33, status: "VERMELHO",
   projecao: { faturamentoProjetado: 300000, comprasComprometidas: 35000, percentualProjetado: 11.67, tetoDeCompras: 90000, margemParaComprar: -5000 },
   ...o,
 });
@@ -53,6 +53,23 @@ describe("CmvMetas", () => {
     renderTela();
     expect((await screen.findAllByText("Acima da meta")).length).toBeGreaterThan(0);
     expect(screen.getByText(/já estourou em/)).toBeInTheDocument();
+  });
+
+  test("com ciclo contado, a tela diz que o realizado é o CMV real e mostra compras ÷ faturamento à parte", async () => {
+    getPainelMetasCmv.mockResolvedValue({
+      ...painel([linhaGeral({ base: "CMV_REAL", realizadoPercentual: 62.33, comprasSobreFaturamento: 46.73, projecao: null })]),
+      mesCorrente: false, cmvRealCiclo: { percentual: 62.33, periodo: "CMV abr", status: "CLOSED" },
+    });
+    renderTela();
+    expect(await screen.findByText(/^CMV real do ciclo · /, { selector: ".mt-destaque .mt-sub" })).toBeInTheDocument();
+    expect(screen.getAllByText("62,33%").length).toBeGreaterThan(0);
+    expect(screen.getByText("46,73%")).toBeInTheDocument();
+  });
+
+  test("sem ciclo contado, avisa que o realizado é compras ÷ faturamento", async () => {
+    getPainelMetasCmv.mockResolvedValue(painel([linhaGeral()]));
+    renderTela();
+    expect(await screen.findByText(/ciclo ainda sem contagem/)).toBeInTheDocument();
   });
 
   test("mês sem meta aparece como sem meta, sem inventar semáforo", async () => {
