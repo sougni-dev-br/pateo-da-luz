@@ -4607,6 +4607,28 @@ model PlanejamentoGastoLinha {
   @@unique([cenarioId, nome], map: "planejamentogastolinha_cenario_nome_key")
 }
 
+// Comentário explicativo do Comparativo, preso ao ano comparado + mês + métrica + turno. Aparece em qualquer
+// comparação que envolva esse ano comparado/mês; o ano-base é só informativo. mes nulo = comentário do ano inteiro.
+// Sem FK para User (padrão de TipVale/TipPeriodEtapa): o nome do autor fica gravado e sobrevive a desligamentos.
+model PlanejamentoComentario {
+  id            String    @id @default(cuid())
+  contexto      String    @default("COMPARATIVO")
+  anoBase       Int
+  anoComparado  Int
+  mes           Int?
+  metrica       String
+  turno         String    @default("TOTAL")
+  texto         String
+  naImpressao   Boolean   @default(true)
+  autorId       String
+  autorNome     String
+  editadoEm     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([anoComparado, mes, metrica, turno, createdAt], map: "PlanejamentoComentario_ponto_idx")
+}
+
 // Brinde para os colaboradores (Natal e outras datas). Uma campanha por ocasião; a entrega registra
 // quem recebeu, quando e quem marcou. A lista de elegíveis NÃO é gravada: são os funcionários ativos
 // na hora de abrir a tela; quem recebeu e depois saiu continua aparecendo pela entrega.

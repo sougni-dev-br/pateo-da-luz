@@ -591,6 +591,10 @@ function actionFromRequest(request: Request, menuId: MenuId): PermissionAction {
   // O realizado só serve a quem edita o cenário (a rota ainda exige acesso ao DRE).
   if (menuId === "planning" && (path === "/planning/realizado" || path === "/planning/realizado-caixa")) return "edit";
 
+  // Comentários do Comparativo: quem edita o Planejamento comenta, edita e apaga o PRÓPRIO comentário (a rota confere o autor).
+  // Por isso DELETE aqui pede "edit", não "delete"; apagar o de outra pessoa exige "admin" do módulo, conferido na rota.
+  if (menuId === "planning" && path.startsWith("/planning/comentarios") && method !== "GET" && method !== "HEAD") return "edit";
+
   // Restaurar um registro cancelado desfaz uma exclusao: pede a acao de excluir.
   if (path.endsWith("/restore")) return "delete";
 

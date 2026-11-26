@@ -10979,6 +10979,62 @@ export function getPlanejamentoComparativo(anoBase: number, anoComparado: number
   return request<PlanejamentoComparativo>(`/planning/comparativo?anoBase=${anoBase}&anoComparado=${anoComparado}`);
 }
 
+// Comentários explicativos: presos ao ano comparado + mês (null = ano inteiro) + métrica + turno.
+export type PlanejamentoComentarioMetrica = "VENDAS" | "CLIENTES" | "TICKET";
+export type PlanejamentoComentarioTurno = "TOTAL" | "ALMOCO" | "JANTAR";
+export type PlanejamentoComentario = {
+  id: string;
+  anoBase: number;
+  anoComparado: number;
+  mes: number | null;
+  metrica: PlanejamentoComentarioMetrica;
+  turno: PlanejamentoComentarioTurno;
+  texto: string;
+  naImpressao: boolean;
+  autorId: string;
+  autorNome: string;
+  criadoEm: string;
+  editadoEm: string | null;
+  atualizadoEm: string;
+  podeEditar: boolean;
+  podeApagar: boolean;
+};
+export type PlanejamentoNovoComentario = {
+  anoBase: number;
+  anoComparado: number;
+  mes: number | null;
+  metrica: PlanejamentoComentarioMetrica;
+  turno: PlanejamentoComentarioTurno;
+  texto: string;
+  naImpressao: boolean;
+};
+
+export async function listarComentariosDoComparativo(anoComparado: number, anoBase?: number) {
+  const consulta = `anoComparado=${anoComparado}${anoBase === undefined ? "" : `&anoBase=${anoBase}`}`;
+  const resposta = await request<{ comentarios: PlanejamentoComentario[] }>(`/planning/comentarios?${consulta}`);
+  return resposta.comentarios;
+}
+
+export function criarComentario(novo: PlanejamentoNovoComentario) {
+  return request<PlanejamentoComentario>("/planning/comentarios", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(novo)
+  });
+}
+
+export function editarComentario(id: string, alteracao: { texto?: string; naImpressao?: boolean; atualizadoEm: string }) {
+  return request<PlanejamentoComentario>(`/planning/comentarios/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(alteracao)
+  });
+}
+
+export function apagarComentario(id: string) {
+  return request<{ ok: true }>(`/planning/comentarios/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
 // ── Planejamento > Cenários de projeção do Salão ────────────────────────────
 // Percentuais trafegam como fração (0,05 = 5%).
 export type PlanejamentoPremissasDoMes = {

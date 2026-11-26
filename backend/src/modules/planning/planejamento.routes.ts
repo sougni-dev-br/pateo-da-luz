@@ -1,9 +1,11 @@
-import { Router, type Request, type Response } from "express";
+import { Router } from "express";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../../config/database.js";
 import { userHasPermission } from "../security/menu-permissions.js";
-import { auditLog, getSessionUser, requestIp, type SessionUser } from "../security/security-utils.js";
+import type { SessionUser } from "../security/security-utils.js";
+import { auditMeta, mensagemDoZod, registrarAuditoria, usuario } from "./planejamento-rotas-comum.js";
+import { planejamentoComentariosRouter } from "./planejamento-comentarios.routes.js";
 import { edicaoSchema, novoCenarioSchema, ordenadas, previaSchema } from "./planejamento-cenario-schema.js";
 import { caixaPadrao, montarCaixa } from "./planejamento-caixa.js";
 import { linhasPadrao, montarResultado, type LinhaDeGasto } from "./planejamento-gastos.js";
@@ -16,8 +18,8 @@ import { carregarComparativo, carregarProjecao, carregarRealizado } from "./plan
 // Planejamento (comparativo e cenários de projeção do Salão). O acesso vem do módulo "planning"
 // (ver / lançar / editar / excluir), aplicado pelo middleware de permissões por prefixo de rota.
 export const planningRouter = Router();
+planningRouter.use("/comentarios", planejamentoComentariosRouter);
 
-const auditMeta = (request: Request) => ({ ipAddress: requestIp(request), userAgent: String(request.headers["user-agent"] ?? "") });
 const isUniqueViolation = (e: unknown) => e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002";
 const MENSAGEM_NOME_REPETIDO = "Já existe um cenário com esse nome neste ano.";
 const MENSAGEM_NAO_ENCONTRADO = "Cenário não encontrado.";
@@ -82,15 +84,6 @@ const estadoBruto = (c: Cenario) => ({
   caixaPremissas: c.caixa
 });
 
-// A gravação já foi confirmada: falha ao registrar a auditoria não pode virar 500 e fazer a pessoa repetir o que já valeu.
-async function registrarAuditoria(id: string, dados: Parameters<typeof auditLog>[0]) {
-  try {
-    await auditLog(dados);
-  } catch (e) {
-    console.error(`[planejamento] auditoria não gravada para o cenário ${id}`, e);
-  }
-}
-
 async function comProjecao(c: Cenario) {
   const { premissas, gastos, caixaPremissas, avisos } = leituraDe(c);
   const servicoPercentual = servicoDe(c);
@@ -100,16 +93,6 @@ async function comProjecao(c: Cenario) {
 }
 
 const linhasParaGravar = (gastos: readonly LinhaDeGasto[]) => gastos.map((g, ordem) => ({ grupo: g.grupo, nome: g.nome, modo: g.modo, valores: g.valores, pagoNoMes: g.pagoNoMes ?? 1, ordem }));
-
-function mensagemDoZod(erro: z.ZodError): string {
-  return erro.issues[0]?.message ?? "Dados inválidos.";
-}
-
-async function usuario(request: Request, response: Response) {
-  const user = await getSessionUser(request);
-  if (!user) response.status(401).json({ message: "Sessao obrigatoria." });
-  return user;
-}
 
 // Realizado do ano-base por grupo de gasto, vindo do DRE. Quem aplica é quem edita o cenário (exige "editar" em
 // Planejamento, ver menu-permissions.ts) E precisa poder ver o DRE: o módulo não abre números que a pessoa não vê lá.

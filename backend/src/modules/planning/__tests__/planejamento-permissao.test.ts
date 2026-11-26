@@ -24,4 +24,11 @@ describe("permissões do Planejamento", () => {
     expect(await ctx("PUT", "/planning/cenarios/c1")).toEqual({ menuId: "planning", action: "edit" });
     expect(await ctx("DELETE", "/planning/cenarios/c1")).toEqual({ menuId: "planning", action: "delete" });
   });
+
+  it("comentários do Comparativo: ler pede Ver; comentar, editar e apagar o próprio pedem Editar", async () => {
+    expect(await ctx("GET", "/planning/comentarios")).toEqual({ menuId: "planning", action: "view" });
+    expect(await ctx("POST", "/planning/comentarios")).toEqual({ menuId: "planning", action: "edit" });
+    expect(await ctx("PATCH", "/planning/comentarios/c1")).toEqual({ menuId: "planning", action: "edit" });
+    expect(await ctx("DELETE", "/planning/comentarios/c1")).toEqual({ menuId: "planning", action: "edit" });
+  });
 });

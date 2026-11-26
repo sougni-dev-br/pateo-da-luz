@@ -2,6 +2,10 @@ import type { ReactNode } from "react";
 import type { PlanejamentoComparativo, PlanejamentoTurnos } from "../../api/client";
 import { Table } from "../../design-system";
 import { descricaoDoPeriodo, leituraDaVariacao, NOMES_DOS_MESES, textoDaMagnitude, textoDaVariacao } from "./formato";
+import { ComentariosDoAno } from "./comentarios/ComentariosDoAno";
+import { MarcaDeComentario } from "./comentarios/MarcaDeComentario";
+import type { LigacaoDeComentarios } from "./comentarios/ligacao";
+import { metricaDaGrandeza, turnoDaTela } from "./comentarios/ponto";
 import { Quadro } from "./Quadro";
 import { Reais } from "./Reais";
 import { RitmoDoAno } from "./RitmoDoAno";
@@ -34,7 +38,7 @@ const classeDe = (v: number | null) => {
   return leitura === "Aumento" ? "plan-var-sobe" : leitura === "Redução" ? "plan-var-desce" : undefined;
 };
 
-function fraseDoVeredito(variacao: number | null, anoBase: number, anoComparado: number): string {
+export function fraseDoVeredito(variacao: number | null, anoBase: number, anoComparado: number): string {
   const leitura = leituraDaVariacao(variacao);
   if (!leitura) return `Sem comparação de vendas entre ${anoComparado} e ${anoBase}`;
   if (leitura === "Estável") return `${anoComparado} vende o mesmo que ${anoBase}`;
@@ -42,7 +46,7 @@ function fraseDoVeredito(variacao: number | null, anoBase: number, anoComparado:
 }
 
 /** Vendas = clientes × ticket: diz qual dos dois mais explica a variação das vendas. */
-function oQueMaisPesou(clientes: number | null, ticket: number | null): string | null {
+export function oQueMaisPesou(clientes: number | null, ticket: number | null): string | null {
   if (clientes === null || ticket === null) return null;
   const motor = Math.abs(clientes) >= Math.abs(ticket) ? "o número de clientes" : "o ticket médio";
   const outro = motor === "o número de clientes" ? `o ticket médio ${ticket >= 0 ? "subiu" : "caiu"} ${textoDaMagnitude(ticket)}` : `os clientes ${clientes >= 0 ? "subiram" : "caíram"} ${textoDaMagnitude(clientes)}`;
@@ -70,7 +74,7 @@ function Extremos({ dados }: { dados: PlanejamentoComparativo }) {
   );
 }
 
-function VereditoComparativo({ dados }: { dados: PlanejamentoComparativo }) {
+function VereditoComparativo({ dados, comentarios }: { dados: PlanejamentoComparativo; comentarios?: LigacaoDeComentarios }) {
   const { acumulado, anoBase, anoComparado } = dados;
   const v = acumulado.variacao;
   const leitura = leituraDaVariacao(v.vendas.total);
@@ -99,18 +103,19 @@ function VereditoComparativo({ dados }: { dados: PlanejamentoComparativo }) {
       </dl>
       <RitmoDoAno dados={dados} />
       <Extremos dados={dados} />
+      <ComentariosDoAno ligacao={comentarios} />
     </div>
   );
 }
 
-export function PainelComparativo({ dados }: { dados: PlanejamentoComparativo }) {
+export function PainelComparativo({ dados, comentarios }: { dados: PlanejamentoComparativo; comentarios?: LigacaoDeComentarios }) {
   const { acumulado, anoBase, anoComparado } = dados;
   const periodo = descricaoDoPeriodo(acumulado.mesesComparados);
   const vs = `${anoComparado} contra ${anoBase}`;
 
   return (
     <section className="plan-secao plan-comparativo-topo" aria-labelledby="plan-painel">
-      <VereditoComparativo dados={dados} />
+      <VereditoComparativo dados={dados} comentarios={comentarios} />
 
       <div className="plan-indicadores">
         <p className="plan-indicadores-titulo">Os nove indicadores · {periodo}</p>
@@ -133,7 +138,10 @@ export function PainelComparativo({ dados }: { dados: PlanejamentoComparativo })
                       <Table.Th scope="row">{turno === "total" ? rotulo : <span className="plan-recuo">{turnoRotulo}</span>}</Table.Th>
                       <Table.Td align="right" className="plan-so-largo">{valorFormatado(chave, acumulado.base[chave][turno])}</Table.Td>
                       <Table.Td align="right">{valorFormatado(chave, acumulado.comparado[chave][turno])}</Table.Td>
-                      <Table.Td align="right" className={classeDe(variacao)}>{textoDaVariacao(variacao)}</Table.Td>
+                      <Table.Td align="right" className={`plan-coment-celula ${classeDe(variacao) ?? ""}`}>
+                        {textoDaVariacao(variacao)}
+                        <MarcaDeComentario ligacao={comentarios} ponto={{ mes: null, metrica: metricaDaGrandeza(chave), turno: turnoDaTela(turno) }} anoComparado={anoComparado} />
+                      </Table.Td>
                     </Table.Row>
                   );
                 })

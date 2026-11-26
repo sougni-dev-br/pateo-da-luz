@@ -2,6 +2,8 @@ import type { PlanejamentoComparativo } from "../../api/client";
 import { NOMES_DOS_MESES_CURTOS, textoDaVariacao } from "./formato";
 import { compacto } from "./Reais";
 import type { GrandezaDoQuadro } from "./TabelaMensal";
+import type { LigacaoDeComentarios } from "./comentarios/ligacao";
+import { chaveDoPonto, metricaDaGrandeza, textoDaContagem } from "./comentarios/ponto";
 import { ladoParcial } from "./tipos";
 import { useLargura } from "./useLargura";
 import { useOculto } from "./useOculto";
@@ -10,7 +12,7 @@ import { useOculto } from "./useOculto";
 // comparado. Em cima de cada par, a variação; o mês em queda ganha um fundo rosado, para a história ler em dois
 // segundos. O mês parcial tem a barra tracejada e o rótulo "parcial".
 
-type Props = { dados: PlanejamentoComparativo; grandeza: GrandezaDoQuadro };
+type Props = { dados: PlanejamentoComparativo; grandeza: GrandezaDoQuadro; comentarios?: LigacaoDeComentarios };
 
 const ALTURA = 216;
 const TOPO = 34;
@@ -25,7 +27,8 @@ function valorCurto(grandeza: GrandezaDoQuadro, v: number): string {
 
 const ROTULO: Record<GrandezaDoQuadro, string> = { vendas: "Vendas", clientes: "Clientes", ticket: "Ticket médio" };
 
-export function GraficoComparativo({ dados, grandeza }: Props) {
+export function GraficoComparativo({ dados, grandeza, comentarios }: Props) {
+  const contagem = (mes: number) => comentarios?.porPonto.get(chaveDoPonto({ mes, metrica: metricaDaGrandeza(grandeza), turno: "TOTAL" }))?.length ?? 0;
   const { ref, largura } = useLargura<HTMLDivElement>();
   const hidden = useOculto();
   const { meses, anoBase, anoComparado } = dados;
@@ -96,6 +99,13 @@ export function GraficoComparativo({ dados, grandeza }: Props) {
                 {p.parcial && p.comparado === null && p.base !== null && (
                   <text x={centro + barra / 2 + 1} y={BASE_DO_GRAFICO - 4} textAnchor="start" className="plan-grafico-sem-base" fontSize={fonte - 1.5} transform={`rotate(-90 ${centro + barra / 2 + 1} ${BASE_DO_GRAFICO - 4})`} dominantBaseline="middle">{estreito ? "sem venda" : "sem venda lançada"}</text>
                 )}
+                {contagem(p.mes) > 0 && (
+                  <g className="plan-coment-ponto-grafico" aria-hidden onClick={() => comentarios?.abrir({ mes: p.mes, metrica: metricaDaGrandeza(grandeza), turno: "TOTAL" })}>
+                    <rect x={x0} y={0} width={fatia} height={TOPO - 8} fill="transparent" />
+                    <circle cx={fatia >= 60 ? x0 + fatia - 11 : centro} cy={10} r={9} className="plan-coment-bolha" />
+                    <text x={fatia >= 60 ? x0 + fatia - 11 : centro} y={10} textAnchor="middle" dominantBaseline="central" className="plan-coment-bolha-texto" fontSize={10}>{contagem(p.mes)}</text>
+                  </g>
+                )}
                 <text x={centro} y={ALTURA - 20} textAnchor="middle" className="plan-grafico-mes" fontSize={fonte}>{nome}</text>
               </g>
             );
@@ -106,7 +116,7 @@ export function GraficoComparativo({ dados, grandeza }: Props) {
       <ul className="plan-sr">
         {pares.map((p) => (
           <li key={p.mes}>
-            {NOMES_DOS_MESES_CURTOS[p.mes - 1]}{p.parcial ? " (parcial)" : ""}: {anoBase} {p.base === null ? "sem dado" : valorCurto(grandeza, p.base)}, {anoComparado} {p.comparado === null ? (p.parcial ? "sem venda lançada ainda" : "sem dado") : valorCurto(grandeza, p.comparado)}, variação {textoDaVariacao(p.variacao)}
+            {NOMES_DOS_MESES_CURTOS[p.mes - 1]}{p.parcial ? " (parcial)" : ""}: {anoBase} {p.base === null ? "sem dado" : valorCurto(grandeza, p.base)}, {anoComparado} {p.comparado === null ? (p.parcial ? "sem venda lançada ainda" : "sem dado") : valorCurto(grandeza, p.comparado)}, variação {textoDaVariacao(p.variacao)}{contagem(p.mes) > 0 ? `, ${textoDaContagem(contagem(p.mes))}` : ""}
           </li>
         ))}
       </ul>
