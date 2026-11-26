@@ -206,22 +206,74 @@ describe("validações do arquivo", () => {
     expect(r.lojas[0]!.taxas).toBe(-1237.5);
   });
 
-  test("avisa de cancelamento parcial e de pedido sem valor de cesta", () => {
-    const parcial = linha({ fato: "Cancelamento Parcial", tipo: "Cobrança", desc: "Comissão do iFood", valor: 1, pedido: "p1" });
+  test("avisa de pedido sem valor de cesta", () => {
     const semCesta = pedido("p2", "2026-10-07", { cesta: undefined as unknown as number });
     semCesta.forEach((l) => { l[13] = ""; });
-    const r = lerConciliacaoIfood([CABECALHO, ...pedido("p1", "2026-10-06"), parcial, ...semCesta]);
-    expect(r.alertas.join(" ")).toMatch(/cancelamento parcial/i);
+    const r = lerConciliacaoIfood([CABECALHO, ...pedido("p1", "2026-10-06"), ...semCesta]);
     expect(r.alertas.join(" ")).toMatch(/sem valor/i);
     // o pedido sem valor de venda fica fora da contagem e das vendas
     expect(r.lojas[0]!.pedidos).toBe(1);
     expect(r.lojas[0]!.vendas).toBe(100);
   });
+});
 
-  test("cancelamento parcial informa o valor devolvido ao cliente no alerta", () => {
-    const parcial = linha({ fato: "Cancelamento Parcial", tipo: "Entrada Financeira", desc: "Entrada Financeira", valor: -12.5, pedido: "p1" });
-    const r = lerConciliacaoIfood([CABECALHO, ...pedido("p1", "2026-10-06"), parcial]);
-    expect(r.alertas.join(" ")).toMatch(/12,50/);
+describe("cancelamento parcial e vale-refeição (conferido contra o portal, nov/2026)", () => {
+  const parcial = (id: string, devolvido: number) => [
+    linha({ fato: "Cancelamento Parcial", tipo: "Cobrança", desc: "Comissão do iFood", valor: 2.97, pedido: id }),
+    linha({ fato: "Cancelamento Parcial", tipo: "Entrada Financeira", desc: "Entrada Financeira", valor: devolvido, pedido: id })
+  ];
+  const retencaoVale = (id: string, valor: number) => linha({
+    fato: "Ocorrência Venda", valor, pedido: id,
+    tipo: "Retenção de pedido cancelado recebido pela loja (via Vale Alimentação ou Vale Refeição)",
+    desc: "Retenção de pedido cancelado recebido pela loja (via Vale Alimentação ou Vale Refeição)"
+  });
+
+  test("o valor devolvido no cancelamento parcial sai das vendas, do bruto e do líquido", () => {
+    const r = lerConciliacaoIfood([CABECALHO, ...pedido("p1", "2026-10-06"), ...parcial("p1", -12.9)]);
+    const loja = r.lojas[0]!;
+    expect(loja.vendas).toBe(87.1);
+    expect(loja.bruto).toBe(77.1);
+    expect(loja.taxas).toBe(-16.03);
+    expect(loja.liquido).toBe(61.07);
+    expect(loja.pedidos).toBe(1);
+  });
+
+  test("cancelamento parcial já descontado não exige confirmação: vira aviso com o valor", () => {
+    const r = lerConciliacaoIfood([CABECALHO, ...pedido("p1", "2026-10-06"), ...parcial("p1", -12.5)]);
+    expect(r.alertas).toEqual([]);
+    expect(r.avisos.join(" ")).toMatch(/cancelamento parcial/i);
+    expect(r.avisos.join(" ")).toMatch(/12,50/);
+  });
+
+  test("retenção de pedido cancelado pago com vale sai das vendas e não fica sem classificação", () => {
+    const r = lerConciliacaoIfood([CABECALHO, ...pedido("p1", "2026-10-06"), ...parcial("p1", -13.9), retencaoVale("p1", -12.51)]);
+    const loja = r.lojas[0]!;
+    expect(loja.vendas).toBe(73.59);
+    expect(r.alertas).toEqual([]);
+  });
+
+  test("cancelamento parcial de pedido cancelado por inteiro não desconta de novo", () => {
+    const r = lerConciliacaoIfood([CABECALHO, ...pedido("p1", "2026-10-06"), ...cancelado("p2", "2026-10-07"), ...parcial("p2", -10)]);
+    expect(r.lojas[0]!.vendas).toBe(100);
+  });
+
+  test("desconto de pedido cuja venda não está no arquivo vira alerta em vez de sumir", () => {
+    const r = lerConciliacaoIfood([CABECALHO, ...pedido("p1", "2026-10-06"), retencaoVale("p8", -12.51)]);
+    expect(r.lojas[0]!.vendas).toBe(100);
+    expect(r.alertas.join(" ")).toMatch(/venda não está no arquivo/i);
+    expect(r.alertas.join(" ")).toMatch(/12,51/);
+  });
+
+  test("pedido pago com vale entra nas vendas e o aviso lembra que o dinheiro não vem no repasse", () => {
+    const cab = [...CABECALHO, "impacto_no_repasse"];
+    const comImpacto = (ls: unknown[][], impacto: (l: unknown[]) => string) => ls.map((l) => [...l, impacto(l)]);
+    const vale = comImpacto(pedido("p2", "2026-10-07", { trans: -20 }), (l) => (l[2] === "Entrada Financeira" ? "NÃO" : "SIM"));
+    const normal = comImpacto(pedido("p1", "2026-10-06", { trans: 71 }), () => "SIM");
+    const r = lerConciliacaoIfood([cab, ...normal, ...vale]);
+    expect(r.lojas[0]!.vendas).toBe(200);
+    expect(r.lojas[0]!.repasses[0]!.valor).toBe(51);
+    expect(r.avisos.join(" ")).toMatch(/1 pedido\(s\) pago\(s\) com vale/i);
+    expect(r.avisos.join(" ")).toMatch(/71,00/);
   });
 
   test("taxas ou promoção com sinal positivo indicam arquivo trocado e são recusadas", () => {

@@ -6,7 +6,9 @@
 // Só contas e leitura de tabela — nada de banco aqui, para poder ser testado.
 //
 // Regras (as mesmas da importação manual de 21–22/09/2026):
-//   vendas      = soma do valor do pedido (valor_cesta_final) dos pedidos NÃO cancelados
+//   vendas      = soma do valor do pedido (valor_cesta_final) dos pedidos NÃO cancelados,
+//                 menos o devolvido nos cancelamentos parciais e a retenção de pedido cancelado pago
+//                 com vale (como o portal mostra em "Valor das vendas"; conferido em 4 lojas, nov/2026)
 //   taxas       = comissão + taxa de transação (lançamentos de cobrança), já líquidas de estorno
 //   promoção    = promoção custeada pela loja (subsídio), já líquida de estorno
 //   bruto       = vendas − promoção da loja      (mesmo critério da 99 e da Keeta)
@@ -21,6 +23,8 @@
 // não o valor devido — serve só para sinalizar que existe dívida compensada.
 // Repasse da semana = soma dos valores DISTINTOS de `valor_transacao` das linhas da semana
 // (conferido contra a tela "Repasses do mês" do portal, 5 de 5 semanas).
+// Pedido pago com vale-refeição/alimentação: a entrada vem com `impacto_no_repasse` = NÃO, porque
+// o dinheiro cai direto na conta da loja pela empresa do vale. Entra nas vendas, não no repasse.
 
 export type SemanaDeRepasse = { inicio: string; fim: string; previsao: string; valor: number };
 
@@ -88,7 +92,8 @@ const COLUNAS = {
   inicio: ["data_apuracao_inicio"],
   fim: ["data_apuracao_fim"],
   previsao: ["data_repasse_esperada"],
-  transacao: ["valor_transacao"]
+  transacao: ["valor_transacao"],
+  impacto: ["impacto_no_repasse"]
 } as const;
 
 type ColunaKey = keyof typeof COLUNAS;
@@ -148,6 +153,8 @@ type Acumulador = {
   cestaPorPedido: Map<string, number>;
   pedidosComVenda: Set<string>;
   cancelados: Set<string>;
+  /** Devolvido em cancelamento parcial e retido de pedido cancelado pago com vale, por pedido (negativo). */
+  devolvidoPorPedido: Map<string, number>;
   taxas: number;
   promocaoLoja: number;
   servicos: number;
@@ -161,14 +168,17 @@ type Observacoes = {
   pedidosSemCesta: Set<string>;
   parciais: Set<string>;
   devolvidoNosParciais: number;
+  pedidosComVale: Set<string>;
+  entradaPorVale: number;
   naoClassificados: Map<string, number>;
 };
 
 const ehSaldoDevedor = (descricao: string) => descricao.includes("saldo devedor");
 /** Lançamentos de pedido que já estão dentro do valor do pedido ou da entrada financeira: não somam nada à parte. */
 const TIPOS_SEM_EFEITO = new Set(["retencao", "entrada financeira"]);
+const ehRetencaoDeCanceladoComVale = (tipo: string) => tipo.startsWith("retencao de pedido cancelado");
 
-type Lancamento = { fato: string; tipo: string; descricao: string; valor: number; pedido: string };
+type Lancamento = { fato: string; tipo: string; descricao: string; valor: number; pedido: string; impacto: string };
 
 /** Põe um lançamento no balde certo. O que não cabe em nenhum vai para `naoClassificados`, nunca some. */
 function classificar(g: Acumulador, l: Lancamento, obs: Observacoes): void {
@@ -179,22 +189,34 @@ function classificar(g: Acumulador, l: Lancamento, obs: Observacoes): void {
   else if (tipo === "cobranca") g.taxas += valor;
   else if (tipo === "subsidio" && descricao.includes("custeada pela loja")) g.promocaoLoja += valor;
   else if (tipo === "subsidio" && descricao.includes("custeada pelo ifood")) return;
-  else if (TIPOS_SEM_EFEITO.has(tipo)) return;
+  else if (TIPOS_SEM_EFEITO.has(tipo) || ehRetencaoDeCanceladoComVale(tipo)) return;
   else {
     const chave = `${tipo} / ${descricao}`;
     obs.naoClassificados.set(chave, (obs.naoClassificados.get(chave) ?? 0) + valor);
   }
 }
 
+function descontar(g: Acumulador, pedido: string, valor: number): void {
+  g.devolvidoPorPedido.set(pedido, (g.devolvidoPorPedido.get(pedido) ?? 0) + valor);
+}
+
 function acumularPedido(g: Acumulador, l: Lancamento, cesta: number | null, obs: Observacoes): void {
   if (!l.pedido) return;
   if (l.fato.startsWith("cancelamento parcial")) {
     obs.parciais.add(l.pedido);
-    if (l.tipo === "entrada financeira") obs.devolvidoNosParciais += l.valor;
+    if (l.tipo === "entrada financeira") {
+      obs.devolvidoNosParciais += l.valor;
+      descontar(g, l.pedido, l.valor);
+    }
   }
+  if (ehRetencaoDeCanceladoComVale(l.tipo)) descontar(g, l.pedido, l.valor);
   if (l.fato.startsWith("cancelamento total")) g.cancelados.add(l.pedido);
   else if (l.fato === "venda") {
     g.pedidosComVenda.add(l.pedido);
+    if (l.tipo === "entrada financeira" && l.impacto === "nao") {
+      obs.pedidosComVale.add(l.pedido);
+      obs.entradaPorVale += l.valor;
+    }
     if (cesta === null || Math.abs(cesta) > VALOR_MAXIMO) obs.pedidosSemCesta.add(l.pedido);
     else if (!g.cestaPorPedido.has(l.pedido)) g.cestaPorPedido.set(l.pedido, cesta);
   }
@@ -211,7 +233,7 @@ function acumularSemana(g: Acumulador, inicio: string | null, fim: string | null
 
 function fecharLoja(g: Acumulador): LojaIfoodMes {
   const validos = [...g.pedidosComVenda].filter((p) => !g.cancelados.has(p) && g.cestaPorPedido.has(p));
-  const vendas = arredondar(validos.reduce((soma, p) => soma + g.cestaPorPedido.get(p)!, 0));
+  const vendas = arredondar(validos.reduce((soma, p) => soma + g.cestaPorPedido.get(p)! + (g.devolvidoPorPedido.get(p) ?? 0), 0));
   const taxas = arredondar(g.taxas);
   const promocaoLoja = arredondar(g.promocaoLoja);
   const servicos = arredondar(g.servicos);
@@ -242,18 +264,27 @@ function erroDeSinal(lojas: LojaIfoodMes[]): string[] {
     .map((l) => `Loja ${l.lojaIdCurto} (${l.competencia}): taxas, promoção ou serviços com sinal positivo. O arquivo parece trocado ou exportado de outro relatório.`);
 }
 
-function alertasDoArquivo(lojas: LojaIfoodMes[], obs: Observacoes, estornosSemVenda: number): string[] {
+function alertasDoArquivo(lojas: LojaIfoodMes[], obs: Observacoes, estornosSemVenda: number, descontosSemVenda: number): string[] {
   const alertas: string[] = [];
   for (const [chave, soma] of obs.naoClassificados) {
     alertas.push(`Lançamentos não classificados (${chave}), soma ${brl(soma)}: ficaram fora do líquido. Confira com o portal.`);
   }
-  if (obs.parciais.size > 0) {
-    alertas.push(`${obs.parciais.size} pedido(s) com cancelamento parcial (valor devolvido ${brl(obs.devolvidoNosParciais)}): o valor do pedido não é reduzido nas vendas. Confira o total com o portal.`);
-  }
   if (obs.pedidosSemCesta.size > 0) alertas.push(`${obs.pedidosSemCesta.size} pedido(s) sem valor de venda no arquivo: ficam fora das vendas e da contagem.`);
+  if (descontosSemVenda !== 0) alertas.push(`Cancelamento parcial ou retenção de vale (${brl(descontosSemVenda)}) de pedido cuja venda não está no arquivo: não foi descontado das vendas. Confira.`);
   if (estornosSemVenda > 0) alertas.push(`${estornosSemVenda} pedido(s) com estorno total sem a venda no arquivo (a venda pode ser de outro mês). Confira.`);
   if (lojas.length === 0) alertas.push("O arquivo não tem nenhum pedido de venda.");
   return alertas;
+}
+
+function avisosDePedidos(obs: Observacoes): string[] {
+  const avisos: string[] = [];
+  if (obs.parciais.size > 0) {
+    avisos.push(`${obs.parciais.size} pedido(s) com cancelamento parcial: o valor devolvido (${brl(obs.devolvidoNosParciais)}) já foi descontado das vendas, como no portal.`);
+  }
+  if (obs.pedidosComVale.size > 0) {
+    avisos.push(`${obs.pedidosComVale.size} pedido(s) pago(s) com vale-refeição/alimentação (${brl(obs.entradaPorVale)}): entram nas vendas, mas o dinheiro cai direto na conta pela empresa do vale, não no repasse do iFood.`);
+  }
+  return avisos;
 }
 
 /** Ano-mês da célula de competência: texto "2026-10" ou data (o exceljs devolve Date). */
@@ -283,7 +314,9 @@ export function lerConciliacaoIfood(tabela: unknown[][]): LeituraIfood {
 
   const grupos = new Map<string, Acumulador>();
   const erros: string[] = [];
-  const obs: Observacoes = { pedidosSemCesta: new Set(), parciais: new Set(), devolvidoNosParciais: 0, naoClassificados: new Map() };
+  const obs: Observacoes = {
+    pedidosSemCesta: new Set(), parciais: new Set(), devolvidoNosParciais: 0, pedidosComVale: new Set(), entradaPorVale: 0, naoClassificados: new Map()
+  };
   const lojaPorCurto = new Map<string, string>();
   const curtoPorLoja = new Map<string, string>();
   const competencias = new Set<string>();
@@ -313,14 +346,15 @@ export function lerConciliacaoIfood(tabela: unknown[][]): LeituraIfood {
 
     const chave = `${lojaId}|${competencia}`;
     const g = grupos.get(chave) ?? {
-      lojaId, lojaIdCurto: efetivo, competencia, cestaPorPedido: new Map(), pedidosComVenda: new Set(), cancelados: new Set(),
+      lojaId, lojaIdCurto: efetivo, competencia, cestaPorPedido: new Map(), pedidosComVenda: new Set(), cancelados: new Set(), devolvidoPorPedido: new Map(),
       taxas: 0, promocaoLoja: 0, servicos: 0, ajustes: 0, saldoAnterior: 0, semanas: new Map()
     };
     grupos.set(chave, g);
 
     const l: Lancamento = {
       fato: normalizar(linha[colunas.fato!]), tipo: normalizar(linha[colunas.tipo!]), descricao: normalizar(linha[colunas.descricao!]),
-      valor, pedido: String(linha[colunas.pedido!] ?? "").trim()
+      valor, pedido: String(linha[colunas.pedido!] ?? "").trim(),
+      impacto: colunas.impacto === undefined ? "" : normalizar(linha[colunas.impacto])
     };
     classificar(g, l, obs);
     acumularPedido(g, l, paraNumero(linha[colunas.cesta!]), obs);
@@ -342,15 +376,21 @@ export function lerConciliacaoIfood(tabela: unknown[][]): LeituraIfood {
   const acumuladores = [...grupos.values()];
   for (const g of acumuladores) for (const p of g.cestaPorPedido.keys()) obs.pedidosSemCesta.delete(p);
   const estornosSemVenda = acumuladores.reduce((n, g) => n + [...g.cancelados].filter((p) => !g.pedidosComVenda.has(p)).length, 0);
+  const descontosSemVenda = arredondar(acumuladores.reduce((soma, g) => soma + [...g.devolvidoPorPedido]
+    .filter(([p]) => !g.pedidosComVenda.has(p) || !g.cestaPorPedido.has(p))
+    .reduce((s, [, v]) => s + v, 0), 0));
 
   const lojas = acumuladores.map(fecharLoja).sort((a, b) => `${a.competencia}${a.lojaIdCurto}`.localeCompare(`${b.competencia}${b.lojaIdCurto}`));
   const sinais = erroDeSinal(lojas);
   if (sinais.length > 0) return { lojas: [], erros: sinais, avisos: [], alertas: [] };
 
-  const avisos = lojas
-    .filter((l) => l.vendas > 0 && l.repasses.length === 0)
-    .map((l) => `Loja ${l.lojaIdCurto} (${l.competencia}): nenhum repasse semanal encontrado no arquivo (faltam as colunas de apuração?).`);
-  return { lojas, erros: [], avisos, alertas: alertasDoArquivo(lojas, obs, estornosSemVenda) };
+  const avisos = [
+    ...lojas
+      .filter((l) => l.vendas > 0 && l.repasses.length === 0)
+      .map((l) => `Loja ${l.lojaIdCurto} (${l.competencia}): nenhum repasse semanal encontrado no arquivo (faltam as colunas de apuração?).`),
+    ...avisosDePedidos(obs)
+  ];
+  return { lojas, erros: [], avisos, alertas: alertasDoArquivo(lojas, obs, estornosSemVenda, descontosSemVenda) };
 }
 
 const iguais = (a: number, b: number) => Math.abs(a - b) < CENTAVO / 2;
