@@ -16500,3 +16500,7 @@ td.count-list-divergent {
 .idle-guard-card { width: min(420px, 100%); padding: 24px; border-radius: 14px; background: var(--surface, #fff); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3); display: flex; flex-direction: column; gap: 12px; }
 .idle-guard-card h2 { margin: 0; font-size: 1.15rem; }
 .idle-guard-card p { margin: 0; color: var(--muted); }
+
+/* Aviso de meta de CMV no detalhe do pedido de compra (AvisoMetaCmv) */
+.po-meta-nota { display: block; margin-top: 4px; color: var(--muted); font-size: var(--fs-xs, 12px); }
+.po-meta-falha { margin: 0; color: var(--muted); font-size: var(--fs-sm, 13px); }

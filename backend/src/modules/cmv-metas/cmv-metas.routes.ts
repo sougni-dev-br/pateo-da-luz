@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { auditLog, getSessionUser, requestIp } from "../security/security-utils.js";
+import { impactoDoPedido, PedidoNaoEncontradoError } from "./cmv-metas-pedido.service.js";
 import { listarMetas, MetaInvalidaError, montarPainel, removerMeta, salvarMeta } from "./cmv-metas.service.js";
 
 // Montado em /monthly/cmv-real/metas: o controle de acesso resolve pelo prefixo /monthly/cmv-real
@@ -28,6 +29,17 @@ cmvMetasRouter.get("/painel", async (request, response) => {
   if (!consulta.success) return response.status(400).json({ message: consulta.error.issues[0]?.message ?? "Mês inválido." });
   const [ano, mes] = consulta.data.split("-").map(Number);
   return response.json(await montarPainel(ano, mes));
+});
+
+// Aviso no pedido de compra. Fica aqui (e não em /purchase-orders) de propósito: só quem vê o CMV Real
+// enxerga faturamento e meta; quem só compra continua sem esses números (decisão do Eli, 26/11/2026).
+cmvMetasRouter.get("/impacto-pedido/:id", async (request, response) => {
+  try {
+    return response.json(await impactoDoPedido(String(request.params.id)));
+  } catch (error) {
+    if (error instanceof PedidoNaoEncontradoError) return response.status(404).json({ message: error.message });
+    throw error;
+  }
 });
 
 cmvMetasRouter.post("/", async (request, response) => {

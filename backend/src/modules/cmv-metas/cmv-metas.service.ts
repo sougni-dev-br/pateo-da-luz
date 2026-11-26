@@ -11,7 +11,7 @@ import { arredondar, classificarMeta, metaVigente, percentualDe, projetarMes, ra
 const VISAO = "accounting" as const;
 // Pedido ainda não recebido que já foi para revisão/aprovação/envio: dinheiro comprometido, mas fora de Compras.
 // Rascunho não conta (ainda não é compromisso) e RECEBIDO_PARCIAL fica de fora para não dobrar com a nota já lançada.
-const STATUS_PEDIDO_COMPROMETIDO = ["EM_REVISAO", "APROVADO", "ENVIADO"];
+export const STATUS_PEDIDO_COMPROMETIDO = ["EM_REVISAO", "APROVADO", "ENVIADO"];
 
 export class MetaInvalidaError extends Error {}
 
@@ -22,7 +22,7 @@ const primeiroDiaDoMes = (ano: number, mes: number) => `${ano}-${String(mes).pad
 const ultimoDiaDoMes = (ano: number, mes: number) => new Date(Date.UTC(ano, mes, 0)).getUTCDate();
 
 type LinhaMeta = Awaited<ReturnType<typeof prisma.cmvMeta.findMany>>[number];
-const paraVigencia = (m: LinhaMeta): MetaVigencia => ({
+export const paraVigencia = (m: LinhaMeta): MetaVigencia => ({
   id: m.id,
   escopo: m.escopo === "SETOR" ? "SETOR" : "GERAL",
   sectorId: m.sectorId,
@@ -115,7 +115,7 @@ export async function removerMeta(id: string) {
 
 // ─── Números do mês ────────────────────────────────────────────────────────────
 
-async function faturamentoLiquido(inicio: Date, fim: Date) {
+export async function faturamentoLiquido(inicio: Date, fim: Date) {
   const [row] = await prisma.$queryRaw<Array<{ total: Prisma.Decimal | null }>>`
     SELECT COALESCE(SUM("netAmount"), 0) AS "total"
     FROM "RevenueEntry"
@@ -211,7 +211,7 @@ export type Painel = {
   historico: HistoricoMes[];
 };
 
-function intervaloDoMes(ano: number, mes: number, hoje: string) {
+export function intervaloDoMes(ano: number, mes: number, hoje: string) {
   const inicioIso = primeiroDiaDoMes(ano, mes);
   const ultimo = ultimoDiaDoMes(ano, mes);
   const fimMesIso = `${ano}-${String(mes).padStart(2, "0")}-${String(ultimo).padStart(2, "0")}`;

@@ -33,6 +33,7 @@ import {
   TextField
 } from "../design-system";
 import { hasPermission } from "../lib/permissions";
+import { AvisoMetaCmv } from "./purchase-orders/AvisoMetaCmv";
 import { formatDate, formatNumber } from "../utils/format";
 
 const statusLabels: Record<string, string> = {
@@ -83,6 +84,8 @@ export function PurchaseOrders({ user }: { user: AppUser }) {
   });
   const canOperate = hasPermission(user, "purchase-orders", "edit");
   const canApprove = hasPermission(user, "purchase-orders", "approve");
+  // O aviso de meta mostra faturamento e CMV: só para quem vê o CMV Real.
+  const canSeeCmvGoal = hasPermission(user, "cmv-real", "view");
   const detailRef = useRevealScroll<HTMLElement>({ when: selected?.id });
 
   async function load() {
@@ -394,6 +397,8 @@ export function PurchaseOrders({ user }: { user: AppUser }) {
               </ul>
             </div>
           )}
+
+          {canSeeCmvGoal && <AvisoMetaCmv orderId={selected.id} versao={selected.updatedAt} />}
 
           <div className="action-row end">
             {selected.status === "RASCUNHO" && canOperate && <Button variant="secondary" onClick={saveDraft}>Salvar rascunho</Button>}
