@@ -50,7 +50,7 @@ const quando = (instante: number) => new Date(instante).toLocaleString("pt-BR", 
 
 function QuadroVazio({ visao, filtrando, onLimpar }: { visao: Visao; filtrando: boolean; onLimpar: () => void }) {
   if (visao === "ESCOLHIDOS") return <div className="rq-vazio"><strong>Nada escolhido ainda.</strong><p>Volte em Produtos e toque em + ou digite a quantidade.</p></div>;
-  if (visao === "PROBLEMA") return <div className="rq-vazio"><strong>Nenhum problema.</strong><p>Todos os itens escolhidos têm saldo.</p></div>;
+  if (visao === "PROBLEMA") return <div className="rq-vazio"><strong>Nenhum problema.</strong><p>Todos os itens escolhidos podem ser registrados.</p></div>;
   return (
     <div className="rq-vazio">
       <strong>Nenhum produto com saldo encontrado.</strong>
@@ -198,7 +198,7 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAvis
   const resumo = useMemo(() => resumirLinhas(linhas, saldos), [linhas, saldos]);
   const problemas = useMemo(() => {
     const invalidas = linhas.filter((l) => situacaoDaLinha(l, saldos.get(l.productId)).tipo === "VAZIA");
-    return new Set([...resumo.semSaldo, ...resumo.semConversao, ...invalidas].map((l) => l.productId));
+    return new Set([...resumo.semConversao, ...invalidas].map((l) => l.productId));
   }, [linhas, saldos, resumo]);
   const pronta = linhas.length > 0 && resumo.comQuantidade === linhas.length && problemas.size === 0;
 
@@ -446,7 +446,11 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAvis
           ) : problemas.size > 0 ? (
             <button type="button" className="rq-barra-problema" onClick={() => escolherVisao("PROBLEMA")}>{problemas.size} com problema — ver</button>
           ) : (
-            <span>pronto para registrar{salvo ? ` · ${textoDoSalvamento(noServidor.estado)}` : ""}</span>
+            <span>
+              pronto para registrar
+              {resumo.semSaldo.length > 0 && <b className="rq-barra-negativo"> · {resumo.semSaldo.length} {resumo.semSaldo.length === 1 ? "fica" : "ficam"} com saldo negativo</b>}
+              {salvo ? ` · ${textoDoSalvamento(noServidor.estado)}` : ""}
+            </span>
           )}
         </div>
         <Button variant="secondary" leadingIcon={<Trash2 size={16} />} aria-label="Limpar requisição" onClick={descartar} disabled={enviando || linhas.length === 0}><span className="rq-limpar-texto">Limpar</span></Button>

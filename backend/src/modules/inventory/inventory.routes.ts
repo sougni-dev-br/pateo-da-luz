@@ -6198,8 +6198,10 @@ inventoryRouter.post("/requisitions", async (request, response) => {
     return;
   }
 
-  // Valida saldo negativo — tudo ou nada, mas dizendo QUAIS itens faltam e quanto.
-  const insufficient = convertedItems
+  // Saldo do sistema nao e o que esta na camara (nota nao lancada, contagem que nao pegou o item):
+  // recusar travava a requisicao inteira por um item. Passa, o saldo fica negativo e quem ficou
+  // negativo vai na resposta e na auditoria para a nota ou a contagem acertar depois.
+  const negativeStock = convertedItems
     .map((item) => ({
       productId: item.productId,
       productName: productMap.get(item.productId)?.name ?? item.productId,
@@ -6208,14 +6210,6 @@ inventoryRouter.post("/requisitions", async (request, response) => {
       unit: item.stockUnit
     }))
     .filter((item) => item.available - item.requested < 0);
-
-  if (insufficient.length > 0) {
-    response.status(400).json({
-      message: `Saldo insuficiente em ${insufficient.length} ${insufficient.length === 1 ? "produto" : "produtos"}: ${insufficient.map((i) => i.productName).join(", ")}.`,
-      products: insufficient
-    });
-    return;
-  }
 
   // Busca setor
   const [sector] = sectorId
@@ -6296,7 +6290,7 @@ inventoryRouter.post("/requisitions", async (request, response) => {
     action: "CREATE_INVENTORY_REQUISITION",
     entity: "InventoryRequisition",
     entityId: requisitionId,
-    newValue: { code, shift, reason, sectorId, itemCount: parsedItems.length, clientRequestId },
+    newValue: { code, shift, reason, sectorId, itemCount: parsedItems.length, clientRequestId, negativeStock },
     ipAddress: requestIp(request),
     userAgent: String(request.headers["user-agent"] ?? "")
   });
@@ -6313,7 +6307,7 @@ inventoryRouter.post("/requisitions", async (request, response) => {
   `;
 
   console.log(`[requisition] created ${code} total_ms=${Date.now() - t0}`);
-  response.status(201).json({ ...created, items });
+  response.status(201).json({ ...created, items, negativeStock });
 });
 
 inventoryRouter.patch("/agenda/:id/confirm", async (request, response) => {

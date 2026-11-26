@@ -24,8 +24,8 @@ export type SituacaoDaLinha =
 const arredondar = (valor: number) => Math.round(valor * 1_000_000) / 1_000_000;
 
 /**
- * Quanto a linha tira do estoque e se o saldo cobre. Item sem registro de saldo conta como saldo zero:
- * é assim que o servidor decide, e a tela antes o deixava passar para a requisição ser recusada inteira.
+ * Quanto a linha tira do estoque e se o saldo cobre. Item sem registro de saldo conta como saldo zero,
+ * como no servidor. FALTA não impede o registro: é o aviso de que o saldo vai ficar negativo.
  */
 export function situacaoDaLinha(linha: LinhaDaRequisicao, saldoDoEstoque: number | undefined): SituacaoDaLinha {
   const digitado = lerNumero(linha.quantity);

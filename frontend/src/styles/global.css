@@ -16213,6 +16213,7 @@ td.count-list-divergent {
 .rq-status.is-ok { color: var(--success); }
 .rq-status.is-erro { color: var(--danger); font-weight: 600; }
 .rq-status.is-aviso { color: var(--warning); font-weight: 600; }
+.rq-barra-negativo { color: var(--warning); font-weight: 600; }
 .rq-tirar { border: none; background: transparent; color: var(--muted); font-size: 12.5px; text-decoration: underline; cursor: pointer; min-height: 40px; padding: 0 8px; }
 .rq-tirar:hover { color: var(--danger); }
 
