@@ -592,7 +592,8 @@ function actionFromRequest(request: Request, menuId: MenuId): PermissionAction {
   if (menuId === "planning" && (path === "/planning/realizado" || path === "/planning/realizado-caixa")) return "edit";
 
   // Comentários do Comparativo: quem edita o Planejamento comenta, edita e apaga o PRÓPRIO comentário (a rota confere o autor).
-  // Por isso DELETE aqui pede "edit", não "delete"; apagar o de outra pessoa exige "admin" do módulo, conferido na rota.
+  // Por isso DELETE (que só manda para a lixeira) e POST .../restaurar pedem "edit"; apagar o alheio, apagar o próprio depois
+  // de 24 horas, restaurar depois de 10 minutos e ver a lixeira exigem "admin" do módulo, conferido na rota.
   if (menuId === "planning" && path.startsWith("/planning/comentarios") && method !== "GET" && method !== "HEAD") return "edit";
 
   // Restaurar um registro cancelado desfaz uma exclusao: pede a acao de excluir.

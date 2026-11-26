@@ -103,3 +103,13 @@ tr:hover .plan-coment-marca-vazia, .plan-coment-celula:focus-within .plan-coment
 .plan-barra-cenario:has(.plan-coment-barra) { flex-wrap: wrap; }
 .plan-coment-ano-item .plan-coment-outro { justify-self: start; }
 .plan-coment-marca-vazia::before { display: none; }
+
+/* ── Número da época, prazo do autor, lixeira ── */
+.plan-coment-epoca { margin: 0; font-size: var(--fs-xs, 12px); color: var(--plan-muted, #596173); font-variant-numeric: tabular-nums; }
+.plan-coment-mudou { color: var(--gold-dark); font-weight: 700; }
+.plan-coment-prazo { align-self: center; font-size: var(--fs-xs, 12px); color: var(--plan-muted, #596173); line-height: 1.4; }
+.plan-coment-desfazer-erro { margin: 0; }
+.plan-coment-lixeira { display: grid; gap: 10px; padding-top: 12px; border-top: 1px dashed var(--line); }
+.plan-coment-lixeira-botao { justify-self: start; }
+.plan-coment-lixeira .plan-coment-item { background: var(--paper-soft); border-style: dashed; }
+.plan-coment-gaveta > .plan-toast { flex: none; align-self: center; margin: 0 16px 16px; }

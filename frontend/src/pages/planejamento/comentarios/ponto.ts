@@ -30,8 +30,8 @@ export const pontoDoComentario = (c: PlanejamentoComentario): PontoDeComentario 
 export const chaveDoPonto = (p: PontoDeComentario): string => `${p.mes ?? 0}|${p.metrica}|${p.turno}`;
 
 /** Agrupa mantendo a ordem de chegada (o servidor já ordena mês, métrica, turno, criação). */
-export function agruparPorPonto(comentarios: readonly PlanejamentoComentario[]): ReadonlyMap<string, readonly PlanejamentoComentario[]> {
-  const mapa = new Map<string, PlanejamentoComentario[]>();
+export function agruparPorPonto<T extends PlanejamentoComentario>(comentarios: readonly T[]): ReadonlyMap<string, readonly T[]> {
+  const mapa = new Map<string, T[]>();
   for (const c of comentarios) {
     const chave = chaveDoPonto(pontoDoComentario(c));
     mapa.set(chave, [...(mapa.get(chave) ?? []), c]);
@@ -68,3 +68,9 @@ export function contagemDoAno(comentarios: readonly PlanejamentoComentario[]): {
 }
 
 export const textoDaContagem = (n: number): string => `${n} ${n === 1 ? "comentário" : "comentários"}`;
+
+/** Mesma ordem do servidor (mês com o ano inteiro primeiro, métrica, turno, criação): o restaurado volta ao seu lugar. */
+export function ordenarComoOServidor(comentarios: readonly PlanejamentoComentario[]): readonly PlanejamentoComentario[] {
+  return [...comentarios].sort((a, b) =>
+    (a.mes ?? 0) - (b.mes ?? 0) || a.metrica.localeCompare(b.metrica) || a.turno.localeCompare(b.turno) || a.criadoEm.localeCompare(b.criadoEm));
+}

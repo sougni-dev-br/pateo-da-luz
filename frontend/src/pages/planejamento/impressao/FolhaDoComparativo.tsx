@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { PlanejamentoComentario, PlanejamentoComparativo } from "../../../api/client";
+import { textoDaEpoca } from "../comentarios/epoca";
 import { dataEHora, valorEmTexto } from "../comentarios/formatoComentario";
 import { chaveDoPonto, metricaDaGrandeza, ROTULO_DA_METRICA, textoDaContagem, turnoDaTela } from "../comentarios/ponto";
 import { descricaoDoPeriodo, NOMES_DOS_MESES_CURTOS, textoDaVariacao } from "../formato";
@@ -77,6 +78,7 @@ function ListaDeComentarios({ notas }: { notas: NotasDaFolha }) {
             <li key={n.comentario.id} value={n.numero}>
               <strong>{n.rotulo}</strong>
               <span className="fcmp-texto">{n.comentario.texto}</span>
+              {textoDaEpoca(n.comentario, false) && <span className="fcmp-epoca">{textoDaEpoca(n.comentario, false)}</span>}
               <span className="fcmp-autor">{n.comentario.autorNome}, {dataEHora(n.comentario.criadoEm)}</span>
             </li>
           ))}

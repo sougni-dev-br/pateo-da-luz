@@ -5,7 +5,7 @@ export function comentarioFicticio(parcial: Partial<PlanejamentoComentario> = {}
   return {
     id: "c1", anoBase: 2025, anoComparado: 2026, mes: 10, metrica: "VENDAS", turno: "TOTAL", texto: "Teste fictício", naImpressao: true,
     autorId: "u1", autorNome: "Ana Teste", criadoEm: "2026-11-01T13:00:00.000Z", editadoEm: null, atualizadoEm: "2026-11-01T13:00:00.000Z",
-    podeEditar: true, podeApagar: true, ...parcial
+    epoca: { valorBase: null, valorComparado: null, variacao: null }, podeEditar: true, podeApagar: true, ...parcial
   };
 }
 

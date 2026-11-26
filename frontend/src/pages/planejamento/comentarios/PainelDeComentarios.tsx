@@ -8,7 +8,9 @@ import { NOMES_DOS_MESES } from "../formato";
 import { useDialogoAcessivel } from "../useDialogoAcessivel";
 import { useEstreito } from "../useEstreito";
 import { useOculto } from "../useOculto";
+import { AvisoDeApagado } from "./AvisoDeApagado";
 import { ComentarioItem } from "./ComentarioItem";
+import { LixeiraDoPonto } from "./LixeiraDoPonto";
 import { FormularioDeComentario } from "./FormularioDeComentario";
 import { numerosDoPonto } from "./formatoComentario";
 import { chaveDoPonto, ROTULO_DA_METRICA, rotuloDoPonto, type PontoDeComentario } from "./ponto";
@@ -71,6 +73,9 @@ export function PainelDeComentarios({ ponto, aoMudarPonto, aoFechar, dados, api,
   }, [chave, totalDoPonto]);
   if (!ponto) return null;
   const comentarios = api.porPonto.get(chaveDoPonto(ponto)) ?? [];
+  const apagados = api.lixeira.porPonto.get(chaveDoPonto(ponto)) ?? [];
+  // O botão do aviso some ao desfazer: o foco vai para a lista (onde o comentário voltou), nunca para o <body>.
+  const focarAposDesfazer = () => window.setTimeout(() => (lista.current ?? gaveta.current)?.focus(), 0);
   const rotulo = rotuloDoPonto(ponto, dados.anoComparado);
 
   return (
@@ -101,13 +106,15 @@ export function PainelDeComentarios({ ponto, aoMudarPonto, aoFechar, dados, api,
             )}
             {comentarios.length > 0 && (
               <ul className="plan-coment-lista" ref={lista} tabIndex={-1} aria-label={`Comentários em ${rotulo}`}>
-                {comentarios.map((c) => <ComentarioItem key={c.id} comentario={c} api={api} confirmar={confirmar} />)}
+                {comentarios.map((c) => <ComentarioItem key={c.id} comentario={c} dados={dados} api={api} confirmar={confirmar} />)}
               </ul>
             )}
             {podeEscrever
               ? <FormularioDeComentario key={chaveDoPonto(ponto)} rotuloSalvar="Salvar comentário" aoSalvar={(texto, naImpressao) => api.criar(ponto, texto, naImpressao)} />
               : <p className="plan-coment-aviso">Você pode ler os comentários, mas escrever exige permissão de edição no Planejamento.</p>}
+            {api.podeModerar && <LixeiraDoPonto key={chaveDoPonto(ponto)} apagados={apagados} api={api} confirmar={confirmar} />}
           </div>
+          <AvisoDeApagado api={api} aoDesfazer={focarAposDesfazer} />
           {dialogo}
         </Dialogo.Content>
       </Dialogo.Portal>

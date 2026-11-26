@@ -32,4 +32,10 @@ describe("FolhaDoComparativo", () => {
     expect(screen.getByText(/Ticket médio mês a mês/)).toBeInTheDocument();
     expect(container.querySelectorAll("sup.fcmp-nota")).toHaveLength(3);
   });
+
+  it("a nota leva o número da época, com os valores mesmo na folha", () => {
+    const comEpoca = [comentarioFicticio({ id: "e", texto: "Obra na rua", epoca: { valorBase: 341000, valorComparado: 216000, variacao: -0.3666 } })];
+    render(<FolhaDoComparativo dados={comparativoFicticio()} comentarios={comEpoca} geradoPor="Ana Teste" geradoEm={new Date("2026-11-25T15:00:00Z")} />);
+    expect(screen.getByText("escrito quando estava −36,7% (R$ 216 mil contra R$ 341 mil)")).toBeInTheDocument();
+  });
 });

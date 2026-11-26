@@ -10996,9 +10996,16 @@ export type PlanejamentoComentario = {
   criadoEm: string;
   editadoEm: string | null;
   atualizadoEm: string;
+  /** Número do ponto quando o comentário foi escrito (variação como fração); tudo nulo se o ponto não tinha número. */
+  epoca: PlanejamentoNumeroDaEpoca;
   podeEditar: boolean;
+  /** Já considera o prazo: o autor apaga só nas primeiras 24 horas; depois, só quem administra o Planejamento. */
   podeApagar: boolean;
 };
+export type PlanejamentoNumeroDaEpoca = { valorBase: number | null; valorComparado: number | null; variacao: number | null };
+/** Comentário na lixeira (só quem administra o Planejamento vê). */
+export type PlanejamentoComentarioApagado = PlanejamentoComentario & { apagadoEm: string; apagadoPorNome: string };
+export type PlanejamentoListaDeComentarios = { comentarios: PlanejamentoComentario[]; podeModerar: boolean };
 export type PlanejamentoNovoComentario = {
   anoBase: number;
   anoComparado: number;
@@ -11009,10 +11016,10 @@ export type PlanejamentoNovoComentario = {
   naImpressao: boolean;
 };
 
-export async function listarComentariosDoComparativo(anoComparado: number, anoBase?: number) {
+/** Os comentários do ano comparado e se quem pede modera (vê a lixeira e apaga os alheios). */
+export function listarComentariosDoComparativo(anoComparado: number, anoBase?: number) {
   const consulta = `anoComparado=${anoComparado}${anoBase === undefined ? "" : `&anoBase=${anoBase}`}`;
-  const resposta = await request<{ comentarios: PlanejamentoComentario[] }>(`/planning/comentarios?${consulta}`);
-  return resposta.comentarios;
+  return request<PlanejamentoListaDeComentarios>(`/planning/comentarios?${consulta}`);
 }
 
 export function criarComentario(novo: PlanejamentoNovoComentario) {
@@ -11031,8 +11038,18 @@ export function editarComentario(id: string, alteracao: { texto?: string; naImpr
   });
 }
 
+/** Manda para a lixeira: quem apagou desfaz em até 10 minutos; quem administra restaura a qualquer tempo. */
 export function apagarComentario(id: string) {
-  return request<{ ok: true }>(`/planning/comentarios/${encodeURIComponent(id)}`, { method: "DELETE" });
+  return request<{ ok: true; apagadoEm: string }>(`/planning/comentarios/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export function restaurarComentario(id: string) {
+  return request<PlanejamentoComentario>(`/planning/comentarios/${encodeURIComponent(id)}/restaurar`, { method: "POST" });
+}
+
+export async function listarLixeiraDeComentarios(anoComparado: number) {
+  const resposta = await request<{ comentarios: PlanejamentoComentarioApagado[] }>(`/planning/comentarios/lixeira?anoComparado=${anoComparado}`);
+  return resposta.comentarios;
 }
 
 // ── Planejamento > Cenários de projeção do Salão ────────────────────────────

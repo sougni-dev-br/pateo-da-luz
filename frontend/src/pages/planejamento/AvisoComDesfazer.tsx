@@ -5,13 +5,13 @@ import { useEffect } from "react";
 
 const TEMPO_DO_DESFAZER_MS = 10_000;
 
-type Props = { texto: string; onDesfazer: () => void; onFechar: () => void };
+type Props = { texto: string; onDesfazer: () => void; onFechar: () => void; tempoMs?: number };
 
-export function AvisoComDesfazer({ texto, onDesfazer, onFechar }: Props) {
+export function AvisoComDesfazer({ texto, onDesfazer, onFechar, tempoMs = TEMPO_DO_DESFAZER_MS }: Props) {
   useEffect(() => {
-    const id = window.setTimeout(onFechar, TEMPO_DO_DESFAZER_MS);
+    const id = window.setTimeout(onFechar, tempoMs);
     return () => window.clearTimeout(id);
-  }, [texto, onFechar]);
+  }, [texto, onFechar, tempoMs]);
   return (
     <div className="plan-toast" role="status">
       <span>{texto}</span>

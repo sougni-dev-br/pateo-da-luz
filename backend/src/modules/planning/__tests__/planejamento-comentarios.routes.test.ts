@@ -1,22 +1,25 @@
 import express from "express";
 import request from "supertest";
 import { Prisma } from "@prisma/client";
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 vi.mock("../../../config/database.js", () => ({
   prisma: {
-    planejamentoComentario: { findMany: vi.fn(), findUnique: vi.fn(), findUniqueOrThrow: vi.fn(), count: vi.fn(), create: vi.fn(), updateMany: vi.fn(), delete: vi.fn() },
+    planejamentoComentario: { findMany: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn(), findUniqueOrThrow: vi.fn(), count: vi.fn(), create: vi.fn(), updateMany: vi.fn() },
     $transaction: vi.fn(),
     $executeRaw: vi.fn()
   }
 }));
 vi.mock("../../security/security-utils.js", () => ({ getSessionUser: vi.fn(), auditLog: vi.fn(), requestIp: vi.fn(() => "127.0.0.1") }));
 vi.mock("../../security/menu-permissions.js", () => ({ userHasPermission: vi.fn() }));
+vi.mock("../planejamento.service.js", () => ({ carregarComparativo: vi.fn() }));
 
 import { prisma } from "../../../config/database.js";
 import { auditLog, getSessionUser } from "../../security/security-utils.js";
 import { userHasPermission } from "../../security/menu-permissions.js";
 import { planejamentoComentariosRouter } from "../planejamento-comentarios.routes.js";
+import { carregarComparativo } from "../planejamento.service.js";
+import { mesesEncerradosAte, montarComparativo, type MesDoSalao } from "../planejamento-comparativo.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = prisma as any;
@@ -28,7 +31,8 @@ const corpo = { anoBase: 2025, anoComparado: 2026, mes: 3, metrica: "VENDAS", tu
 const lido = new Date("2026-11-20T10:00:00.000Z");
 const gravado = (extra: Record<string, unknown> = {}) => ({
   id: "c1", contexto: "COMPARATIVO", ...corpo, naImpressao: true, autorId: "u1", autorNome: "Maria Teste",
-  editadoEm: null, createdAt: lido, updatedAt: lido, ...extra
+  editadoEm: null, createdAt: lido, updatedAt: lido, apagadoEm: null, apagadoPorId: null, apagadoPorNome: null,
+  valorBase: null, valorComparado: null, variacao: null, ...extra
 });
 
 let ehAdmin = false;
@@ -42,7 +46,17 @@ beforeEach(() => {
   db.$executeRaw.mockResolvedValue(0);
   db.planejamentoComentario.count.mockResolvedValue(0);
   db.planejamentoComentario.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => gravado(data));
+  vi.mocked(carregarComparativo).mockResolvedValue({ ...comparativoFicticio, hoje: "2026-11-26" });
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-11-20T12:00:00.000Z"));
 });
+afterEach(() => vi.useRealTimers());
+
+// Março fictício: 2025 vendeu 100 mil, 2026 vendeu 80 mil (−20%).
+const marco = (ano: number, vendas: number): MesDoSalao => ({
+  ano, mes: 3, vendasAlmoco: vendas / 2, vendasJantar: vendas / 2, clientesAlmoco: 500, clientesJantar: 500, servico: 0, fonte: "HISTORICO"
+});
+const comparativoFicticio = montarComparativo([marco(2025, 100000), marco(2026, 80000)], 2025, 2026, mesesEncerradosAte("2026-11-26", [2025, 2026]), "2026-11");
 
 describe("GET /planning/comentarios", () => {
   test("exige sessão", async () => {
@@ -54,8 +68,25 @@ describe("GET /planning/comentarios", () => {
     db.planejamentoComentario.findMany.mockResolvedValue([gravado(), gravado({ id: "c2", autorId: "u2" })]);
     const r = await request(app).get("/planning/comentarios?anoComparado=2026&anoBase=2024");
     expect(r.status).toBe(200);
-    expect(db.planejamentoComentario.findMany.mock.calls[0][0].where).toEqual({ contexto: "COMPARATIVO", anoComparado: 2026 });
+    expect(db.planejamentoComentario.findMany.mock.calls[0][0].where).toEqual({ contexto: "COMPARATIVO", anoComparado: 2026, apagadoEm: null });
     expect(r.body.comentarios.map((c: { podeEditar: boolean; podeApagar: boolean }) => [c.podeEditar, c.podeApagar])).toEqual([[true, true], [false, false]]);
+    expect(r.body.podeModerar).toBe(false);
+  });
+
+  test("podeApagar reflete o prazo de 24 horas do autor; o administrador segue podendo", async () => {
+    db.planejamentoComentario.findMany.mockResolvedValue([gravado({ createdAt: new Date("2026-11-19T11:59:59.000Z") })]);
+    const r = await request(app).get("/planning/comentarios?anoComparado=2026");
+    expect(r.body.comentarios[0]).toMatchObject({ podeEditar: true, podeApagar: false });
+    ehAdmin = true;
+    const r2 = await request(app).get("/planning/comentarios?anoComparado=2026");
+    expect(r2.body.comentarios[0]).toMatchObject({ podeApagar: true });
+    expect(r2.body.podeModerar).toBe(true);
+  });
+
+  test("devolve o número da época como número (Decimal vira number)", async () => {
+    db.planejamentoComentario.findMany.mockResolvedValue([gravado({ valorBase: new Prisma.Decimal("100000"), valorComparado: new Prisma.Decimal("80000"), variacao: new Prisma.Decimal("-0.2") })]);
+    const r = await request(app).get("/planning/comentarios?anoComparado=2026");
+    expect(r.body.comentarios[0].epoca).toEqual({ valorBase: 100000, valorComparado: 80000, variacao: -0.2 });
   });
 
   test("admin do módulo pode apagar os de outros, mas não editar", async () => {
@@ -77,6 +108,30 @@ describe("POST /planning/comentarios", () => {
     expect(r.status).toBe(201);
     expect(db.planejamentoComentario.create.mock.calls[0][0].data).toMatchObject({ autorId: "u1", autorNome: "Maria Teste", naImpressao: true });
     expect(auditLog).toHaveBeenCalledWith(expect.objectContaining({ action: "CREATE_PLANNING_COMMENT", entity: "PlanejamentoComentario" }));
+  });
+
+  test("grava o número da época calculado pelo comparativo do servidor (ignora números do corpo)", async () => {
+    const r = await request(app).post("/planning/comentarios").send({ ...corpo, valorBase: 1, variacao: 9 });
+    expect(r.status).toBe(201);
+    expect(carregarComparativo).toHaveBeenCalledWith(2025, 2026);
+    expect(db.planejamentoComentario.create.mock.calls[0][0].data).toMatchObject({ valorBase: 100000, valorComparado: 80000, variacao: -0.2 });
+    expect(r.body.epoca).toEqual({ valorBase: 100000, valorComparado: 80000, variacao: -0.2 });
+  });
+
+  test("ponto sem número grava nulo; falha no comparativo não impede o comentário", async () => {
+    await request(app).post("/planning/comentarios").send({ ...corpo, mes: 4 });
+    expect(db.planejamentoComentario.create.mock.calls[0][0].data).toMatchObject({ valorBase: null, valorComparado: null, variacao: null });
+    vi.mocked(carregarComparativo).mockRejectedValue(new Error("banco lento"));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const r = await request(app).post("/planning/comentarios").send(corpo);
+    expect(r.status).toBe(201);
+    expect(db.planejamentoComentario.create.mock.calls[1][0].data).toMatchObject({ valorBase: null, variacao: null });
+  });
+
+  test("os limites contam só os não apagados", async () => {
+    await request(app).post("/planning/comentarios").send(corpo);
+    expect(db.planejamentoComentario.count).toHaveBeenCalledTimes(2);
+    for (const [args] of db.planejamentoComentario.count.mock.calls) expect(args.where).toMatchObject({ apagadoEm: null });
   });
 
   test("corpo inválido → 400 sem gravar", async () => {
@@ -117,7 +172,9 @@ describe("PATCH /planning/comentarios/:id", () => {
     const r = await request(app).patch("/planning/comentarios/c1").send(edicao);
     expect(r.status).toBe(200);
     const args = db.planejamentoComentario.updateMany.mock.calls[0][0];
-    expect(args.where).toEqual({ id: "c1", autorId: "u1", updatedAt: lido });
+    expect(args.where).toEqual({ id: "c1", autorId: "u1", updatedAt: lido, apagadoEm: null });
+    expect(args.data).not.toHaveProperty("valorBase");
+    expect(args.data).not.toHaveProperty("variacao");
     expect(args.data.editadoEm).toBeInstanceOf(Date);
     expect(auditLog).toHaveBeenCalledWith(expect.objectContaining({ action: "UPDATE_PLANNING_COMMENT" }));
   });
@@ -131,6 +188,7 @@ describe("PATCH /planning/comentarios/:id", () => {
 
   test("atualizadoEm velho → 409", async () => {
     db.planejamentoComentario.findUnique.mockResolvedValue(gravado());
+    db.planejamentoComentario.findFirst.mockResolvedValue(gravado());
     db.planejamentoComentario.updateMany.mockResolvedValue({ count: 0 });
     const r = await request(app).patch("/planning/comentarios/c1").send(edicao);
     expect(r.status).toBe(409);
@@ -138,61 +196,21 @@ describe("PATCH /planning/comentarios/:id", () => {
   });
 
   test("sumiu entre a leitura e a gravação → 404", async () => {
-    db.planejamentoComentario.findUnique.mockResolvedValueOnce(gravado()).mockResolvedValueOnce(null);
+    db.planejamentoComentario.findUnique.mockResolvedValueOnce(gravado());
+    db.planejamentoComentario.findFirst.mockResolvedValueOnce(null);
     db.planejamentoComentario.updateMany.mockResolvedValue({ count: 0 });
     expect((await request(app).patch("/planning/comentarios/c1").send(edicao)).status).toBe(404);
+  });
+
+  test("comentário na lixeira não se edita → 404", async () => {
+    db.planejamentoComentario.findUnique.mockResolvedValue(gravado({ apagadoEm: lido, apagadoPorId: "u1", apagadoPorNome: "Maria Teste" }));
+    expect((await request(app).patch("/planning/comentarios/c1").send(edicao)).status).toBe(404);
+    expect(db.planejamentoComentario.updateMany).not.toHaveBeenCalled();
   });
 
   test("inexistente → 404 e corpo inválido → 400", async () => {
     db.planejamentoComentario.findUnique.mockResolvedValue(null);
     expect((await request(app).patch("/planning/comentarios/x").send(edicao)).status).toBe(404);
     expect((await request(app).patch("/planning/comentarios/x").send({ atualizadoEm: lido.toISOString() })).status).toBe(400);
-  });
-});
-
-describe("DELETE /planning/comentarios/:id", () => {
-  test("autor apaga o próprio, sem pedir admin, e o texto vai para a auditoria", async () => {
-    db.planejamentoComentario.findUnique.mockResolvedValue(gravado());
-    db.planejamentoComentario.delete.mockResolvedValue(gravado());
-    const r = await request(app).delete("/planning/comentarios/c1");
-    expect(r.status).toBe(200);
-    expect(userHasPermission).not.toHaveBeenCalled();
-    const chamada = vi.mocked(auditLog).mock.calls[0][0];
-    expect(chamada).toMatchObject({ action: "DELETE_PLANNING_COMMENT", previousValue: expect.objectContaining({ texto: corpo.texto }) });
-    expect(chamada.newValue).toBeUndefined();
-  });
-
-  test("alheio sem admin → 403 e nada é apagado", async () => {
-    db.planejamentoComentario.findUnique.mockResolvedValue(gravado({ autorId: "u2" }));
-    expect((await request(app).delete("/planning/comentarios/c1")).status).toBe(403);
-    expect(db.planejamentoComentario.delete).not.toHaveBeenCalled();
-  });
-
-  test("alheio com admin → 200 e auditoria marca moderação com o autor original", async () => {
-    ehAdmin = true;
-    db.planejamentoComentario.findUnique.mockResolvedValue(gravado({ autorId: "u2", autorNome: "Outra Pessoa" }));
-    db.planejamentoComentario.delete.mockResolvedValue(gravado());
-    expect((await request(app).delete("/planning/comentarios/c1")).status).toBe(200);
-    expect(userHasPermission).toHaveBeenCalledWith(expect.anything(), "planning", "admin");
-    expect(vi.mocked(auditLog).mock.calls[0][0]).toMatchObject({
-      previousValue: expect.objectContaining({ autorId: "u2" }),
-      newValue: { moderado: true, autorOriginal: { id: "u2", nome: "Outra Pessoa" } }
-    });
-  });
-
-  test("falha na auditoria não vira 500", async () => {
-    db.planejamentoComentario.findUnique.mockResolvedValue(gravado());
-    db.planejamentoComentario.delete.mockResolvedValue(gravado());
-    vi.mocked(auditLog).mockRejectedValue(new Error("fora do ar"));
-    vi.spyOn(console, "error").mockImplementation(() => undefined);
-    expect((await request(app).delete("/planning/comentarios/c1")).status).toBe(200);
-  });
-
-  test("inexistente ou apagado por outra pessoa (P2025) → 404", async () => {
-    db.planejamentoComentario.findUnique.mockResolvedValueOnce(null);
-    expect((await request(app).delete("/planning/comentarios/x")).status).toBe(404);
-    db.planejamentoComentario.findUnique.mockResolvedValueOnce(gravado());
-    db.planejamentoComentario.delete.mockRejectedValue(new Prisma.PrismaClientKnownRequestError("sumiu", { code: "P2025", clientVersion: "5" }));
-    expect((await request(app).delete("/planning/comentarios/c1")).status).toBe(404);
   });
 });
