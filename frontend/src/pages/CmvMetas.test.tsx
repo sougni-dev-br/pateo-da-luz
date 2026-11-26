@@ -16,11 +16,12 @@ vi.mock("../api/client", async (importOriginal) => ({
 
 import { HideValuesProvider } from "../design-system";
 import { SessionContext, type SessionContextValue } from "../context/SessionContext";
+import { MemoryRouter } from "react-router-dom";
 import { CmvMetas } from "./CmvMetas";
 
 // Money lê o contexto de ocultar valores, que por sua vez lê a sessão.
 const SESSAO = { user: null, setUser: () => undefined, hideSensitiveValues: false, toggleSensitiveValues: () => undefined, canAccessSection: () => true, hasPermission: () => true } as unknown as SessionContextValue;
-const renderTela = () => render(<SessionContext.Provider value={SESSAO}><HideValuesProvider><CmvMetas /></HideValuesProvider></SessionContext.Provider>);
+const renderTela = () => render(<SessionContext.Provider value={SESSAO}><HideValuesProvider><MemoryRouter initialEntries={["/cmv/metas?mes=2026-11"]}><CmvMetas /></MemoryRouter></HideValuesProvider></SessionContext.Provider>);
 
 const linhaGeral = (o: Partial<LinhaPainelMetaCmv> = {}): LinhaPainelMetaCmv => ({
   escopo: "GERAL", sectorId: null, nome: "Geral",

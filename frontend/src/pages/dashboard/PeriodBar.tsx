@@ -1,7 +1,8 @@
 import { CalendarDays, ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
-import { useId } from "react";
+import { useId, type ReactNode } from "react";
 import { IconButton } from "../../design-system";
 import { isValidCompetence, MAX_YEAR, MIN_YEAR, type MonthInfo } from "./logic";
+import "./PeriodBar.css";
 
 type Props = {
   competence: string;
@@ -12,20 +13,24 @@ type Props = {
   onStep: (delta: number) => void;
   onToday: () => void;
   onRefresh: () => void;
+  /** Linha pequena acima do mês. Padrão: o do Dashboard. */
+  eyebrow?: string;
+  /** Botões da tela, à direita do seletor (ex.: "Nova meta"). */
+  actions?: ReactNode;
 };
 
 function timeLabel(date: Date) {
   return date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
 
-export function PeriodBar({ competence, info, loading, updatedAt, onChange, onStep, onToday, onRefresh }: Props) {
+export function PeriodBar({ competence, info, loading, updatedAt, onChange, onStep, onToday, onRefresh, eyebrow = "Dashboard · visão do mês", actions }: Props) {
   const inputId = useId();
   const progress = info.daysInMonth > 0 ? (info.elapsedDays / info.daysInMonth) * 100 : 0;
 
   return (
     <header className="dash-period">
       <div className="dash-period-titles">
-        <p className="dash-eyebrow">Dashboard · visão do mês</p>
+        <p className="dash-eyebrow">{eyebrow}</p>
         <h1 className="dash-period-title">{info.label}</h1>
         <p className="dash-period-status">
           {info.isCurrent ? (
@@ -75,6 +80,7 @@ export function PeriodBar({ competence, info, loading, updatedAt, onChange, onSt
           onClick={onRefresh}
           disabled={loading}
         />
+        {actions}
       </div>
     </header>
   );
