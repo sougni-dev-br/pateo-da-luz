@@ -11266,6 +11266,21 @@ export function getMetasCmv() {
 export function salvarMetaCmv(payload: SalvarMetaCmv) {
   return request<{ id: string }>("/monthly/cmv-real/metas", { method: "POST", headers: JSON_HEADERS_METAS_CMV, body: JSON.stringify(payload) });
 }
+/** Aviso no pedido de compra: o pedido cabe na meta geral de CMV do mês corrente? (só para quem vê o CMV Real) */
+export type TotaisPedidoMetaCmv = { total: number; totalCmv: number; itensSemPreco: number };
+export type ImpactoPedidoMetaCmv =
+  | { situacao: "SEM_DECISAO"; status: string }
+  | { situacao: "SEM_META"; pedido: TotaisPedidoMetaCmv }
+  | {
+      situacao: "AVALIADO"; mes: string; ateODia: string;
+      meta: { alvoPercentual: number; alertaPercentual: number };
+      pedido: TotaisPedidoMetaCmv;
+      antes: ProjecaoMetaCmv; depois: ProjecaoMetaCmv;
+      statusAntes: StatusMetaCmv; statusDepois: StatusMetaCmv;
+    };
+export function getImpactoPedidoMetaCmv(orderId: string) {
+  return request<ImpactoPedidoMetaCmv>(`/monthly/cmv-real/metas/impacto-pedido/${encodeURIComponent(orderId)}`);
+}
 export function removerMetaCmv(id: string) {
   return request<{ ok: boolean }>(`/monthly/cmv-real/metas/${id}`, { method: "DELETE" });
 }
