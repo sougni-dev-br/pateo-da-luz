@@ -5,11 +5,14 @@ import { Plus, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
-  type LinhaPainelMetaCmv, type ListaMetasCmv, type PainelMetasCmv, type StatusMetaCmv,
-  getMetasCmv, getPainelMetasCmv, removerMetaCmv, salvarMetaCmv,
+  type LinhaPainelMetaCmv, type ListaMetasCmv, type PainelMetasCmv, type StatusMetaCmv, type VisoesMetaCmv,
+  getMetasCmv, getPainelMetasCmv, getVisoesMetasCmv, removerMetaCmv, salvarMetaCmv,
 } from "../api/client";
-import { Alert, Button, EmptyState, Money, Select, StatusBadge, Table, TextField } from "../design-system";
+import { Alert, Button, EmptyState, Money, Select, StatusBadge, Table, Tabs, TextField } from "../design-system";
 import type { StatusTone } from "../design-system";
+import { DistribuicaoCompras, ehAbaDistribuicao, type AbaDistribuicao } from "./cmv-metas/DistribuicaoCompras";
+import { HistoricoGrafico } from "./cmv-metas/HistoricoGrafico";
+import { RitmoDaMeta } from "./cmv-metas/RitmoDaMeta";
 import { PeriodBar } from "./dashboard/PeriodBar";
 import { competenceOf, isValidCompetence, monthInfo, shiftCompetence } from "./dashboard/logic";
 import "./CmvMetas.css";
@@ -70,7 +73,14 @@ export function CmvMetas() {
   const hoje = new Date();
   const mesDaUrl = params.get("mes");
   const mes = isValidCompetence(mesDaUrl) ? mesDaUrl : competenceOf(hoje);
-  const setMes = (novo: string) => setParams((p) => { const n = new URLSearchParams(p); n.set("mes", novo); return n; }, { replace: true });
+  // Mês, aba da distribuição e forma do histórico ficam no endereço: o link aberto mostra a mesma visão.
+  const setParam = (chave: string, valor: string) => setParams((p) => { const n = new URLSearchParams(p); n.set(chave, valor); return n; }, { replace: true });
+  const setMes = (novo: string) => setParam("mes", novo);
+  const abaDaUrl = params.get("visao");
+  const aba: AbaDistribuicao = ehAbaDistribuicao(abaDaUrl) ? abaDaUrl : "setor";
+  const historicoEmTabela = params.get("historico") === "tabela";
+  const [visoes, setVisoes] = useState<VisoesMetaCmv | null>(null);
+  const [erroVisoes, setErroVisoes] = useState<string | null>(null);
   const [atualizadoEm, setAtualizadoEm] = useState<Date | null>(null);
   const [painel, setPainel] = useState<PainelMetasCmv | null>(null);
   const [cadastro, setCadastro] = useState<ListaMetasCmv | null>(null);
@@ -83,8 +93,13 @@ export function CmvMetas() {
   const carregar = useCallback(async () => {
     setErro(null);
     setCarregando(true);
+    setErroVisoes(null);
+    // As visões são extras: se falharem, o painel continua e o erro aparece só no lugar delas.
+    const pedidoVisoes = getVisoesMetasCmv(mes)
+      .then((v) => setVisoes(v))
+      .catch((e) => { setVisoes(null); setErroVisoes(mensagem(e, "Não foi possível carregar o ritmo e a distribuição.")); });
     try {
-      const [p, c] = await Promise.all([getPainelMetasCmv(mes), getMetasCmv()]);
+      const [p, c] = await Promise.all([getPainelMetasCmv(mes), getMetasCmv(), pedidoVisoes]);
       setPainel(p);
       setCadastro(c);
       setAtualizadoEm(new Date());
@@ -208,7 +223,15 @@ export function CmvMetas() {
           )}
 
           <div className="mt-bloco">
-            <h3>Por escopo</h3>
+            <h3>Ritmo do mês</h3>
+            {erroVisoes ? <Alert tone="error">{erroVisoes}</Alert> : visoes ? <RitmoDaMeta visoes={visoes} /> : <p className="mt-ajuda">Carregando…</p>}
+          </div>
+
+          <DistribuicaoCompras
+            visoes={erroVisoes ? null : visoes}
+            aba={aba}
+            onAba={(v) => setParam("visao", v)}
+            setores={<>
             <Table className="mt-tabela" aria-label="Realizado contra a meta">
               <Table.Head>
                 <Table.Row>
@@ -234,10 +257,21 @@ export function CmvMetas() {
               </Table.Body>
             </Table>
             <p className="mt-ajuda">Setores só aparecem quando têm meta ou compras no mês. O realizado do setor é a compra dele ÷ o faturamento do restaurante todo.</p>
-          </div>
+            </>}
+          />
 
           <div className="mt-bloco">
-            <h3>Últimos 6 meses (geral)</h3>
+            <div className="mt-bloco-cabeca">
+              <h3>Últimos 6 meses (geral)</h3>
+              <Tabs
+                className="mt-alternar"
+                tabs={[{ value: "grafico", label: "Gráfico" }, { value: "tabela", label: "Tabela" }]}
+                value={historicoEmTabela ? "tabela" : "grafico"}
+                onChange={(v) => setParam("historico", v)}
+                aria-label="Mostrar o histórico como"
+              />
+            </div>
+            {!historicoEmTabela ? <HistoricoGrafico historico={painel.historico} /> : (
             <Table className="mt-tabela" aria-label="Histórico de CMV contra a meta">
               <Table.Head>
                 <Table.Row>
@@ -262,6 +296,7 @@ export function CmvMetas() {
                 ))}
               </Table.Body>
             </Table>
+            )}
           </div>
         </>
       )}

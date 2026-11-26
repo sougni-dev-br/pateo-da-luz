@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { auditLog, getSessionUser, requestIp } from "../security/security-utils.js";
 import { impactoDoPedido, PedidoNaoEncontradoError } from "./cmv-metas-pedido.service.js";
+import { montarVisoes } from "./cmv-metas-visoes.service.js";
 import { listarMetas, MetaInvalidaError, montarPainel, removerMeta, salvarMeta } from "./cmv-metas.service.js";
 
 // Montado em /monthly/cmv-real/metas: o controle de acesso resolve pelo prefixo /monthly/cmv-real
@@ -29,6 +30,14 @@ cmvMetasRouter.get("/painel", async (request, response) => {
   if (!consulta.success) return response.status(400).json({ message: consulta.error.issues[0]?.message ?? "Mês inválido." });
   const [ano, mes] = consulta.data.split("-").map(Number);
   return response.json(await montarPainel(ano, mes));
+});
+
+// Visões no estilo do Dashboard: ritmo do mês contra o teto e distribuição das compras de CMV.
+cmvMetasRouter.get("/visoes", async (request, response) => {
+  const consulta = mesSchema.safeParse(request.query.mes);
+  if (!consulta.success) return response.status(400).json({ message: consulta.error.issues[0]?.message ?? "Mês inválido." });
+  const [ano, mes] = consulta.data.split("-").map(Number);
+  return response.json(await montarVisoes(ano, mes));
 });
 
 // Aviso no pedido de compra. Fica aqui (e não em /purchase-orders) de propósito: só quem vê o CMV Real
