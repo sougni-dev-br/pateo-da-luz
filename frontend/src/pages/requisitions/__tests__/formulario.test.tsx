@@ -99,22 +99,26 @@ describe("FormularioDaRequisicao", () => {
     expect(registrar().disabled).toBe(false);
   });
 
-  test("quantidade acima do saldo bloqueia o registro e diz quanto falta", async () => {
+  test("quantidade acima do saldo registra com aviso de saldo negativo", async () => {
     montar();
     await digitar("FARINHA", "5");
-    expect((await screen.findAllByText(/Faltam 2 KG/)).length).toBeGreaterThan(0);
-    expect(registrar().disabled).toBe(true);
-    expect(screen.getByRole("button", { name: /1 com problema/ })).toBeTruthy();
+    expect((await screen.findAllByText(/Passa do saldo em 2 KG/)).length).toBeGreaterThan(0);
+    expect(registrar().disabled).toBe(false);
+    expect(screen.getByText(/1 fica com saldo negativo/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /com problema/ })).toBeNull();
   });
 
-  test("busca por parte do nome, sem acento, e mostra sem saldo para explicar", async () => {
+  test("busca por parte do nome, sem acento, e deixa pedir o que está sem saldo", async () => {
     montar();
     await screen.findByText("FARINHA");
     fireEvent.change(screen.getByLabelText("Buscar produto ou código"), { target: { value: "amend" } });
     const linha = (await screen.findByText("AMENDOIM")).closest("li")!;
     expect(within(linha).getByText("sem saldo")).toBeTruthy();
-    expect((within(linha).getByLabelText("Quantidade de AMENDOIM") as HTMLInputElement).disabled).toBe(true);
+    expect((within(linha).getByLabelText("Quantidade de AMENDOIM") as HTMLInputElement).disabled).toBe(false);
     expect(screen.queryByText("FARINHA")).toBeNull();
+    await digitar("AMENDOIM", "1");
+    expect(await within(linha).findByText(/Sem saldo no sistema: fica negativo/)).toBeTruthy();
+    expect(registrar().disabled).toBe(false);
   });
 
   test("filtra por local do estoque", async () => {
@@ -189,7 +193,7 @@ describe("FormularioDaRequisicao", () => {
 
   test("a visão 'Com problema' não perde a linha enquanto a pessoa corrige", async () => {
     montar();
-    await digitar("FARINHA", "50");
+    await digitar("FARINHA", "abc");
     fireEvent.click(await screen.findByRole("button", { name: /1 com problema/ }));
     await digitar("FARINHA", "1");
     expect(await qtd("FARINHA")).toBeTruthy();

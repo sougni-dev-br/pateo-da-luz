@@ -33,8 +33,8 @@ function Status({ item, situacao, escolha }: { item: RequisitionCatalogItem; sit
   }
   if (situacao.tipo === "FALTA") {
     return (
-      <span className="rq-status is-erro" role="status">
-        {item.balance <= 0 ? "Sem saldo em estoque." : `Faltam ${formatarQuantidade(situacao.falta)} ${base}.`}
+      <span className="rq-status is-aviso" role="status">
+        {item.balance <= 0 ? "Sem saldo no sistema: fica negativo." : `Passa do saldo em ${formatarQuantidade(situacao.falta)} ${base}: fica negativo.`}
         {trocouDeUnidade && ` ${digitado} = ${formatarQuantidade(situacao.emEstoque)} ${base}.`}
       </span>
     );
@@ -80,13 +80,15 @@ function LinhaDoCatalogoBase({ item, escolha, onMudar, onTirar, onProxima, onUni
   const opcoes = unidadesDaLinha({ stockUnit: item.unit, conversions: item.conversions });
   const situacao = escolha ? situacaoDaLinha(linhaDe(item, escolha), item.balance) : null;
   const invalida = situacao?.tipo === "VAZIA" && (escolha?.quantity.trim() ?? "") !== "";
-  const problema = situacao?.tipo === "FALTA" || situacao?.tipo === "SEM_CONVERSAO" || invalida;
-  const bloqueada = semSaldo && !escolhida;
+  // Passar do saldo não é problema: o saldo do sistema pode estar atrasado (nota não lançada), então a linha
+  // entra com aviso e o estoque fica negativo até a nota ou a contagem acertar.
+  const problema = situacao?.tipo === "SEM_CONVERSAO" || invalida;
+  const apagada = semSaldo && !escolhida;
   const status = escolha && situacao ? <Status item={item} situacao={situacao} escolha={escolha} /> : null;
 
   return (
     <li
-      className={`rq-linha${escolhida && escolha.quantity.trim() !== "" ? " is-escolhida" : ""}${problema ? " has-problema" : ""}${bloqueada ? " is-sem-saldo" : ""}`}
+      className={`rq-linha${escolhida && escolha.quantity.trim() !== "" ? " is-escolhida" : ""}${problema ? " has-problema" : ""}${apagada ? " is-sem-saldo" : ""}`}
       data-produto={item.id}
     >
       <div className="rq-info">
@@ -120,7 +122,6 @@ function LinhaDoCatalogoBase({ item, escolha, onMudar, onTirar, onProxima, onUni
           autoComplete="off"
           enterKeyHint="next"
           placeholder="0"
-          disabled={bloqueada}
           aria-label={`Quantidade de ${item.name}`}
           aria-invalid={problema || undefined}
           value={escolha?.quantity ?? ""}
@@ -146,7 +147,6 @@ function LinhaDoCatalogoBase({ item, escolha, onMudar, onTirar, onProxima, onUni
           type="button"
           className="rq-passo"
           aria-label={`Aumentar ${item.name}`}
-          disabled={bloqueada}
           onClick={() => onMudar(item, { quantity: somarPasso(escolha?.quantity ?? "", passo, 1) })}
         >
           <Plus size={18} aria-hidden />
@@ -154,7 +154,7 @@ function LinhaDoCatalogoBase({ item, escolha, onMudar, onTirar, onProxima, onUni
       </div>
 
       {/* A unidade fica sempre à mostra nos produtos que convertem: aparecer só depois de escolher empurraria a lista */}
-      {opcoes.length > 1 && !bloqueada && (
+      {opcoes.length > 1 && (
         <div className="rq-detalhe">
           <SeletorDeUnidade item={item} opcoes={opcoes} valor={unidade} onEscolher={(u) => onMudar(item, { unit: u })} />
         </div>
