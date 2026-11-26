@@ -1,30 +1,34 @@
 // CMV → Metas de CMV: meta de CMV % (compras ÷ faturamento) por mês, geral e por setor.
 // Mostra o realizado contra a meta, a projeção do fim do mês e quanto ainda dá para comprar sem estourar.
 // Só lê compras, pedidos e faturamento que já existem; o cadastro das metas é a única escrita.
-import { Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   type LinhaPainelMetaCmv, type ListaMetasCmv, type PainelMetasCmv, type StatusMetaCmv,
   getMetasCmv, getPainelMetasCmv, removerMetaCmv, salvarMetaCmv,
 } from "../api/client";
 import { Alert, Button, EmptyState, Money, Select, StatusBadge, Table, TextField } from "../design-system";
 import type { StatusTone } from "../design-system";
+import { PeriodBar } from "./dashboard/PeriodBar";
+import { competenceOf, isValidCompetence, monthInfo, shiftCompetence } from "./dashboard/logic";
 import "./CmvMetas.css";
 
 const mensagem = (e: unknown, padrao: string) => (e instanceof Error ? e.message : padrao);
 const pct = (v: number | null | undefined) => (v == null ? "—" : `${v.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 2 })}%`);
-const mesAtual = () => new Date().toLocaleDateString("sv-SE", { timeZone: "America/Sao_Paulo" }).slice(0, 7);
 const nomeDoMes = (mes: string) => {
   const [a, m] = mes.split("-").map(Number);
   return new Date(Date.UTC(a, m - 1, 1)).toLocaleDateString("pt-BR", { month: "long", year: "numeric", timeZone: "UTC" });
 };
 const decimal = (texto: string) => Number(texto.replace(",", "."));
 
-const ROTULO: Record<StatusMetaCmv, string> = { VERDE: "Dentro da meta", AMARELO: "Em alerta", VERMELHO: "Acima da meta", SEM_DADOS: "Sem meta ou sem faturamento" };
+const ROTULO: Record<Exclude<StatusMetaCmv, "SEM_DADOS">, string> = { VERDE: "Dentro da meta", AMARELO: "Em alerta", VERMELHO: "Acima da meta" };
 const TOM: Record<StatusMetaCmv, StatusTone> = { VERDE: "success", AMARELO: "warning", VERMELHO: "danger", SEM_DADOS: "neutral" };
 
-function Selo({ status }: { status: StatusMetaCmv }) {
-  return <StatusBadge tone={TOM[status]}>{ROTULO[status]}</StatusBadge>;
+// SEM_DADOS tem duas causas, e o texto diz qual: sem meta cadastrada, ou meta sem faturamento para comparar.
+function Selo({ status, temMeta }: { status: StatusMetaCmv; temMeta: boolean }) {
+  const texto = status === "SEM_DADOS" ? (temMeta ? "Sem faturamento no mês" : "Sem meta") : ROTULO[status];
+  return <StatusBadge tone={TOM[status]}>{texto}</StatusBadge>;
 }
 
 const ROTULO_BASE = { CMV_REAL: "CMV real", COMPRAS: "compras" } as const;
@@ -61,7 +65,13 @@ type FormMeta = { escopo: "GERAL" | "SETOR"; sectorId: string; alvo: string; ale
 const FORM_VAZIO = (inicio: string): FormMeta => ({ escopo: "GERAL", sectorId: "", alvo: "", alerta: "", inicio, observacao: "" });
 
 export function CmvMetas() {
-  const [mes, setMes] = useState(mesAtual());
+  // Mesmo seletor e mesmo ?mes=aaaa-mm do Dashboard: o mês escolhido fica no endereço.
+  const [params, setParams] = useSearchParams();
+  const hoje = new Date();
+  const mesDaUrl = params.get("mes");
+  const mes = isValidCompetence(mesDaUrl) ? mesDaUrl : competenceOf(hoje);
+  const setMes = (novo: string) => setParams((p) => { const n = new URLSearchParams(p); n.set("mes", novo); return n; }, { replace: true });
+  const [atualizadoEm, setAtualizadoEm] = useState<Date | null>(null);
   const [painel, setPainel] = useState<PainelMetasCmv | null>(null);
   const [cadastro, setCadastro] = useState<ListaMetasCmv | null>(null);
   const [erro, setErro] = useState<string | null>(null);
@@ -77,6 +87,7 @@ export function CmvMetas() {
       const [p, c] = await Promise.all([getPainelMetasCmv(mes), getMetasCmv()]);
       setPainel(p);
       setCadastro(c);
+      setAtualizadoEm(new Date());
     } catch (e) {
       setErro(mensagem(e, "Não foi possível carregar as metas."));
     } finally {
@@ -126,17 +137,19 @@ export function CmvMetas() {
 
   return (
     <section className="mt-tela">
-      <header className="mt-topo">
-        <div>
-          <h2>Metas de CMV</h2>
-          <p>Com o ciclo do mês já contado, a meta é conferida contra o CMV real. Antes disso (e nos setores), contra compras ÷ faturamento, só para acompanhar o caminho.</p>
-        </div>
-        <div className="mt-topo-acoes">
-          <TextField label="Mês" type="month" value={mes} onChange={(e) => e.target.value && setMes(e.target.value)} />
-          <Button variant="secondary" onClick={() => void carregar()} disabled={carregando}><RefreshCw size={16} aria-hidden /> Atualizar</Button>
-          <Button onClick={() => setForm(FORM_VAZIO(mes))}><Plus size={16} aria-hidden /> Nova meta</Button>
-        </div>
-      </header>
+      <PeriodBar
+        eyebrow="Metas de CMV · meta × realizado"
+        competence={mes}
+        info={monthInfo(mes, hoje)}
+        loading={carregando}
+        updatedAt={atualizadoEm}
+        onChange={setMes}
+        onStep={(delta) => setMes(shiftCompetence(mes, delta))}
+        onToday={() => setMes(competenceOf(new Date()))}
+        onRefresh={() => void carregar()}
+        actions={<Button onClick={() => setForm(FORM_VAZIO(mes))}><Plus size={16} aria-hidden /> Nova meta</Button>}
+      />
+      <p className="mt-ajuda">Com o ciclo do mês já contado, a meta é conferida contra o CMV real. Antes disso (e nos setores), contra compras ÷ faturamento, só para acompanhar o caminho.</p>
 
       {erro && <Alert tone="error">{erro}</Alert>}
       {aviso && <Alert tone="success" onClick={() => setAviso("")}>{aviso}</Alert>}
@@ -173,7 +186,7 @@ export function CmvMetas() {
               <span className="mt-sub">{geral.base === "CMV_REAL" ? "CMV real do ciclo" : "Compras ÷ faturamento (ciclo ainda sem contagem)"} · {nomeDoMes(painel.mes)}{painel.mesCorrente ? ` · até ${painel.ateODia.split("-").reverse().join("/")}` : ""}</span>
               <strong>{pct(geral.realizadoPercentual)}</strong>
               <span>{geral.meta ? `Meta ${pct(geral.meta.alvoPercentual)} · alerta ${pct(geral.meta.alertaPercentual)}` : "Sem meta para este mês"}</span>
-              <Selo status={geral.status} />
+              <Selo status={geral.status} temMeta={Boolean(geral.meta)} />
               <Barra linha={geral} />
             </div>
             <dl className="mt-numeros">
@@ -196,7 +209,7 @@ export function CmvMetas() {
 
           <div className="mt-bloco">
             <h3>Por escopo</h3>
-            <Table aria-label="Realizado contra a meta">
+            <Table className="mt-tabela" aria-label="Realizado contra a meta">
               <Table.Head>
                 <Table.Row>
                   <Table.Th>Escopo</Table.Th>
@@ -210,12 +223,12 @@ export function CmvMetas() {
               <Table.Body>
                 {painel.linhas.map((l) => (
                   <Table.Row key={l.sectorId ?? "geral"}>
-                    <Table.Td>{l.nome}</Table.Td>
-                    <Table.Td align="right">{l.meta ? pct(l.meta.alvoPercentual) : "—"}</Table.Td>
-                    <Table.Td align="right">{pct(l.realizadoPercentual)}<br /><span className="mt-sub" title={DICA_BASE[l.base]}>{ROTULO_BASE[l.base]}</span></Table.Td>
-                    <Table.Td align="right"><Money value={l.compras} /></Table.Td>
-                    <Table.Td><Selo status={l.status} /></Table.Td>
-                    <Table.Td><Margem linha={l} /></Table.Td>
+                    <Table.Td className="mt-titulo">{l.nome}</Table.Td>
+                    <Table.Td align="right" data-label="Meta">{l.meta ? pct(l.meta.alvoPercentual) : "—"}</Table.Td>
+                    <Table.Td align="right" data-label="Realizado"><span className="mt-celula">{pct(l.realizadoPercentual)}<span className="mt-sub" title={DICA_BASE[l.base]}>{ROTULO_BASE[l.base]}</span></span></Table.Td>
+                    <Table.Td align="right" data-label="Compras"><Money value={l.compras} /></Table.Td>
+                    <Table.Td data-label="Situação"><Selo status={l.status} temMeta={Boolean(l.meta)} /></Table.Td>
+                    <Table.Td data-label="Margem para comprar"><Margem linha={l} /></Table.Td>
                   </Table.Row>
                 ))}
               </Table.Body>
@@ -225,7 +238,7 @@ export function CmvMetas() {
 
           <div className="mt-bloco">
             <h3>Últimos 6 meses (geral)</h3>
-            <Table aria-label="Histórico de CMV contra a meta">
+            <Table className="mt-tabela" aria-label="Histórico de CMV contra a meta">
               <Table.Head>
                 <Table.Row>
                   <Table.Th>Mês</Table.Th>
@@ -239,12 +252,12 @@ export function CmvMetas() {
               <Table.Body>
                 {[...painel.historico].reverse().map((h) => (
                   <Table.Row key={h.mes}>
-                    <Table.Td>{nomeDoMes(h.mes)}</Table.Td>
-                    <Table.Td align="right"><Money value={h.faturamento} /></Table.Td>
-                    <Table.Td align="right"><Money value={h.compras} /></Table.Td>
-                    <Table.Td align="right">{pct(h.realizadoPercentual)}<br /><span className="mt-sub" title={DICA_BASE[h.base]}>{ROTULO_BASE[h.base]}</span></Table.Td>
-                    <Table.Td align="right">{pct(h.alvoPercentual)}</Table.Td>
-                    <Table.Td><Selo status={h.status} /></Table.Td>
+                    <Table.Td className="mt-titulo">{nomeDoMes(h.mes)}</Table.Td>
+                    <Table.Td align="right" data-label="Faturamento"><Money value={h.faturamento} /></Table.Td>
+                    <Table.Td align="right" data-label="Compras"><Money value={h.compras} /></Table.Td>
+                    <Table.Td align="right" data-label="Realizado"><span className="mt-celula">{pct(h.realizadoPercentual)}<span className="mt-sub" title={DICA_BASE[h.base]}>{ROTULO_BASE[h.base]}</span></span></Table.Td>
+                    <Table.Td align="right" data-label="Meta">{pct(h.alvoPercentual)}</Table.Td>
+                    <Table.Td data-label="Situação"><Selo status={h.status} temMeta={h.alvoPercentual != null} /></Table.Td>
                   </Table.Row>
                 ))}
               </Table.Body>
@@ -259,7 +272,7 @@ export function CmvMetas() {
           <EmptyState title="Nenhuma meta cadastrada" description="Crie a meta geral do restaurante para o painel começar a classificar os meses." />
         ) : (
           cadastro && (
-            <Table aria-label="Metas cadastradas">
+            <Table className="mt-tabela" aria-label="Metas cadastradas">
               <Table.Head>
                 <Table.Row>
                   <Table.Th>Escopo</Table.Th>
@@ -273,11 +286,11 @@ export function CmvMetas() {
               <Table.Body>
                 {cadastro.metas.map((m) => (
                   <Table.Row key={m.id}>
-                    <Table.Td>{m.escopo === "GERAL" ? "Geral" : m.setorNome ?? "Setor removido"}</Table.Td>
-                    <Table.Td align="right">{pct(m.alvoPercentual)}</Table.Td>
-                    <Table.Td align="right">{pct(m.alertaPercentual)}</Table.Td>
-                    <Table.Td>{m.vigenciaInicio.slice(0, 7).split("-").reverse().join("/")} até {m.vigenciaFim ? m.vigenciaFim.slice(0, 7).split("-").reverse().join("/") : "hoje"}</Table.Td>
-                    <Table.Td>{m.observacao ?? ""}</Table.Td>
+                    <Table.Td className="mt-titulo">{m.escopo === "GERAL" ? "Geral" : m.setorNome ?? "Setor removido"}</Table.Td>
+                    <Table.Td align="right" data-label="Meta">{pct(m.alvoPercentual)}</Table.Td>
+                    <Table.Td align="right" data-label="Alerta">{pct(m.alertaPercentual)}</Table.Td>
+                    <Table.Td data-label="Vigência">{m.vigenciaInicio.slice(0, 7).split("-").reverse().join("/")} até {m.vigenciaFim ? m.vigenciaFim.slice(0, 7).split("-").reverse().join("/") : "hoje"}</Table.Td>
+                    <Table.Td data-label="Observação" className={m.observacao ? undefined : "mt-vazia"}>{m.observacao ?? ""}</Table.Td>
                     <Table.Td align="right">
                       <Button variant="secondary" size="sm" onClick={() => void remover(m.id)} aria-label={`Remover meta ${m.escopo === "GERAL" ? "geral" : m.setorNome ?? ""} de ${m.vigenciaInicio.slice(0, 7)}`}>
                         <Trash2 size={14} aria-hidden /> Remover

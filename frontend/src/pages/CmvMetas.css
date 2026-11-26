@@ -8,10 +8,6 @@
 .mt-ajuda { margin: 0; color: var(--muted); font-size: var(--fs-sm); }
 .mt-sub { font-size: var(--fs-xs); color: var(--muted); }
 
-.mt-topo { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.mt-topo h2 { margin: 0; font-size: var(--fs-h2); }
-.mt-topo p { margin: 2px 0 0; color: var(--muted); font-size: var(--fs-sm); max-width: 62ch; }
-.mt-topo-acoes { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; }
 
 .mt-cartao { display: grid; gap: 10px; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--paper-soft); }
 .mt-cartao h3, .mt-bloco h3 { margin: 0; font-size: var(--fs-base); }
@@ -44,3 +40,29 @@
 
 .mt-bloco { display: grid; gap: 8px; }
 .mt-estouro { color: var(--danger, #b3261e); font-weight: 600; }
+
+/* Realizado: número em cima, base embaixo (no desktop); lado a lado no cartão do celular. */
+.mt-celula { display: inline-flex; flex-direction: column; align-items: flex-end; }
+
+/* Quinto cartão de números não fica sozinho em meia linha. */
+.mt-numeros > div:last-child:nth-child(odd) { grid-column: 1 / -1; }
+
+/* ── Celular: cada linha das tabelas vira um cartão (rótulo à esquerda, valor à direita) ──
+   Antes, a tabela rolava de lado e "Situação"/"Margem" ficavam fora da tela. */
+@container (max-width: 560px) {
+  .mt-tela .mt-tabela thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .mt-tela .mt-tabela,
+  .mt-tela .mt-tabela tbody,
+  .mt-tela .mt-tabela tr { display: block; width: 100%; }
+  .mt-tela .mt-tabela tr { padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  .mt-tela .mt-tabela tr:last-child { border-bottom: 0; }
+  .mt-tela .mt-tabela td { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 3px 0; border: 0; text-align: right; white-space: normal; }
+  .mt-tela .mt-tabela td::before { content: attr(data-label); flex: 0 0 auto; color: var(--muted); font-size: var(--fs-xs); text-align: left; }
+  .mt-tela .mt-tabela td.mt-titulo { padding-bottom: 6px; font-weight: 600; }
+  .mt-tela .mt-tabela td.mt-titulo::before,
+  .mt-tela .mt-tabela td:not([data-label])::before { content: none; }
+  .mt-tela .mt-tabela td:not([data-label]):not(.mt-titulo) { justify-content: flex-end; padding-top: 8px; }
+  .mt-tela .mt-tabela td.mt-titulo { justify-content: flex-start; text-align: left; }
+  .mt-tela .mt-tabela td.mt-vazia { display: none; }
+  .mt-tela .mt-celula { flex-direction: row; align-items: baseline; gap: 6px; }
+}
