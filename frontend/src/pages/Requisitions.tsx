@@ -1,4 +1,4 @@
-﻿import { CheckCircle2, ClipboardList, Copy, Eye, Plus, Printer, ShoppingCart, X } from "lucide-react";
+﻿import { CheckCircle2, ClipboardList, Copy, Eye, Pencil, Plus, Printer, ShoppingCart, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -34,6 +34,18 @@ const resumoDosPedidos = (codigos: string) => {
   return lista.length > 1 ? `${lista[0]} +${lista.length - 1}` : lista[0];
 };
 
+/** Retirada como o formulário edita: quantidade com vírgula, na unidade do estoque. */
+const escolhasDaRequisicao = (req: InventoryRequisition): Escolhas => {
+  const escolhas: Escolhas = {};
+  for (const item of req.items ?? []) {
+    if (item.productId) escolhas[item.productId] = { unit: item.recordedUnit ?? item.unit ?? "UN", quantity: String(Number(item.quantity)).replace(".", ",") };
+  }
+  return escolhas;
+};
+
+/** A data da requisição é gravada como meia-noite UTC: lida em UTC, como no formatDate, para não voltar um dia. */
+const dataDaRequisicao = (valor: string) => new Date(valor).toISOString().slice(0, 10);
+
 const shiftTone = (shift: string) =>
   shift === "MORNING" ? "info" : shift === "AFTERNOON" ? "warning" : "neutral";
 
@@ -57,6 +69,8 @@ export function Requisitions({ user }: { user: AppUser }) {
   const { imprimir, portal } = useImpressaoDaRequisicao();
   // Gerar pedido de compra segue a permissão do módulo de pedidos, não a da requisição.
   const podeGerarPedido = hasPermission(user, "purchase-orders", "create");
+  const podeEditar = hasPermission(user, "requisitions", "edit");
+  const editando = modelo?.edicao ?? null;
 
   useEffect(() => {
     getSectors().then(setSectors).catch(() => {});
@@ -91,8 +105,12 @@ export function Requisitions({ user }: { user: AppUser }) {
     listarRascunhosDaRequisicao().then(setRascunhos).catch(() => setRascunhosFalhou(true));
   }
 
+  /** Abrir outra coisa no formulário descarta a edição em curso: pergunta antes. */
+  const largarEdicao = () => !editando || window.confirm(`Descartar a edição de ${editando.code}? O que foi alterado e não salvo se perde.`);
+
   async function abrirRascunho(id: string) {
     if (id === abertoId) { setView("form"); return; }
+    if (!largarEdicao()) return;
     const local = lerRascunho(user.id);
     if (local && !local.servidor && !window.confirm("Há uma requisição em andamento só neste aparelho, ainda sem salvar no sistema. Substituir por esta?")) return;
     try {
@@ -123,14 +141,12 @@ export function Requisitions({ user }: { user: AppUser }) {
   }
 
   async function duplicateRequisition(id: string) {
+    if (!largarEdicao()) return;
     if (lerRascunho(user.id) && !window.confirm("Há uma requisição em andamento. Substituir pelos itens desta?")) return;
     try {
       const req = await getRequisition(id);
-      const escolhas: Escolhas = {};
-      for (const item of req.items ?? []) {
-        // A retirada fica na unidade do estoque; o formulário confere o saldo de hoje ao abrir.
-        if (item.productId) escolhas[item.productId] = { unit: item.unit ?? "UN", quantity: String(Number(item.quantity)).replace(".", ",") };
-      }
+      // A retirada fica na unidade do estoque; o formulário confere o saldo de hoje ao abrir.
+      const escolhas = escolhasDaRequisicao(req);
       setModelo({
         cabecalho: { ...cabecalhoVazio(), shift: req.shift, reason: req.reason, reasonNotes: req.reasonNotes ?? "", sectorId: req.sectorId ?? "", notes: req.notes ?? "" },
         escolhas
@@ -141,6 +157,46 @@ export function Requisitions({ user }: { user: AppUser }) {
     } catch {
       setNotice({ tone: "error", message: "Erro ao duplicar a requisição." });
     }
+  }
+
+  async function editarRequisicao(id: string) {
+    if (editando?.id !== id && !largarEdicao()) return;
+    try {
+      const req = await getRequisition(id);
+      if (!req.updatedAt) throw new Error("sem versão");
+      const retirado: Record<string, number> = {};
+      for (const item of req.items ?? []) {
+        if (item.productId) retirado[item.productId] = (retirado[item.productId] ?? 0) + Number(item.quantity);
+      }
+      setModelo({
+        cabecalho: { date: dataDaRequisicao(req.date), shift: req.shift, reason: req.reason, reasonNotes: req.reasonNotes ?? "", sectorId: req.sectorId ?? "", notes: req.notes ?? "" },
+        escolhas: escolhasDaRequisicao(req),
+        edicao: { id: req.id, code: req.code, updatedAt: req.updatedAt, retirado }
+      });
+      setFormKey((k) => k + 1);
+      setConfirmedRequisition(null);
+      setDetailId(null);
+      setView("form");
+    } catch {
+      setNotice({ tone: "error", message: "Não foi possível abrir a requisição para editar." });
+    }
+  }
+
+  function aoEditar(editada: InventoryRequisition) {
+    const negativos = editada.negativeStock?.length ?? 0;
+    setNotice({
+      tone: negativos > 0 ? "warning" : "success",
+      message: `${editada.code} atualizada. O estoque recebeu só a diferença de cada produto.${negativos > 0 ? ` ${negativos} ${negativos === 1 ? "produto ficou" : "produtos ficaram"} com saldo negativo.` : ""}`
+    });
+    setRequisitions((prev) => prev.map((r) => (r.id === editada.id ? { ...r, ...editada, itemCount: editada.items?.length ?? r.itemCount, purchaseOrderCodes: r.purchaseOrderCodes } : r)));
+    sairDaEdicao();
+  }
+
+  /** Volta ao histórico; a requisição nova que estava em andamento reaparece em "Nova requisição". */
+  function sairDaEdicao() {
+    setModelo(null);
+    setFormKey((k) => k + 1);
+    setView("list");
   }
 
   async function imprimirRegistrada(id: string) {
@@ -178,8 +234,8 @@ export function Requisitions({ user }: { user: AppUser }) {
 
       <div className="tabs" style={view === "pedido" ? { display: "none" } : undefined}>
         <button type="button" className={view === "form" ? "active" : ""} onClick={() => setView("form")}>
-          <Plus size={14} style={{ verticalAlign: "middle", marginRight: 4 }} />
-          Nova requisição
+          {editando ? <Pencil size={14} style={{ verticalAlign: "middle", marginRight: 4 }} /> : <Plus size={14} style={{ verticalAlign: "middle", marginRight: 4 }} />}
+          {editando ? `Editando ${editando.code}` : "Nova requisição"}
         </button>
         <button
           type="button"
@@ -207,6 +263,8 @@ export function Requisitions({ user }: { user: AppUser }) {
             sectors={sectors}
             modelo={modelo}
             onCriada={aoCriar}
+            onEditada={aoEditar}
+            onCancelarEdicao={sairDaEdicao}
             onAviso={(tone, message) => setNotice({ tone, message })}
             onRascunho={setAbertoId}
             salvarAgoraRef={salvarAgoraRef}
@@ -287,6 +345,11 @@ export function Requisitions({ user }: { user: AppUser }) {
             <Button variant="secondary" leadingIcon={<Printer size={14} />} onClick={() => void imprimirRegistrada(confirmedRequisition.id)}>
               Imprimir
             </Button>
+            {podeEditar && (
+              <Button variant="secondary" leadingIcon={<Pencil size={14} />} onClick={() => void editarRequisicao(confirmedRequisition.id)}>
+                Editar
+              </Button>
+            )}
             {podeGerarPedido && (
               <Button variant="secondary" leadingIcon={<ShoppingCart size={14} />} onClick={() => abrirPedido(confirmedRequisition.id)}>
                 Gerar pedido de compra
@@ -351,6 +414,7 @@ export function Requisitions({ user }: { user: AppUser }) {
                       <Table.Td truncate style={{ maxWidth: 140 }} title={req.requestedByName ?? undefined}>{req.requestedByName ?? "—"}</Table.Td>
                       <Table.Td actions>
                         <IconButton icon={<Eye size={16} />} label="Ver requisição" onClick={() => setDetailId(req.id)} />
+                        {podeEditar && <IconButton icon={<Pencil size={16} />} label={`Editar ${req.code}`} onClick={() => void editarRequisicao(req.id)} />}
                         <IconButton icon={<Printer size={16} />} label="Imprimir requisição" onClick={() => void imprimirRegistrada(req.id)} />
                         {podeGerarPedido && <IconButton icon={<ShoppingCart size={16} />} label={req.purchaseOrderCodes ? "Ver ou gerar outro pedido de compra" : "Gerar pedido de compra"} onClick={() => abrirPedido(req.id)} />}
                         <IconButton icon={<Copy size={16} />} label="Duplicar requisição" onClick={() => void duplicateRequisition(req.id)} />
@@ -405,6 +469,11 @@ export function Requisitions({ user }: { user: AppUser }) {
                   <Button variant="secondary" leadingIcon={<Eye size={13} />} onClick={() => setDetailId(req.id)}>
                     Ver
                   </Button>
+                  {podeEditar && (
+                    <Button variant="secondary" leadingIcon={<Pencil size={13} />} onClick={() => void editarRequisicao(req.id)}>
+                      Editar
+                    </Button>
+                  )}
                   <Button variant="secondary" leadingIcon={<Printer size={13} />} onClick={() => void imprimirRegistrada(req.id)}>
                     Imprimir
                   </Button>
@@ -439,6 +508,7 @@ export function Requisitions({ user }: { user: AppUser }) {
             <div className="modal-body">
               {detail && !loadingDetail && (
                 <div className="req-detalhe-acoes">
+                  {podeEditar && <Button variant="secondary" leadingIcon={<Pencil size={14} />} onClick={() => void editarRequisicao(detail.id)}>Editar</Button>}
                   <Button variant="secondary" leadingIcon={<Printer size={14} />} onClick={() => void imprimirRegistrada(detail.id)}>Imprimir</Button>
                   {podeGerarPedido && (
                     <Button variant="secondary" leadingIcon={<ShoppingCart size={14} />} onClick={() => { setDetailId(null); abrirPedido(detail.id); }}>Gerar pedido de compra</Button>
