@@ -4622,11 +4622,19 @@ model PlanejamentoComentario {
   naImpressao   Boolean   @default(true)
   autorId       String
   autorNome     String
-  editadoEm     DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  editadoEm      DateTime?
+  // Lixeira: apagar só marca (os três juntos, CHECK no banco). Restaurar limpa os três.
+  apagadoEm      DateTime?
+  apagadoPorId   String?
+  apagadoPorNome String?
+  // Número do ponto quando o comentário foi escrito (nulo se o ponto não tinha número). A edição não muda.
+  valorBase      Decimal?  @db.Decimal(14, 4)
+  valorComparado Decimal?  @db.Decimal(14, 4)
+  variacao       Decimal?  @db.Decimal(10, 6)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
-  @@index([anoComparado, mes, metrica, turno, createdAt], map: "PlanejamentoComentario_ponto_idx")
+  // O índice do ponto é parcial (WHERE "apagadoEm" IS NULL) e fica só na migration 20261126120000.
 }
 
 // Brinde para os colaboradores (Natal e outras datas). Uma campanha por ocasião; a entrega registra

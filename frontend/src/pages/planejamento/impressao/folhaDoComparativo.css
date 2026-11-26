@@ -23,6 +23,7 @@
 .fcmp-notas strong { display: block; }
 .fcmp-texto { display: block; white-space: pre-wrap; overflow-wrap: anywhere; }
 .fcmp-autor { display: block; font-size: 7.5pt; color: #444; }
+.fcmp-epoca { display: block; font-size: 7.5pt; color: #444; font-variant-numeric: tabular-nums; }
 .fcmp-aviso { margin: 2mm 0 0; font-style: italic; color: #333; }
 
 @page { size: A4 landscape; margin: 10mm; }

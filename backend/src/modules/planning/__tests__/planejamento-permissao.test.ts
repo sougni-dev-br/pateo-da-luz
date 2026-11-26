@@ -30,5 +30,8 @@ describe("permissões do Planejamento", () => {
     expect(await ctx("POST", "/planning/comentarios")).toEqual({ menuId: "planning", action: "edit" });
     expect(await ctx("PATCH", "/planning/comentarios/c1")).toEqual({ menuId: "planning", action: "edit" });
     expect(await ctx("DELETE", "/planning/comentarios/c1")).toEqual({ menuId: "planning", action: "edit" });
+    // Restaurar (o "Desfazer") pede editar; a lixeira só lê (e a rota exige "admin").
+    expect(await ctx("POST", "/planning/comentarios/c1/restaurar")).toEqual({ menuId: "planning", action: "edit" });
+    expect(await ctx("GET", "/planning/comentarios/lixeira")).toEqual({ menuId: "planning", action: "view" });
   });
 });

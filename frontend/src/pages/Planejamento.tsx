@@ -16,6 +16,7 @@ import { GraficoComparativo } from "./planejamento/GraficoComparativo";
 import { PainelComparativo } from "./planejamento/PainelComparativo";
 import { Quadro } from "./planejamento/Quadro";
 import { TabelaMensal, type GrandezaDoQuadro } from "./planejamento/TabelaMensal";
+import { AvisoDeApagado } from "./planejamento/comentarios/AvisoDeApagado";
 import { PainelDeComentarios } from "./planejamento/comentarios/PainelDeComentarios";
 import { useComentarios } from "./planejamento/comentarios/useComentarios";
 import type { LigacaoDeComentarios } from "./planejamento/comentarios/ligacao";
@@ -129,6 +130,8 @@ function Comparativo() {
           <span className="plan-salvar-acoes-alerta"><Button variant="secondary" onClick={comentarios.recarregar}><RefreshCw size={16} aria-hidden /> Tentar de novo</Button></span>
         </Alert>
       )}
+      {/* Fechou a gaveta logo depois de apagar: o Desfazer continua à mão aqui. */}
+      {!mesmoAno && !pontoAberto && <AvisoDeApagado api={comentarios} />}
       {!mesmoAno && carregando && !dados && <Esqueleto rotulo="Carregando comparativo…" />}
 
       {!mesmoAno && dados && (
