@@ -59,7 +59,7 @@ planejamentoComentariosRouter.get("/", async (request, response) => {
 // Confere os limites e grava na mesma transação; o lock por ano comparado impede dois POSTs simultâneos de furarem o limite.
 async function criarRespeitandoLimites(dados: ReturnType<typeof novoComentarioSchema.parse>, user: SessionUser) {
   return prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`planejamento-comentario:${dados.anoComparado}`}))`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`planejamento-comentario:${dados.anoComparado}`}))`;
     const doAno = await tx.planejamentoComentario.count({ where: { contexto: CONTEXTO, anoComparado: dados.anoComparado } });
     if (doAno >= MAXIMO_POR_ANO) throw new LimiteDeComentarios(MENSAGEM_LIMITE_ANO);
     const ponto = { contexto: CONTEXTO, anoComparado: dados.anoComparado, mes: dados.mes, metrica: dados.metrica, turno: dados.turno };

@@ -240,7 +240,7 @@
 .plan-extremo dt { color: var(--plan-muted); font-size: var(--fs-xs); font-weight: var(--fw-semibold); }
 .plan-extremo dd { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; font-size: 20px; font-weight: var(--fw-bold); }
 .plan-extremo-mes { color: var(--ink); text-transform: capitalize; }
-.plan-indicadores { display: grid; gap: 10px; min-width: 0; }
+.plan-indicadores { display: grid; align-content: start; gap: 10px; min-width: 0; }
 .plan-indicadores-titulo { margin: 0; color: var(--plan-muted); font-size: var(--fs-2xs); font-weight: var(--fw-bold); letter-spacing: 0.08em; text-transform: uppercase; }
 .plan-quadro.plan-quadro-indicadores table { min-width: 420px; }
 .plan-linha-cabeca .ds-table-th { font-weight: var(--fw-bold) !important; }

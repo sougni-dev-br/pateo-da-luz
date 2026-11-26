@@ -3,6 +3,9 @@ import type { ReactNode } from "react";
 import { Table } from "../../design-system";
 import { NOMES_DOS_MESES_CURTOS, textoDaVariacao } from "./formato";
 import { diaDeHoje, ladoParcial } from "./tipos";
+import { MarcaDeComentario } from "./comentarios/MarcaDeComentario";
+import type { LigacaoDeComentarios } from "./comentarios/ligacao";
+import { metricaDaGrandeza, turnoDaTela } from "./comentarios/ponto";
 import { useOculto } from "./useOculto";
 
 // Quadro mês a mês: para cada turno, o ano-base, o ano comparado e a variação. A última coluna é o acumulado
@@ -11,7 +14,7 @@ import { useOculto } from "./useOculto";
 export type GrandezaDoQuadro = "vendas" | "clientes" | "ticket";
 type Turno = keyof PlanejamentoTurnos;
 
-const TURNOS: { chave: Turno; rotulo: string }[] = [
+export const TURNOS_DO_QUADRO: { chave: Turno; rotulo: string }[] = [
   { chave: "almoco", rotulo: "Almoço" },
   { chave: "jantar", rotulo: "Jantar" },
   { chave: "total", rotulo: "Total" }
@@ -20,7 +23,7 @@ const TURNOS: { chave: Turno; rotulo: string }[] = [
 const UNIDADE: Record<GrandezaDoQuadro, string> = { vendas: "R$ mil", clientes: "pessoas", ticket: "R$" };
 
 /** Célula enxuta: vendas em milhares com uma casa ("128,5"), ticket sem o R$ (a unidade vai no cabeçalho). */
-function celula(grandeza: GrandezaDoQuadro, valor: number | null, oculto: boolean): ReactNode {
+export function celula(grandeza: GrandezaDoQuadro, valor: number | null, oculto: boolean): ReactNode {
   if (valor === null) return "—";
   if (grandeza === "clientes") return valor.toLocaleString("pt-BR");
   if (oculto) return "••••";
@@ -30,7 +33,7 @@ function celula(grandeza: GrandezaDoQuadro, valor: number | null, oculto: boolea
 
 const classeDaVariacao = (v: number | null) => (v === null || Math.round(v * 1000) === 0 ? undefined : v > 0 ? "plan-var-sobe" : "plan-var-desce");
 
-export function TabelaMensal({ dados, grandeza }: { dados: PlanejamentoComparativo; grandeza: GrandezaDoQuadro }) {
+export function TabelaMensal({ dados, grandeza, comentarios }: { dados: PlanejamentoComparativo; grandeza: GrandezaDoQuadro; comentarios?: LigacaoDeComentarios }) {
   const { meses, acumulado, anoBase, anoComparado } = dados;
   const hidden = useOculto();
   const dia = diaDeHoje(dados.hoje);
@@ -40,6 +43,9 @@ export function TabelaMensal({ dados, grandeza }: { dados: PlanejamentoComparati
     return null;
   };
 
+  const marca = (mes: number | null, turno: Turno) => (
+    <MarcaDeComentario ligacao={comentarios} ponto={{ mes, metrica: metricaDaGrandeza(grandeza), turno: turnoDaTela(turno) }} anoComparado={anoComparado} />
+  );
   return (
     <Table aria-label={`Comparativo mês a mês de ${anoComparado} contra ${anoBase}`}>
       <Table.Head>
@@ -58,7 +64,7 @@ export function TabelaMensal({ dados, grandeza }: { dados: PlanejamentoComparati
         </Table.Row>
       </Table.Head>
       <Table.Body>
-        {TURNOS.flatMap(({ chave, rotulo }) => [
+        {TURNOS_DO_QUADRO.flatMap(({ chave, rotulo }) => [
           <Table.Row key={`${chave}-base`} className={chave === "total" ? "plan-linha-total" : undefined}>
             <Table.Th scope="row" className="plan-col-rotulo">{rotulo} <span className="plan-ano-claro">{anoBase}</span></Table.Th>
             {meses.map((m) => <Table.Td key={m.mes} align="right" className="plan-celula-base">{celula(grandeza, m.base[grandeza][chave], hidden)}</Table.Td>)}
@@ -76,10 +82,10 @@ export function TabelaMensal({ dados, grandeza }: { dados: PlanejamentoComparati
           <Table.Row key={`${chave}-var`} className="plan-linha-variacao">
             <Table.Th scope="row" className="plan-col-rotulo"><span className="plan-recuo">variação<span className="plan-sr"> do {rotulo.toLowerCase()}</span></span></Table.Th>
             {meses.map((m) => (
-              <Table.Td key={m.mes} align="right" className={classeDaVariacao(m.variacao[grandeza][chave])}>{textoDaVariacao(m.variacao[grandeza][chave])}</Table.Td>
+              <Table.Td key={m.mes} align="right" className={`plan-coment-celula ${classeDaVariacao(m.variacao[grandeza][chave]) ?? ""}`}>{textoDaVariacao(m.variacao[grandeza][chave])}{marca(m.mes, chave)}</Table.Td>
             ))}
-            <Table.Td align="right" className={`plan-col-acumulado ${classeDaVariacao(acumulado.variacao[grandeza][chave]) ?? ""}`}>
-              {textoDaVariacao(acumulado.variacao[grandeza][chave])}
+            <Table.Td align="right" className={`plan-col-acumulado plan-coment-celula ${classeDaVariacao(acumulado.variacao[grandeza][chave]) ?? ""}`}>
+              {textoDaVariacao(acumulado.variacao[grandeza][chave])}{marca(null, chave)}
             </Table.Td>
           </Table.Row>
         ])}

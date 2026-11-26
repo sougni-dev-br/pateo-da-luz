@@ -7,7 +7,7 @@ vi.mock("../../../config/database.js", () => ({
   prisma: {
     planejamentoComentario: { findMany: vi.fn(), findUnique: vi.fn(), findUniqueOrThrow: vi.fn(), count: vi.fn(), create: vi.fn(), updateMany: vi.fn(), delete: vi.fn() },
     $transaction: vi.fn(),
-    $queryRaw: vi.fn()
+    $executeRaw: vi.fn()
   }
 }));
 vi.mock("../../security/security-utils.js", () => ({ getSessionUser: vi.fn(), auditLog: vi.fn(), requestIp: vi.fn(() => "127.0.0.1") }));
@@ -39,7 +39,7 @@ beforeEach(() => {
   vi.mocked(userHasPermission).mockImplementation(async () => ehAdmin);
   vi.mocked(auditLog).mockResolvedValue(undefined as never);
   db.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => fn(db));
-  db.$queryRaw.mockResolvedValue([]);
+  db.$executeRaw.mockResolvedValue(0);
   db.planejamentoComentario.count.mockResolvedValue(0);
   db.planejamentoComentario.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => gravado(data));
 });

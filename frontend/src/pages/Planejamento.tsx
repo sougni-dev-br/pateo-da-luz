@@ -1,7 +1,8 @@
 import "./planejamento/planejamento-edicao.css";
 import "./planejamento/planejamento.css";
 import "./planejamento/planejamento-acabamento.css";
-import { RefreshCw } from "lucide-react";
+import "./planejamento/comentarios/comentarios.css";
+import { MessageSquare, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getPlanejamentoComparativo, type PlanejamentoComparativo } from "../api/client";
 import { Alert, Button, EmptyState, Select } from "../design-system";
@@ -15,6 +16,11 @@ import { GraficoComparativo } from "./planejamento/GraficoComparativo";
 import { PainelComparativo } from "./planejamento/PainelComparativo";
 import { Quadro } from "./planejamento/Quadro";
 import { TabelaMensal, type GrandezaDoQuadro } from "./planejamento/TabelaMensal";
+import { PainelDeComentarios } from "./planejamento/comentarios/PainelDeComentarios";
+import { useComentarios } from "./planejamento/comentarios/useComentarios";
+import type { LigacaoDeComentarios } from "./planejamento/comentarios/ligacao";
+import { metricaDaGrandeza, type PontoDeComentario } from "./planejamento/comentarios/ponto";
+import { BotaoImprimirComparativo } from "./planejamento/impressao/BotaoImprimirComparativo";
 import { useEstreito } from "./planejamento/useEstreito";
 import { hasPermission } from "../lib/permissions";
 import { useSession } from "../context/SessionContext";
@@ -55,6 +61,15 @@ function Comparativo() {
   const [carregando, setCarregando] = useState(true);
   const [tentativa, setTentativa] = useState(0);
 
+  const { user } = useSession();
+  const podeEscrever = hasPermission(user, "planning", "edit");
+  const comentarios = useComentarios(anoBase, anoComparado, anoBase !== anoComparado);
+  const [pontoAberto, setPontoAberto] = useState<PontoDeComentario | null>(null);
+  const ligacao = useMemo<LigacaoDeComentarios>(
+    () => ({ todos: comentarios.comentarios, porPonto: comentarios.porPonto, podeEscrever, abrir: setPontoAberto }),
+    [comentarios.comentarios, comentarios.porPonto, podeEscrever]
+  );
+
   const anos = useMemo(() => Array.from({ length: 6 }, (_, i) => anoAtual - 4 + i), [anoAtual]);
   const opcoes = useMemo(() => anos.map((a) => ({ value: String(a), label: String(a) })), [anos]);
   const mesmoAno = anoBase === anoComparado;
@@ -76,7 +91,7 @@ function Comparativo() {
   const estreito = useEstreito();
   const quadroMensal = dados && (
     <Quadro rotulo={`Quadro mês a mês: ${GRANDEZAS.find((g) => g.valor === grandeza)?.rotulo ?? ""}`} className="plan-quadro-mensal">
-      <TabelaMensal dados={dados} grandeza={grandeza} />
+      <TabelaMensal dados={dados} grandeza={grandeza} comentarios={ligacao} />
     </Quadro>
   );
   const semComparacao = dados !== null && dados.acumulado.mesesComparados.length === 0;
@@ -89,6 +104,16 @@ function Comparativo() {
           <span className="plan-contra" aria-hidden>contra</span>
           <Select label="Ano comparado" value={String(anoComparado)} onChange={(e) => setAnoComparado(Number(e.target.value))} options={opcoes} containerClassName="plan-filtro" />
         </div>
+        {dados && !mesmoAno && !semComparacao && (
+          <div className="plan-barra-acoes plan-coment-barra">
+            {podeEscrever && (
+              <Button variant="secondary" onClick={() => setPontoAberto({ mes: null, metrica: metricaDaGrandeza(grandeza), turno: "TOTAL" })}>
+                <MessageSquare size={16} aria-hidden /> Comentar
+              </Button>
+            )}
+            <BotaoImprimirComparativo dados={dados} comentarios={comentarios.comentarios} usuario={user?.name ?? ""} />
+          </div>
+        )}
       </div>
 
       {mesmoAno && <Alert tone="warning" role="alert">Escolha dois anos diferentes para comparar.</Alert>}
@@ -96,6 +121,12 @@ function Comparativo() {
         <Alert tone="error" role="alert" title="O comparativo não carregou">
           {erro} Os anos escolhidos continuam aqui; tente de novo em instantes.
           <span className="plan-salvar-acoes-alerta"><Button variant="secondary" onClick={tentarDeNovo}><RefreshCw size={16} aria-hidden /> Tentar de novo</Button></span>
+        </Alert>
+      )}
+      {!mesmoAno && comentarios.erro && !pontoAberto && (
+        <Alert tone="warning" role="alert" title="Os comentários não carregaram">
+          {comentarios.erro} Os números do comparativo estão corretos.
+          <span className="plan-salvar-acoes-alerta"><Button variant="secondary" onClick={comentarios.recarregar}><RefreshCw size={16} aria-hidden /> Tentar de novo</Button></span>
         </Alert>
       )}
       {!mesmoAno && carregando && !dados && <Esqueleto rotulo="Carregando comparativo…" />}
@@ -110,7 +141,7 @@ function Comparativo() {
             />
           ) : (
             <>
-              <PainelComparativo dados={dados} />
+              <PainelComparativo dados={dados} comentarios={ligacao} />
               <section className="plan-secao" aria-labelledby="plan-mensal">
                 <div className="plan-cabecalho plan-cabecalho-com-controle">
                   <div>
@@ -120,7 +151,7 @@ function Comparativo() {
                   <Abas id="plan-grandeza" rotulo="Grandeza do quadro" variante="segmentada" abas={GRANDEZAS} valor={grandeza} aoMudar={setGrandeza} />
                 </div>
                 <PainelDaAba id="plan-grandeza" valor={grandeza} className="plan-secao">
-                  <GraficoComparativo dados={dados} grandeza={grandeza} />
+                  <GraficoComparativo dados={dados} grandeza={grandeza} comentarios={ligacao} />
                   {estreito ? (
                     <details className="plan-recolhido">
                       <summary className="plan-recolhido-titulo">Ver os números mês a mês</summary>
@@ -137,6 +168,9 @@ function Comparativo() {
             </Alert>
           )}
         </div>
+      )}
+      {dados && !mesmoAno && (
+        <PainelDeComentarios ponto={pontoAberto} aoMudarPonto={setPontoAberto} aoFechar={() => setPontoAberto(null)} dados={dados} api={comentarios} podeEscrever={podeEscrever} />
       )}
     </div>
   );
