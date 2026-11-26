@@ -1606,6 +1606,8 @@ export type InventoryRequisitionItem = {
   stockBefore: string | null;
   stockAfter: string | null;
   currentStock?: string | null;
+  /** Unidade em que a quantidade foi gravada (a do estoque no dia): `unit` é a do cadastro de hoje. */
+  recordedUnit?: string | null;
   /** Local do produto no estoque (câmara fria, freezer...): a folha impressa agrupa por ele. */
   storageSectorName?: string | null;
   createdAt: string;
@@ -1631,6 +1633,10 @@ export type InventoryRequisition = {
   purchaseOrderCodes?: string | null;
   items?: InventoryRequisitionItem[];
   createdAt: string;
+  /** Versão da requisição: a edição manda a que abriu, e o servidor recusa se outra pessoa salvou antes. */
+  updatedAt?: string;
+  /** Itens que ficaram com saldo negativo ao registrar ou editar. */
+  negativeStock?: Array<{ productId: string; productName: string; requested: number; available: number; unit: string | null }>;
 };
 
 export type CreateRequisitionPayload = {
@@ -1742,6 +1748,17 @@ export function getRequisition(id: string) {
 export function createRequisition(payload: CreateRequisitionPayload) {
   return request<InventoryRequisition>("/inventory/requisitions", {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  }, 45_000);
+}
+
+export type UpdateRequisitionPayload = Omit<CreateRequisitionPayload, "clientRequestId" | "draftId"> & { expectedUpdatedAt: string };
+
+/** Edita uma requisição já registrada: o servidor lança no estoque só a diferença de cada produto. */
+export function updateRequisition(id: string, payload: UpdateRequisitionPayload) {
+  return request<InventoryRequisition>(`/inventory/requisitions/${encodeURIComponent(id)}`, {
+    method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
   }, 45_000);

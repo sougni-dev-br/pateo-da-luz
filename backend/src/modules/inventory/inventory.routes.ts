@@ -18,6 +18,8 @@ import { converterQuantidade } from "../waste/waste.js";
 import { carregarInteligenciaDePreco } from "./preco-por-fornecedor.js";
 import { itemDoCatalogo } from "./requisicao-catalogo.js";
 import { requisicaoRascunhoRouter } from "./requisicao-rascunho.routes.js";
+import { conferirEdicao, diferencaDaEdicao, notaDoAcerto, retiradoPorProduto } from "./requisicao-edicao.js";
+import { isPeriodLockedError } from "../cmv-real/period-locked-error.js";
 import { cancelamentoDeveCancelarBase, podeReaproveitarBase, reaberturaDeveSoltarBase } from "./base-oficial.js";
 import { mensagemDeTipoMigrado } from "./tipos-de-movimento.js";
 import { classificarItemDaConferencia, ordenarConferencia, resumirConferencia } from "./conferencia.js";
@@ -381,6 +383,8 @@ async function upsertStock(input: {
   unitMeasureId: string | null;
   unitCost: number | null;
   totalCost: number | null;
+  /** Devolução ao estoque (edição de requisição): volta o que saiu, não é compra, o custo médio fica. */
+  keepAverageCost?: boolean;
 }, client: Prisma.TransactionClient | typeof prisma = prisma) {
   const [current] = await client.$queryRaw<Array<{ currentQuantity: Prisma.Decimal; averageCost: Prisma.Decimal }>>`
     SELECT "currentQuantity", "averageCost"
@@ -394,7 +398,7 @@ async function upsertStock(input: {
   const nextQuantity = currentQuantity + input.quantityDelta;
   const incomingCost = input.totalCost ?? (input.unitCost ? input.unitCost * Math.abs(input.quantityDelta) : 0);
   const nextAverageCost =
-    input.quantityDelta > 0 && nextQuantity > 0
+    !input.keepAverageCost && input.quantityDelta > 0 && nextQuantity > 0
       ? (currentQuantity * currentAverageCost + incomingCost) / nextQuantity
       : currentAverageCost;
   const unidade = normalizarUnidade(input.unit);
@@ -6072,6 +6076,7 @@ inventoryRouter.get("/requisitions/:id", async (request, response) => {
       p."name" AS "productName",
       p."externalCode" AS "productCode",
       COALESCE(p."stockUnit", p."unit") AS "unit",
+      i."unit" AS "recordedUnit",
       s."currentQuantity" AS "currentStock",
       psec."name" AS "storageSectorName"
     FROM "InventoryRequisitionItem" i
@@ -6084,6 +6089,106 @@ inventoryRouter.get("/requisitions/:id", async (request, response) => {
 
   response.json({ ...row, items });
 });
+
+// ─── Itens da requisicao: leitura, produto e conversao para a unidade do estoque ───
+// Compartilhado pelo registro e pela edicao: os dois tem que entender "500 G" do mesmo jeito.
+type ParsedItem = { productId: string; quantity: number; unit: string | null };
+type ConvertedItem = ParsedItem & { stockQuantity: number; stockUnit: string | null; typedQuantity: number; typedUnit: string | null };
+
+async function prepararItensDaRequisicao(rawItems: Array<Record<string, unknown>>, jaNaRequisicao: string[] = []) {
+  // Quantidade ilegivel nao pode ser descartada em silencio pelo filter abaixo:
+  // a requisicao nasceria sem a linha e ninguem perceberia.
+  const invalidQuantityItems = rawItems.filter(
+    (item: Record<string, unknown>) => Boolean(asText(item.productId)) && !parseQuantityInput(item.quantity).ok
+  );
+  if (invalidQuantityItems.length) {
+    return { ok: false as const, status: 400, body: { message: INVALID_QUANTITY_MESSAGE } };
+  }
+  const parsedItems: ParsedItem[] = rawItems
+    .map((item: Record<string, unknown>) => ({
+      productId: asText(item.productId),
+      quantity: asNumber(item.quantity),
+      unit: asText(item.unit)
+    }))
+    .filter((item: { productId: string | null; quantity: number; unit: string | null }): item is ParsedItem => Boolean(item.productId) && item.quantity > 0);
+
+  if (parsedItems.length === 0) {
+    return { ok: false as const, status: 400, body: { message: "Todos os itens precisam de produto e quantidade valida." } };
+  }
+
+  const productIds = parsedItems.map((item: ParsedItem) => item.productId);
+
+  // Busca produtos e saldos em paralelo
+  const [products, stocks] = await Promise.all([
+    prisma.product.findMany({
+      // Na edicao, produto desativado depois do registro continua: senao salvar devolveria a retirada dele sem ninguem pedir.
+      where: { id: { in: productIds }, OR: [{ isActive: true }, { id: { in: jaNaRequisicao } }] },
+      select: { id: true, externalCode: true, ...SELECT_DE_UNIDADES }
+    }),
+    prisma.$queryRaw<Array<{ productId: string; currentQuantity: Prisma.Decimal }>>`
+      SELECT "productId", "currentQuantity"
+      FROM "InventoryStock"
+      WHERE "productId" = ANY(${productIds}::text[])
+    `
+  ]);
+
+  const productMap = new Map(products.map((p) => [p.id, p]));
+  const missing = productIds.filter((id) => !productMap.has(id));
+  if (missing.length > 0) {
+    return { ok: false as const, status: 400, body: { message: "Produto(s) nao encontrado(s) ou inativo(s).", productIds: missing } };
+  }
+
+  const stockMap = new Map(stocks.map((s) => [s.productId, Number(s.currentQuantity)]));
+
+  // O que se digita (500 G) vira a unidade do estoque do item (0,5 KG) com a mesma regra da ficha
+  // tecnica e do desperdicio. Antes a quantidade digitada era baixada como estava, na unidade que
+  // o estoque usa: "500 G" saia como 500 KG e a requisicao era recusada por saldo.
+  const conversionErrors: Array<{ productId: string; productName: string; message: string }> = [];
+  const convertedItems: ConvertedItem[] = [];
+  for (const item of parsedItems) {
+    const product = productMap.get(item.productId)!;
+    const stockUnit = unidadeDoInsumo(product);
+    // Produto sem unidade cadastrada nao tem em que converter: a quantidade vale como veio.
+    const conversion = normalizarUnidade(stockUnit)
+      ? converterQuantidade(item.quantity, item.unit, stockUnit, conversoesDoInsumo(product))
+      : { ok: true as const, quantidade: item.quantity };
+    if (!conversion.ok) {
+      conversionErrors.push({ productId: item.productId, productName: product.name, message: conversion.erro });
+      continue;
+    }
+    convertedItems.push({ ...item, stockQuantity: conversion.quantidade, stockUnit, typedQuantity: item.quantity, typedUnit: item.unit });
+  }
+  if (conversionErrors.length > 0) {
+    return {
+      ok: false as const,
+      status: 400,
+      body: { message: `Nao foi possivel converter a unidade de: ${conversionErrors.map((e) => e.productName).join(", ")}.`, conversionErrors }
+    };
+  }
+  return { ok: true as const, convertedItems, productMap, stockMap };
+}
+
+type ProdutoDaRequisicao = { id: string; name: string; externalCode: string | null };
+
+/** Itens que deixam o saldo negativo. Na edicao, o que a propria requisicao ja tirou volta a contar como saldo. */
+function itensQueFicamNegativos(
+  convertedItems: ConvertedItem[],
+  productMap: Map<string, ProdutoDaRequisicao>,
+  stockMap: Map<string, number>,
+  jaRetirado: Map<string, number> = new Map()
+) {
+  const pedidoPorProduto = new Map<string, number>();
+  for (const item of convertedItems) pedidoPorProduto.set(item.productId, (pedidoPorProduto.get(item.productId) ?? 0) + item.stockQuantity);
+  return [...pedidoPorProduto.entries()]
+    .map(([productId, requested]) => ({
+      productId,
+      productName: productMap.get(productId)?.name ?? productId,
+      requested,
+      available: (stockMap.get(productId) ?? 0) + (jaRetirado.get(productId) ?? 0),
+      unit: convertedItems.find((item) => item.productId === productId)?.stockUnit ?? null
+    }))
+    .filter((item) => item.available - item.requested < 0);
+}
 
 inventoryRouter.post("/requisitions", async (request, response) => {
   const t0 = Date.now();
@@ -6124,92 +6229,17 @@ inventoryRouter.post("/requisitions", async (request, response) => {
     }
   }
 
-  type ParsedItem = { productId: string; quantity: number; unit: string | null };
-  // Quantidade ilegivel nao pode ser descartada em silencio pelo filter abaixo:
-  // a requisicao nasceria sem a linha e ninguem perceberia.
-  const invalidQuantityItems = rawItems.filter(
-    (item: Record<string, unknown>) => Boolean(asText(item.productId)) && !parseQuantityInput(item.quantity).ok
-  );
-  if (invalidQuantityItems.length) {
-    response.status(400).json({ message: INVALID_QUANTITY_MESSAGE });
+  const preparo = await prepararItensDaRequisicao(rawItems);
+  if (!preparo.ok) {
+    response.status(preparo.status).json(preparo.body);
     return;
   }
-  const parsedItems: ParsedItem[] = rawItems
-    .map((item: Record<string, unknown>) => ({
-      productId: asText(item.productId),
-      quantity: asNumber(item.quantity),
-      unit: asText(item.unit)
-    }))
-    .filter((item: { productId: string | null; quantity: number; unit: string | null }): item is ParsedItem => Boolean(item.productId) && item.quantity > 0);
-
-  if (parsedItems.length === 0) {
-    response.status(400).json({ message: "Todos os itens precisam de produto e quantidade valida." });
-    return;
-  }
-
-  const productIds = parsedItems.map((item: ParsedItem) => item.productId);
-
-  // Busca produtos e saldos em paralelo
-  const [products, stocks] = await Promise.all([
-    prisma.product.findMany({
-      where: { id: { in: productIds }, isActive: true },
-      select: { id: true, externalCode: true, ...SELECT_DE_UNIDADES }
-    }),
-    prisma.$queryRaw<Array<{ productId: string; currentQuantity: Prisma.Decimal }>>`
-      SELECT "productId", "currentQuantity"
-      FROM "InventoryStock"
-      WHERE "productId" = ANY(${productIds}::text[])
-    `
-  ]);
-
-  const productMap = new Map(products.map((p) => [p.id, p]));
-  const missing = productIds.filter((id) => !productMap.has(id));
-  if (missing.length > 0) {
-    response.status(400).json({ message: "Produto(s) nao encontrado(s) ou inativo(s).", productIds: missing });
-    return;
-  }
-
-  const stockMap = new Map(stocks.map((s) => [s.productId, Number(s.currentQuantity)]));
-
-  // O que se digita (500 G) vira a unidade do estoque do item (0,5 KG) com a mesma regra da ficha
-  // tecnica e do desperdicio. Antes a quantidade digitada era baixada como estava, na unidade que
-  // o estoque usa: "500 G" saia como 500 KG e a requisicao era recusada por saldo.
-  type ConvertedItem = ParsedItem & { stockQuantity: number; stockUnit: string | null; typedQuantity: number; typedUnit: string | null };
-  const conversionErrors: Array<{ productId: string; productName: string; message: string }> = [];
-  const convertedItems: ConvertedItem[] = [];
-  for (const item of parsedItems) {
-    const product = productMap.get(item.productId)!;
-    const stockUnit = unidadeDoInsumo(product);
-    // Produto sem unidade cadastrada nao tem em que converter: a quantidade vale como veio.
-    const conversion = normalizarUnidade(stockUnit)
-      ? converterQuantidade(item.quantity, item.unit, stockUnit, conversoesDoInsumo(product))
-      : { ok: true as const, quantidade: item.quantity };
-    if (!conversion.ok) {
-      conversionErrors.push({ productId: item.productId, productName: product.name, message: conversion.erro });
-      continue;
-    }
-    convertedItems.push({ ...item, stockQuantity: conversion.quantidade, stockUnit, typedQuantity: item.quantity, typedUnit: item.unit });
-  }
-  if (conversionErrors.length > 0) {
-    response.status(400).json({
-      message: `Nao foi possivel converter a unidade de: ${conversionErrors.map((e) => e.productName).join(", ")}.`,
-      conversionErrors
-    });
-    return;
-  }
-
+  const { convertedItems, productMap, stockMap } = preparo;
+  const parsedItems = convertedItems;
   // Saldo do sistema nao e o que esta na camara (nota nao lancada, contagem que nao pegou o item):
   // recusar travava a requisicao inteira por um item. Passa, o saldo fica negativo e quem ficou
   // negativo vai na resposta e na auditoria para a nota ou a contagem acertar depois.
-  const negativeStock = convertedItems
-    .map((item) => ({
-      productId: item.productId,
-      productName: productMap.get(item.productId)?.name ?? item.productId,
-      requested: item.stockQuantity,
-      available: stockMap.get(item.productId) ?? 0,
-      unit: item.stockUnit
-    }))
-    .filter((item) => item.available - item.requested < 0);
+  const negativeStock = itensQueFicamNegativos(convertedItems, productMap, stockMap);
 
   // Busca setor
   const [sector] = sectorId
@@ -6308,6 +6338,182 @@ inventoryRouter.post("/requisitions", async (request, response) => {
 
   console.log(`[requisition] created ${code} total_ms=${Date.now() - t0}`);
   response.status(201).json({ ...created, items, negativeStock });
+});
+
+// Edicao de requisicao registrada. O estoque ja foi baixado: o acerto lanca so a diferenca de cada
+// produto em movimentos novos (ver requisicao-edicao.ts), e o mes da requisicao tem que estar aberto.
+inventoryRouter.put("/requisitions/:id", async (request, response) => {
+  const user = await requireMenuPermission(request, response);
+  if (!user) return;
+
+  const id = String(request.params.id);
+  const versaoAberta = asText(request.body.expectedUpdatedAt);
+  const [atual] = await prisma.$queryRaw<Array<InventoryRequisitionRow>>`
+    SELECT r.*, NULL AS "requestedByName" FROM "InventoryRequisition" r WHERE r."id" = ${id}
+  `;
+  const conferencia = conferirEdicao(atual, versaoAberta);
+  if (!conferencia.ok) {
+    response.status(conferencia.status).json({ message: conferencia.message });
+    return;
+  }
+
+  const date = parseLocalDate(request.body.date ?? atual.date);
+  const shift = asText(request.body.shift) ?? atual.shift;
+  const reason = asText(request.body.reason) ?? atual.reason;
+  const reasonNotes = asText(request.body.reasonNotes);
+  const sectorId = asText(request.body.sectorId);
+  const notes = asText(request.body.notes);
+  const rawItems = Array.isArray(request.body.items) ? request.body.items : [];
+  if (rawItems.length === 0) {
+    response.status(400).json({ message: "A requisicao precisa de ao menos um produto." });
+    return;
+  }
+
+  try {
+    await assertPeriodWritableForDate(atual.date, "Edicao de requisicao");
+    if (date.getTime() !== atual.date.getTime()) await assertPeriodWritableForDate(date, "Edicao de requisicao");
+  } catch (error) {
+    if (!isPeriodLockedError(error)) throw error;
+    response.status(409).json({ message: error.message });
+    return;
+  }
+
+  const antigos = await prisma.$queryRaw<Array<InventoryRequisitionItemRow>>`
+    SELECT * FROM "InventoryRequisitionItem" WHERE "requisitionId" = ${id} ORDER BY "createdAt"
+  `;
+  const preparo = await prepararItensDaRequisicao(rawItems, antigos.flatMap((item) => (item.productId ? [item.productId] : [])));
+  if (!preparo.ok) {
+    response.status(preparo.status).json(preparo.body);
+    return;
+  }
+  const { convertedItems, productMap, stockMap } = preparo;
+
+  const retiradoAntes = antigos.flatMap((item) => (item.productId ? [{ productId: item.productId, quantidade: Number(item.quantity) }] : []));
+  const jaRetirado = retiradoPorProduto(retiradoAntes);
+  const diferencas = diferencaDaEdicao(retiradoAntes, convertedItems.map((item) => ({ productId: item.productId, quantidade: item.stockQuantity })));
+  const negativeStock = itensQueFicamNegativos(convertedItems, productMap, stockMap, jaRetirado);
+
+  // Contagem ou ajuste depois do registro ja acertou o saldo pelo que estava na camara: mudar a
+  // quantidade agora lancaria a mesma diferenca de novo. Cabecalho e produtos sem mudanca seguem livres.
+  const mudaram = diferencas.map((d) => d.productId);
+  if (mudaram.length > 0) {
+    const contados = await prisma.$queryRaw<Array<{ productId: string; name: string }>>`
+      SELECT DISTINCT m."productId", p."name"
+      FROM "InventoryMovement" m
+      JOIN "Product" p ON p."id" = m."productId"
+      WHERE m."productId" = ANY(${mudaram}::text[])
+        AND m."createdAt" > ${atual.createdAt}
+        AND (
+          m."sourceStockCountId" IS NOT NULL
+          OR m."sourceOperationalInventoryId" IS NOT NULL
+          OR m."type" IN ('ADJUSTMENT', 'POSITIVE_ADJUSTMENT', 'NEGATIVE_ADJUSTMENT')
+        )
+    `;
+    if (contados.length > 0) {
+      response.status(409).json({
+        message: `${contados.map((c) => c.name).join(", ")} ${contados.length === 1 ? "teve" : "tiveram"} contagem ou ajuste de estoque depois desta requisicao: a diferenca ja entrou por la. Deixe a quantidade como estava ou corrija pela contagem.`,
+        productIds: contados.map((c) => c.productId)
+      });
+      return;
+    }
+  }
+
+  const [sector] = sectorId
+    ? await prisma.$queryRaw<Array<{ name: string }>>`SELECT "name" FROM "InventorySector" WHERE "id" = ${sectorId} LIMIT 1`
+    : [null];
+
+  const resultado = await prisma.$transaction(async (tx) => {
+    // Trava a linha e confere a versao de novo: duas edicoes ao mesmo tempo lancariam o acerto duas vezes.
+    const [travada] = await tx.$queryRaw<Array<{ status: string; updatedAt: Date }>>`
+      SELECT "status", "updatedAt" FROM "InventoryRequisition" WHERE "id" = ${id} FOR UPDATE
+    `;
+    const deNovo = conferirEdicao(travada, versaoAberta);
+    if (!deNovo.ok) return deNovo;
+
+    const movimentoDoProduto = new Map(antigos.map((item) => [item.productId, item.movementId]));
+    for (const diferenca of diferencas) {
+      const unidade = convertedItems.find((item) => item.productId === diferenca.productId)?.stockUnit
+        ?? antigos.find((item) => item.productId === diferenca.productId)?.unit
+        ?? null;
+      const movementId = crypto.randomUUID();
+      await tx.$executeRaw`
+        INSERT INTO "InventoryMovement" (
+          "id", "productId", "type", "quantity", "unit", "responsibleUserId", "sourceRequisitionId", "notes"
+        )
+        VALUES (
+          ${movementId}, ${diferenca.productId}, 'INTERNAL_CONSUMPTION', ${-diferenca.delta},
+          ${unidade}, ${user.id}, ${id}, ${notaDoAcerto(atual.code, diferenca, unidade)}
+        )
+      `;
+      await upsertStock({ productId: diferenca.productId, quantityDelta: -diferenca.delta, unit: unidade, unitMeasureId: null, unitCost: null, totalCost: null, keepAverageCost: true }, tx);
+      movimentoDoProduto.set(diferenca.productId, movementId);
+    }
+
+    // Linha antiga sem produto (cadastro apagado) nao entra no acerto e fica como esta no documento.
+    await tx.$executeRaw`DELETE FROM "InventoryRequisitionItem" WHERE "requisitionId" = ${id} AND "productId" IS NOT NULL`;
+    for (const item of convertedItems) {
+      const produto = productMap.get(item.productId)!;
+      // Antes = como se esta requisicao nao tivesse saido; depois = o saldo que fica com a edicao.
+      const stockBefore = (stockMap.get(item.productId) ?? 0) + (jaRetirado.get(item.productId) ?? 0);
+      const stockAfter = stockBefore - item.stockQuantity;
+      await tx.$executeRaw`
+        INSERT INTO "InventoryRequisitionItem" (
+          "id", "requisitionId", "productId", "productName", "productCode",
+          "unit", "quantity", "movementId", "stockBefore", "stockAfter", "createdAt"
+        )
+        VALUES (
+          ${crypto.randomUUID()}, ${id}, ${item.productId}, ${produto.name}, ${produto.externalCode},
+          ${item.stockUnit}, ${item.stockQuantity}, ${movimentoDoProduto.get(item.productId) ?? null},
+          ${stockBefore}, ${stockAfter}, CURRENT_TIMESTAMP
+        )
+      `;
+    }
+
+    await tx.$executeRaw`
+      UPDATE "InventoryRequisition"
+      SET "date" = ${date}, "shift" = ${shift}, "reason" = ${reason}, "reasonNotes" = ${reasonNotes},
+          "sectorId" = ${sectorId}, "sectorName" = ${sector?.name ?? null}, "notes" = ${notes},
+          "updatedAt" = CURRENT_TIMESTAMP
+      WHERE "id" = ${id}
+    `;
+    return { ok: true as const };
+  }, { timeout: 120_000, maxWait: 15_000 });
+
+  if (!resultado.ok) {
+    response.status(resultado.status).json({ message: resultado.message });
+    return;
+  }
+
+  await auditLog({
+    userId: user.id,
+    action: "UPDATE_INVENTORY_REQUISITION",
+    entity: "InventoryRequisition",
+    entityId: id,
+    previousValue: {
+      date: atual.date, shift: atual.shift, reason: atual.reason, sectorId: atual.sectorId, notes: atual.notes,
+      items: antigos.map((item) => ({ productId: item.productId, quantity: Number(item.quantity), unit: item.unit }))
+    },
+    newValue: {
+      date, shift, reason, sectorId, notes,
+      items: convertedItems.map((item) => ({ productId: item.productId, quantity: item.stockQuantity, unit: item.stockUnit })),
+      stockAdjustments: diferencas,
+      negativeStock
+    },
+    ipAddress: requestIp(request),
+    userAgent: String(request.headers["user-agent"] ?? "")
+  });
+
+  const [editada] = await prisma.$queryRaw<Array<InventoryRequisitionRow>>`
+    SELECT r.*, u."name" AS "requestedByName", sec."name" AS "sectorName"
+    FROM "InventoryRequisition" r
+    LEFT JOIN "User" u ON u."id" = r."requestedByUserId"
+    LEFT JOIN "InventorySector" sec ON sec."id" = r."sectorId"
+    WHERE r."id" = ${id}
+  `;
+  const items = await prisma.$queryRaw<Array<InventoryRequisitionItemRow>>`
+    SELECT * FROM "InventoryRequisitionItem" WHERE "requisitionId" = ${id} ORDER BY "createdAt"
+  `;
+  response.json({ ...editada, items, negativeStock, stockAdjustments: diferencas });
 });
 
 inventoryRouter.patch("/agenda/:id/confirm", async (request, response) => {

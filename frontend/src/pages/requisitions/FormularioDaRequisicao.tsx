@@ -4,6 +4,7 @@ import {
   ApiError,
   createRequisition,
   getRequisitions,
+  updateRequisition,
   type AppUser,
   type CreateRequisitionPayload,
   type InventoryRequisition,
@@ -28,8 +29,25 @@ export { MOTIVOS, TURNOS };
 
 export const cabecalhoVazio = (): DadosDoCabecalho => ({ date: hojeLocalIso(), shift: turnoPelaHora(), reason: "DAILY_PRODUCTION", reasonNotes: "", sectorId: "", notes: "" });
 
+/** Requisição registrada aberta para editar: o que ela já tirou volta a contar como saldo enquanto se edita. */
+export type EdicaoDaRequisicao = {
+  id: string;
+  code: string;
+  /** Versão aberta: o servidor recusa se alguém salvou outra edição antes. */
+  updatedAt: string;
+  /** Por produto, o que a requisição tirou, na unidade do estoque. */
+  retirado: Record<string, number>;
+};
+
 /** Requisição duplicada do histórico: o cabeçalho e o que foi retirado, para conferir e ajustar. */
-export type ModeloInicial = { cabecalho: DadosDoCabecalho; escolhas: Escolhas; /** Rascunho aberto de "Em andamento": continua o mesmo no sistema. */ servidor?: RascunhoNoServidor };
+export type ModeloInicial = {
+  cabecalho: DadosDoCabecalho;
+  escolhas: Escolhas;
+  /** Rascunho aberto de "Em andamento": continua o mesmo no sistema. */
+  servidor?: RascunhoNoServidor;
+  /** Requisição registrada sendo editada: sem rascunho, e o botão salva a edição. */
+  edicao?: EdicaoDaRequisicao;
+};
 
 type Props = {
   user: AppUser;
@@ -37,6 +55,9 @@ type Props = {
   /** Requisição duplicada; sem ela, vale o rascunho guardado no aparelho. */
   modelo: ModeloInicial | null;
   onCriada: (criada: InventoryRequisition) => void;
+  /** Edição salva: a requisição como ficou. */
+  onEditada?: (editada: InventoryRequisition) => void;
+  onCancelarEdicao?: () => void;
   onAviso: (tom: "success" | "warning" | "error", mensagem: string) => void;
   /** Conversão cadastrada na linha (o cadastro já foi salvo no sistema). */
   onConversaoCadastrada?: (item: RequisitionCatalogItem) => void;
@@ -60,7 +81,8 @@ function QuadroVazio({ visao, filtrando, onLimpar }: { visao: Visao; filtrando: 
   );
 }
 
-export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAviso, onConversaoCadastrada, onRascunho, salvarAgoraRef }: Props) {
+export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onEditada, onCancelarEdicao, onAviso, onConversaoCadastrada, onRascunho, salvarAgoraRef }: Props) {
+  const edicao = modelo?.edicao ?? null;
   const guardado = useMemo(() => (modelo ? null : lerRascunho(user.id)), [modelo, user.id]);
   const catalogo = useCatalogo(user.id);
   const { imprimir, portal } = useImpressaoDaRequisicao();
@@ -80,7 +102,11 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAvis
   const idDoPedidoRef = useRef<string | null>(null);
   const guardarAoSairRef = useRef(true);
 
-  const itens = catalogo.itens;
+  // Editando: o que a requisição já tirou volta ao saldo, senão quem confirma a mesma quantidade vê "fica negativo".
+  const itens = useMemo(
+    () => (edicao && catalogo.itens ? catalogo.itens.map((i) => (edicao.retirado[i.id] ? { ...i, balance: i.balance + edicao.retirado[i.id] } : i)) : catalogo.itens),
+    [catalogo.itens, edicao]
+  );
   const itemPorId = useMemo(() => new Map((itens ?? []).map((i) => [i.id, i])), [itens]);
 
   // Nome dos primeiros produtos: é o que a aba "Em andamento" mostra para reconhecer a requisição.
@@ -96,6 +122,7 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAvis
     escolhas,
     resumo: resumoDoRascunho,
     pausado: enviando,
+    desligado: edicao != null,
     onAviso,
     onSalvo: () => aoSalvarNoServidorRef.current?.()
   });
@@ -105,6 +132,11 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAvis
     if (!itens) return;
     const faltando = Object.keys(escolhas).filter((id) => !itemPorId.has(id));
     if (faltando.length === 0) return;
+    if (edicao) {
+      // Produto desativado depois do registro: fica na requisição como estava (o servidor aceita) e não aparece na lista.
+      onAviso("warning", `${faltando.length} ${faltando.length === 1 ? "produto desta requisição foi desativado e fica" : "produtos desta requisição foram desativados e ficam"} como ${faltando.length === 1 ? "estava" : "estavam"}, sem aparecer na lista.`);
+      return;
+    }
     setEscolhas((atuais) => Object.fromEntries(Object.entries(atuais).filter(([id]) => itemPorId.has(id))));
     onAviso("warning", `${faltando.length} ${faltando.length === 1 ? "produto do rascunho não existe" : "produtos do rascunho não existem"} mais no estoque e ${faltando.length === 1 ? "saiu" : "saíram"} da lista.`);
     // só roda quando o catálogo chega
@@ -112,10 +144,10 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAvis
   }, [itens]);
 
   useEffect(() => {
-    if (!salvarAgoraRef) return;
+    if (!salvarAgoraRef || edicao) return;
     salvarAgoraRef.current = noServidor.sincronizar;
     return () => { salvarAgoraRef.current = null; };
-  }, [salvarAgoraRef, noServidor.sincronizar]);
+  }, [salvarAgoraRef, noServidor.sincronizar, edicao]);
 
   useEffect(() => {
     onRascunho?.(noServidor.servidorRef.current?.id ?? null);
@@ -125,10 +157,11 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAvis
   const ultimoRef = useRef({ cabecalho, escolhas });
   ultimoRef.current = { cabecalho, escolhas };
   const guardarAgora = useCallback(() => {
-    if (!guardarAoSairRef.current) return;
+    // A edição não é rascunho: guardá-la no aparelho apagaria a requisição nova que estava em andamento.
+    if (!guardarAoSairRef.current || edicao) return;
     const { cabecalho: c, escolhas: e } = ultimoRef.current;
     salvarRascunho(user.id, { cabecalho: c, escolhas: escolhasComQuantidade(e), servidor: noServidor.servidorRef.current });
-  }, [user.id, noServidor.servidorRef]);
+  }, [user.id, noServidor.servidorRef, edicao]);
 
   useEffect(() => {
     aoSalvarNoServidorRef.current = guardarAgora;
@@ -305,8 +338,39 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAvis
     idDoPedidoRef.current = null;
   }
 
+  async function salvarEdicao(atual: EdicaoDaRequisicao) {
+    setEnviando(true);
+    setErro(null);
+    try {
+      const editada = await updateRequisition(atual.id, {
+        expectedUpdatedAt: atual.updatedAt,
+        date: cabecalho.date,
+        shift: cabecalho.shift,
+        reason: cabecalho.reason,
+        reasonNotes: cabecalho.reasonNotes || null,
+        sectorId: cabecalho.sectorId || null,
+        notes: cabecalho.notes || null,
+        items: [
+          ...linhas.map((l) => ({ productId: l.productId, quantity: lerNumero(l.quantity), unit: l.unit })),
+          // Desativados (fora do catálogo) vão como estavam: sem eles, salvar devolveria a retirada ao estoque.
+          ...Object.entries(escolhasComQuantidade(escolhas))
+            .filter(([id]) => !itemPorId.has(id))
+            .map(([productId, e]) => ({ productId, quantity: lerNumero(e.quantity), unit: e.unit }))
+        ]
+      });
+      onEditada?.(editada);
+    } catch (falha) {
+      setErro(falha instanceof DOMException && falha.name === "AbortError"
+        ? "Não recebi a resposta do servidor. Abra a requisição no histórico para ver se a edição foi salva antes de tentar de novo."
+        : mensagemDoServidor(falha));
+    } finally {
+      setEnviando(false);
+    }
+  }
+
   async function registrar() {
     if (!pronta || enviando) return;
+    if (edicao) return salvarEdicao(edicao);
     if (!idDoPedidoRef.current) idDoPedidoRef.current = crypto.randomUUID();
     const clientRequestId = idDoPedidoRef.current;
     const payload: CreateRequisitionPayload = {
@@ -362,6 +426,13 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAvis
 
   return (
     <div className="rq" ref={raizRef}>
+      {edicao && (
+        <div className="req-banner is-info" role="status">
+          <span>Editando <strong>{edicao.code}</strong>. Ao salvar, só a diferença de cada produto entra no estoque: o que aumentar sai, o que diminuir ou sair da lista volta.</span>
+          <Button variant="secondary" onClick={onCancelarEdicao}>Cancelar edição</Button>
+        </div>
+      )}
+
       {noServidor.conflito && (
         <div className="req-banner is-aviso" role="alert">
           <span>{noServidor.conflito.mensagem}</span>
@@ -447,14 +518,20 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onAvis
             <button type="button" className="rq-barra-problema" onClick={() => escolherVisao("PROBLEMA")}>{problemas.size} com problema — ver</button>
           ) : (
             <span>
-              pronto para registrar
+              {edicao ? "pronto para salvar" : "pronto para registrar"}
               {resumo.semSaldo.length > 0 && <b className="rq-barra-negativo"> · {resumo.semSaldo.length} {resumo.semSaldo.length === 1 ? "fica" : "ficam"} com saldo negativo</b>}
-              {salvo ? ` · ${textoDoSalvamento(noServidor.estado)}` : ""}
+              {salvo && !edicao ? ` · ${textoDoSalvamento(noServidor.estado)}` : ""}
             </span>
           )}
         </div>
-        <Button variant="secondary" leadingIcon={<Trash2 size={16} />} aria-label="Limpar requisição" onClick={descartar} disabled={enviando || linhas.length === 0}><span className="rq-limpar-texto">Limpar</span></Button>
-        <Button variant="primary" onClick={registrar} disabled={!pronta || enviando}>{enviando ? "Registrando…" : "Registrar"}</Button>
+        {edicao ? (
+          <Button variant="secondary" leadingIcon={<X size={16} />} aria-label="Cancelar edição" onClick={onCancelarEdicao} disabled={enviando}><span className="rq-limpar-texto">Cancelar</span></Button>
+        ) : (
+          <Button variant="secondary" leadingIcon={<Trash2 size={16} />} aria-label="Limpar requisição" onClick={descartar} disabled={enviando || linhas.length === 0}><span className="rq-limpar-texto">Limpar</span></Button>
+        )}
+        <Button variant="primary" onClick={registrar} disabled={!pronta || enviando}>
+          {edicao ? (enviando ? "Salvando…" : "Salvar alterações") : (enviando ? "Registrando…" : "Registrar")}
+        </Button>
       </div>
       {portal}
     </div>

@@ -30,6 +30,8 @@ type Entrada = {
   resumo: string;
   /** true enquanto se registra: nada é salvo por cima. */
   pausado: boolean;
+  /** Edição de requisição já registrada: não existe rascunho, nada vai para o sistema por aqui. */
+  desligado?: boolean;
   onAviso: (tom: "warning", mensagem: string) => void;
   /** Depois de cada salvamento no sistema: o aparelho grava a versão nova, senão recarregar a página usa uma versão velha e dá conflito. */
   onSalvo?: () => void;
@@ -40,7 +42,7 @@ type Entrada = {
  * (localStorage) segue como rede de segurança sem internet; este hook só espelha no servidor, com versão
  * para que dois aparelhos editando não se sobrescrevam em silêncio.
  */
-export function useRascunhoNoServidor({ inicial, cabecalho, escolhas, resumo, pausado, onAviso, onSalvo }: Entrada) {
+export function useRascunhoNoServidor({ inicial, cabecalho, escolhas, resumo, pausado, desligado = false, onAviso, onSalvo }: Entrada) {
   const servidorRef = useRef<RascunhoNoServidor | null>(inicial);
   const [estado, setEstado] = useState<EstadoDoRascunho>(inicial ? "salvo" : "parado");
   const [conflito, setConflito] = useState<{ version: number; mensagem: string } | null>(null);
@@ -49,7 +51,7 @@ export function useRascunhoNoServidor({ inicial, cabecalho, escolhas, resumo, pa
   const emVooRef = useRef<Promise<void> | null>(null);
   const refazerRef = useRef(false);
   const conflitoRef = useRef(false);
-  const encerradoRef = useRef(false);
+  const encerradoRef = useRef(desligado);
   const avisoRef = useRef(onAviso);
   avisoRef.current = onAviso;
   const salvoRef = useRef(onSalvo);

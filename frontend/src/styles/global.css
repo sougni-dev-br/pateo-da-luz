@@ -10499,6 +10499,7 @@ tr.dre-row-selected td {
 
 .mobile-card-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   padding: 8px 10px;
