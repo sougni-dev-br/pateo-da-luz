@@ -11294,6 +11294,22 @@ const JSON_HEADERS_METAS_CMV = { "Content-Type": "application/json" };
 export function getPainelMetasCmv(mes: string) {
   return request<PainelMetasCmv>(`/monthly/cmv-real/metas/painel?mes=${encodeURIComponent(mes)}`);
 }
+/** Visões da tela de Metas no estilo do Dashboard: ritmo do mês contra o teto e distribuição das compras de CMV. */
+export type DiaRitmoMetaCmv = { dia: number; faturamento: number; compras: number };
+export type LinhaRankingMetaCmv = { id: string | null; nome: string; compras: number; comprasAnterior: number };
+export type RankingMetaCmv = { linhas: LinhaRankingMetaCmv[]; outros: { quantidade: number; compras: number; comprasAnterior: number }; total: number; totalAnterior: number };
+export type DimensaoRankingMetaCmv = "categoria" | "subcategoria" | "fornecedor" | "produto";
+export type VisoesMetaCmv = {
+  mes: string; mesAnterior: string; ateODia: string; mesCorrente: boolean; diasNoMes: number; diasNoMesAnterior: number;
+  comparacaoAteODia: number;
+  meta: { alvoPercentual: number; alertaPercentual: number } | null;
+  faturamento: number; faturamentoAnterior: number;
+  ritmo: { atual: DiaRitmoMetaCmv[]; anterior: DiaRitmoMetaCmv[] };
+  distribuicao: Record<DimensaoRankingMetaCmv, RankingMetaCmv>;
+};
+export function getVisoesMetasCmv(mes: string) {
+  return request<VisoesMetaCmv>(`/monthly/cmv-real/metas/visoes?mes=${encodeURIComponent(mes)}`);
+}
 export function getMetasCmv() {
   return request<ListaMetasCmv>("/monthly/cmv-real/metas");
 }
