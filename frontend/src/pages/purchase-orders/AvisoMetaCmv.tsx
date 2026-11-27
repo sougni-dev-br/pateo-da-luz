@@ -1,7 +1,7 @@
 // Aviso no detalhe do pedido de compra: com este pedido, as compras comprometidas do mês cabem na
-// meta geral de CMV? Só aparece para quem vê o CMV Real (decisão do Eli): quem só compra não vê
+// meta geral de CMV? Só aparece para quem vê o CMV Real (decisão do dono): quem só compra não vê
 // faturamento nem meta. Informa, não bloqueia. Pedido já enviado não tem mais decisão: nada aparece.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { type ImpactoPedidoMetaCmv, getImpactoPedidoMetaCmv } from "../../api/client";
 import { Alert, Money } from "../../design-system";
 import type { AlertTone } from "../../design-system";
@@ -25,9 +25,14 @@ type Props = {
 export function AvisoMetaCmv({ orderId, versao }: Props) {
   const [impacto, setImpacto] = useState<ImpactoPedidoMetaCmv | null>(null);
   const [falhou, setFalhou] = useState(false);
+  const pedidoDoAviso = useRef<string | null>(null);
 
   useEffect(() => {
     let vivo = true;
+    // Trocar de pedido zera o aviso: nunca mostrar o efeito do pedido anterior enquanto este calcula.
+    // Salvar o mesmo pedido (versão nova) mantém o aviso até o novo chegar.
+    setImpacto((atual) => (pedidoDoAviso.current === orderId ? atual : null));
+    pedidoDoAviso.current = orderId;
     setFalhou(false);
     getImpactoPedidoMetaCmv(orderId)
       .then((r) => { if (vivo) setImpacto(r); })

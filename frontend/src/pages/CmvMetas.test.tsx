@@ -76,13 +76,13 @@ describe("CmvMetas", () => {
 
   test("com ciclo contado, a tela diz que o realizado é o CMV real e mostra compras ÷ faturamento à parte", async () => {
     getPainelMetasCmv.mockResolvedValue({
-      ...painel([linhaGeral({ base: "CMV_REAL", realizadoPercentual: 62.33, comprasSobreFaturamento: 46.73, projecao: null })]),
-      mesCorrente: false, cmvRealCiclo: { percentual: 62.33, periodo: "CMV abr", status: "CLOSED" },
+      ...painel([linhaGeral({ base: "CMV_REAL", realizadoPercentual: 65, comprasSobreFaturamento: 47.5, projecao: null })]),
+      mesCorrente: false, cmvRealCiclo: { percentual: 65, periodo: "CMV abr", status: "CLOSED" },
     });
     renderTela();
     expect(await screen.findByText(/^CMV real do ciclo · /, { selector: ".mt-destaque .mt-sub" })).toBeInTheDocument();
-    expect(screen.getAllByText("62,33%").length).toBeGreaterThan(0);
-    expect(screen.getByText("46,73%")).toBeInTheDocument();
+    expect(screen.getAllByText("65,0%").length).toBeGreaterThan(0);
+    expect(screen.getByText("47,5%")).toBeInTheDocument();
   });
 
   test("sem ciclo contado, avisa que o realizado é compras ÷ faturamento", async () => {
@@ -172,5 +172,29 @@ describe("CmvMetas", () => {
     expect(await screen.findByRole("list", { name: /Realizado de CMV por mês/ })).toHaveTextContent("31,5%");
     fireEvent.click(screen.getByRole("tab", { name: "Tabela" }));
     expect(screen.getByRole("table", { name: /Histórico de CMV/ })).toBeInTheDocument();
+  });
+
+  test("resposta atrasada do mês anterior não cobre o mês escolhido", async () => {
+    let soltarNovembro: (p: PainelMetasCmv) => void = () => undefined;
+    getPainelMetasCmv.mockImplementation((mes: string) =>
+      mes === "2026-11"
+        ? new Promise<PainelMetasCmv>((r) => { soltarNovembro = r; })
+        : Promise.resolve({ ...painel([linhaGeral({ realizadoPercentual: 21, status: "VERDE" })]), mes: "2026-10", mesCorrente: false }));
+    renderTela();
+    fireEvent.click(await screen.findByRole("button", { name: "Mês anterior" }));
+    expect((await screen.findAllByText("Dentro da meta")).length).toBeGreaterThan(0);
+    // Novembro chega depois e tem de ser ignorado.
+    soltarNovembro(painel([linhaGeral()]));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByText("Acima da meta")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Dentro da meta").length).toBeGreaterThan(0);
+  });
+
+  test("com o ciclo contado, o ritmo de compras não pinta o mês de vermelho", async () => {
+    getPainelMetasCmv.mockResolvedValue({ ...painel([linhaGeral({ base: "CMV_REAL", realizadoPercentual: 25, status: "VERDE", projecao: null })]), cmvRealCiclo: { percentual: 25, periodo: "Ciclo de teste", status: "CLOSED" } });
+    renderTela();
+    const resumo = await screen.findByText(/Até o dia 10: compras/);
+    expect(resumo).toHaveTextContent(/A situação do mês segue o CMV real do ciclo/);
+    expect(resumo).not.toHaveClass("mt-estouro");
   });
 });

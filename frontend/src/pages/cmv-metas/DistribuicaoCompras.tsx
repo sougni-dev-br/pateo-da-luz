@@ -86,7 +86,7 @@ export function DistribuicaoCompras({ visoes, aba, onAba, setores }: Props) {
           <>
             <Barras ranking={visoes.distribuicao[aba]} faturamento={visoes.faturamento} contra={contra} />
             <p className="mt-ajuda">
-              Só compras de CMV. "pts" é o peso no CMV do mês (compra ÷ faturamento); somados, dão o realizado em compras. A variação compara com {contra}.
+              Só compras de CMV. "pts" é o peso no CMV do mês (compra ÷ faturamento); somados, dão as compras ÷ faturamento do mês. A variação compara com {contra}.
             </p>
           </>
         )}

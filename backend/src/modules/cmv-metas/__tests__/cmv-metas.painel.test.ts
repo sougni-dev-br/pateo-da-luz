@@ -40,13 +40,13 @@ const geral = (p: Awaited<ReturnType<typeof montarPainel>>) => p.linhas.find((l)
 
 describe("montarPainel — base do realizado", () => {
   test("ciclo fechado no mês: o realizado é o CMV real (razão vira %), não compras ÷ faturamento", async () => {
-    cicloFindFirst.mockResolvedValue({ id: "c1", name: "CMV abr", status: "CLOSED", cmvPercentual: 0.6233 });
+    cicloFindFirst.mockResolvedValue({ id: "c1", name: "CMV abr", status: "CLOSED", cmvPercentual: 0.65 });
     const p = await montarPainel(2026, 4);
     const g = geral(p);
     expect(g.base).toBe("CMV_REAL");
-    expect(g.realizadoPercentual).toBe(62.33);
+    expect(g.realizadoPercentual).toBe(65);
     expect(g.comprasSobreFaturamento).toBe(50);
-    expect(g.status).toBe("VERMELHO"); // 62,33 > meta 60
+    expect(g.status).toBe("VERMELHO"); // 65 > meta 60
     expect(g.projecao).toBeNull();
     expect(getCmvPeriod).not.toHaveBeenCalled(); // fechado vale pelo valor congelado
   });
@@ -79,7 +79,7 @@ describe("montarPainel — base do realizado", () => {
   });
 
   test("setor é sempre compras ÷ faturamento, mesmo com ciclo fechado", async () => {
-    cicloFindFirst.mockResolvedValue({ id: "c1", name: "CMV abr", status: "CLOSED", cmvPercentual: 0.6233 });
+    cicloFindFirst.mockResolvedValue({ id: "c1", name: "CMV abr", status: "CLOSED", cmvPercentual: 0.65 });
     const setor = (await montarPainel(2026, 4)).linhas.find((l) => l.sectorId === "s1")!;
     expect(setor.base).toBe("COMPRAS");
     expect(setor.realizadoPercentual).toBe(24);

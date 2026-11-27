@@ -9,9 +9,25 @@ import { arredondar, classificarMeta, metaVigente, percentualDe, projetarMes, ra
 // a única escrita é na tabela CmvMeta. Segue a visão contábil do CMV (mesma base do CMV Real).
 
 const VISAO = "accounting" as const;
-// Pedido ainda não recebido que já foi para revisão/aprovação/envio: dinheiro comprometido, mas fora de Compras.
-// Rascunho não conta (ainda não é compromisso) e RECEBIDO_PARCIAL fica de fora para não dobrar com a nota já lançada.
-export const STATUS_PEDIDO_COMPROMETIDO = ["EM_REVISAO", "APROVADO", "ENVIADO"];
+// Pedido que já foi para revisão/aprovação/envio: dinheiro comprometido que ainda não virou nota em Compras.
+// Rascunho não conta (ainda não é compromisso). Recebido em parte conta só o que falta receber.
+export const STATUS_PEDIDO_COMPROMETIDO = ["EM_REVISAO", "APROVADO", "ENVIADO", "RECEBIDO_PARCIAL"];
+
+/** Pedido parado há mais que isso provavelmente chegou sem vínculo com a nota ou foi esquecido: sai da conta. */
+export const JANELA_PEDIDO_DIAS = 30;
+
+/**
+ * Valor que ainda falta chegar de um item de pedido (alias poi): o estimado vezes a fração não recebida.
+ * O recebido vem das notas ligadas ao pedido; nota lançada sem vínculo não desconta aqui — por isso a janela.
+ */
+export const valorEmAbertoDoItem = Prisma.sql`COALESCE(poi."totalEstimated" * GREATEST(0, 1 - COALESCE(poi."receivedQuantity", 0) / NULLIF(COALESCE(poi."approvedQuantity", poi."requestedQuantity"), 0)), 0)`;
+
+/** Pedido (alias po) com entrega prevista — ou, sem previsão, a última movimentação — a partir de "desde". */
+export const pedidoNaJanela = (desde: Date) =>
+  Prisma.sql`COALESCE(po."expectedDeliveryDate", po."sentAt", po."approvedAt", po."sentToReviewAt", po."createdAt") >= ${desde}`;
+
+/** Início da janela de pedidos: hoje (São Paulo) menos JANELA_PEDIDO_DIAS. */
+export const inicioDaJanelaDePedidos = (hoje: string) => new Date(paraData(hoje).getTime() - JANELA_PEDIDO_DIAS * 86_400_000);
 
 export class MetaInvalidaError extends Error {}
 
@@ -77,6 +93,9 @@ export async function salvarMeta(entrada: EntradaMeta) {
   const mesmoEscopo = { escopo: entrada.escopo, sectorId };
 
   return prisma.$transaction(async (tx) => {
+    // Trava por escopo/setor até o fim da transação: dois salvamentos simultâneos (clique duplo, duas abas)
+    // passam um de cada vez, e o segundo encontra a meta do primeiro em vez de gravar outra igual.
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`cmv-meta:${entrada.escopo}:${sectorId ?? ""}`}))::text`;
     const igual = await tx.cmvMeta.findFirst({ where: { ...mesmoEscopo, vigenciaInicio: paraData(inicio) } });
     const dados = {
       alvoPercentual: entrada.alvoPercentual,
@@ -142,14 +161,15 @@ async function comprasPorSetor(inicio: Date, fim: Date) {
   return new Map(rows.map((r) => [r.sectorId, num(r.total)]));
 }
 
-async function pedidosAbertosPorSetor() {
+async function pedidosAbertosPorSetor(hoje: string) {
   const rows = await prisma.$queryRaw<Array<{ sectorId: string | null; total: Prisma.Decimal | null }>>`
-    SELECT pr."inventorySectorId" AS "sectorId", COALESCE(SUM(poi."totalEstimated"), 0) AS "total"
+    SELECT pr."inventorySectorId" AS "sectorId", COALESCE(SUM(${valorEmAbertoDoItem}), 0) AS "total"
     FROM "PurchaseOrder" po
     JOIN "PurchaseOrderItem" poi ON poi."purchaseOrderId" = po."id"
     JOIN "Product" pr ON pr."id" = poi."productId"
     JOIN "DRECategory" dc ON dc."id" = pr."dreCategoryId"
     WHERE po."status" IN (${Prisma.join(STATUS_PEDIDO_COMPROMETIDO)})
+      AND ${pedidoNaJanela(inicioDaJanelaDePedidos(hoje))}
       AND ${cmvPurchasePredicate(VISAO)}
     GROUP BY pr."inventorySectorId"
   `;
@@ -263,12 +283,12 @@ export async function montarPainel(ano: number, mes: number): Promise<Painel> {
   const hoje = hojeEmSaoPaulo();
   const iv = intervaloDoMes(ano, mes, hoje);
   const [linhasMeta, setores, fat, geral, porSetor, pedidos, ciclo] = await Promise.all([
-    prisma.cmvMeta.findMany(),
+    prisma.cmvMeta.findMany({ orderBy: [{ vigenciaInicio: "asc" }, { createdAt: "asc" }] }),
     prisma.inventorySector.findMany({ where: { isActive: true }, orderBy: [{ countOrder: "asc" }, { name: "asc" }], select: { id: true, name: true } }),
     faturamentoLiquido(iv.inicio, iv.fim),
     getCmvPurchaseTotalsByPurchaseDateRange(iv.inicio, iv.fim, VISAO),
     comprasPorSetor(iv.inicio, iv.fim),
-    pedidosAbertosPorSetor(),
+    pedidosAbertosPorSetor(hoje),
     cicloDoMes(iv.inicio, iv.fim),
   ]);
   const metas = linhasMeta.map(paraVigencia);

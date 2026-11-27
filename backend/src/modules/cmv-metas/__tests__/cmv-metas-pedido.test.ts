@@ -84,4 +84,15 @@ describe("impactoDoPedido", () => {
     expect(r.statusDepois).toBe("VERMELHO");
     expect(r.depois.margemParaComprar).toBe(-5000);
   });
+
+  test("outros pedidos contam só o que falta receber, inclusive recebido em parte, dentro da janela", async () => {
+    await impactoDoPedido("p");
+    const chamada = queryRaw.mock.calls.find(([strings]) => !(strings as string[]).join(" ").includes("FILTER"));
+    const sql = (chamada![0] as string[]).join(" ");
+    const valores = JSON.stringify(chamada!.slice(1));
+    expect(sql).toContain("SUM(");
+    expect(valores).toContain("receivedQuantity");
+    expect(valores).toContain("expectedDeliveryDate");
+    expect(valores).toContain("RECEBIDO_PARCIAL");
+  });
 });

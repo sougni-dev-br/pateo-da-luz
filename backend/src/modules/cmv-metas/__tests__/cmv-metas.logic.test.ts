@@ -73,7 +73,7 @@ describe("validarPercentuais", () => {
 
 describe("razaoParaPercentual", () => {
   test("o CMV do ciclo vem como razão e vira pontos percentuais", () => {
-    expect(razaoParaPercentual(0.6233)).toBe(62.33);
+    expect(razaoParaPercentual(0.5871)).toBe(58.71);
     expect(razaoParaPercentual(0.7532)).toBe(75.32);
   });
 });

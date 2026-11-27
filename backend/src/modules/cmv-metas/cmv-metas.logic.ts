@@ -79,5 +79,5 @@ export function validarPercentuais(alvo: number, alerta: number): string | null 
   return null;
 }
 
-/** CmvPeriod.cmvPercentual é guardado como razão (0,6233 = 62,33%); o painel trabalha em pontos percentuais. */
+/** CmvPeriod.cmvPercentual é guardado como razão (0,58 = 58%); o painel trabalha em pontos percentuais. */
 export const razaoParaPercentual = (razao: number): number => arredondar(razao * 100);
