@@ -11285,7 +11285,11 @@ export type PainelMetasCmv = {
   mes: string; hoje: string; ateODia: string; mesCorrente: boolean; faturamento: number;
   cmvRealCiclo: { percentual: number; periodo: string; status: string } | null;
   linhas: LinhaPainelMetaCmv[]; historico: HistoricoMetaCmv[];
+  /** Quais pedidos entram nos "pedidos em andamento" (backend anterior não manda). */
+  pedidos?: DetalhePedidosMetaCmv;
 };
+export type PedidoNaContaMetaCmv = { id: string; codigo: string; status: string; referencia: string; totalCmv: number; faltaCmv: number };
+export type DetalhePedidosMetaCmv = { contados: PedidoNaContaMetaCmv[]; parados: PedidoNaContaMetaCmv[]; rascunhos: PedidoNaContaMetaCmv[] };
 export type SalvarMetaCmv = {
   escopo: "GERAL" | "SETOR"; sectorId: string | null; alvoPercentual: number; alertaPercentual: number; inicio: string; observacao?: string | null;
 };

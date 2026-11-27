@@ -10,6 +10,8 @@ import {
 } from "../api/client";
 import { Alert, Button, EmptyState, Money, Select, StatusBadge, Table, Tabs, TextField } from "../design-system";
 import type { StatusTone } from "../design-system";
+import { useSession } from "../context/SessionContext";
+import { DetalhePedidos } from "./cmv-metas/DetalhePedidos";
 import { DistribuicaoCompras, ehAbaDistribuicao, type AbaDistribuicao } from "./cmv-metas/DistribuicaoCompras";
 import { HistoricoGrafico } from "./cmv-metas/HistoricoGrafico";
 import { RitmoDaMeta } from "./cmv-metas/RitmoDaMeta";
@@ -92,6 +94,8 @@ export function CmvMetas() {
 
   // Cada carga tem um número; resposta de carga antiga (mês trocado no meio) é descartada.
   const cargaAtual = useRef(0);
+  const { hasPermission } = useSession();
+  const [verPedidos, setVerPedidos] = useState(false);
   const carregar = useCallback(async () => {
     const carga = ++cargaAtual.current;
     const vale = () => carga === cargaAtual.current;
@@ -215,11 +219,26 @@ export function CmvMetas() {
             <dl className="mt-numeros">
               <div><dt>Faturamento líquido</dt><dd><Money value={painel.faturamento} /></dd></div>
               <div><dt>Compras no mês</dt><dd><Money value={geral.compras} /></dd></div>
-              <div><dt>Pedidos em andamento</dt><dd><Money value={geral.pedidosAbertos} /></dd></div>
+              <div>
+                <dt>Pedidos em andamento</dt>
+                <dd><Money value={geral.pedidosAbertos} /></dd>
+                {painel.pedidos && (
+                  <button type="button" className="mt-link" aria-expanded={verPedidos} aria-controls="mt-detalhe-pedidos" onClick={() => setVerPedidos((v) => !v)}>
+                    {verPedidos ? "Esconder pedidos" : `Ver pedidos (${painel.pedidos.contados.length} na conta)`}
+                  </button>
+                )}
+              </div>
               <div><dt>CMV real do ciclo</dt><dd>{painel.cmvRealCiclo ? `${pct(painel.cmvRealCiclo.percentual)} (${painel.cmvRealCiclo.status === "CLOSED" ? "fechado" : "em aberto"})` : "—"}</dd></div>
               <div><dt>Compras ÷ faturamento</dt><dd>{pct(geral.comprasSobreFaturamento)}</dd></div>
             </dl>
           </div>
+
+          {verPedidos && painel.pedidos && (
+            <div id="mt-detalhe-pedidos" className="mt-cartao" role="region" aria-label="Pedidos de compra na conta">
+              <h3>Pedidos em andamento: de onde vem o número</h3>
+              <DetalhePedidos detalhe={painel.pedidos} podeAbrirPedidos={hasPermission("purchase-orders", "view")} />
+            </div>
+          )}
 
           {geral.projecao && geral.projecao.margemParaComprar != null && (
             <Alert tone={geral.projecao.margemParaComprar < 0 ? "error" : "info"}>

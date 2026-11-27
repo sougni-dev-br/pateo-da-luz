@@ -60,7 +60,10 @@ export function RitmoDaMeta({ visoes, realizadoPeloCmvReal = false }: Props) {
 
   const dias = Math.max(visoes.diasNoMes, visoes.diasNoMesAnterior);
   const ultimo = <T,>(l: T[]) => l[l.length - 1];
-  const maximo = topoRedondo(Math.max(ultimo(compras)?.valor ?? 0, ultimo(anterior)?.valor ?? 0, ultimo(teto)?.valor ?? 0));
+  const maior = Math.max(ultimo(compras)?.valor ?? 0, ultimo(anterior)?.valor ?? 0, ultimo(teto)?.valor ?? 0);
+  // Mês sem nenhum lançamento (nem no anterior): não há o que desenhar, e o eixo sairia "R$ 1".
+  const semDados = maior <= 0;
+  const maximo = topoRedondo(maior);
   const larguraUtil = Math.max(largura - PAD.left - PAD.right, 10);
   const alturaUtil = ALTURA - PAD.top - PAD.bottom;
   const x = (dia: number) => PAD.left + ((dia - 1) / Math.max(dias - 1, 1)) * larguraUtil;
@@ -108,8 +111,9 @@ export function RitmoDaMeta({ visoes, realizadoPeloCmvReal = false }: Props) {
         </p>
       )}
       {!visoes.meta && <p className="mt-ajuda">Sem meta geral neste mês: o teto não aparece no gráfico.</p>}
-      <div ref={ref} className="mt-ritmo-area">
-        {largura > 0 && (
+      <div ref={ref} className={`mt-ritmo-area${semDados ? " is-vazia" : ""}`}>
+        {semDados && <p className="mt-ajuda">Ainda não há compras nem faturamento para desenhar o ritmo.</p>}
+        {largura > 0 && !semDados && (
           <svg
             width={largura}
             height={ALTURA}

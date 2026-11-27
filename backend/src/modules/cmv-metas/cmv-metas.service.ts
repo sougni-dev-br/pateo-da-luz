@@ -3,7 +3,7 @@ import { prisma } from "../../config/database.js";
 import { cmvPurchasePredicate, getCmvPurchaseTotalsByPurchaseDateRange } from "../cmv-real/cmv-purchase-base.service.js";
 import { getCmvPeriod } from "../cmv-real/cmv-real.service.js";
 import { hojeEmSaoPaulo } from "../payroll/extras-comum.js";
-import { arredondar, classificarMeta, metaVigente, percentualDe, projetarMes, razaoParaPercentual, validarPercentuais, type MetaVigencia, type Projecao, type StatusMeta } from "./cmv-metas.logic.js";
+import { arredondar, classificarMeta, classificarPedidos, type DetalhePedidos, metaVigente, percentualDe, projetarMes, razaoParaPercentual, validarPercentuais, type MetaVigencia, type Projecao, type StatusMeta } from "./cmv-metas.logic.js";
 
 // Metas de CMV % (compras ÷ faturamento). Só LÊ compras, pedidos e faturamento que já existem;
 // a única escrita é na tabela CmvMeta. Segue a visão contábil do CMV (mesma base do CMV Real).
@@ -176,6 +176,28 @@ async function pedidosAbertosPorSetor(hoje: string) {
   return new Map(rows.map((r) => [r.sectorId, num(r.total)]));
 }
 
+/** Pedidos de compra com parte de CMV, com a data que decide a janela e o que falta receber. Para o detalhe na tela. */
+async function detalheDosPedidos(hoje: string): Promise<DetalhePedidos> {
+  const rows = await prisma.$queryRaw<Array<{ id: string; codigo: string; status: string; referencia: Date; totalCmv: Prisma.Decimal | null; faltaCmv: Prisma.Decimal | null }>>`
+    SELECT po."id", po."code" AS "codigo", po."status",
+      COALESCE(po."expectedDeliveryDate", po."sentAt", po."approvedAt", po."sentToReviewAt", po."createdAt") AS "referencia",
+      COALESCE(SUM(poi."totalEstimated"), 0) AS "totalCmv",
+      COALESCE(SUM(${valorEmAbertoDoItem}), 0) AS "faltaCmv"
+    FROM "PurchaseOrder" po
+    JOIN "PurchaseOrderItem" poi ON poi."purchaseOrderId" = po."id"
+    JOIN "Product" pr ON pr."id" = poi."productId"
+    JOIN "DRECategory" dc ON dc."id" = pr."dreCategoryId"
+    WHERE po."status" IN (${Prisma.join([...STATUS_PEDIDO_COMPROMETIDO, "RASCUNHO"])})
+      AND ${cmvPurchasePredicate(VISAO)}
+    GROUP BY po."id", po."code", po."status"
+  `;
+  const pedidos = rows.map((r) => ({
+    id: r.id, codigo: r.codigo, status: r.status, referencia: isoDia(new Date(r.referencia)),
+    totalCmv: arredondar(num(r.totalCmv)), faltaCmv: arredondar(num(r.faltaCmv)),
+  }));
+  return classificarPedidos(pedidos, STATUS_PEDIDO_COMPROMETIDO, isoDia(inicioDaJanelaDePedidos(hoje)));
+}
+
 /** De onde vem o "realizado": o CMV real do ciclo (contagem fechada) ou, sem ciclo, compras ÷ faturamento. */
 export type BaseRealizado = "CMV_REAL" | "COMPRAS";
 
@@ -229,6 +251,8 @@ export type Painel = {
   cmvRealCiclo: { percentual: number; periodo: string; status: string } | null;
   linhas: LinhaPainel[];
   historico: HistoricoMes[];
+  /** Quais pedidos entram nos "pedidos em andamento" (estado de hoje, vale para qualquer mês consultado). */
+  pedidos: DetalhePedidos;
 };
 
 export function intervaloDoMes(ano: number, mes: number, hoje: string) {
@@ -282,7 +306,7 @@ async function historicoGeral(ano: number, mes: number, metas: MetaVigencia[], h
 export async function montarPainel(ano: number, mes: number): Promise<Painel> {
   const hoje = hojeEmSaoPaulo();
   const iv = intervaloDoMes(ano, mes, hoje);
-  const [linhasMeta, setores, fat, geral, porSetor, pedidos, ciclo] = await Promise.all([
+  const [linhasMeta, setores, fat, geral, porSetor, pedidos, ciclo, detalhePedidos] = await Promise.all([
     prisma.cmvMeta.findMany({ orderBy: [{ vigenciaInicio: "asc" }, { createdAt: "asc" }] }),
     prisma.inventorySector.findMany({ where: { isActive: true }, orderBy: [{ countOrder: "asc" }, { name: "asc" }], select: { id: true, name: true } }),
     faturamentoLiquido(iv.inicio, iv.fim),
@@ -290,6 +314,7 @@ export async function montarPainel(ano: number, mes: number): Promise<Painel> {
     comprasPorSetor(iv.inicio, iv.fim),
     pedidosAbertosPorSetor(hoje),
     cicloDoMes(iv.inicio, iv.fim),
+    detalheDosPedidos(hoje),
   ]);
   const metas = linhasMeta.map(paraVigencia);
   const pedidosTotal = [...pedidos.values()].reduce((a, b) => a + b, 0);
@@ -336,5 +361,6 @@ export async function montarPainel(ano: number, mes: number): Promise<Painel> {
     cmvRealCiclo: ciclo,
     linhas,
     historico: await historicoGeral(ano, mes, metas, hoje),
+    pedidos: detalhePedidos,
   };
 }

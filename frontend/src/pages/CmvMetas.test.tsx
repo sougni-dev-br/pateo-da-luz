@@ -197,4 +197,19 @@ describe("CmvMetas", () => {
     expect(resumo).toHaveTextContent(/A situação do mês segue o CMV real do ciclo/);
     expect(resumo).not.toHaveClass("mt-estouro");
   });
+
+  test("mostra de onde vem o número de pedidos em andamento, com rascunhos e parados à parte", async () => {
+    getPainelMetasCmv.mockResolvedValue({ ...painel([linhaGeral({ pedidosAbertos: 16.28 })]), pedidos: {
+      contados: [{ id: "a", codigo: "PC-0079", status: "RECEBIDO_PARCIAL", referencia: "2026-11-27", totalCmv: 569.77, faltaCmv: 16.28 }],
+      parados: [{ id: "b", codigo: "PC-0003", status: "APROVADO", referencia: "2026-07-07", totalCmv: 52.5, faltaCmv: 52.5 }],
+      rascunhos: [{ id: "c", codigo: "PC-0078", status: "RASCUNHO", referencia: "2026-11-26", totalCmv: 1271.25, faltaCmv: 1271.25 }],
+    } });
+    renderTela();
+    fireEvent.click(await screen.findByRole("button", { name: "Ver pedidos (1 na conta)" }));
+    const detalhe = screen.getByRole("region", { name: "Pedidos de compra na conta" });
+    expect(within(detalhe).getByRole("region", { name: "Entram na conta" })).toHaveTextContent("Recebido parcial · 27/11/2026");
+    expect(within(detalhe).getByRole("region", { name: /Parados há mais de 30 dias/ })).toHaveTextContent("PC-0003");
+    expect(within(detalhe).getByRole("region", { name: /Rascunhos/ })).toHaveTextContent("PC-0078");
+    expect(within(detalhe).getByRole("link", { name: "PC-0079" })).toHaveAttribute("href", "/compras/pedidos?search=PC-0079");
+  });
 });

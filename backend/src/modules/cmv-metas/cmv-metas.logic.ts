@@ -81,3 +81,26 @@ export function validarPercentuais(alvo: number, alerta: number): string | null 
 
 /** CmvPeriod.cmvPercentual é guardado como razão (0,58 = 58%); o painel trabalha em pontos percentuais. */
 export const razaoParaPercentual = (razao: number): number => arredondar(razao * 100);
+
+// ─── Detalhe dos pedidos de compra na conta ───────────────────────────────────
+
+export type PedidoNaConta = { id: string; codigo: string; status: string; referencia: string; totalCmv: number; faltaCmv: number };
+export type DetalhePedidos = {
+  /** Entram nos "pedidos em andamento": só o que falta receber da parte de CMV. */
+  contados: PedidoNaConta[];
+  /** Comprometidos, mas parados há mais que a janela: ficam fora da conta (provável nota sem vínculo ou pedido esquecido). */
+  parados: PedidoNaConta[];
+  /** Rascunhos ainda não são compromisso: aparecem só para referência. */
+  rascunhos: PedidoNaConta[];
+};
+
+/** Separa os pedidos pela regra da conta. Pedido sem nada de CMV não aparece (não mexe na meta). */
+export function classificarPedidos(pedidos: PedidoNaConta[], comprometidos: readonly string[], inicioDaJanela: string): DetalhePedidos {
+  const relevantes = pedidos.filter((p) => p.totalCmv > 0);
+  const porData = (a: PedidoNaConta, b: PedidoNaConta) => b.referencia.localeCompare(a.referencia) || a.codigo.localeCompare(b.codigo);
+  return {
+    contados: relevantes.filter((p) => comprometidos.includes(p.status) && p.referencia >= inicioDaJanela && p.faltaCmv > 0).sort(porData),
+    parados: relevantes.filter((p) => comprometidos.includes(p.status) && p.referencia < inicioDaJanela && p.faltaCmv > 0).sort(porData),
+    rascunhos: relevantes.filter((p) => p.status === "RASCUNHO").sort(porData),
+  };
+}

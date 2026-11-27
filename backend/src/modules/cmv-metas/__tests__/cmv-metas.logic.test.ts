@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { classificarMeta, metaVigente, percentualDe, projetarMes, razaoParaPercentual, validarPercentuais, type MetaVigencia } from "../cmv-metas.logic.js";
+import { classificarMeta, metaVigente, percentualDe, projetarMes, razaoParaPercentual, validarPercentuais, type MetaVigencia, classificarPedidos } from "../cmv-metas.logic.js";
 
 const meta = (o: Partial<MetaVigencia>): MetaVigencia => ({
   id: "m", escopo: "GERAL", sectorId: null, alvoPercentual: 30, alertaPercentual: 27,
@@ -75,5 +75,28 @@ describe("razaoParaPercentual", () => {
   test("o CMV do ciclo vem como razão e vira pontos percentuais", () => {
     expect(razaoParaPercentual(0.5871)).toBe(58.71);
     expect(razaoParaPercentual(0.7532)).toBe(75.32);
+  });
+});
+
+describe("classificarPedidos", () => {
+  const p = (codigo: string, status: string, referencia: string, totalCmv: number, faltaCmv: number) => ({ id: codigo, codigo, status, referencia, totalCmv, faltaCmv });
+  const COMPROMETIDOS = ["EM_REVISAO", "APROVADO", "ENVIADO", "RECEBIDO_PARCIAL"];
+
+  test("separa contados, parados e rascunhos pela janela, e ignora pedido sem CMV", () => {
+    const r = classificarPedidos([
+      p("PC-1", "RECEBIDO_PARCIAL", "2026-11-27", 500, 20),
+      p("PC-2", "APROVADO", "2026-07-07", 50, 50),
+      p("PC-3", "RASCUNHO", "2026-11-26", 1200, 1200),
+      p("PC-4", "ENVIADO", "2026-11-20", 0, 0),
+      p("PC-5", "ENVIADO", "2026-10-28", 300, 300),
+    ], COMPROMETIDOS, "2026-10-28");
+    expect(r.contados.map((x) => x.codigo)).toEqual(["PC-1", "PC-5"]);
+    expect(r.parados.map((x) => x.codigo)).toEqual(["PC-2"]);
+    expect(r.rascunhos.map((x) => x.codigo)).toEqual(["PC-3"]);
+  });
+
+  test("pedido já todo recebido não aparece como contado", () => {
+    const r = classificarPedidos([p("PC-1", "RECEBIDO_PARCIAL", "2026-11-27", 500, 0)], COMPROMETIDOS, "2026-10-28");
+    expect(r.contados).toEqual([]);
   });
 });
