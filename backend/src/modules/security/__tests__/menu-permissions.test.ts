@@ -187,18 +187,26 @@ describe("resolvePermissionContext — metas de CMV", () => {
 // liberada para quem vê Compras; criar, editar e as sub-rotas seguem só no cadastro.
 describe("listas de apoio da compra", () => {
   it("o GET da lista também aceita quem vê Compras", async () => {
-    for (const path of ["/payment-methods", "/master-data/units", "/master-data/small-expense-types", "/cards", "/MASTER-DATA/Units/"]) {
+    for (const path of ["/payment-methods", "/master-data/small-expense-types", "/cards"]) {
       const contexto = await ctx("GET", path);
       expect(contexto?.action).toBe("view");
       expect(contexto?.leituraTambemPor).toEqual(["purchases"]);
     }
   });
 
+  // A Requisição escolhe a unidade na linha e filtra por setor: o "ver" dela também libera as duas listas.
+  it("unidades e setores também aceitam quem vê Requisições", async () => {
+    expect((await ctx("GET", "/master-data/units"))?.leituraTambemPor).toEqual(["purchases", "requisitions"]);
+    expect((await ctx("GET", "/MASTER-DATA/Units/"))?.leituraTambemPor).toEqual(["purchases", "requisitions"]);
+    expect((await ctx("GET", "/master-data/sectors"))?.leituraTambemPor).toEqual(["requisitions"]);
+    expect(await ctx("POST", "/master-data/sectors")).toEqual({ menuId: "master-data", action: "create" });
+    expect(await ctx("GET", "/master-data/sectors/abc")).toEqual({ menuId: "master-data", action: "view" });
+  });
+
   it("gravar e sub-rotas continuam só no módulo do cadastro", async () => {
     expect(await ctx("POST", "/payment-methods")).toEqual({ menuId: "payment-methods", action: "create" });
     expect(await ctx("PUT", "/master-data/units/abc")).toEqual({ menuId: "master-data", action: "edit" });
     expect(await ctx("GET", "/cards/abc/statements")).toEqual({ menuId: "cards", action: "view" });
-    expect(await ctx("GET", "/master-data/sectors")).toEqual({ menuId: "master-data", action: "view" });
   });
 });
 
