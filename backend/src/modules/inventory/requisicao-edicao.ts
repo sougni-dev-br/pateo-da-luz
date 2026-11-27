@@ -43,7 +43,10 @@ export function retiradoPorProduto(antigos: QuantidadePorProduto[]) {
   return somarPorProduto(antigos);
 }
 
-export type ConferenciaDaEdicao = { ok: true } | { ok: false; status: number; message: string };
+export type ConferenciaDaEdicao =
+  | { ok: true }
+  /** conflito "VERSAO": outra pessoa salvou antes; a tela oferece atualizar mantendo o que foi digitado. */
+  | { ok: false; status: number; message: string; conflito?: "VERSAO" };
 
 /**
  * Só requisição confirmada se edita, e só a partir da versão que a pessoa abriu: dois aparelhos
@@ -58,7 +61,7 @@ export function conferirEdicao(
   if (!versaoAberta) return { ok: false, status: 400, message: "Informe a versao da requisicao que foi aberta para editar." };
   const aberta = new Date(versaoAberta);
   if (Number.isNaN(aberta.getTime()) || aberta.getTime() !== requisicao.updatedAt.getTime()) {
-    return { ok: false, status: 409, message: "Esta requisicao foi alterada depois que voce a abriu. Abra de novo para ver a versao atual." };
+    return { ok: false, status: 409, message: "Esta requisicao foi alterada por outra pessoa depois que voce a abriu.", conflito: "VERSAO" };
   }
   return { ok: true };
 }
@@ -104,4 +107,54 @@ export function retiradoNaUnidadeDeHoje(linhas: LinhaGravada[], converter: Conve
     else semConversao.push(`${linha.productName ?? linha.productId} (${linha.unidade} para ${linha.unidadeDeHoje})`);
   }
   return semConversao.length > 0 ? { ok: false, semConversao } : { ok: true, retirado };
+}
+
+/**
+ * Data da requisição: "AAAA-MM-DD" que existe no calendário. "2026-02-31" não pode virar 3 de março
+ * em silêncio, nem texto ilegível virar erro 500 lá na frente.
+ */
+export function dataValida(data: Date, digitada: unknown): boolean {
+  if (Number.isNaN(data.getTime())) return false;
+  const ano = data.getFullYear();
+  if (ano < 2000 || ano > 2100) return false;
+  // Vale também para "2026-02-31T00:00:00": confere o dia digitado no calendário, não o que a data rolou.
+  const partes = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(digitada ?? "").trim());
+  if (!partes) return true;
+  const [a, m, d] = [Number(partes[1]), Number(partes[2]), Number(partes[3])];
+  const noCalendario = new Date(Date.UTC(a, m - 1, d));
+  return noCalendario.getUTCFullYear() === a && noCalendario.getUTCMonth() === m - 1 && noCalendario.getUTCDate() === d;
+}
+
+/**
+ * Saldo antes e depois de cada linha, como sai na impressão. O mesmo produto em duas linhas acumula: a
+ * segunda começa onde a primeira terminou. `saldoInicial` diz de onde parte cada produto.
+ */
+export function saldosDasLinhas(linhas: QuantidadePorProduto[], saldoInicial: (productId: string) => number) {
+  const corrente = new Map<string, number>();
+  return linhas.map((linha) => {
+    const antes = corrente.get(linha.productId) ?? saldoInicial(linha.productId);
+    const depois = arredondar(antes - linha.quantidade);
+    corrente.set(linha.productId, depois);
+    return { antes: arredondar(antes), depois };
+  });
+}
+
+/**
+ * Saldo de cada produto antes da requisição, como ficou gravado no registro: é dele que a impressão parte.
+ * Com o produto em várias linhas, o "antes" da primeira é o maior (as seguintes já descontam as anteriores);
+ * a ordem das linhas no banco não é garantida, então vale o maior. Linha sem saldo gravado ou numa unidade
+ * diferente da de hoje fica de fora: o produto parte do saldo atual.
+ */
+export function saldoDaEpocaPorProduto(
+  antigos: Array<{ productId: string | null; stockBefore: unknown; unit: string | null }>,
+  mesmaUnidadeDeHoje: (productId: string, unidadeGravada: string | null) => boolean
+) {
+  const saldo = new Map<string, number>();
+  for (const antigo of antigos) {
+    if (!antigo.productId || antigo.stockBefore == null) continue;
+    const valor = Number(antigo.stockBefore);
+    if (!Number.isFinite(valor) || !mesmaUnidadeDeHoje(antigo.productId, antigo.unit)) continue;
+    saldo.set(antigo.productId, Math.max(saldo.get(antigo.productId) ?? Number.NEGATIVE_INFINITY, valor));
+  }
+  return saldo;
 }

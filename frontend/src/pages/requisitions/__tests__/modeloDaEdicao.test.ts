@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { InventoryRequisition } from "../../../api/client";
-import { escolhasDaRequisicao, modeloDeEdicao } from "../modeloDaEdicao";
+import { escolhasDaRequisicao, juntarVersoes, modeloDeEdicao } from "../modeloDaEdicao";
 
 const req = (items: Array<Record<string, unknown>>) =>
   ({
@@ -37,5 +37,39 @@ describe("modeloDeEdicao", () => {
       { productId: "p1", quantity: "0.2", unit: "KG" }
     ]));
     expect(escolhas.p1.quantity).toBe("0,3");
+  });
+});
+
+describe("juntarVersoes", () => {
+  const cab = { date: "2026-11-25", shift: "MORNING", reason: "DAILY_PRODUCTION", reasonNotes: "", sectorId: "", notes: "" };
+  const nome = (id: string) => ({ p1: "FARINHA", p4: "OVO", p9: "SAL" })[id] ?? id;
+  const base = { cabecalho: cab, escolhas: { p1: { unit: "KG", quantity: "2" }, p4: { unit: "UN", quantity: "6" } } };
+
+  test("o que a pessoa mexeu fica; o que ela não mexeu vem do servidor", () => {
+    const minha = { cabecalho: { ...cab, notes: "minha obs" }, escolhas: { p1: { unit: "KG", quantity: "4" }, p4: { unit: "UN", quantity: "6" } } };
+    const servidor = { cabecalho: { ...cab, shift: "NIGHT" }, escolhas: { p1: { unit: "KG", quantity: "3" }, p4: { unit: "UN", quantity: "8" }, p9: { unit: "KG", quantity: "1" } } };
+    const r = juntarVersoes(base, minha, servidor, nome);
+    expect(r.cabecalho).toEqual({ ...cab, shift: "NIGHT", notes: "minha obs" });
+    expect(r.escolhas).toEqual({ p1: { unit: "KG", quantity: "4" }, p4: { unit: "UN", quantity: "8" }, p9: { unit: "KG", quantity: "1" } });
+    expect(r.doServidor).toEqual(["turno", "OVO", "SAL"]);
+  });
+
+  test("produto que a outra pessoa tirou sai, se esta pessoa não mexeu nele", () => {
+    const servidor = { cabecalho: cab, escolhas: { p1: { unit: "KG", quantity: "2" } } };
+    const r = juntarVersoes(base, base, servidor, nome);
+    expect(r.escolhas).toEqual({ p1: { unit: "KG", quantity: "2" } });
+    expect(r.doServidor).toEqual(["OVO"]);
+  });
+
+  test("produto que esta pessoa tirou continua fora, mesmo que a outra tenha mudado", () => {
+    const minha = { cabecalho: cab, escolhas: { p1: { unit: "KG", quantity: "2" } } };
+    const servidor = { cabecalho: cab, escolhas: { p1: { unit: "KG", quantity: "2" }, p4: { unit: "UN", quantity: "9" } } };
+    expect(juntarVersoes(base, minha, servidor, nome).escolhas).toEqual({ p1: { unit: "KG", quantity: "2" } });
+  });
+
+  test("2 e 2,0 são a mesma quantidade: não conta como mexido", () => {
+    const minha = { cabecalho: cab, escolhas: { p1: { unit: "KG", quantity: "2,0" }, p4: { unit: "UN", quantity: "6" } } };
+    const servidor = { cabecalho: cab, escolhas: { p1: { unit: "KG", quantity: "5" }, p4: { unit: "UN", quantity: "6" } } };
+    expect(juntarVersoes(base, minha, servidor, nome).escolhas.p1).toEqual({ unit: "KG", quantity: "5" });
   });
 });

@@ -18,7 +18,7 @@ import { converterQuantidade } from "../waste/waste.js";
 import { carregarInteligenciaDePreco } from "./preco-por-fornecedor.js";
 import { itemDoCatalogo } from "./requisicao-catalogo.js";
 import { requisicaoRascunhoRouter } from "./requisicao-rascunho.routes.js";
-import { conferirEdicao, diferencaDaEdicao, notaDoAcerto, retiradoNaUnidadeDeHoje, retiradoPorProduto } from "./requisicao-edicao.js";
+import { conferirEdicao, dataValida, diferencaDaEdicao, notaDoAcerto, retiradoNaUnidadeDeHoje, retiradoPorProduto, saldoDaEpocaPorProduto, saldosDasLinhas } from "./requisicao-edicao.js";
 import { isPeriodLockedError } from "../cmv-real/period-locked-error.js";
 import { cancelamentoDeveCancelarBase, podeReaproveitarBase, reaberturaDeveSoltarBase } from "./base-oficial.js";
 import { mensagemDeTipoMigrado } from "./tipos-de-movimento.js";
@@ -6240,6 +6240,10 @@ inventoryRouter.post("/requisitions", async (request, response) => {
   // Rascunho em andamento de onde esta requisição veio: sai da lista na mesma transação que baixa o estoque.
   const draftId = asText(request.body.draftId);
   const date = parseLocalDate(request.body.date ?? new Date());
+  if (!dataValida(date, request.body.date)) {
+    response.status(400).json({ message: "Data da requisicao invalida." });
+    return;
+  }
   const shift = asText(request.body.shift) ?? "MORNING";
   const reason = asText(request.body.reason) ?? "DAILY_PRODUCTION";
   const reasonNotes = asText(request.body.reasonNotes);
@@ -6309,13 +6313,17 @@ inventoryRouter.post("/requisitions", async (request, response) => {
     )
   `;
 
-  for (const item of convertedItems) {
+  // Produto repetido: a segunda linha parte de onde a primeira deixou o saldo.
+  const saldosDoRegistro = saldosDasLinhas(
+    convertedItems.map((item) => ({ productId: item.productId, quantidade: item.stockQuantity })),
+    (productId) => stockMap.get(productId) ?? 0
+  );
+  for (const [indice, item] of convertedItems.entries()) {
     const product = productMap.get(item.productId as string)!;
     const unit = item.stockUnit;
     const quantity = item.stockQuantity;
     const typedNote = normalizarUnidade(item.typedUnit) && normalizarUnidade(item.typedUnit) !== normalizarUnidade(unit) ? ` (digitado: ${item.typedQuantity} ${normalizarUnidade(item.typedUnit)})` : "";
-    const stockBefore = stockMap.get(item.productId as string) ?? 0;
-    const stockAfter = stockBefore - quantity;
+    const { antes: stockBefore, depois: stockAfter } = saldosDoRegistro[indice];
     const movementId = crypto.randomUUID();
     const requisitionItemId = crypto.randomUUID();
 
@@ -6394,11 +6402,15 @@ inventoryRouter.put("/requisitions/:id", async (request, response) => {
   `;
   const conferencia = conferirEdicao(atual, versaoAberta);
   if (!conferencia.ok) {
-    response.status(conferencia.status).json({ message: conferencia.message });
+    response.status(conferencia.status).json({ message: conferencia.message, ...(conferencia.conflito ? { conflito: conferencia.conflito } : {}) });
     return;
   }
 
   const date = parseLocalDate(request.body.date ?? atual.date);
+  if (!dataValida(date, request.body.date ?? "")) {
+    response.status(400).json({ message: "Data da requisicao invalida." });
+    return;
+  }
   const shift = asText(request.body.shift) ?? atual.shift;
   const reason = asText(request.body.reason) ?? atual.reason;
   const reasonNotes = asText(request.body.reasonNotes);
@@ -6507,11 +6519,20 @@ inventoryRouter.put("/requisitions/:id", async (request, response) => {
 
     // Linha antiga sem produto (cadastro apagado) nao entra no acerto e fica como esta no documento.
     await tx.$executeRaw`DELETE FROM "InventoryRequisitionItem" WHERE "requisitionId" = ${id} AND "productId" IS NOT NULL`;
-    for (const item of convertedItems) {
+    // "Antes" e o saldo da epoca do registro, o que a impressao sempre mostrou: editar nao pode trocar
+    // pelo saldo de hoje. Produto novo na edicao (ou com unidade trocada) nao tem saldo da epoca na mesma
+    // unidade: parte do saldo de hoje mais o que esta requisicao ja tirava.
+    const saldoDaEpoca = saldoDaEpocaPorProduto(antigos, (productId, unidadeGravada) => {
+      const unidadeDeHoje = convertedItems.find((item) => item.productId === productId)?.stockUnit ?? null;
+      return normalizarUnidade(unidadeGravada) === normalizarUnidade(unidadeDeHoje);
+    });
+    const saldosDaEdicao = saldosDasLinhas(
+      convertedItems.map((item) => ({ productId: item.productId, quantidade: item.stockQuantity })),
+      (productId) => saldoDaEpoca.get(productId) ?? (stockMap.get(productId) ?? 0) + (jaRetirado.get(productId) ?? 0)
+    );
+    for (const [indice, item] of convertedItems.entries()) {
       const produto = productMap.get(item.productId)!;
-      // Antes = como se esta requisicao nao tivesse saido; depois = o saldo que fica com a edicao.
-      const stockBefore = (stockMap.get(item.productId) ?? 0) + (jaRetirado.get(item.productId) ?? 0);
-      const stockAfter = stockBefore - item.stockQuantity;
+      const { antes: stockBefore, depois: stockAfter } = saldosDaEdicao[indice];
       await tx.$executeRaw`
         INSERT INTO "InventoryRequisitionItem" (
           "id", "requisitionId", "productId", "productName", "productCode",
@@ -6536,7 +6557,11 @@ inventoryRouter.put("/requisitions/:id", async (request, response) => {
   }, { timeout: 120_000, maxWait: 15_000 });
 
   if (!resultado.ok) {
-    response.status(resultado.status).json({ message: resultado.message, ...("productIds" in resultado ? { productIds: resultado.productIds } : {}) });
+    response.status(resultado.status).json({
+      message: resultado.message,
+      ...("productIds" in resultado ? { productIds: resultado.productIds } : {}),
+      ...("conflito" in resultado && resultado.conflito ? { conflito: resultado.conflito } : {})
+    });
     return;
   }
 

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 const getRequisitionCatalog = vi.fn();
 const createRequisition = vi.fn();
 const updateRequisition = vi.fn();
+const getRequisition = vi.fn();
 const criarRascunhoDaRequisicao = vi.fn();
 const salvarRascunhoDaRequisicao = vi.fn();
 
@@ -14,6 +15,7 @@ vi.mock("../../../api/client", () => ({
   getRequisitionCatalog: (...args: unknown[]) => getRequisitionCatalog(...args),
   createRequisition: (...args: unknown[]) => createRequisition(...args),
   updateRequisition: (...args: unknown[]) => updateRequisition(...args),
+  getRequisition: (...args: unknown[]) => getRequisition(...args),
   criarRascunhoDaRequisicao: (...args: unknown[]) => criarRascunhoDaRequisicao(...args),
   salvarRascunhoDaRequisicao: (...args: unknown[]) => salvarRascunhoDaRequisicao(...args),
   apagarRascunhoDaRequisicao: vi.fn(),
@@ -98,6 +100,51 @@ describe("FormularioDaRequisicao editando uma requisição registrada", () => {
     expect(await screen.findByRole("alert")).toBeTruthy();
     expect(screen.getByRole("alert").textContent).toContain("alterada depois");
     expect((await qtd("FARINHA")).value).toBe("4");
+  });
+
+  test("conflito de versão: junta com a versão da outra pessoa, recarrega o saldo e salva com a versão nova", async () => {
+    const onAviso = vi.fn();
+    updateRequisition
+      .mockRejectedValueOnce(new ApiError("Esta requisicao foi alterada por outra pessoa depois que voce a abriu.", 409, { conflito: "VERSAO" }))
+      .mockResolvedValueOnce({ id: "r7", code: "REQ-2026-0007" });
+    // A outra pessoa passou FARINHA de 2 para 3 e incluiu 1 OVO; o saldo de FARINHA caiu de 3 para 2.
+    getRequisition.mockResolvedValue({
+      id: "r7", code: "REQ-2026-0007", status: "CONFIRMED", updatedAt: "2026-11-25T13:00:00.000Z",
+      date: "2026-11-25T00:00:00.000Z", shift: "MORNING", reason: "DAILY_PRODUCTION", reasonNotes: null, sectorId: null, notes: null,
+      items: [{ productId: "p1", quantity: "3", unit: "KG", recordedUnit: "KG" }, { productId: "p4", quantity: "1", unit: "UN", recordedUnit: "UN" }]
+    });
+    getRequisitionCatalog
+      .mockResolvedValueOnce(catalogo)
+      .mockResolvedValue([{ ...catalogo[0], balance: 2 }, { ...catalogo[1], balance: 29 }]);
+    render(<FormularioDaRequisicao user={user} sectors={sectors} modelo={modelo} onCriada={vi.fn()} onEditada={vi.fn()} onAviso={onAviso} />);
+    // Esta pessoa mudou só a FARINHA, para 4.
+    fireEvent.change(await qtd("FARINHA"), { target: { value: "4" } });
+    fireEvent.click(salvar());
+
+    fireEvent.click(await screen.findByRole("button", { name: "Pegar a versão atual e manter o que digitei" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    expect(onAviso).toHaveBeenCalledWith("warning", expect.stringContaining("Vieram da outra pessoa: OVO"));
+    // A mudança desta pessoa fica; o OVO que a outra incluiu vem junto.
+    expect((await qtd("FARINHA")).value).toBe("4");
+    expect((await qtd("OVO")).value).toBe("1");
+    // Saldo recarregado: 2 de agora + 3 retirados pela versão atual - 4 = 1.
+    expect(await screen.findByText(/fica com 1 KG/)).toBeTruthy();
+
+    fireEvent.click(salvar());
+    await waitFor(() => expect(updateRequisition).toHaveBeenCalledTimes(2));
+    expect(updateRequisition.mock.calls[1][1]).toMatchObject({
+      expectedUpdatedAt: "2026-11-25T13:00:00.000Z",
+      items: [{ productId: "p1", quantity: 4, unit: "KG" }, { productId: "p4", quantity: 1, unit: "UN" }]
+    });
+  });
+
+  test("conflito sem ser de versão não oferece atualizar", async () => {
+    updateRequisition.mockRejectedValue(new ApiError("FARINHA teve contagem depois desta requisicao.", 409, { productIds: ["p1"] }));
+    montar();
+    fireEvent.change(await qtd("FARINHA"), { target: { value: "4" } });
+    fireEvent.click(salvar());
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Pegar a versão atual/ })).toBeNull();
   });
 
   test("produto desativado depois do registro continua na requisição ao salvar", async () => {
