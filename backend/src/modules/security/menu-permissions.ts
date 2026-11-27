@@ -99,16 +99,25 @@ export type PermissionRequestContext = {
   leituraTambemPor?: MenuId[];
 };
 
-// Listas de apoio que a tela de Compras carrega para montar o lançamento. Quem só
-// lança compra não precisa ter acesso às telas de cadastro: o "ver" de Compras libera
-// a LISTA (GET da raiz, caminho exato). Criar, editar e as sub-rotas seguem pedindo
-// o módulo do cadastro. Falha de 27/11/2026: compra sem formas de pagamento e unidades.
-const LISTAS_DE_APOIO_DA_COMPRA = new Set(["/payment-methods", "/master-data/units", "/master-data/small-expense-types", "/cards"]);
+// Listas de apoio que outras telas carregam para montar o lançamento. Quem só lança
+// compra ou requisição não precisa ter acesso às telas de cadastro: o "ver" da tela
+// que consome libera a LISTA (GET da raiz, caminho exato). Criar, editar e as
+// sub-rotas seguem pedindo o módulo do cadastro.
+// Falha de 27/11/2026: compra sem formas de pagamento e unidades (Compras, PR #284);
+// requisição sem unidade na linha e sem filtro de setor (Requisições).
+const LISTAS_DE_APOIO: ReadonlyMap<string, MenuId[]> = new Map<string, MenuId[]>([
+  ["/payment-methods", ["purchases"]],
+  ["/master-data/units", ["purchases", "requisitions"]],
+  ["/master-data/small-expense-types", ["purchases"]],
+  ["/master-data/sectors", ["requisitions"]],
+  ["/cards", ["purchases"]]
+]);
 
 function leituraTambemPor(request: Request): MenuId[] | undefined {
   const method = request.method.toUpperCase();
   if (method !== "GET" && method !== "HEAD") return undefined;
-  return LISTAS_DE_APOIO_DA_COMPRA.has(caminhoDaPermissao(request)) ? ["purchases"] : undefined;
+  const consumidores = LISTAS_DE_APOIO.get(caminhoDaPermissao(request));
+  return consumidores ? [...consumidores] : undefined;
 }
 
 /** Qual módulo libera a requisição: o dela ou, só na leitura de lista de apoio, um alternativo. */
