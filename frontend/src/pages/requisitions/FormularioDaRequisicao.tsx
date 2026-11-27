@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObjec
 import {
   ApiError,
   createRequisition,
+  getRequisition,
   getRequisitions,
   updateRequisition,
   type AppUser,
@@ -20,6 +21,7 @@ import { FiltrosDoCatalogo, type OpcaoDeLocal } from "./FiltrosDoCatalogo";
 import { LinhaDoCatalogo } from "./LinhaDoCatalogo";
 import { SEM_LOCAL, contarPorLocal, escolhaInicial, escolhasComQuantidade, filtrarCatalogo, linhaDe, turnoPelaHora, type Escolha, type Escolhas, type Visao } from "./catalogo";
 import { resumirLinhas, retiradoNaUnidadeDoEstoque, situacaoDaLinha } from "./linhas";
+import { juntarVersoes, modeloDeEdicao } from "./modeloDaEdicao";
 import { apagarRascunho, lerRascunho, salvarRascunho, type DadosDoCabecalho } from "./rascunho";
 import { useCatalogo } from "./useCatalogo";
 import type { ConversaoNova } from "./UnidadeNaLinha";
@@ -84,7 +86,12 @@ function QuadroVazio({ visao, filtrando, onLimpar }: { visao: Visao; filtrando: 
 }
 
 export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onEditada, onCancelarEdicao, onAviso, onConversaoCadastrada, onRascunho, salvarAgoraRef }: Props) {
-  const edicao = modelo?.edicao ?? null;
+  // Estado, não só o que veio do modelo: depois de um conflito, a versão é atualizada sem perder o que foi digitado.
+  const [edicao, setEdicao] = useState<EdicaoDaRequisicao | null>(modelo?.edicao ?? null);
+  const [conflitoDeVersao, setConflitoDeVersao] = useState(false);
+  const [atualizandoVersao, setAtualizandoVersao] = useState(false);
+  // A versão do servidor que esta tela tem como ponto de partida: o que difere dela é o que a pessoa mexeu.
+  const baseDaEdicaoRef = useRef(modelo?.edicao ? { cabecalho: modelo.cabecalho, escolhas: modelo.escolhas } : null);
   const guardado = useMemo(() => (modelo ? null : lerRascunho(user.id)), [modelo, user.id]);
   const catalogo = useCatalogo(user.id);
   const { imprimir, portal } = useImpressaoDaRequisicao();
@@ -346,6 +353,7 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onEdit
   async function salvarEdicao(atual: EdicaoDaRequisicao) {
     setEnviando(true);
     setErro(null);
+    setConflitoDeVersao(false);
     try {
       const editada = await updateRequisition(atual.id, {
         expectedUpdatedAt: atual.updatedAt,
@@ -365,11 +373,50 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onEdit
       });
       onEditada?.(editada);
     } catch (falha) {
+      if (falha instanceof ApiError && falha.body?.conflito === "VERSAO") setConflitoDeVersao(true);
       setErro(falha instanceof DOMException && falha.name === "AbortError"
         ? "Não recebi a resposta do servidor. Abra a requisição no histórico para ver se a edição foi salva antes de tentar de novo."
         : mensagemDoServidor(falha));
     } finally {
       setEnviando(false);
+    }
+  }
+
+  /**
+   * Outra pessoa salvou antes: pega a versão atual e junta com a da tela. O que esta pessoa mexeu fica; o
+   * resto vem da outra versão (senão salvar de novo apagaria a edição da outra pessoa). O saldo é recarregado.
+   */
+  async function atualizarVersao() {
+    if (!edicao || atualizandoVersao || !baseDaEdicaoRef.current) return;
+    setAtualizandoVersao(true);
+    try {
+      const req = await getRequisition(edicao.id);
+      if (req.status !== "CONFIRMED" || !req.updatedAt) {
+        setErro("Esta requisição foi cancelada por outra pessoa e não pode mais ser editada.");
+        setConflitoDeVersao(false);
+        return;
+      }
+      const servidor = modeloDeEdicao({ ...req, updatedAt: req.updatedAt });
+      const junta = juntarVersoes(
+        baseDaEdicaoRef.current,
+        { cabecalho, escolhas },
+        { cabecalho: servidor.cabecalho, escolhas: servidor.escolhas },
+        (id) => itemPorId.get(id)?.name ?? "produto desativado"
+      );
+      baseDaEdicaoRef.current = { cabecalho: servidor.cabecalho, escolhas: servidor.escolhas };
+      setCabecalho(junta.cabecalho);
+      setEscolhas(junta.escolhas);
+      setEdicao(servidor.edicao ?? null);
+      catalogo.recarregar();
+      setConflitoDeVersao(false);
+      setErro(null);
+      onAviso("warning", junta.doServidor.length > 0
+        ? `Peguei a versão atual de ${req.code}. Vieram da outra pessoa: ${junta.doServidor.join(", ")}. O que você mudou continua. Confira e salve de novo.`
+        : `Peguei a versão atual de ${req.code}. O que você mudou continua: confira e salve de novo.`);
+    } catch {
+      setErro("Não consegui buscar a versão atual. Tente de novo.");
+    } finally {
+      setAtualizandoVersao(false);
     }
   }
 
@@ -512,7 +559,16 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onEdit
         )}
       </section>
 
-      {erro && <div className="req-banner is-erro" role="alert"><span>{erro}</span></div>}
+      {erro && (
+        <div className="req-banner is-erro" role="alert">
+          <span>{erro}</span>
+          {conflitoDeVersao && (
+            <Button variant="secondary" onClick={() => void atualizarVersao()} disabled={atualizandoVersao}>
+              {atualizandoVersao ? "Atualizando…" : "Pegar a versão atual e manter o que digitei"}
+            </Button>
+          )}
+        </div>
+      )}
 
       <div className="rq-barra">
         <div className="rq-barra-resumo" aria-live="polite">
