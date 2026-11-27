@@ -1,416 +1,198 @@
-﻿import { BadgeDollarSign, CheckCircle2, Download, Eye, FileText, PackageCheck, RefreshCw, Send, XCircle } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+﻿import { AlertTriangle, RefreshCw, Search, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { useRevealScroll } from "../lib/useRevealScroll";
-import {
-  AppUser,
-  cancelPurchaseOrder,
-  changePurchaseOrderStatus,
-  downloadPurchaseOrderCsv,
-  downloadPurchaseOrderPdf,
-  getNotasDoPedido,
-  getPurchaseOrder,
-  type NotaDoPedido,
-  getPurchaseOrders,
-  PurchaseOrder,
-  receivePurchaseOrder,
-  updatePurchaseOrder
-} from "../api/client";
+import { AppUser, downloadPurchaseOrderPdf, getPurchaseOrders, PurchaseOrder } from "../api/client";
 import { Notice, useNotice } from "../components/Notice";
-import { EnvioDoPedido } from "../components/EnvioDoPedido";
-import {
-  Button,
-  EmptyState,
-  FormField,
-  FormGrid,
-  IconButton,
-  Money,
-  PanelEyebrow,
-  StatusBadge,
-  SummaryCard,
-  Table,
-  Textarea,
-  TextField
-} from "../design-system";
+import { Button, EmptyState, IconButton, Money } from "../design-system";
 import { hasPermission } from "../lib/permissions";
-import { AvisoMetaCmv } from "./purchase-orders/AvisoMetaCmv";
-import { formatDate, formatNumber } from "../utils/format";
+import { DetalhePedido } from "./purchase-orders/DetalhePedido";
+import { ListaPedidos } from "./purchase-orders/ListaPedidos";
+import {
+  contagemPorVista,
+  type Etapa,
+  filtrarPedidos,
+  pluralPedidos,
+  totaisPorEtapa,
+  valorDo,
+  type Vista,
+  vistaDaEtapa
+} from "./purchase-orders/regras";
+import { ResumoPedidos } from "./purchase-orders/ResumoPedidos";
+import "./compras/lista-compras.css";
+import "./payables/payables.css";
+import "./purchase-orders/pedidos.css";
 
-const statusLabels: Record<string, string> = {
-  RASCUNHO: "Rascunho",
-  EM_REVISAO: "Em revisão",
-  APROVADO: "Aprovado",
-  ENVIADO: "Enviado",
-  RECEBIDO_PARCIAL: "Recebido parcial",
-  RECEBIDO: "Recebido",
-  CANCELADO: "Cancelado",
-  ENCERRADO_LEGADO: "Encerrado (legado)"
+const VISTAS: Array<{ chave: Vista; rotulo: string }> = [
+  { chave: "abertos", rotulo: "Em aberto" },
+  { chave: "concluidos", rotulo: "Concluídos" },
+  { chave: "cancelados", rotulo: "Cancelados" },
+  { chave: "todos", rotulo: "Todos" }
+];
+
+const VAZIO: Record<Vista, string> = {
+  abertos: "Nenhum pedido em aberto. Gere pedidos pela requisição de insumos ou pelo planejamento de compra.",
+  concluidos: "Nenhum pedido recebido ainda.",
+  cancelados: "Nenhum pedido cancelado.",
+  todos: "Nenhum pedido de compra. Gere pedidos pela requisição de insumos ou pelo planejamento de compra."
 };
 
-function statusTone(status: string) {
-  if (status === "APROVADO" || status === "RECEBIDO") return "success" as const;
-  if (status === "EM_REVISAO" || status === "ENVIADO" || status === "RECEBIDO_PARCIAL") return "info" as const;
-  if (status === "CANCELADO") return "danger" as const;
-  if (status === "ENCERRADO_LEGADO") return "neutral" as const;
-  return "warning" as const;
+/** Hoje no calendário local (AAAA-MM-DD), para comparar com a previsão de entrega. */
+function hojeLocal(): string {
+  const agora = new Date();
+  return `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, "0")}-${String(agora.getDate()).padStart(2, "0")}`;
 }
-
-// UTC de proposito: o backend grava a previsao de entrega com new Date("AAAA-MM-DD"),
-// que e meia-noite UTC. Ler no fuso local devolveria o dia anterior no Brasil.
-function toInputDate(value?: string | null) {
-  return value ? new Date(value).toISOString().slice(0, 10) : "";
-}
-
-const sourceLabels: Record<string, string> = {
-  PRE_LISTA_COMPRADOR: "Pre-lista",
-  PLANEJAMENTO_COMPRA: "Planejamento de compra",
-  REQUISICAO: "Requisição de insumos",
-  MANUAL: "Manual"
-};
 
 export function PurchaseOrders({ user }: { user: AppUser }) {
   const { notice, setNotice } = useNotice();
   const [searchParams] = useSearchParams();
-  const [orders, setOrders] = useState<PurchaseOrder[]>([]);
-  const [summary, setSummary] = useState<Record<string, number>>({});
-  const [selected, setSelected] = useState<PurchaseOrder | null>(null);
-  const [search, setSearch] = useState(() => (searchParams.get("search") ?? "").slice(0, 200));
-  const [loading, setLoading] = useState(false);
-  const [notas, setNotas] = useState<NotaDoPedido[]>([]);
-  const [detailDraft, setDetailDraft] = useState<{ expectedDeliveryDate: string; notes: string; items: Record<string, { requestedQuantity: string; receivedQuantity: string; notes: string }> }>({
-    expectedDeliveryDate: "",
-    notes: "",
-    items: {}
-  });
-  const canOperate = hasPermission(user, "purchase-orders", "edit");
-  const canApprove = hasPermission(user, "purchase-orders", "approve");
-  // O aviso de meta mostra faturamento e CMV: só para quem vê o CMV Real.
-  const canSeeCmvGoal = hasPermission(user, "cmv-real", "view");
-  const detailRef = useRevealScroll<HTMLElement>({ when: selected?.id });
+  const [pedidos, setPedidos] = useState<PurchaseOrder[]>([]);
+  const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState<string | null>(null);
+  const [busca, setBusca] = useState(() => (searchParams.get("search") ?? "").slice(0, 200));
+  // Quem chega por link (requisição, planejamento) procura um pedido que pode já estar recebido: abre em "Todos".
+  const [vista, setVista] = useState<Vista>(() => (searchParams.get("search") ? "todos" : "abertos"));
+  const [etapa, setEtapa] = useState<Etapa | null>(null);
+  const [abertoId, setAbertoId] = useState<string | null>(null);
 
-  async function load() {
-    setLoading(true);
+  const permissoes = {
+    operar: hasPermission(user, "purchase-orders", "edit"),
+    aprovar: hasPermission(user, "purchase-orders", "approve"),
+    // O aviso de meta mostra faturamento e CMV: só para quem vê o CMV Real.
+    verMetaCmv: hasPermission(user, "cmv-real", "view")
+  };
+
+  // A lista inteira vem de uma vez (são poucas centenas): a busca e as abas filtram aqui, sem esperar o servidor.
+  // Duas cargas seguidas (salvar e depois mudar o status) podem responder fora de ordem: só a última vale.
+  const ultimaCarga = useRef(0);
+  const carregar = useCallback(async () => {
+    const numero = ++ultimaCarga.current;
+    setCarregando(true);
+    setErro(null);
     try {
-      const data = await getPurchaseOrders({ search });
-      setOrders(data.orders);
-      setSummary(data.summary);
-    } catch (error) {
-      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Nao foi possivel carregar pedidos." });
+      const dados = await getPurchaseOrders();
+      if (numero === ultimaCarga.current) setPedidos(dados.orders);
+    } catch (falha) {
+      if (numero === ultimaCarga.current) setErro(falha instanceof Error ? falha.message : "Não foi possível carregar os pedidos.");
     } finally {
-      setLoading(false);
+      if (numero === ultimaCarga.current) setCarregando(false);
     }
-  }
-
-  async function openOrder(id: string) {
-    try {
-      const [detail, ligadas] = await Promise.all([getPurchaseOrder(id), getNotasDoPedido(id).catch(() => ({ items: [] as NotaDoPedido[] }))]);
-      setSelected(detail);
-      setNotas(ligadas.items);
-      setDetailDraft({
-        expectedDeliveryDate: toInputDate(detail.expectedDeliveryDate),
-        notes: detail.notes ?? "",
-        items: Object.fromEntries((detail.items ?? []).map((item) => [item.id, {
-          requestedQuantity: String(item.requestedQuantity ?? ""),
-          receivedQuantity: String(item.receivedQuantity ?? ""),
-          notes: item.notes ?? ""
-        }]))
-      });
-    } catch (error) {
-      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Nao foi possivel abrir o pedido." });
-    }
-  }
-
-  async function refreshSelected() {
-    if (!selected) return;
-    await openOrder(selected.id);
-    await load();
-  }
-
-  async function saveDraft() {
-    if (!selected) return;
-    try {
-      const detail = await updatePurchaseOrder(selected.id, {
-        expectedDeliveryDate: detailDraft.expectedDeliveryDate || null,
-        notes: detailDraft.notes,
-        items: Object.entries(detailDraft.items).map(([id, item]) => ({ id, requestedQuantity: item.requestedQuantity, notes: item.notes }))
-      });
-      setSelected(detail);
-      setNotice({ tone: "success", message: "Pedido atualizado." });
-      await load();
-    } catch (error) {
-      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Nao foi possivel salvar o pedido." });
-    }
-  }
-
-  async function runStatus(action: "SEND_REVIEW" | "APPROVE" | "MARK_SENT") {
-    if (!selected) return;
-    const labels = { SEND_REVIEW: "enviar para revisao", APPROVE: "aprovar", MARK_SENT: "marcar como enviado" };
-    if (!window.confirm(`Confirmar ${labels[action]} do pedido ${selected.code}?`)) return;
-    try {
-      const detail = await changePurchaseOrderStatus(selected.id, action);
-      setSelected(detail);
-      setNotice({ tone: "success", message: "Status atualizado." });
-      await load();
-    } catch (error) {
-      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Nao foi possivel atualizar status." });
-    }
-  }
-
-  async function receive() {
-    if (!selected) return;
-    try {
-      const detail = await receivePurchaseOrder(selected.id, Object.entries(detailDraft.items).map(([id, item]) => ({ id, receivedQuantity: item.receivedQuantity || 0 })));
-      setSelected(detail);
-      setNotice({ tone: "success", message: "Recebimento registrado." });
-      await load();
-    } catch (error) {
-      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Nao foi possivel registrar recebimento." });
-    }
-  }
-
-  async function cancel() {
-    if (!selected) return;
-    const reason = window.prompt(`Informe o motivo para cancelar o pedido ${selected.code}:`);
-    if (!reason) return;
-    try {
-      const detail = await cancelPurchaseOrder(selected.id, reason);
-      setSelected(detail);
-      setNotice({ tone: "success", message: "Pedido cancelado." });
-      await load();
-    } catch (error) {
-      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Nao foi possivel cancelar o pedido." });
-    }
-  }
-
-  useEffect(() => {
-    load();
   }, []);
 
-  const estimatedTotal = useMemo(() => orders.reduce((sum, order) => sum + Number(order.estimatedTotal ?? 0), 0), [orders]);
+  useEffect(() => {
+    void carregar();
+  }, [carregar]);
+
+  const hoje = hojeLocal();
+  const totais = useMemo(() => totaisPorEtapa(pedidos), [pedidos]);
+  const contagem = useMemo(() => contagemPorVista(pedidos), [pedidos]);
+  const visiveis = useMemo(() => filtrarPedidos(pedidos, { vista, etapa, busca }), [pedidos, vista, etapa, busca]);
+  const totalVisivel = useMemo(() => visiveis.reduce((soma, p) => soma + valorDo(p), 0), [visiveis]);
+
+  function escolherEtapa(nova: Etapa | null) {
+    setEtapa(nova);
+    if (nova) setVista(vistaDaEtapa(nova));
+  }
+
+  function escolherVista(nova: Vista) {
+    setEtapa(null);
+    setVista(nova);
+  }
+
+  const filtrando = busca.trim() !== "" || etapa != null;
+  const vazio = (
+    <EmptyState
+      title={filtrando ? "Nenhum pedido encontrado" : "Nada por aqui"}
+      description={filtrando ? `Nenhum pedido ${vista === "todos" ? "" : `${VISTAS.find((v) => v.chave === vista)?.rotulo.toLowerCase()} `}bate com a busca ou a etapa escolhida.` : VAZIO[vista]}
+      action={filtrando ? (
+        <span className="po-vazio-acoes">
+          {vista !== "todos" && busca.trim() !== "" && <Button size="sm" onClick={() => escolherVista("todos")}>Buscar em todos</Button>}
+          <Button variant="secondary" size="sm" onClick={() => { setBusca(""); setEtapa(null); }}>Limpar filtros</Button>
+        </span>
+      ) : undefined}
+    />
+  );
 
   return (
-    <div className="stack">
+    <section className="panel">
       <Notice notice={notice} />
-      <section className="panel">
-        <div className="section-header">
-          <span />
-          <Button variant="secondary" leadingIcon={<RefreshCw size={16} />} onClick={load}>Atualizar</Button>
-        </div>
 
-        {/* Contadores operacionais e valores em R$ separados em blocos
-            semanticos — padrao do handoff, reusado em Contas a pagar/
-            Faturamento/DRE nas proximas ondas. */}
-        <div className="kpi-block">
-          <PanelEyebrow>Situação operacional</PanelEyebrow>
-          <div className="kpi-counters-grid">
-            <SummaryCard label="Rascunho" value={summary.RASCUNHO ?? 0} tone="warning" />
-            <SummaryCard label="Em revisão" value={summary.EM_REVISAO ?? 0} tone="info" />
-            <SummaryCard label="Aprovados" value={summary.APROVADO ?? 0} tone="success" />
-            <SummaryCard label="Enviados" value={summary.ENVIADO ?? 0} />
-            <SummaryCard label="Recebidos" value={(summary.RECEBIDO ?? 0) + (summary.RECEBIDO_PARCIAL ?? 0)} tone="success" />
-            <SummaryCard label="Cancelados" value={summary.CANCELADO ?? 0} tone="danger" />
-            <SummaryCard label="Encerrados (legado)" value={summary.ENCERRADO_LEGADO ?? 0} />
-          </div>
-        </div>
-        <div className="kpi-block">
-          <PanelEyebrow>Resumo financeiro</PanelEyebrow>
-          <div className="kpi-finance-grid">
-            <SummaryCard
-              label="Valor estimado"
-              value={<Money value={estimatedTotal} />}
-              detail="Soma dos pedidos listados"
-              icon={<BadgeDollarSign size={18} />}
-            />
-          </div>
-        </div>
+      <div className="cp-tela po-tela">
+        <ResumoPedidos totais={totais} ativa={etapa} onEtapa={escolherEtapa} />
 
-        <div className="filter-bar">
-          <FormField label="Busca">
-            <TextField value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Código ou fornecedor" />
-          </FormField>
-          <Button variant="secondary" onClick={load}>Filtrar</Button>
-        </div>
-
-        <div className="po-desktop-list">
-        <Table>
-          <Table.Head>
-            <Table.Row>
-              <Table.Th>Código</Table.Th>
-              <Table.Th minWidth={180}>Fornecedor</Table.Th>
-              <Table.Th>Status</Table.Th>
-              <Table.Th>Origem</Table.Th>
-              <Table.Th>Criação</Table.Th>
-              <Table.Th>Previsão</Table.Th>
-              <Table.Th align="right">Itens</Table.Th>
-              <Table.Th align="right">Estimado</Table.Th>
-              <Table.Th>Responsável</Table.Th>
-              <Table.Th actions>Ações</Table.Th>
-            </Table.Row>
-          </Table.Head>
-          <Table.Body>
-            {orders.map((order) => (
-              <Table.Row key={order.id}>
-                <Table.Td style={{ whiteSpace: "nowrap" }}>{order.code}</Table.Td>
-                <Table.Td truncate title={order.supplierNameSnapshot}>{order.supplierNameSnapshot}</Table.Td>
-                <Table.Td><StatusBadge tone={statusTone(order.status)}>{statusLabels[order.status] ?? order.status}</StatusBadge></Table.Td>
-                <Table.Td style={{ whiteSpace: "nowrap" }}>{sourceLabels[order.source] ?? "Manual"}</Table.Td>
-                <Table.Td style={{ whiteSpace: "nowrap" }}>{formatDate(order.createdAt)}</Table.Td>
-                <Table.Td style={{ whiteSpace: "nowrap" }}>{formatDate(order.expectedDeliveryDate)}</Table.Td>
-                <Table.Td align="right">{order.totalItems ?? 0}</Table.Td>
-                <Table.Td align="right"><Money value={Number(order.estimatedTotal ?? 0)} /></Table.Td>
-                <Table.Td truncate style={{ maxWidth: 140 }} title={order.createdByUserName ?? "-"}>{order.createdByUserName ?? "-"}</Table.Td>
-                <Table.Td actions>
-                  <IconButton icon={<Eye size={16} />} label="Abrir pedido" onClick={() => openOrder(order.id)} />
-                  <IconButton icon={<FileText size={16} />} label="Baixar PDF" onClick={() => downloadPurchaseOrderPdf(order.id, order.code)} />
-                </Table.Td>
-              </Table.Row>
+        <div className="cp-vistas">
+          <div className="cp-segmento" role="group" aria-label="Situação dos pedidos">
+            {VISTAS.map((v) => (
+              <button key={v.chave} type="button" aria-pressed={vista === v.chave} onClick={() => escolherVista(v.chave)}>
+                {v.rotulo} <span className="po-contagem">{contagem[v.chave]}</span>
+              </button>
             ))}
-            {!loading && orders.length === 0 && (
-              <Table.Row>
-                <Table.Td colSpan={10}>
-                  <EmptyState title="Nenhum pedido de compra" description="Gere pedidos a partir da pré-lista do comprador." />
-                </Table.Td>
-              </Table.Row>
+          </div>
+          <div className="cp-busca po-busca">
+            <Search size={16} aria-hidden="true" />
+            <input
+              type="search"
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar por código ou fornecedor"
+              aria-label="Buscar pedido por código ou fornecedor"
+            />
+            {busca && (
+              <button type="button" className="cp-busca-limpar" aria-label="Limpar busca" onClick={() => setBusca("")}>
+                <X size={15} />
+              </button>
             )}
-          </Table.Body>
-        </Table>
+          </div>
+          <IconButton icon={<RefreshCw size={16} />} label="Atualizar pedidos" size="sm" onClick={() => void carregar()} disabled={carregando} />
         </div>
 
-        <div className="po-mobile-cards">
-          {orders.map((order) => (
-            <article className={`purch-mobile-card${order.status === "CANCELADO" ? " purch-card-cancelled" : ""}`} key={`${order.id}-mobile`}>
-              <div className="purch-mobile-card-header">
-                <div className="purch-mobile-card-title">
-                  <strong className="purch-mobile-supplier">{order.supplierNameSnapshot}</strong>
-                  <div className="purch-mobile-meta-row">
-                    <span className="purch-mobile-ref">{order.code}</span>
-                    <span className="purch-mobile-date">{formatDate(order.createdAt)}</span>
-                  </div>
-                </div>
-                <div className="purch-mobile-card-right">
-                  <strong className="purch-mobile-amount"><Money value={Number(order.estimatedTotal ?? 0)} /></strong>
-                  <StatusBadge className="purch-mobile-status" tone={statusTone(order.status)}>{statusLabels[order.status] ?? order.status}</StatusBadge>
-                </div>
-              </div>
-              <div className="purch-mobile-card-body">
-                <div className="purch-mobile-row"><span>Origem</span><span>{sourceLabels[order.source] ?? "Manual"}</span></div>
-                <div className="purch-mobile-row"><span>Previsão</span><span>{formatDate(order.expectedDeliveryDate)}</span></div>
-                <div className="purch-mobile-row"><span>Itens</span><span>{order.totalItems ?? 0}</span></div>
-                {order.createdByUserName && (
-                  <div className="purch-mobile-row"><span>Responsável</span><span>{order.createdByUserName}</span></div>
-                )}
-              </div>
-              <div className="purch-mobile-card-footer">
-                <div className="purch-mobile-actions">
-                  <button className="purch-mobile-btn" type="button" onClick={() => openOrder(order.id)}><Eye size={15} /> Abrir</button>
-                  <button className="purch-mobile-btn" type="button" onClick={() => downloadPurchaseOrderPdf(order.id, order.code)}><FileText size={15} /> PDF</button>
-                </div>
-              </div>
-            </article>
-          ))}
-          {!loading && orders.length === 0 && (
-            <EmptyState title="Nenhum pedido de compra" description="Gere pedidos a partir da pré-lista do comprador." />
+        <div className="cp-resultado" aria-live="polite">
+          <span className="cp-resultado-qtd">{carregando ? "Carregando…" : pluralPedidos(visiveis.length)}</span>
+          {!carregando && visiveis.length > 0 && <strong className="cp-num"><Money value={totalVisivel} /></strong>}
+          {etapa && (
+            <button type="button" className="cp-link po-limpar-etapa" onClick={() => setEtapa(null)}>
+              Mostrar todas as etapas
+            </button>
           )}
+          <span className="cp-resultado-periodo">soma do valor estimado</span>
         </div>
-      </section>
 
-      {selected && (
-        <section className="panel scroll-target" ref={detailRef}>
-          <div className="section-header">
+        {carregando ? (
+          <div className="cp-carregando" role="status" aria-label="Carregando pedidos">
+            {[0, 1, 2, 3].map((i) => <div key={i} className="cp-esqueleto" />)}
+          </div>
+        ) : erro ? (
+          <div className="cp-erro" role="alert">
+            <AlertTriangle size={20} aria-hidden="true" />
             <div>
-              <span className="eyebrow">Pedido</span>
-              <h2 tabIndex={-1} data-autofocus>{selected.code}</h2>
-              <p className="muted" title={selected.supplierNameSnapshot}>{selected.supplierNameSnapshot}</p>
+              <strong>Não foi possível carregar os pedidos.</strong>
+              <p>{erro}</p>
             </div>
-            <div className="action-row">
-              <StatusBadge tone={statusTone(selected.status)}>{statusLabels[selected.status] ?? selected.status}</StatusBadge>
-              <Button variant="secondary" leadingIcon={<FileText size={16} />} onClick={() => downloadPurchaseOrderPdf(selected.id, selected.code)}>PDF</Button>
-              <Button variant="secondary" leadingIcon={<Download size={16} />} onClick={() => downloadPurchaseOrderCsv(selected.id, selected.code)}>Exportar CSV</Button>
-            </div>
+            <Button variant="secondary" size="sm" leadingIcon={<RefreshCw size={14} />} onClick={() => void carregar()}>Tentar de novo</Button>
           </div>
+        ) : (
+          <ListaPedidos
+            pedidos={visiveis}
+            hoje={hoje}
+            vazio={vazio}
+            onAbrir={(pedido) => setAbertoId(pedido.id)}
+            onPdf={(pedido) => void downloadPurchaseOrderPdf(pedido.id, pedido.code).catch((falha) =>
+              setNotice({ tone: "error", message: falha instanceof Error ? falha.message : "Não foi possível baixar o PDF." }))}
+          />
+        )}
+      </div>
 
-          <FormGrid cols={3}>
-            <FormField label="Fornecedor">
-              <TextField readOnly value={selected.supplierNameSnapshot} title={selected.supplierNameSnapshot} />
-            </FormField>
-            <FormField label="Origem">
-              <TextField readOnly value={sourceLabels[selected.source] ?? "Manual"} />
-            </FormField>
-            <FormField label="Previsão de entrega">
-              <TextField type="date" disabled={selected.status !== "RASCUNHO"} value={detailDraft.expectedDeliveryDate} onChange={(event) => setDetailDraft({ ...detailDraft, expectedDeliveryDate: event.target.value })} />
-            </FormField>
-            <div className="ds-form-grid-span-all">
-              <FormField label="Observações">
-                <Textarea disabled={selected.status !== "RASCUNHO"} value={detailDraft.notes} onChange={(event) => setDetailDraft({ ...detailDraft, notes: event.target.value })} />
-              </FormField>
-            </div>
-          </FormGrid>
-
-          <Table>
-            <Table.Head>
-              <Table.Row>
-                <Table.Th>Código</Table.Th>
-                <Table.Th minWidth={180}>Produto</Table.Th>
-                <Table.Th>Un.</Table.Th>
-                <Table.Th align="right">Últ. contagem</Table.Th>
-                <Table.Th align="right">Mín.</Table.Th>
-                <Table.Th align="right">Ideal</Table.Th>
-                <Table.Th align="right">Sugestão</Table.Th>
-                <Table.Th align="right">Solicitada</Table.Th>
-                <Table.Th align="right">Aprovada</Table.Th>
-                <Table.Th align="right">Recebida</Table.Th>
-                <Table.Th>Obs.</Table.Th>
-              </Table.Row>
-            </Table.Head>
-            <Table.Body>
-              {(selected.items ?? []).map((item) => (
-                <Table.Row key={item.id}>
-                  <Table.Td>{item.productCodeSnapshot ?? "-"}</Table.Td>
-                  <Table.Td truncate title={item.productNameSnapshot}>{item.productNameSnapshot}</Table.Td>
-                  <Table.Td>{item.unitSnapshot ?? "-"}</Table.Td>
-                  <Table.Td align="right">{formatNumber(item.lastCountedQuantity)}</Table.Td>
-                  <Table.Td align="right">{formatNumber(item.estoqueMinimoSnapshot)}</Table.Td>
-                  <Table.Td align="right">{formatNumber(item.estoqueIdealSnapshot)}</Table.Td>
-                  <Table.Td align="right"><span title={item.alertSnapshot ?? ""}>{formatNumber(item.suggestedQuantity)} {item.suggestionTypeSnapshot}</span></Table.Td>
-                  <Table.Td align="right"><input className="compact-input" type="number" min="0" inputMode="decimal" disabled={selected.status !== "RASCUNHO"} value={detailDraft.items[item.id]?.requestedQuantity ?? ""} onChange={(event) => setDetailDraft({ ...detailDraft, items: { ...detailDraft.items, [item.id]: { ...(detailDraft.items[item.id] ?? { receivedQuantity: "", notes: "" }), requestedQuantity: event.target.value } } })} /></Table.Td>
-                  <Table.Td align="right">{formatNumber(item.approvedQuantity ?? item.requestedQuantity)}</Table.Td>
-                  <Table.Td align="right"><input className="compact-input" type="number" min="0" inputMode="decimal" disabled={!["ENVIADO", "RECEBIDO_PARCIAL"].includes(selected.status)} value={detailDraft.items[item.id]?.receivedQuantity ?? ""} onChange={(event) => setDetailDraft({ ...detailDraft, items: { ...detailDraft.items, [item.id]: { ...(detailDraft.items[item.id] ?? { requestedQuantity: String(item.requestedQuantity ?? ""), notes: "" }), receivedQuantity: event.target.value } } })} /></Table.Td>
-                  <Table.Td><input disabled={selected.status !== "RASCUNHO"} value={detailDraft.items[item.id]?.notes ?? ""} onChange={(event) => setDetailDraft({ ...detailDraft, items: { ...detailDraft.items, [item.id]: { ...(detailDraft.items[item.id] ?? { requestedQuantity: String(item.requestedQuantity ?? ""), receivedQuantity: "" }), notes: event.target.value } } })} /></Table.Td>
-                </Table.Row>
-              ))}
-            </Table.Body>
-          </Table>
-
-          <EnvioDoPedido order={selected} orderId={selected.id} canApprove={canApprove} canSend={canOperate} acoesDeStatus={false} onAtualizado={(pedido) => { setSelected(pedido); void load(); }} />
-
-          {notas.length > 0 && (
-            <div className="po-notas-ligadas">
-              <PanelEyebrow>Notas que atenderam este pedido</PanelEyebrow>
-              <ul>
-                {notas.map((nota) => (
-                  <li key={`${nota.purchaseId}-${nota.productName}`} className={nota.cancelada ? "po-nota-cancelada" : undefined}>
-                    <strong>{nota.purchaseNumber ?? "Compra"}</strong>
-                    {nota.invoiceNumber ? ` · NF ${nota.invoiceNumber}` : ""} · {formatDate(nota.purchaseDate)} · {nota.productName}: {formatNumber(nota.quantity)} {nota.unit ?? ""}
-                    {nota.cancelada ? " (nota cancelada, não conta)" : ""}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {canSeeCmvGoal && <AvisoMetaCmv orderId={selected.id} versao={selected.updatedAt} />}
-
-          <div className="action-row end">
-            {selected.status === "RASCUNHO" && canOperate && <Button variant="secondary" onClick={saveDraft}>Salvar rascunho</Button>}
-            {selected.status === "RASCUNHO" && canOperate && <Button leadingIcon={<Send size={16} />} onClick={() => runStatus("SEND_REVIEW")}>Enviar para revisão</Button>}
-            {selected.status === "EM_REVISAO" && canApprove && <Button leadingIcon={<CheckCircle2 size={16} />} onClick={() => runStatus("APPROVE")}>Aprovar</Button>}
-            {selected.status === "APROVADO" && canOperate && <Button leadingIcon={<Send size={16} />} onClick={() => runStatus("MARK_SENT")}>Marcar enviado</Button>}
-            {["ENVIADO", "RECEBIDO_PARCIAL"].includes(selected.status) && canOperate && <Button leadingIcon={<PackageCheck size={16} />} onClick={receive}>Registrar recebimento</Button>}
-            {!["RECEBIDO", "CANCELADO", "ENCERRADO_LEGADO"].includes(selected.status) && canOperate && <Button variant="danger" leadingIcon={<XCircle size={16} />} onClick={cancel}>Cancelar</Button>}
-            <Button variant="secondary" onClick={refreshSelected}>Recarregar</Button>
-          </div>
-        </section>
+      {abertoId && (
+        <DetalhePedido
+          key={abertoId}
+          pedidoId={abertoId}
+          permissoes={permissoes}
+          onFechar={() => setAbertoId(null)}
+          onMudou={(mensagem) => {
+            setNotice({ tone: "success", message: mensagem });
+            void carregar();
+          }}
+        />
       )}
-    </div>
+    </section>
   );
 }
