@@ -18,7 +18,7 @@ import { converterQuantidade } from "../waste/waste.js";
 import { carregarInteligenciaDePreco } from "./preco-por-fornecedor.js";
 import { itemDoCatalogo } from "./requisicao-catalogo.js";
 import { requisicaoRascunhoRouter } from "./requisicao-rascunho.routes.js";
-import { conferirEdicao, diferencaDaEdicao, notaDoAcerto, retiradoPorProduto } from "./requisicao-edicao.js";
+import { conferirEdicao, diferencaDaEdicao, notaDoAcerto, retiradoNaUnidadeDeHoje, retiradoPorProduto } from "./requisicao-edicao.js";
 import { isPeriodLockedError } from "../cmv-real/period-locked-error.js";
 import { cancelamentoDeveCancelarBase, podeReaproveitarBase, reaberturaDeveSoltarBase } from "./base-oficial.js";
 import { mensagemDeTipoMigrado } from "./tipos-de-movimento.js";
@@ -6170,6 +6170,47 @@ async function prepararItensDaRequisicao(rawItems: Array<Record<string, unknown>
 
 type ProdutoDaRequisicao = { id: string; name: string; externalCode: string | null };
 
+type ConsultaSql = Pick<Prisma.TransactionClient, "$queryRaw">;
+
+/**
+ * Produtos contados ou ajustados depois de `desde`. A contagem que bate nao gera movimento, entao nao
+ * basta olhar InventoryMovement: entram tambem a contagem avulsa enviada, a sessao de contagem e o
+ * inventario operacional (cancelados e rascunhos ficam de fora).
+ */
+async function produtosContadosDepois(db: ConsultaSql, productIds: string[], desde: Date) {
+  if (productIds.length === 0) return [];
+  return db.$queryRaw<Array<{ productId: string; name: string }>>`
+    SELECT DISTINCT c."productId", p."name"
+    FROM (
+      SELECT m."productId" FROM "InventoryMovement" m
+      WHERE m."productId" = ANY(${productIds}::text[]) AND m."createdAt" > ${desde}
+        AND (
+          m."sourceStockCountId" IS NOT NULL
+          OR m."sourceOperationalInventoryId" IS NOT NULL
+          OR m."type" IN ('ADJUSTMENT', 'POSITIVE_ADJUSTMENT', 'NEGATIVE_ADJUSTMENT')
+        )
+      UNION ALL
+      SELECT sc."productId" FROM "StockCount" sc
+      WHERE sc."productId" = ANY(${productIds}::text[]) AND sc."status" <> 'DRAFT'
+        AND COALESCE(sc."submittedAt", sc."countedAt") > ${desde}
+      UNION ALL
+      SELECT si."productId" FROM "StockCountSessionItem" si
+      JOIN "StockCountSession" ss ON ss."id" = si."stockCountSessionId"
+      WHERE si."productId" = ANY(${productIds}::text[]) AND si."countedQuantity" IS NOT NULL
+        AND si."countedAt" > ${desde} AND ss."status" <> 'CANCELADA'
+      UNION ALL
+      SELECT oi."productId" FROM "OperationalInventoryItem" oi
+      JOIN "OperationalInventory" o ON o."id" = oi."inventoryId"
+      WHERE oi."productId" = ANY(${productIds}::text[]) AND oi."countedQuantity" IS NOT NULL
+        AND oi."countedAt" > ${desde} AND o."status" <> 'CANCELADO'
+    ) c
+    JOIN "Product" p ON p."id" = c."productId"
+  `;
+}
+
+const mensagemDeContados = (contados: Array<{ name: string }>) =>
+  `${contados.map((c) => c.name).join(", ")} ${contados.length === 1 ? "teve" : "tiveram"} contagem ou ajuste de estoque depois desta requisicao: o saldo foi conferido por la. Deixe a quantidade como estava ou corrija pela contagem.`;
+
 /** Itens que deixam o saldo negativo. Na edicao, o que a propria requisicao ja tirou volta a contar como saldo. */
 function itensQueFicamNegativos(
   convertedItems: ConvertedItem[],
@@ -6381,6 +6422,32 @@ inventoryRouter.put("/requisitions/:id", async (request, response) => {
   const antigos = await prisma.$queryRaw<Array<InventoryRequisitionItemRow>>`
     SELECT * FROM "InventoryRequisitionItem" WHERE "requisitionId" = ${id} ORDER BY "createdAt"
   `;
+  // A quantidade gravada esta na unidade do estoque daquele dia; a nova vem na unidade de hoje. Se a
+  // unidade do produto mudou (CX para UN), comparar direto lancaria a diferenca errada: converte antes.
+  // Vem antes do preparo dos itens novos, para a mensagem certa aparecer quando falta a conversao.
+  const idsAntigos = Array.from(new Set(antigos.flatMap((item) => (item.productId ? [item.productId] : []))));
+  const produtosAntigos = new Map(
+    (await prisma.product.findMany({ where: { id: { in: idsAntigos } }, select: { id: true, ...SELECT_DE_UNIDADES } })).map((p) => [p.id, p])
+  );
+  const naUnidadeDeHoje = retiradoNaUnidadeDeHoje(
+    antigos.map((item) => {
+      const produto = item.productId ? produtosAntigos.get(item.productId) : undefined;
+      const unidadeDeHoje = produto ? unidadeDoInsumo(produto) : null;
+      return { productId: item.productId, productName: item.productName, quantidade: Number(item.quantity), unidade: normalizarUnidade(item.unit) ? item.unit : null, unidadeDeHoje: normalizarUnidade(unidadeDeHoje) ? unidadeDeHoje : null };
+    }),
+    (quantidade, de, para, productId) => {
+      const convertido = converterQuantidade(quantidade, de, para, conversoesDoInsumo(produtosAntigos.get(productId)!));
+      return convertido.ok ? { ok: true, quantidade: convertido.quantidade } : { ok: false };
+    }
+  );
+  if (!naUnidadeDeHoje.ok) {
+    response.status(409).json({
+      message: `A unidade de estoque mudou depois desta requisicao e nao ha conversao cadastrada: ${naUnidadeDeHoje.semConversao.join(", ")}. Cadastre a conversao no produto para poder editar.`
+    });
+    return;
+  }
+  const retiradoAntes = naUnidadeDeHoje.retirado;
+
   const preparo = await prepararItensDaRequisicao(rawItems, antigos.flatMap((item) => (item.productId ? [item.productId] : [])));
   if (!preparo.ok) {
     response.status(preparo.status).json(preparo.body);
@@ -6388,7 +6455,6 @@ inventoryRouter.put("/requisitions/:id", async (request, response) => {
   }
   const { convertedItems, productMap, stockMap } = preparo;
 
-  const retiradoAntes = antigos.flatMap((item) => (item.productId ? [{ productId: item.productId, quantidade: Number(item.quantity) }] : []));
   const jaRetirado = retiradoPorProduto(retiradoAntes);
   const diferencas = diferencaDaEdicao(retiradoAntes, convertedItems.map((item) => ({ productId: item.productId, quantidade: item.stockQuantity })));
   const negativeStock = itensQueFicamNegativos(convertedItems, productMap, stockMap, jaRetirado);
@@ -6396,26 +6462,10 @@ inventoryRouter.put("/requisitions/:id", async (request, response) => {
   // Contagem ou ajuste depois do registro ja acertou o saldo pelo que estava na camara: mudar a
   // quantidade agora lancaria a mesma diferenca de novo. Cabecalho e produtos sem mudanca seguem livres.
   const mudaram = diferencas.map((d) => d.productId);
-  if (mudaram.length > 0) {
-    const contados = await prisma.$queryRaw<Array<{ productId: string; name: string }>>`
-      SELECT DISTINCT m."productId", p."name"
-      FROM "InventoryMovement" m
-      JOIN "Product" p ON p."id" = m."productId"
-      WHERE m."productId" = ANY(${mudaram}::text[])
-        AND m."createdAt" > ${atual.createdAt}
-        AND (
-          m."sourceStockCountId" IS NOT NULL
-          OR m."sourceOperationalInventoryId" IS NOT NULL
-          OR m."type" IN ('ADJUSTMENT', 'POSITIVE_ADJUSTMENT', 'NEGATIVE_ADJUSTMENT')
-        )
-    `;
-    if (contados.length > 0) {
-      response.status(409).json({
-        message: `${contados.map((c) => c.name).join(", ")} ${contados.length === 1 ? "teve" : "tiveram"} contagem ou ajuste de estoque depois desta requisicao: a diferenca ja entrou por la. Deixe a quantidade como estava ou corrija pela contagem.`,
-        productIds: contados.map((c) => c.productId)
-      });
-      return;
-    }
+  const contados = await produtosContadosDepois(prisma, mudaram, atual.createdAt);
+  if (contados.length > 0) {
+    response.status(409).json({ message: mensagemDeContados(contados), productIds: contados.map((c) => c.productId) });
+    return;
   }
 
   const [sector] = sectorId
@@ -6429,6 +6479,12 @@ inventoryRouter.put("/requisitions/:id", async (request, response) => {
     `;
     const deNovo = conferirEdicao(travada, versaoAberta);
     if (!deNovo.ok) return deNovo;
+    // Confere de novo com a requisicao travada: estreita a janela de uma contagem enviada no meio (a
+    // contagem nao passa por esta trava, entao a janela nao zera; fica em milissegundos).
+    const contadosAgora = await produtosContadosDepois(tx, mudaram, atual.createdAt);
+    if (contadosAgora.length > 0) {
+      return { ok: false as const, status: 409, message: mensagemDeContados(contadosAgora), productIds: contadosAgora.map((c) => c.productId) };
+    }
 
     const movimentoDoProduto = new Map(antigos.map((item) => [item.productId, item.movementId]));
     for (const diferenca of diferencas) {
@@ -6480,7 +6536,7 @@ inventoryRouter.put("/requisitions/:id", async (request, response) => {
   }, { timeout: 120_000, maxWait: 15_000 });
 
   if (!resultado.ok) {
-    response.status(resultado.status).json({ message: resultado.message });
+    response.status(resultado.status).json({ message: resultado.message, ...("productIds" in resultado ? { productIds: resultado.productIds } : {}) });
     return;
   }
 

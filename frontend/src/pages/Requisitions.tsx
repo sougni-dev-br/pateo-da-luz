@@ -18,12 +18,12 @@ import { Button, EmptyState, IconButton, StatusBadge, Table } from "../design-sy
 import { Notice, useNotice } from "../components/Notice";
 import { hasPermission } from "../lib/permissions";
 import { formatDate, formatNumber } from "../utils/format";
-import type { Escolhas } from "./requisitions/catalogo";
 import { lerRascunho } from "./requisitions/rascunho";
 import { dadosDaRequisicaoRegistrada, useImpressaoDaRequisicao } from "./requisitions/ImpressaoDaRequisicao";
 import { RevisaoDoPedido } from "./requisitions/RevisaoDoPedido";
 import { EmAndamento } from "./requisitions/EmAndamento";
 import { FormularioDaRequisicao, MOTIVOS, TURNOS, cabecalhoVazio, type ModeloInicial } from "./requisitions/FormularioDaRequisicao";
+import { escolhasDaRequisicao, modeloDeEdicao } from "./requisitions/modeloDaEdicao";
 
 const shiftLabels = TURNOS;
 const reasonLabels = MOTIVOS;
@@ -34,17 +34,6 @@ const resumoDosPedidos = (codigos: string) => {
   return lista.length > 1 ? `${lista[0]} +${lista.length - 1}` : lista[0];
 };
 
-/** Retirada como o formulário edita: quantidade com vírgula, na unidade do estoque. */
-const escolhasDaRequisicao = (req: InventoryRequisition): Escolhas => {
-  const escolhas: Escolhas = {};
-  for (const item of req.items ?? []) {
-    if (item.productId) escolhas[item.productId] = { unit: item.recordedUnit ?? item.unit ?? "UN", quantity: String(Number(item.quantity)).replace(".", ",") };
-  }
-  return escolhas;
-};
-
-/** A data da requisição é gravada como meia-noite UTC: lida em UTC, como no formatDate, para não voltar um dia. */
-const dataDaRequisicao = (valor: string) => new Date(valor).toISOString().slice(0, 10);
 
 const shiftTone = (shift: string) =>
   shift === "MORNING" ? "info" : shift === "AFTERNOON" ? "warning" : "neutral";
@@ -160,19 +149,13 @@ export function Requisitions({ user }: { user: AppUser }) {
   }
 
   async function editarRequisicao(id: string) {
-    if (editando?.id !== id && !largarEdicao()) return;
+    // A mesma requisição já em edição: volta ao formulário como está, sem recarregar e perder o que foi mudado.
+    if (editando?.id === id) { setView("form"); return; }
+    if (!largarEdicao()) return;
     try {
       const req = await getRequisition(id);
       if (!req.updatedAt) throw new Error("sem versão");
-      const retirado: Record<string, number> = {};
-      for (const item of req.items ?? []) {
-        if (item.productId) retirado[item.productId] = (retirado[item.productId] ?? 0) + Number(item.quantity);
-      }
-      setModelo({
-        cabecalho: { date: dataDaRequisicao(req.date), shift: req.shift, reason: req.reason, reasonNotes: req.reasonNotes ?? "", sectorId: req.sectorId ?? "", notes: req.notes ?? "" },
-        escolhas: escolhasDaRequisicao(req),
-        edicao: { id: req.id, code: req.code, updatedAt: req.updatedAt, retirado }
-      });
+      setModelo(modeloDeEdicao({ ...req, updatedAt: req.updatedAt }));
       setFormKey((k) => k + 1);
       setConfirmedRequisition(null);
       setDetailId(null);
@@ -190,6 +173,15 @@ export function Requisitions({ user }: { user: AppUser }) {
     });
     setRequisitions((prev) => prev.map((r) => (r.id === editada.id ? { ...r, ...editada, itemCount: editada.items?.length ?? r.itemCount, purchaseOrderCodes: r.purchaseOrderCodes } : r)));
     sairDaEdicao();
+  }
+
+  /** Do histórico para o formulário. Durante uma edição, sai dela (perguntando) e volta à requisição nova em andamento. */
+  function irParaNovaRequisicao() {
+    if (!editando) { setView("form"); return; }
+    if (!largarEdicao()) return;
+    setModelo(null);
+    setFormKey((k) => k + 1);
+    setView("form");
   }
 
   /** Volta ao histórico; a requisição nova que estava em andamento reaparece em "Nova requisição". */
@@ -370,7 +362,7 @@ export function Requisitions({ user }: { user: AppUser }) {
               <h3 style={{ margin: 0 }}>Histórico de requisições</h3>
               <span className="muted">Retiradas registradas, com impressão e pedido de compra.</span>
             </div>
-            <Button variant="primary" leadingIcon={<Plus size={14} />} onClick={() => setView("form")}>
+            <Button variant="primary" leadingIcon={<Plus size={14} />} onClick={irParaNovaRequisicao}>
               Nova requisição
             </Button>
           </div>
