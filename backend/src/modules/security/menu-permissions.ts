@@ -95,7 +95,36 @@ type PermissionRow = {
 export type PermissionRequestContext = {
   menuId: MenuId;
   action: PermissionAction;
+  /** Módulos cujo "ver" também libera esta leitura (listas de apoio de outra tela). */
+  leituraTambemPor?: MenuId[];
 };
+
+// Listas de apoio que a tela de Compras carrega para montar o lançamento. Quem só
+// lança compra não precisa ter acesso às telas de cadastro: o "ver" de Compras libera
+// a LISTA (GET da raiz, caminho exato). Criar, editar e as sub-rotas seguem pedindo
+// o módulo do cadastro. Falha de 27/11/2026: compra sem formas de pagamento e unidades.
+const LISTAS_DE_APOIO_DA_COMPRA = new Set(["/payment-methods", "/master-data/units", "/master-data/small-expense-types", "/cards"]);
+
+function leituraTambemPor(request: Request): MenuId[] | undefined {
+  const method = request.method.toUpperCase();
+  if (method !== "GET" && method !== "HEAD") return undefined;
+  return LISTAS_DE_APOIO_DA_COMPRA.has(caminhoDaPermissao(request)) ? ["purchases"] : undefined;
+}
+
+/** Qual módulo libera a requisição: o dela ou, só na leitura de lista de apoio, um alternativo. */
+export function permissaoQueLibera(
+  permissions: Partial<Record<MenuId, ModulePermission>>,
+  context: PermissionRequestContext
+): { menuId: MenuId; permission: ModulePermission } | null {
+  const propria = permissions[context.menuId];
+  if (hasModulePermission(propria, context.action)) return { menuId: context.menuId, permission: propria as ModulePermission };
+  if (context.action !== "view") return null;
+  for (const menuId of context.leituraTambemPor ?? []) {
+    const alternativa = permissions[menuId];
+    if (hasModulePermission(alternativa, "view")) return { menuId, permission: alternativa as ModulePermission };
+  }
+  return null;
+}
 
 const menuIds = new Set<string>(menuCatalog.map((menu) => menu.id));
 const levelWeight: Record<MenuAccessLevel, number> = { NONE: 0, VIEW: 1, FULL: 2 };
@@ -616,7 +645,9 @@ function actionFromRequest(request: Request, menuId: MenuId): PermissionAction {
 export async function resolvePermissionContext(request: Request): Promise<PermissionRequestContext | null> {
   const menuId = menuFromRequest(request);
   if (!menuId) return null;
-  return { menuId, action: actionFromRequest(request, menuId) };
+  const action = actionFromRequest(request, menuId);
+  const alternativos = action === "view" ? leituraTambemPor(request) : undefined;
+  return alternativos ? { menuId, action, leituraTambemPor: alternativos } : { menuId, action };
 }
 
 export async function requireMenuAccess(request: Request, response: Response, next: NextFunction) {
@@ -642,8 +673,8 @@ export async function requireMenuAccess(request: Request, response: Response, ne
 
   const sessionUser = user as SessionUser;
   const permissions = await getEffectiveModulePermissions(sessionUser);
-  const modulePermission = permissions[context.menuId];
-  if (!hasModulePermission(modulePermission, context.action)) {
+  const liberou = permissaoQueLibera(permissions, context);
+  if (!liberou) {
     response.status(403).json({
       message: context.action === "view"
         ? "Usuario sem permissao para acessar este modulo."
@@ -660,9 +691,9 @@ export async function requireMenuAccess(request: Request, response: Response, ne
       action: PermissionAction;
     };
   }).menuAccess = {
-    menuId: context.menuId,
-    accessLevel: permissionToAccessLevel(modulePermission),
-    permission: modulePermission,
+    menuId: liberou.menuId,
+    accessLevel: permissionToAccessLevel(liberou.permission),
+    permission: liberou.permission,
     action: context.action
   };
   next();

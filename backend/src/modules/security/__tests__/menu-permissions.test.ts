@@ -1,6 +1,6 @@
 import type { Request } from "express";
 import { describe, expect, it } from "vitest";
-import { menuDoFavorito, resolvePermissionContext } from "../menu-permissions.js";
+import { menuDoFavorito, permissaoQueLibera, resolvePermissionContext } from "../menu-permissions.js";
 
 const ctx = (method: string, path: string) =>
   resolvePermissionContext({ method, path, body: {}, query: {} } as unknown as Request);
@@ -179,5 +179,45 @@ describe("resolvePermissionContext — metas de CMV", () => {
 
   it("o item do menu lateral vale como favorito do CMV Real", () => {
     expect(menuDoFavorito("cmv-metas")).toBe("cmv-real");
+  });
+});
+
+// Falha de 27/11/2026: quem lança compra sem acesso às telas de cadastro via a compra
+// sem formas de pagamento e sem unidades. A LISTA (só o GET da raiz) também fica
+// liberada para quem vê Compras; criar, editar e as sub-rotas seguem só no cadastro.
+describe("listas de apoio da compra", () => {
+  it("o GET da lista também aceita quem vê Compras", async () => {
+    for (const path of ["/payment-methods", "/master-data/units", "/master-data/small-expense-types", "/cards", "/MASTER-DATA/Units/"]) {
+      const contexto = await ctx("GET", path);
+      expect(contexto?.action).toBe("view");
+      expect(contexto?.leituraTambemPor).toEqual(["purchases"]);
+    }
+  });
+
+  it("gravar e sub-rotas continuam só no módulo do cadastro", async () => {
+    expect(await ctx("POST", "/payment-methods")).toEqual({ menuId: "payment-methods", action: "create" });
+    expect(await ctx("PUT", "/master-data/units/abc")).toEqual({ menuId: "master-data", action: "edit" });
+    expect(await ctx("GET", "/cards/abc/statements")).toEqual({ menuId: "cards", action: "view" });
+    expect(await ctx("GET", "/master-data/sectors")).toEqual({ menuId: "master-data", action: "view" });
+  });
+});
+
+describe("permissaoQueLibera", () => {
+  const nada = { view: false, create: false, edit: false, delete: false, approve: false, admin: false };
+  const ver = { ...nada, view: true };
+
+  it("usa o módulo do cadastro quando ele já libera", () => {
+    const liberou = permissaoQueLibera({ "payment-methods": ver, purchases: ver } as never, { menuId: "payment-methods", action: "view", leituraTambemPor: ["purchases"] });
+    expect(liberou).toEqual({ menuId: "payment-methods", permission: ver });
+  });
+
+  it("cai para Compras na leitura da lista", () => {
+    const liberou = permissaoQueLibera({ "payment-methods": nada, purchases: ver } as never, { menuId: "payment-methods", action: "view", leituraTambemPor: ["purchases"] });
+    expect(liberou).toEqual({ menuId: "purchases", permission: ver });
+  });
+
+  it("sem nenhum dos dois, nega", () => {
+    expect(permissaoQueLibera({ "payment-methods": nada, purchases: nada } as never, { menuId: "payment-methods", action: "view", leituraTambemPor: ["purchases"] })).toBeNull();
+    expect(permissaoQueLibera({ "payment-methods": nada, purchases: ver } as never, { menuId: "payment-methods", action: "create" })).toBeNull();
   });
 });
