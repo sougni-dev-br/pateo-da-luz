@@ -19,7 +19,7 @@ import { useImpressaoDaRequisicao } from "./ImpressaoDaRequisicao";
 import { FiltrosDoCatalogo, type OpcaoDeLocal } from "./FiltrosDoCatalogo";
 import { LinhaDoCatalogo } from "./LinhaDoCatalogo";
 import { SEM_LOCAL, contarPorLocal, escolhaInicial, escolhasComQuantidade, filtrarCatalogo, linhaDe, turnoPelaHora, type Escolha, type Escolhas, type Visao } from "./catalogo";
-import { resumirLinhas, situacaoDaLinha } from "./linhas";
+import { resumirLinhas, retiradoNaUnidadeDoEstoque, situacaoDaLinha } from "./linhas";
 import { apagarRascunho, lerRascunho, salvarRascunho, type DadosDoCabecalho } from "./rascunho";
 import { useCatalogo } from "./useCatalogo";
 import type { ConversaoNova } from "./UnidadeNaLinha";
@@ -35,8 +35,10 @@ export type EdicaoDaRequisicao = {
   code: string;
   /** Versão aberta: o servidor recusa se alguém salvou outra edição antes. */
   updatedAt: string;
-  /** Por produto, o que a requisição tirou, na unidade do estoque. */
+  /** Por produto, o que a requisição tirou, na unidade em que foi gravada (a do estoque naquele dia). */
   retirado: Record<string, number>;
+  /** Por produto, a unidade da gravação. Sem ela, vale a unidade de estoque de hoje. */
+  unidadeRetirada?: Record<string, string>;
 };
 
 /** Requisição duplicada do histórico: o cabeçalho e o que foi retirado, para conferir e ajustar. */
@@ -103,10 +105,13 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onEdit
   const guardarAoSairRef = useRef(true);
 
   // Editando: o que a requisição já tirou volta ao saldo, senão quem confirma a mesma quantidade vê "fica negativo".
-  const itens = useMemo(
-    () => (edicao && catalogo.itens ? catalogo.itens.map((i) => (edicao.retirado[i.id] ? { ...i, balance: i.balance + edicao.retirado[i.id] } : i)) : catalogo.itens),
-    [catalogo.itens, edicao]
-  );
+  const itens = useMemo(() => {
+    if (!edicao || !catalogo.itens) return catalogo.itens;
+    return catalogo.itens.map((i) => {
+      const retirado = edicao.retirado[i.id] ? retiradoNaUnidadeDoEstoque(edicao.retirado[i.id], edicao.unidadeRetirada?.[i.id], i) : null;
+      return retirado ? { ...i, balance: i.balance + retirado } : i;
+    });
+  }, [catalogo.itens, edicao]);
   const itemPorId = useMemo(() => new Map((itens ?? []).map((i) => [i.id, i])), [itens]);
 
   // Nome dos primeiros produtos: é o que a aba "Em andamento" mostra para reconhecer a requisição.
@@ -519,9 +524,12 @@ export function FormularioDaRequisicao({ user, sectors, modelo, onCriada, onEdit
           ) : (
             <span>
               {edicao ? "pronto para salvar" : "pronto para registrar"}
-              {resumo.semSaldo.length > 0 && <b className="rq-barra-negativo"> · {resumo.semSaldo.length} {resumo.semSaldo.length === 1 ? "fica" : "ficam"} com saldo negativo</b>}
               {salvo && !edicao ? ` · ${textoDoSalvamento(noServidor.estado)}` : ""}
             </span>
+          )}
+          {/* Linha própria: no celular o resumo corta com reticências e o aviso sumia justamente aqui. */}
+          {linhas.length > 0 && resumo.semSaldo.length > 0 && (
+            <b className="rq-barra-negativo">{resumo.semSaldo.length} {resumo.semSaldo.length === 1 ? "fica" : "ficam"} com saldo negativo</b>
           )}
         </div>
         {edicao ? (

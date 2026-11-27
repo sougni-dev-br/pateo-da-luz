@@ -16214,7 +16214,7 @@ td.count-list-divergent {
 .rq-status.is-ok { color: var(--success); }
 .rq-status.is-erro { color: var(--danger); font-weight: 600; }
 .rq-status.is-aviso { color: var(--warning); font-weight: 600; }
-.rq-barra-negativo { color: var(--warning); font-weight: 600; }
+.rq-barra-negativo { color: var(--warning); font-weight: 600; flex-basis: 100%; white-space: normal; }
 .rq-tirar { border: none; background: transparent; color: var(--muted); font-size: 12.5px; text-decoration: underline; cursor: pointer; min-height: 40px; padding: 0 8px; }
 .rq-tirar:hover { color: var(--danger); }
 
@@ -16253,7 +16253,7 @@ td.count-list-divergent {
   border-top: 1px solid var(--line);
 }
 /* Uma linha só: contagem, estado e botões, sem cobrir a lista com um cartão alto */
-.rq-barra-resumo { flex: 1; min-width: 0; display: flex; flex-direction: row; align-items: baseline; gap: 8px; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rq-barra-resumo { flex: 1; min-width: 0; display: flex; flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rq-barra-resumo strong { color: var(--ink); font-size: 13.5px; font-variant-numeric: tabular-nums; flex-shrink: 0; }
 .rq-barra-resumo span { overflow: hidden; text-overflow: ellipsis; }
 .rq-barra-problema { padding: 0; border: none; background: transparent; color: var(--danger); font-weight: 700; font-size: 12px; text-align: left; cursor: pointer; text-decoration: underline; }

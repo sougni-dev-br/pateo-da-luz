@@ -575,6 +575,10 @@ function actionFromRequest(request: Request, menuId: MenuId): PermissionAction {
   // Gerar pagamento é aprovar as diárias: quem lança não é, necessariamente, quem aprova.
   if (menuId === "extras" && path === "/extras/payments" && method === "POST") return "approve";
 
+  // Rascunho de requisicao e trabalho de quem lanca: salvar e descartar pedem "criar". "Editar" fica so
+  // para a requisicao registrada, que mexe no estoque (antes as duas eram a mesma permissao).
+  if (menuId === "requisitions" && path.startsWith("/inventory/requisitions/drafts") && method !== "GET" && method !== "HEAD") return "create";
+
   // Conferir comprovante e editar, nao criar. Fechar/reabrir caem na regra geral de "approve" abaixo.
   if (menuId === "reimbursements" && path.endsWith("/check-all")) return "edit";
   // Renegociar cancela as parcelas abertas: é uma exclusão, como cancelar.

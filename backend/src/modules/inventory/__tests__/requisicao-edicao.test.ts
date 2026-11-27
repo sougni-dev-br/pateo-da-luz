@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { conferirEdicao, diferencaDaEdicao, notaDoAcerto, retiradoPorProduto } from "../requisicao-edicao.js";
+import { conferirEdicao, diferencaDaEdicao, notaDoAcerto, retiradoPorProduto, retiradoNaUnidadeDeHoje, type Conversor } from "../requisicao-edicao.js";
 
 describe("diferencaDaEdicao", () => {
   test("aumentar a quantidade gera saída só da diferença", () => {
@@ -68,5 +68,38 @@ describe("notaDoAcerto", () => {
   test("diz de quanto para quanto, com a unidade", () => {
     expect(notaDoAcerto("REQ-2026-0001", { productId: "a", antes: 2, depois: 3, delta: 1 }, "KG"))
       .toBe("Edicao da requisicao REQ-2026-0001: retirada de 2 KG para 3 KG");
+  });
+});
+
+describe("retiradoNaUnidadeDeHoje", () => {
+  // CX -> UN por 12; G -> KG por 0,001; o resto não converte.
+  const converter: Conversor = (quantidade, de, para) => {
+    if (de === "CX" && para === "UN") return { ok: true, quantidade: quantidade * 12 };
+    if (de === "G" && para === "KG") return { ok: true, quantidade: quantidade / 1000 };
+    return { ok: false };
+  };
+  const linha = (extra: Partial<Parameters<typeof retiradoNaUnidadeDeHoje>[0][number]>) =>
+    ({ productId: "p1", productName: "FARINHA", quantidade: 2, unidade: "KG", unidadeDeHoje: "KG", ...extra });
+
+  test("mesma unidade, ou unidade faltando de um lado, vale como veio", () => {
+    expect(retiradoNaUnidadeDeHoje([linha({}), linha({ productId: "p2", unidade: null }), linha({ productId: "p3", unidadeDeHoje: null })], converter))
+      .toEqual({ ok: true, retirado: [{ productId: "p1", quantidade: 2 }, { productId: "p2", quantidade: 2 }, { productId: "p3", quantidade: 2 }] });
+  });
+
+  test("unidade igual com caixa diferente não converte", () => {
+    expect(retiradoNaUnidadeDeHoje([linha({ unidade: "kg" })], converter)).toEqual({ ok: true, retirado: [{ productId: "p1", quantidade: 2 }] });
+  });
+
+  test("gravado em CX, hoje em UN: 2 CX viram 24 UN", () => {
+    expect(retiradoNaUnidadeDeHoje([linha({ unidade: "CX", unidadeDeHoje: "UN" })], converter)).toEqual({ ok: true, retirado: [{ productId: "p1", quantidade: 24 }] });
+  });
+
+  test("gravado em G, hoje em KG: 500 G viram 0,5 KG", () => {
+    expect(retiradoNaUnidadeDeHoje([linha({ quantidade: 500, unidade: "G" })], converter)).toEqual({ ok: true, retirado: [{ productId: "p1", quantidade: 0.5 }] });
+  });
+
+  test("sem conversão devolve os nomes, e linha sem produto fica de fora", () => {
+    expect(retiradoNaUnidadeDeHoje([linha({ unidade: "CX" }), linha({ productId: null, productName: "APAGADO", unidade: "CX" })], converter))
+      .toEqual({ ok: false, semConversao: ["FARINHA (CX para KG)"] });
   });
 });

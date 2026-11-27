@@ -68,3 +68,40 @@ export function notaDoAcerto(codigo: string, diferenca: DiferencaDoProduto, unid
   const un = unidade ? ` ${unidade}` : "";
   return `Edicao da requisicao ${codigo}: retirada de ${diferenca.antes}${un} para ${diferenca.depois}${un}`;
 }
+
+/** Linha gravada da requisição, com a unidade de estoque que o produto tem hoje. */
+export type LinhaGravada = {
+  productId: string | null;
+  productName: string | null;
+  quantidade: number;
+  /** Unidade em que foi gravada: a do estoque naquele dia. */
+  unidade: string | null;
+  /** Unidade do estoque hoje; null quando o produto não tem unidade ou não existe mais. */
+  unidadeDeHoje: string | null;
+};
+
+export type Conversor = (quantidade: number, de: string | null, para: string | null, productId: string) => { ok: true; quantidade: number } | { ok: false };
+
+const mesmaUnidade = (a: string | null, b: string | null) => (a ?? "").trim().toUpperCase() === (b ?? "").trim().toUpperCase();
+
+/**
+ * O que a requisição tirava, na unidade de estoque de hoje. Se o produto passou de CX para UN depois do
+ * registro, comparar 2 (CX) com 24 (UN) lançaria 22 de diferença numa edição que não mexeu na quantidade.
+ * Sem unidade de um dos lados, vale como veio (o mesmo que o registro faz). Sem conversão, devolve os nomes.
+ */
+export function retiradoNaUnidadeDeHoje(linhas: LinhaGravada[], converter: Conversor):
+  { ok: true; retirado: QuantidadePorProduto[] } | { ok: false; semConversao: string[] } {
+  const retirado: QuantidadePorProduto[] = [];
+  const semConversao: string[] = [];
+  for (const linha of linhas) {
+    if (!linha.productId) continue;
+    if (!linha.unidade?.trim() || !linha.unidadeDeHoje?.trim() || mesmaUnidade(linha.unidade, linha.unidadeDeHoje)) {
+      retirado.push({ productId: linha.productId, quantidade: linha.quantidade });
+      continue;
+    }
+    const convertido = converter(linha.quantidade, linha.unidade, linha.unidadeDeHoje, linha.productId);
+    if (convertido.ok) retirado.push({ productId: linha.productId, quantidade: arredondar(convertido.quantidade) });
+    else semConversao.push(`${linha.productName ?? linha.productId} (${linha.unidade} para ${linha.unidadeDeHoje})`);
+  }
+  return semConversao.length > 0 ? { ok: false, semConversao } : { ok: true, retirado };
+}

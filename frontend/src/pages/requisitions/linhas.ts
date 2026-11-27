@@ -42,6 +42,18 @@ export function situacaoDaLinha(linha: LinhaDaRequisicao, saldoDoEstoque: number
   return { tipo: "OK", emEstoque, saldo, ficaCom: arredondar(saldo - emEstoque) };
 }
 
+/**
+ * O que uma requisição em edição já tirou, levado para a unidade de estoque de hoje. A quantidade foi gravada
+ * na unidade daquele dia (2 CX); se o produto passou a ser contado em UN, somar direto ao saldo daria errado.
+ * Sem conversão possível devolve null: não dá para somar, e o servidor recusa a edição com a mensagem certa.
+ */
+export function retiradoNaUnidadeDoEstoque(quantidade: number, unidadeGravada: string | undefined, item: { unit: string | null; conversions: DishUnitConversion[] }): number | null {
+  const base = normalizarUnidade(item.unit);
+  if (!base || !unidadeGravada || normalizarUnidade(unidadeGravada) === base) return quantidade;
+  const fator = fatorConversao(unidadeGravada, base, item.conversions);
+  return fator == null ? null : arredondar(quantidade * fator);
+}
+
 /** Unidades que o servidor sabe converter para a do estoque; a do estoque vem primeiro. */
 export function unidadesDaLinha(linha: Pick<LinhaDaRequisicao, "stockUnit" | "conversions">): string[] {
   const lista = unidadesDoLancamento(linha.stockUnit, linha.conversions);

@@ -25,6 +25,14 @@ describe("resolvePermissionContext — caminho normalizado", () => {
     expect(await ctx("POST", "/products")).toEqual({ menuId: "products", action: "create" });
   });
 
+  it("rascunho de requisição pede criar; editar fica só para a requisição registrada", async () => {
+    expect(await ctx("POST", "/inventory/requisitions/drafts")).toEqual({ menuId: "requisitions", action: "create" });
+    expect(await ctx("PUT", "/inventory/requisitions/drafts/abc")).toEqual({ menuId: "requisitions", action: "create" });
+    expect(await ctx("DELETE", "/inventory/requisitions/drafts/abc")).toEqual({ menuId: "requisitions", action: "create" });
+    expect(await ctx("GET", "/inventory/requisitions/drafts")).toEqual({ menuId: "requisitions", action: "view" });
+    expect(await ctx("PUT", "/inventory/requisitions/abc")).toEqual({ menuId: "requisitions", action: "edit" });
+  });
+
   it("caminho normal continua igual", async () => {
     expect(await ctx("GET", "/employees")).toEqual({ menuId: "employees", action: "view" });
     expect(await ctx("POST", "/employees")).toEqual({ menuId: "employees", action: "create" });

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "vitest";
-import { resumirLinhas, situacaoDaLinha, unidadesDaLinha, type LinhaDaRequisicao } from "../linhas";
+import { resumirLinhas, retiradoNaUnidadeDoEstoque, situacaoDaLinha, unidadesDaLinha, type LinhaDaRequisicao } from "../linhas";
 import { apagarRascunho, lerRascunho, salvarRascunho } from "../rascunho";
 
 const linha = (extra: Partial<LinhaDaRequisicao> = {}): LinhaDaRequisicao => ({
@@ -83,5 +83,22 @@ describe("rascunho", () => {
     localStorage.setItem("pateo:requisicao-rascunho:v2:u1", "{lixo");
     expect(lerRascunho("u1")).toBeNull();
     apagarRascunho("u1");
+  });
+});
+
+describe("retiradoNaUnidadeDoEstoque", () => {
+  const cx = [{ fromUnit: "CX", toUnit: "UN", factor: 12 }] as never;
+  test("mesma unidade, ou sem unidade gravada, vale como veio", () => {
+    expect(retiradoNaUnidadeDoEstoque(2, "KG", { unit: "KG", conversions: [] })).toBe(2);
+    expect(retiradoNaUnidadeDoEstoque(2, undefined, { unit: "KG", conversions: [] })).toBe(2);
+  });
+  test("gravado em CX, hoje em UN: converte pelo cadastro", () => {
+    expect(retiradoNaUnidadeDoEstoque(2, "CX", { unit: "UN", conversions: cx })).toBe(24);
+  });
+  test("gravado em G, hoje em KG: converte sem cadastro", () => {
+    expect(retiradoNaUnidadeDoEstoque(500, "G", { unit: "KG", conversions: [] })).toBe(0.5);
+  });
+  test("sem conversão possível devolve null", () => {
+    expect(retiradoNaUnidadeDoEstoque(2, "CX", { unit: "KG", conversions: [] })).toBeNull();
   });
 });
