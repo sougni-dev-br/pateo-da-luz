@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 const tx = {
+  $queryRaw: vi.fn(),
   cmvMeta: { findFirst: vi.fn(), update: vi.fn(), updateMany: vi.fn(), create: vi.fn() },
 };
 vi.mock("../../../config/database.js", () => ({
@@ -68,6 +69,14 @@ describe("salvarMeta", () => {
     expect(tx.cmvMeta.update).toHaveBeenCalledOnce();
     expect(tx.cmvMeta.create).not.toHaveBeenCalled();
     expect(tx.cmvMeta.updateMany).not.toHaveBeenCalled();
+  });
+
+  test("trava o escopo antes de procurar a meta, para clique duplo não gravar duas", async () => {
+    await salvarMeta(base);
+    const [sql, chave] = tx.$queryRaw.mock.calls[0];
+    expect((sql as string[]).join("?")).toContain("pg_advisory_xact_lock");
+    expect(chave).toBe("cmv-meta:GERAL:");
+    expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(tx.cmvMeta.findFirst.mock.invocationCallOrder[0]);
   });
 });
 

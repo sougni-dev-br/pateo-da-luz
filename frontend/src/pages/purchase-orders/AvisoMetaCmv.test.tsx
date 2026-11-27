@@ -84,4 +84,13 @@ describe("AvisoMetaCmv", () => {
     rerender(<SessionContext.Provider value={SESSAO}><HideValuesProvider><AvisoMetaCmv orderId="p1" versao="v2" /></HideValuesProvider></SessionContext.Provider>);
     await waitFor(() => expect(getImpacto).toHaveBeenCalledTimes(2));
   });
+
+  test("trocar de pedido zera o aviso enquanto o novo calcula", async () => {
+    getImpacto.mockResolvedValueOnce(avaliado());
+    const { rerender } = montar("v1");
+    expect(await screen.findByText("Cabe na meta de CMV do mês")).toBeInTheDocument();
+    getImpacto.mockReturnValueOnce(new Promise(() => undefined));
+    rerender(<SessionContext.Provider value={SESSAO}><HideValuesProvider><AvisoMetaCmv orderId="p2" versao="v1" /></HideValuesProvider></SessionContext.Provider>);
+    await waitFor(() => expect(screen.queryByText("Cabe na meta de CMV do mês")).not.toBeInTheDocument());
+  });
 });

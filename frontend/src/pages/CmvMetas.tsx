@@ -2,7 +2,7 @@
 // Mostra o realizado contra a meta, a projeção do fim do mês e quanto ainda dá para comprar sem estourar.
 // Só lê compras, pedidos e faturamento que já existem; o cadastro das metas é a única escrita.
 import { Plus, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   type LinhaPainelMetaCmv, type ListaMetasCmv, type PainelMetasCmv, type StatusMetaCmv, type VisoesMetaCmv,
@@ -90,23 +90,31 @@ export function CmvMetas() {
   const [form, setForm] = useState<FormMeta | null>(null);
   const [salvando, setSalvando] = useState(false);
 
+  // Cada carga tem um número; resposta de carga antiga (mês trocado no meio) é descartada.
+  const cargaAtual = useRef(0);
   const carregar = useCallback(async () => {
+    const carga = ++cargaAtual.current;
+    const vale = () => carga === cargaAtual.current;
     setErro(null);
     setCarregando(true);
     setErroVisoes(null);
-    // As visões são extras: se falharem, o painel continua e o erro aparece só no lugar delas.
-    const pedidoVisoes = getVisoesMetasCmv(mes)
-      .then((v) => setVisoes(v))
-      .catch((e) => { setVisoes(null); setErroVisoes(mensagem(e, "Não foi possível carregar o ritmo e a distribuição.")); });
+    // Números de outro mês nunca ficam na tela enquanto este carrega (nem se ele falhar).
+    setPainel((p) => (p?.mes === mes ? p : null));
+    setVisoes((v) => (v?.mes === mes ? v : null));
+    // As visões são extras e mais pesadas: correm à parte, sem segurar o painel; se falharem, o erro fica no lugar delas.
+    getVisoesMetasCmv(mes)
+      .then((v) => { if (vale()) setVisoes(v); })
+      .catch((e) => { if (vale()) { setVisoes(null); setErroVisoes(mensagem(e, "Não foi possível carregar o ritmo e a distribuição.")); } });
     try {
-      const [p, c] = await Promise.all([getPainelMetasCmv(mes), getMetasCmv(), pedidoVisoes]);
+      const [p, c] = await Promise.all([getPainelMetasCmv(mes), getMetasCmv()]);
+      if (!vale()) return;
       setPainel(p);
       setCadastro(c);
       setAtualizadoEm(new Date());
     } catch (e) {
-      setErro(mensagem(e, "Não foi possível carregar as metas."));
+      if (vale()) setErro(mensagem(e, "Não foi possível carregar as metas."));
     } finally {
-      setCarregando(false);
+      if (vale()) setCarregando(false);
     }
   }, [mes]);
 
@@ -224,7 +232,7 @@ export function CmvMetas() {
 
           <div className="mt-bloco">
             <h3>Ritmo do mês</h3>
-            {erroVisoes ? <Alert tone="error">{erroVisoes}</Alert> : visoes ? <RitmoDaMeta visoes={visoes} /> : <p className="mt-ajuda">Carregando…</p>}
+            {erroVisoes ? <Alert tone="error">{erroVisoes}</Alert> : visoes ? <RitmoDaMeta key={visoes.mes} visoes={visoes} realizadoPeloCmvReal={geral.base === "CMV_REAL"} /> : <p className="mt-ajuda">Carregando…</p>}
           </div>
 
           <DistribuicaoCompras

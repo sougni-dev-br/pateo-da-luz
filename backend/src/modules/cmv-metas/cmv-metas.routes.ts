@@ -41,7 +41,7 @@ cmvMetasRouter.get("/visoes", async (request, response) => {
 });
 
 // Aviso no pedido de compra. Fica aqui (e não em /purchase-orders) de propósito: só quem vê o CMV Real
-// enxerga faturamento e meta; quem só compra continua sem esses números (decisão do Eli, 26/11/2026).
+// enxerga faturamento e meta; quem só compra continua sem esses números (decisão do dono, 26/11/2026).
 cmvMetasRouter.get("/impacto-pedido/:id", async (request, response) => {
   try {
     return response.json(await impactoDoPedido(String(request.params.id)));

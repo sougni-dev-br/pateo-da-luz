@@ -3,7 +3,7 @@ import { prisma } from "../../config/database.js";
 import { cmvPurchasePredicate, getCmvPurchaseTotalsByPurchaseDateRange } from "../cmv-real/cmv-purchase-base.service.js";
 import { hojeEmSaoPaulo } from "../payroll/extras-comum.js";
 import { arredondar, classificarMeta, metaVigente, projetarMes, type Projecao, type StatusMeta } from "./cmv-metas.logic.js";
-import { faturamentoLiquido, intervaloDoMes, paraVigencia, STATUS_PEDIDO_COMPROMETIDO } from "./cmv-metas.service.js";
+import { faturamentoLiquido, inicioDaJanelaDePedidos, intervaloDoMes, paraVigencia, pedidoNaJanela, STATUS_PEDIDO_COMPROMETIDO, valorEmAbertoDoItem } from "./cmv-metas.service.js";
 
 // Aviso no pedido de compra: se este pedido entrar, as compras comprometidas do mês corrente cabem
 // na meta geral de CMV? Só lê; quem chama já passou pela permissão do CMV Real (rota em /monthly/cmv-real).
@@ -36,16 +36,17 @@ async function totaisDoPedido(id: string): Promise<TotaisDoPedido | null> {
   return { status: pedido.status, total: num(linha?.total), totalCmv: num(linha?.totalCmv), itensSemPreco: num(linha?.semPreco) };
 }
 
-/** Pedidos em andamento que entram no CMV, sem contar o pedido em análise (ele entra à parte). */
-async function outrosPedidosComprometidos(excluirId: string) {
+/** Pedidos em andamento que entram no CMV (só o que falta receber), sem o pedido em análise (ele entra à parte). */
+async function outrosPedidosComprometidos(excluirId: string, hoje: string) {
   const [linha] = await prisma.$queryRaw<Array<{ total: Prisma.Decimal | null }>>`
-    SELECT COALESCE(SUM(poi."totalEstimated"), 0) AS "total"
+    SELECT COALESCE(SUM(${valorEmAbertoDoItem}), 0) AS "total"
     FROM "PurchaseOrder" po
     JOIN "PurchaseOrderItem" poi ON poi."purchaseOrderId" = po."id"
     JOIN "Product" pr ON pr."id" = poi."productId"
     JOIN "DRECategory" dc ON dc."id" = pr."dreCategoryId"
     WHERE po."status" IN (${Prisma.join(STATUS_PEDIDO_COMPROMETIDO)})
       AND po."id" <> ${excluirId}
+      AND ${pedidoNaJanela(inicioDaJanelaDePedidos(hoje))}
       AND ${cmvPurchasePredicate(VISAO)}
   `;
   return num(linha?.total);
@@ -82,7 +83,7 @@ export async function impactoDoPedido(id: string): Promise<ImpactoDoPedido> {
   const [fat, compras, outros] = await Promise.all([
     faturamentoLiquido(iv.inicio, iv.fim),
     getCmvPurchaseTotalsByPurchaseDateRange(iv.inicio, iv.fim, VISAO),
-    outrosPedidosComprometidos(id),
+    outrosPedidosComprometidos(id, hoje),
   ]);
   const base = { comprasAteHoje: compras.total, faturamentoAteHoje: fat, diasDecorridos: iv.diasDecorridos, diasNoMes: iv.diasNoMes, alvoPercentual: meta.alvoPercentual };
   const antes = projetarMes({ ...base, pedidosAbertos: outros });

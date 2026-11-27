@@ -42,7 +42,13 @@ const nomeCurto = (mes: string) => {
  * mês anterior. Responde "estou comprando acima do que a meta permite até hoje?" — o que o percentual
  * solto não mostra no meio do mês.
  */
-export function RitmoDaMeta({ visoes }: { visoes: VisoesMetaCmv }) {
+type Props = {
+  visoes: VisoesMetaCmv;
+  /** O realizado do mês já é o CMV real do ciclo: o ritmo de compras vira só acompanhamento, sem semáforo. */
+  realizadoPeloCmvReal?: boolean;
+};
+
+export function RitmoDaMeta({ visoes, realizadoPeloCmvReal = false }: Props) {
   const fmt = useFormatCurrency();
   const { hidden } = useHideValues();
   const [ref, largura] = useLargura<HTMLDivElement>();
@@ -93,10 +99,12 @@ export function RitmoDaMeta({ visoes }: { visoes: VisoesMetaCmv }) {
         <span className="mt-ritmo-chave mt-ritmo-chave--anterior">Compras {mesAnterior}</span>
         <span className="mt-ritmo-dica">acumulado no mês</span>
       </figcaption>
-      {folga !== null && fimCompras && (
-        <p className={`mt-ritmo-resumo${folga < 0 ? " mt-estouro" : ""}`}>
+      {folga !== null && fimCompras && (fimCompras.valor > 0 || fimTeto!.valor > 0) && (
+        <p className={`mt-ritmo-resumo${folga < 0 && !realizadoPeloCmvReal ? " mt-estouro" : ""}`}>
+          {realizadoPeloCmvReal && "Em compras ÷ faturamento: "}
           Até o dia {fimCompras.dia}: compras <Money value={fimCompras.valor} /> para um teto de <Money value={fimTeto!.valor} />
           {folga < 0 ? <> — <strong>acima em <Money value={-folga} /></strong>.</> : <> — folga de <Money value={folga} />.</>}
+          {realizadoPeloCmvReal && " A situação do mês segue o CMV real do ciclo, mostrado acima."}
         </p>
       )}
       {!visoes.meta && <p className="mt-ajuda">Sem meta geral neste mês: o teto não aparece no gráfico.</p>}
@@ -108,8 +116,10 @@ export function RitmoDaMeta({ visoes }: { visoes: VisoesMetaCmv }) {
             role="img"
             aria-label={`Compras de CMV acumuladas em ${mesAtual}${visoes.meta ? ", teto da meta" : ""} e ${mesAnterior}. Use as setas para percorrer os dias.`}
             tabIndex={0}
+            onPointerDown={(e) => setDiaFoco(diaDoPonteiro(e))}
             onPointerMove={(e) => setDiaFoco(diaDoPonteiro(e))}
-            onPointerLeave={() => setDiaFoco(null)}
+            // No toque o dedo sai da tela e dispara o "leave": o valor do dia fica até o próximo toque.
+            onPointerLeave={(e) => { if (e.pointerType !== "touch") setDiaFoco(null); }}
             onKeyDown={teclar}
             onBlur={() => setDiaFoco(null)}
           >
